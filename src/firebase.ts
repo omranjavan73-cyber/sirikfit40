@@ -3,13 +3,9 @@ import {
   getFirestore, 
   doc, 
   setDoc, 
-  getDoc, 
-  collection, 
-  addDoc, 
-  getDocs 
+  getDoc 
 } from 'firebase/firestore';
 
-// 1. Firebase Config Setup from Environment
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBAB1TsbUTwgLchxFAcIMVECS9zqGP7Zk0",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "sirikfit40.firebaseapp.com",
@@ -20,24 +16,20 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-QFR8G0QFNH"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-// 2. Direct Firestore Handlers for Settings & Pricing Rules
-export const saveSettingsToFirestore = async (settingsData: any) => {
+export const saveSettingsToFirestore = async (settingsData: any): Promise<{ success: boolean; error?: any }> => {
   try {
     const docRef = doc(db, 'settings', 'financial');
     await setDoc(docRef, settingsData, { merge: true });
-    console.log('✅ تنظیمات نرخ درهم و قوانین با موفقیت در Firestore ذخیره شد.');
     return { success: true };
   } catch (error) {
-    console.error('❌ خطا در ذخیره تنظیمات در Firestore:', error);
     return { success: false, error };
   }
 };
 
-export const getSettingsFromFirestore = async () => {
+export const getSettingsFromFirestore = async (): Promise<any> => {
   try {
     const docRef = doc(db, 'settings', 'financial');
     const docSnap = await getDoc(docRef);
@@ -45,33 +37,28 @@ export const getSettingsFromFirestore = async () => {
       return docSnap.data();
     }
   } catch (error) {
-    console.error('❌ خطا در دریافت تنظیمات از Firestore:', error);
+    console.error(error);
   }
   return null;
 };
 
-// 3. Direct Firestore Handlers for Orders
-export const saveOrderToFirestore = async (orderData: any) => {
+export const saveOrderToFirestore = async (orderData: any): Promise<{ success: boolean; id?: string; error?: any }> => {
   try {
     const orderId = orderData.id || `order_${Date.now()}`;
     const docRef = doc(db, 'orders', orderId);
     await setDoc(docRef, { ...orderData, updatedAt: new Date().toISOString() }, { merge: true });
-    console.log('✅ سفارش با موفقیت در Firestore ثبت شد.');
     return { success: true, id: orderId };
   } catch (error) {
-    console.error('❌ خطا در ثبت سفارش در Firestore:', error);
     return { success: false, error };
   }
 };
 
-// 4. Direct Firestore Handlers for CMS
-export const saveCmsToFirestore = async (cmsData: any) => {
+export const saveCmsToFirestore = async (cmsData: any): Promise<{ success: boolean; error?: any }> => {
   try {
     const docRef = doc(db, 'cms', 'config');
     await setDoc(docRef, cmsData, { merge: true });
     return { success: true };
   } catch (error) {
-    console.error('❌ خطا در ذخیره CMS در Firestore:', error);
     return { success: false, error };
   }
 };

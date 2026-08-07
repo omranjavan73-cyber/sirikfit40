@@ -3,9 +3,7 @@ import {
   getFirestore, 
   doc, 
   setDoc, 
-  getDoc,
-  collection,
-  getDocs
+  getDoc 
 } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -21,7 +19,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-// 1. Check Firestore Connection Status
 export const checkFirestoreConnection = async (): Promise<boolean> => {
   try {
     const testDoc = doc(db, 'settings', 'financial');
@@ -33,7 +30,6 @@ export const checkFirestoreConnection = async (): Promise<boolean> => {
   }
 };
 
-// 2. User Profile Handlers (دقیقا همان تابعی که AuthModal.tsx لازم داشت)
 export const saveUserProfileToFirestore = async (userData: any): Promise<{ success: boolean; error?: any }> => {
   try {
     const userId = userData.id || userData.uid || `user_${Date.now()}`;
@@ -46,7 +42,6 @@ export const saveUserProfileToFirestore = async (userData: any): Promise<{ succe
   }
 };
 
-// 3. Financial Settings Handlers
 export const saveSettingsToFirestore = async (settingsData: any): Promise<{ success: boolean; error?: any }> => {
   try {
     const docRef = doc(db, 'settings', 'financial');
@@ -65,31 +60,42 @@ export const getSettingsFromFirestore = async (): Promise<any> => {
       return docSnap.data();
     }
   } catch (error) {
-    console.error(error);
+    console.error('Error fetching settings:', error);
   }
   return null;
 };
 
 export const fetchSettingsFromFirestore = getSettingsFromFirestore;
 
-// 4. Order Handlers
+export const saveCmsToFirestore = async (cmsData: any): Promise<{ success: boolean; error?: any }> => {
+  try {
+    const docRef = doc(db, 'cms', 'config');
+    await setDoc(docRef, cmsData, { merge: true });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error };
+  }
+};
+
+export const getCmsFromFirestore = async (): Promise<any> => {
+  try {
+    const docRef = doc(db, 'cms', 'config');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data();
+    }
+  } catch (error) {
+    console.error('Error fetching CMS:', error);
+  }
+  return null;
+};
+
 export const saveOrderToFirestore = async (orderData: any): Promise<{ success: boolean; id?: string; error?: any }> => {
   try {
     const orderId = orderData.id || `order_${Date.now()}`;
     const docRef = doc(db, 'orders', orderId);
     await setDoc(docRef, { ...orderData, updatedAt: new Date().toISOString() }, { merge: true });
     return { success: true, id: orderId };
-  } catch (error) {
-    return { success: false, error };
-  }
-};
-
-// 5. CMS Handlers
-export const saveCmsToFirestore = async (cmsData: any): Promise<{ success: boolean; error?: any }> => {
-  try {
-    const docRef = doc(db, 'cms', 'config');
-    await setDoc(docRef, cmsData, { merge: true });
-    return { success: true };
   } catch (error) {
     return { success: false, error };
   }

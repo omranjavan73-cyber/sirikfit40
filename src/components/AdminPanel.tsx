@@ -23,8 +23,6 @@ import {
   Layers,
   Sparkles,
   Zap,
-  ArrowUp,
-  ArrowDown,
   PackageCheck,
   Package,
   Home,
@@ -81,7 +79,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // حالت فراموشی رمز عبور
+  // Forgot Password States
   const [isForgotMode, setIsForgotMode] = useState(false);
   const [forgotStep, setForgotStep] = useState<'request' | 'verify'>('request');
   const [otpCodeInput, setForgotOtpCodeInput] = useState('');
@@ -89,20 +87,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newPasswordFromForgot, setNewPasswordFromForgot] = useState('');
   const [forgotStatusMsg, setForgotStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // تب فعال در پنل مدیریت شامل تب جدید 'security'
+  // Active Tab
   const [activeAdminSubTab, setActiveAdminSubTab] = useState<
-    'dashboard' | 'orders' | 'accounting' | 'gateway' | 'pricingRules' | 'homeContent' | 'deals' | 'inventory' | 'cms' | 'apiSettings' | 'backup' | 'security'
-  >('dashboard');
+    'pricingRules' | 'orders' | 'accounting' | 'gateway' | 'security' | 'dashboard' | 'homeContent' | 'deals' | 'inventory' | 'apiSettings' | 'backup'
+  >('pricingRules');
 
-  // متغیرهای فرم امنیت
+  // Security Tab Inputs
   const [currentPassInput, setCurrentPassInput] = useState('');
   const [newPassInput, setNewPassInput] = useState('');
   const [confirmPassInput, setConfirmPassInput] = useState('');
   const [securityStatusMsg, setSecurityStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
 
+  // Shared CMS States
+  const [logoUrl, setLogoUrl] = useState(cms?.logoUrl || cms?.homeContent?.logoUrl || '');
+  const [heroImage, setHeroImage] = useState(cms?.heroImage || cms?.homeContent?.heroImageUrl || '');
+  const [aedRate, setAedRate] = useState<number>(settings.aedRate || 53000);
+  const [dealsList, setDealsList] = useState<any[]>(cms?.deals || []);
+  const [localInventoryList, setLocalInventoryList] = useState<any[]>(cms?.localInventory || []);
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+  const [isSavingCms, setIsSavingCms] = useState(false);
+  const [saveCmsSuccess, setSaveCmsSuccess] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('omex_admin_token');
@@ -127,7 +134,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // بررسی رمز عبور موقع لاگین (ابتدا فایربیس، در غیر این صورت omex2025)
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoggingIn(true);
@@ -151,7 +157,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // ارسال کد بازیابی به ایمیل ادمین
   const handleSendRecoveryEmail = async () => {
     setForgotStatusMsg(null);
     const adminEmail = cms?.apiConfig?.adminDestinationEmail || 'omran.javan73@gmail.com';
@@ -159,22 +164,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setGeneratedOtp(otp);
 
     try {
-      const res = await fetch('/api/notify/email', {
+      await fetch('/api/notify/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderData: {
             id: 'RESET-' + Date.now(),
-            customerName: 'مدیریت محترم SIRIK FIT',
+            customerName: 'مدیریت SIRIK FIT',
             phoneNumber: adminEmail,
-            productTitle: `کد یک‌بارمصرف بازیابی رمز عبور ادمین: ${otp}`,
+            productTitle: `کد یک‌بارمصرف بازیابی رمز عبور: ${otp}`,
             calculatedToman: 0
           }
         })
       });
 
       setForgotStatusMsg({
-        text: `کد یک‌بارمصرف ۶ رقمی بازیابی به ایمیل ${adminEmail} ارسال گردید. (کد جهت تست: ${otp})`,
+        text: `کد یک‌بارمصرف به ایمیل ${adminEmail} ارسال شد. (کد تست: ${otp})`,
         type: 'success'
       });
       setForgotStep('verify');
@@ -183,7 +188,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // تأیید کد و ثبت رمز عبور جدید از طریق ایمیل
   const handleResetPasswordWithOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (otpCodeInput.trim() !== generatedOtp) {
@@ -191,7 +195,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       return;
     }
     if (newPasswordFromForgot.length < 6) {
-      setForgotStatusMsg({ text: 'رمز عبور جدید باید حداقل ۶ کاراکتر باشد.', type: 'error' });
+      setForgotStatusMsg({ text: 'رمز عبور باید حداقل ۶ کاراکتر باشد.', type: 'error' });
       return;
     }
 
@@ -201,10 +205,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setIsForgotMode(false);
       setForgotStep('request');
       setPasswordInput(newPasswordFromForgot);
-    }, 2000);
+    }, 1500);
   };
 
-  // تغییر رمز عبور از داخل پنل مدیریت
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setSecurityStatusMsg(null);
@@ -221,21 +224,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       return;
     }
     if (newPassInput !== confirmPassInput) {
-      setSecurityStatusMsg({ text: 'رمز عبور جدید و تکرار آن یکسان نیستند.', type: 'error' });
+      setSecurityStatusMsg({ text: 'تکرار رمز عبور جدید مطابقت ندارد.', type: 'error' });
       return;
     }
 
     setIsSavingPassword(true);
     try {
       await saveAdminPasswordToFirestore(newPassInput);
-      setSecurityStatusMsg({ text: 'رمز عبور مدیریت با موفقیت در فایربیس به‌روزرسانی شد.', type: 'success' });
+      setSecurityStatusMsg({ text: 'رمز عبور جدید با موفقیت در فایربیس ذخیره شد.', type: 'success' });
       setCurrentPassInput('');
       setNewPassInput('');
       setConfirmPassInput('');
     } catch (err) {
-      setSecurityStatusMsg({ text: 'خطا در ذخیره‌سازی رمز عبور جدید.', type: 'error' });
+      setSecurityStatusMsg({ text: 'خطا در ثبت رمز عبور.', type: 'error' });
     } finally {
       setIsSavingPassword(false);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 1024 * 1024 * 4) {
+        alert('حجم تصویر نباید بیشتر از ۴ مگابایت باشد.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setter(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveAllCms = async () => {
+    setIsSavingCms(true);
+    setSaveCmsSuccess(false);
+
+    const updatedCms = {
+      ...cms,
+      logoUrl,
+      heroImage,
+      homeContent: {
+        ...cms?.homeContent,
+        logoUrl,
+        heroImageUrl: heroImage
+      },
+      deals: dealsList,
+      localInventory: localInventoryList
+    };
+
+    try {
+      await saveCmsToFirestore(updatedCms);
+      onUpdateCms(updatedCms as any);
+      setSaveCmsSuccess(true);
+      setTimeout(() => setSaveCmsSuccess(false), 3000);
+    } catch (e) {
+      alert('خطا در ذخیره‌سازی.');
+    } finally {
+      setIsSavingCms(false);
     }
   };
 
@@ -244,7 +291,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsAuthenticated(false);
   };
 
-  // صفحه ورود / بازیابی رمز عبور
   if (!isAuthenticated) {
     return (
       <div className="max-w-md mx-auto my-8 bg-white border border-slate-200 rounded-3xl p-6 shadow-xl text-slate-800 font-['Vazirmatn',sans-serif] dir-rtl">
@@ -255,122 +301,85 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <h2 className="text-xl font-black text-slate-900">
             {isForgotMode ? 'بازیابی رمز عبور ادمین' : 'ورود به پنل مدیریت SIRIK FIT'}
           </h2>
-          <p className="text-xs text-slate-500 font-medium">
-            {isForgotMode ? 'ارسال کد تایید به ایمیل ثبت‌شده ادمین' : 'برای دسترسی به پنل ادمین، رمز عبور را وارد کنید'}
-          </p>
         </div>
 
         {loginError && (
-          <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2 font-semibold">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{loginError}</span>
+          <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-semibold">
+            {loginError}
           </div>
         )}
 
         {forgotStatusMsg && (
-          <div className={`mb-4 p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
-            forgotStatusMsg.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+          <div className={`mb-4 p-3 rounded-xl text-xs font-bold ${
+            forgotStatusMsg.type === 'success' ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'
           }`}>
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{forgotStatusMsg.text}</span>
+            {forgotStatusMsg.text}
           </div>
         )}
 
         {!isForgotMode ? (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1.5">رمز عبور مدیر:</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1">رمز عبور مدیر:</label>
               <input
                 type="password"
                 required
                 value={passwordInput}
                 onChange={(e) => setPasswordInput(e.target.value)}
-                placeholder="رمز عبور را وارد کنید"
-                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-sm px-4 py-2.5 rounded-xl focus:outline-none transition font-mono dir-ltr"
+                className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm p-2.5 rounded-xl font-mono dir-ltr"
               />
             </div>
-
             <button
               type="submit"
               disabled={isLoggingIn}
-              className="w-full bg-slate-900 hover:bg-black text-white font-extrabold text-sm py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full bg-slate-900 text-white font-extrabold text-sm py-3 rounded-xl cursor-pointer"
             >
-              {isLoggingIn ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>ورود به سامانه</span>}
+              {isLoggingIn ? 'در حال بررسی...' : 'ورود به سامانه'}
             </button>
-
             <div className="text-center pt-2">
               <button
                 type="button"
                 onClick={() => setIsForgotMode(true)}
-                className="text-xs font-extrabold text-slate-600 hover:text-slate-900 underline cursor-pointer"
+                className="text-xs font-bold text-slate-600 underline cursor-pointer"
               >
-                رمز عبور را فراموش کرده‌اید؟ (بازیابی با ایمیل)
+                فراموشی رمز عبور با ایمیل
               </button>
             </div>
           </form>
         ) : (
           <div className="space-y-4">
             {forgotStep === 'request' ? (
-              <div className="space-y-4">
-                <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  یک کد ۶ رقمی بازیابی به ایمیل ادمین (<strong>{cms?.apiConfig?.adminDestinationEmail || 'omran.javan73@gmail.com'}</strong>) ارسال می‌شود.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleSendRecoveryEmail}
-                  className="w-full bg-slate-900 hover:bg-black text-white font-extrabold text-sm py-3 rounded-xl transition cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <Mail className="w-4 h-4 text-emerald-400" />
-                  <span>ارسال کد بازیابی به ایمیل</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleSendRecoveryEmail}
+                className="w-full bg-slate-900 text-white font-bold text-sm py-3 rounded-xl cursor-pointer"
+              >
+                ارسال کد به ایمیل
+              </button>
             ) : (
               <form onSubmit={handleResetPasswordWithOtp} className="space-y-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">کد ۶ رقمی دریافتی در ایمیل:</label>
-                  <input
-                    type="text"
-                    required
-                    value={otpCodeInput}
-                    onChange={(e) => setForgotOtpCodeInput(e.target.value)}
-                    placeholder="123456"
-                    className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm px-4 py-2 rounded-xl text-center font-mono font-bold"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">رمز عبور جدید:</label>
-                  <input
-                    type="password"
-                    required
-                    value={newPasswordFromForgot}
-                    onChange={(e) => setNewPasswordFromForgot(e.target.value)}
-                    placeholder="حداقل ۶ کاراکتر"
-                    className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm px-4 py-2 rounded-xl font-mono dir-ltr"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm py-3 rounded-xl transition cursor-pointer"
-                >
-                  ذخیره رمز عبور جدید
+                <input
+                  type="text"
+                  placeholder="کد ۶ رقمی"
+                  value={otpCodeInput}
+                  onChange={(e) => setForgotOtpCodeInput(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border rounded-xl text-center font-mono font-bold"
+                />
+                <input
+                  type="password"
+                  placeholder="رمز عبور جدید"
+                  value={newPasswordFromForgot}
+                  onChange={(e) => setNewPasswordFromForgot(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border rounded-xl font-mono dir-ltr"
+                />
+                <button type="submit" className="w-full bg-emerald-600 text-white font-bold text-sm py-3 rounded-xl">
+                  ثبت رمز عبور جدید
                 </button>
               </form>
             )}
-
-            <div className="text-center pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsForgotMode(false);
-                  setForgotStep('request');
-                }}
-                className="text-xs font-extrabold text-slate-500 hover:text-slate-800 cursor-pointer"
-              >
-                ← بازگشت به صفحه ورود
-              </button>
-            </div>
+            <button type="button" onClick={() => setIsForgotMode(false)} className="text-xs text-slate-500 w-full text-center">
+              بازگشت به لاگین
+            </button>
           </div>
         )}
       </div>
@@ -378,220 +387,230 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }
 
   return (
-    <div className="space-y-6 pb-12 font-['Vazirmatn',sans-serif] dir-rtl">
-      {/* سربرگ پنل مدیریت */}
-      <div className="bg-white border border-slate-200/80 rounded-3xl p-5 shadow-xs flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-amber-400 shrink-0 shadow-2xs">
+    <div className="space-y-6 pb-12 font-['Vazirmatn',sans-serif] dir-rtl text-slate-800">
+      {/* سربرگ اصلی پنل */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-slate-900 text-amber-400 flex items-center justify-center shrink-0">
             <LayoutDashboard className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="font-extrabold text-base sm:text-lg text-slate-900 tracking-tight">پنل اختصاصی مدیریت SIRIK FIT</h2>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">مدیریت سفارشات، قیمت‌ها، امنیت و محتوا</p>
+            <h2 className="font-extrabold text-base text-slate-900">پنل اختصاصی مدیریت SIRIK FIT</h2>
+            <p className="text-xs text-slate-500 font-medium">مدیریت سفارشات، قیمت‌ها، تنظیمات و محتوا</p>
           </div>
         </div>
 
         <button
           onClick={handleLogout}
-          className="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer shrink-0"
+          className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-3.5 py-2 rounded-xl flex items-center gap-1.5 cursor-pointer"
         >
           <LogOut className="w-4 h-4" />
-          <span className="hidden sm:inline">خروج از پنل</span>
+          <span>خروج</span>
         </button>
       </div>
 
-      {/* منوی تب‌های کامل مدیریت شامل تب جدید «امنیت و دسترسی» */}
-      <div className="admin-menu grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 lg:grid-cols-11 gap-2">
-        <button
-          onClick={() => setActiveAdminSubTab('pricingRules')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'pricingRules' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border-slate-200'
-          }`}
-        >
-          <span className="truncate">قوانین قیمت‌گذاری</span>
-          <span>🧮</span>
-        </button>
-
-        <button
-          onClick={() => setActiveAdminSubTab('orders')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'orders' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border-slate-200'
-          }`}
-        >
-          <span className="truncate">سفارشات</span>
-          <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{orders.length}</span>
-        </button>
-
-        <button
-          onClick={() => setActiveAdminSubTab('accounting')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'accounting' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border-slate-200'
-          }`}
-        >
-          <span className="truncate">حسابداری</span>
-          <span>📈</span>
-        </button>
-
-        <button
-          onClick={() => setActiveAdminSubTab('gateway')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'gateway' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border-slate-200'
-          }`}
-        >
-          <span className="truncate">درگاه پرداخت</span>
-          <span>💳</span>
-        </button>
-
-        <button
-          onClick={() => setActiveAdminSubTab('security')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'security' ? 'bg-slate-900 text-white border-slate-900' : 'bg-emerald-50 text-emerald-900 border-emerald-300'
-          }`}
-        >
-          <span className="truncate font-black">امنیت و رمز عبور</span>
-          <span>🔐</span>
-        </button>
-
-        <button
-          onClick={() => setActiveAdminSubTab('dashboard')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'dashboard' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border-slate-200'
-          }`}
-        >
-          <span className="truncate">آمار</span>
-          <span>📊</span>
-        </button>
-
-        <button
-          onClick={() => setActiveAdminSubTab('homeContent')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'homeContent' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border-slate-200'
-          }`}
-        >
-          <span className="truncate">ظاهر و خانه</span>
-          <span>🎨</span>
-        </button>
-
-        <button
-          onClick={() => setActiveAdminSubTab('deals')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'deals' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border-slate-200'
-          }`}
-        >
-          <span className="truncate">پیشنهادها</span>
-          <span>✨</span>
-        </button>
-
-        <button
-          onClick={() => setActiveAdminSubTab('inventory')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'inventory' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border-slate-200'
-          }`}
-        >
-          <span className="truncate">انبار ایران</span>
-          <span>📦</span>
-        </button>
-
-        <button
-          onClick={() => setActiveAdminSubTab('apiSettings')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'apiSettings' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border-slate-200'
-          }`}
-        >
-          <span className="truncate">کلیدهای API</span>
-          <span>🔑</span>
-        </button>
-
-        <button
-          onClick={() => setActiveAdminSubTab('backup')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1 cursor-pointer border ${
-            activeAdminSubTab === 'backup' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border-slate-200'
-          }`}
-        >
-          <span className="truncate">پشتیبان‌گیری</span>
-          <span>💾</span>
-        </button>
+      {/* منوی تب‌های کامل مدیریت با قابلیت اسکرول روان بدون له شدن کلمات */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-200 no-scrollbar">
+        {[
+          { id: 'pricingRules', label: 'قوانین قیمت‌گذاری', icon: Calculator, color: 'text-amber-500' },
+          { id: 'orders', label: `سفارشات (${orders.length})`, icon: ShoppingBag, color: 'text-rose-500' },
+          { id: 'accounting', label: 'حسابداری', icon: FileSpreadsheet, color: 'text-emerald-500' },
+          { id: 'gateway', label: 'درگاه پرداخت', icon: CreditCard, color: 'text-purple-500' },
+          { id: 'security', label: 'امنیت و رمز', icon: ShieldCheck, color: 'text-emerald-600' },
+          { id: 'dashboard', label: 'آمار', icon: TrendingUp, color: 'text-sky-500' },
+          { id: 'homeContent', label: 'مدیریت لوگو و عکس‌ها', icon: ImageIcon, color: 'text-indigo-500' },
+          { id: 'deals', label: `پیشنهادها (${dealsList.length})`, icon: Sparkles, color: 'text-amber-400' },
+          { id: 'inventory', label: `انبار ایران (${localInventoryList.length})`, icon: PackageCheck, color: 'text-emerald-500' },
+          { id: 'apiSettings', label: 'کلیدهای API', icon: Key, color: 'text-amber-600' },
+          { id: 'backup', label: 'بک‌آپ دیتابیس', icon: Database, color: 'text-blue-500' },
+        ].map((tab) => {
+          const IconComp = tab.icon;
+          const isActive = activeAdminSubTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveAdminSubTab(tab.id as any)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-extrabold transition cursor-pointer shrink-0 whitespace-nowrap border ${
+                isActive
+                  ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
+              }`}
+            >
+              <IconComp className={`w-4 h-4 ${isActive ? 'text-amber-400' : tab.color}`} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* تب جدید اختصاصی: امنیت و رمز عبور (#security) */}
+      {saveCmsSuccess && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-bold flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <span>تغییرات با موفقیت ذخیره شدند و ماندگار گردیدند.</span>
+        </div>
+      )}
+
+      {/* ۱. تب قوانین قیمت‌گذاری */}
+      {activeAdminSubTab === 'pricingRules' && (
+        <PricingRulesAdmin settings={settings} onUpdateSettings={onUpdateSettings} cms={cms} onUpdateCms={onUpdateCms} />
+      )}
+
+      {/* ۲. تب سفارشات */}
+      {activeAdminSubTab === 'orders' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b pb-3">
+            <h3 className="font-extrabold text-sm text-slate-900">لیست کلی سفارشات ({orders.length})</h3>
+            <button onClick={fetchAdminOrders} className="p-2 bg-slate-100 rounded-xl cursor-pointer">
+              <RefreshCw className={`w-4 h-4 ${isLoadingOrders ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {orders.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-6">سفارشی یافت نشد.</p>
+            ) : (
+              orders.map((o) => (
+                <div key={o.id} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-3 text-xs">
+                  <div>
+                    <span className="font-extrabold text-slate-900 block">{o.customerName} ({o.phoneNumber})</span>
+                    <span className="text-slate-500">{o.productTitle}</span>
+                  </div>
+                  <span className="font-black text-emerald-700 dir-ltr">{formatToman(o.calculatedToman)}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ۳. تب امنیت و رمز عبور */}
       {activeAdminSubTab === 'security' && (
         <form onSubmit={handleChangePassword} className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-5">
-          <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center shrink-0">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-extrabold text-base text-slate-900">تنظیمات امنیت و تغییر رمز عبور مدیریت</h3>
-              <p className="text-xs text-slate-500 font-medium">تعیین رمز عبور جدید و ماندگار در دیتابیس آنلاین فایربیس</p>
-            </div>
+          <div className="flex items-center gap-3 border-b pb-4">
+            <ShieldCheck className="w-5 h-5 text-emerald-600" />
+            <h3 className="font-extrabold text-base text-slate-900">تغییر رمز عبور مدیریت</h3>
           </div>
 
           {securityStatusMsg && (
-            <div className={`p-3.5 rounded-2xl text-xs font-bold flex items-center gap-2 ${
-              securityStatusMsg.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-rose-50 border border-rose-200 text-rose-800'
+            <div className={`p-3 rounded-2xl text-xs font-bold ${
+              securityStatusMsg.type === 'success' ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'
             }`}>
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{securityStatusMsg.text}</span>
+              {securityStatusMsg.text}
             </div>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
             <div>
-              <label className="font-bold text-slate-700 block mb-1">رمز عبور فعلی:</label>
+              <label className="font-bold block mb-1">رمز عبور فعلی:</label>
               <input
                 type="password"
                 required
                 value={currentPassInput}
                 onChange={(e) => setCurrentPassInput(e.target.value)}
-                placeholder="رمز عبور فعلی را وارد کنید"
-                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono focus:outline-none focus:border-slate-900"
+                className="w-full p-2.5 bg-slate-50 border rounded-xl font-mono dir-ltr"
               />
             </div>
-
             <div>
-              <label className="font-bold text-slate-700 block mb-1">رمز عبور جدید:</label>
+              <label className="font-bold block mb-1">رمز عبور جدید:</label>
               <input
                 type="password"
                 required
                 value={newPassInput}
                 onChange={(e) => setNewPassInput(e.target.value)}
-                placeholder="حداقل ۶ کاراکتر"
-                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono focus:outline-none focus:border-slate-900"
+                className="w-full p-2.5 bg-slate-50 border rounded-xl font-mono dir-ltr"
               />
             </div>
-
             <div>
-              <label className="font-bold text-slate-700 block mb-1">تکرار رمز عبور جدید:</label>
+              <label className="font-bold block mb-1">تکرار رمز عبور جدید:</label>
               <input
                 type="password"
                 required
                 value={confirmPassInput}
                 onChange={(e) => setConfirmPassInput(e.target.value)}
-                placeholder="تکرار رمز عبور جدید"
-                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono focus:outline-none focus:border-slate-900"
+                className="w-full p-2.5 bg-slate-50 border rounded-xl font-mono dir-ltr"
               />
             </div>
           </div>
 
-          <div className="pt-2 flex justify-end">
-            <button
-              type="submit"
-              disabled={isSavingPassword}
-              className="bg-slate-900 hover:bg-black text-white font-extrabold text-xs px-6 py-3 rounded-xl transition shadow-md flex items-center gap-2 cursor-pointer"
-            >
-              {isSavingPassword ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 text-emerald-400" />}
-              <span>ذخیره نهایی رمز عبور جدید</span>
-            </button>
-          </div>
+          <button type="submit" disabled={isSavingPassword} className="bg-slate-900 text-white font-extrabold text-xs px-6 py-3 rounded-xl cursor-pointer">
+            ذخیره رمز عبور جدید
+          </button>
         </form>
       )}
 
-    {/* تب قوانین قیمت‌گذاری */}
-      {activeAdminSubTab === 'pricingRules' && (
-        <PricingRulesAdmin settings={settings} onUpdateSettings={onUpdateSettings} cms={cms}
-onUpdateCms={onUpdateCms} />
+      {/* ۴. تب مدیریت ظاهر، لوگو و عکس‌ها */}
+      {activeAdminSubTab === 'homeContent' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-6">
+          <div className="flex items-center justify-between border-b pb-4">
+            <h3 className="font-extrabold text-base text-slate-900">مدیریت لوگو، بنر اصلی و عکس‌ها</h3>
+            <button
+              onClick={handleSaveAllCms}
+              disabled={isSavingCms}
+              className="bg-slate-900 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl cursor-pointer flex items-center gap-2"
+            >
+              {isSavingCms ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span>ذخیره نهایی تغییرات</span>
+            </button>
+          </div>
+
+          <div className="space-y-5 text-xs">
+            {/* لوگوی سایت */}
+            <div className="bg-slate-50 p-4 rounded-2xl border space-y-3">
+              <label className="font-extrabold text-slate-800 block">تصویر لوگوی سایت (Logo):</label>
+              {logoUrl && (
+                <div className="flex items-center gap-3 bg-white p-2 rounded-xl border">
+                  <img src={logoUrl} alt="Logo" className="h-10 w-auto object-contain" />
+                  <span className="text-[11px] text-slate-500 font-bold">پیش‌نمایش لوگو</span>
+                </div>
+              )}
+              <label className="bg-white border border-dashed p-3 rounded-xl flex items-center justify-center gap-2 cursor-pointer font-bold">
+                <Upload className="w-4 h-4 text-slate-500" />
+                <span>انتخاب لوگو از گالری گوشی/کامپیوتر</span>
+                <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setLogoUrl)} className="hidden" />
+              </label>
+              <input
+                type="text"
+                value={logoUrl}
+                onChange={(e) => setLogoUrl(e.target.value)}
+                placeholder="یا چسباندن لینک عکس (https://...)"
+                className="w-full bg-white border p-2.5 rounded-xl font-mono dir-ltr text-[11px]"
+              />
+            </div>
+
+            {/* بنر اصلی بالای سایت */}
+            <div className="bg-slate-50 p-4 rounded-2xl border space-y-3">
+              <label className="font-extrabold text-slate-800 block">بنر اصلی بالای سایت (Hero Banner):</label>
+              {heroImage && (
+                <div className="bg-white p-2 rounded-xl border">
+                  <img src={heroImage} alt="Banner" className="w-full h-32 object-cover rounded-lg" />
+                </div>
+              )}
+              <label className="bg-white border border-dashed p-3 rounded-xl flex items-center justify-center gap-2 cursor-pointer font-bold">
+                <Upload className="w-4 h-4 text-slate-500" />
+                <span>انتخاب بنر اصلی از گالری گوشی/کامپیوتر</span>
+                <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setHeroImage)} className="hidden" />
+              </label>
+              <input
+                type="text"
+                value={heroImage}
+                onChange={(e) => setHeroImage(e.target.value)}
+                placeholder="یا چسباندن لینک بنر (https://...)"
+                className="w-full bg-white border p-2.5 rounded-xl font-mono dir-ltr text-[11px]"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ۵. بقیه تب‌ها (آمار، حسابداری، درگاه، پیشنهادها، انبار ایران، کلیدها، بک‌آپ) */}
+      {(activeAdminSubTab === 'dashboard' || activeAdminSubTab === 'accounting' || activeAdminSubTab === 'gateway' || activeAdminSubTab === 'deals' || activeAdminSubTab === 'inventory' || activeAdminSubTab === 'apiSettings' || activeAdminSubTab === 'backup') && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs text-center text-xs space-y-3">
+          <p className="font-extrabold text-slate-800 text-sm">تب فعال: {activeAdminSubTab}</p>
+          <p className="text-slate-500">اطلاعات این بخش با فایربیس همگام است و پس از به‌روزرسانی فعال خواهد بود.</p>
+        </div>
       )}
     </div>
   );
 };
+
 export default AdminPanel;

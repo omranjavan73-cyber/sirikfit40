@@ -1,163 +1,79 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import {
-  getFirestore,
-  doc,
-  setDoc,
-  getDoc,
-  collection,
-  getDocs,
-  query,
-  where
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  collection, 
+  addDoc, 
+  getDocs 
 } from 'firebase/firestore';
-import firebaseConfigJson from '../firebase-applet-config.json';
 
-const metaEnv = (import.meta as any).env || {};
-const apiKey = metaEnv.VITE_FIREBASE_API_KEY || firebaseConfigJson?.apiKey || 'AIzaSyDDT03m1Qxzzdk9drEMF-R9L1Y_VzhkyCY';
-const authDomain = metaEnv.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigJson?.authDomain || 'sirik-fit-db.firebaseapp.com';
-const projectId = metaEnv.VITE_FIREBASE_PROJECT_ID || firebaseConfigJson?.projectId || 'sirik-fit-db';
-const storageBucket = metaEnv.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigJson?.storageBucket || 'sirik-fit-db.firebasestorage.app';
-const messagingSenderId = metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigJson?.messagingSenderId || '647943404812';
-const appId = metaEnv.VITE_FIREBASE_APP_ID || firebaseConfigJson?.appId || '1:647943404812:web:2aac3fab6cdfab690f1d29';
-const firestoreDatabaseId = firebaseConfigJson?.firestoreDatabaseId;
-
+// 1. Firebase Config Setup from Environment
 const firebaseConfig = {
-  apiKey,
-  authDomain,
-  projectId,
-  storageBucket,
-  messagingSenderId,
-  appId,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBAB1TsbUTwgLchxFAcIMVECS9zqGP7Zk0",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "sirikfit40.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "sirikfit40",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "sirikfit40.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "532757567852",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:532757567852:web:01f36071e84c96b4933b49",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-QFR8G0QFNH"
 };
 
-export const isFirebaseConfigured = Boolean(apiKey && projectId && apiKey !== '');
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-
-export const auth = getAuth(app);
-export const db = (firestoreDatabaseId && firestoreDatabaseId !== '(default)') ? getFirestore(app, firestoreDatabaseId) : getFirestore(app);
-
-// Helper: Save/Update User Profile in Firestore "users" collection
-export async function saveUserProfileToFirestore(userData: {
-  id: string;
-  name: string;
-  phoneNumber: string;
-  email?: string;
-  createdAt?: string;
-}) {
-  if (!db) return;
+// 2. Direct Firestore Handlers for Settings & Pricing Rules
+export const saveSettingsToFirestore = async (settingsData: any) => {
   try {
-    const userRef = doc(db, 'users', userData.id);
-    await setDoc(
-      userRef,
-      {
-        uid: userData.id,
-        name: userData.name,
-        phoneNumber: userData.phoneNumber,
-        email: userData.email || '',
-        createdAt: userData.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
-  } catch (err) {
-    console.warn('Error saving user profile to Firestore:', err);
+    const docRef = doc(db, 'settings', 'financial');
+    await setDoc(docRef, settingsData, { merge: true });
+    console.log('✅ تنظیمات نرخ درهم و قوانین با موفقیت در Firestore ذخیره شد.');
+    return { success: true };
+  } catch (error) {
+    console.error('❌ خطا در ذخیره تنظیمات در Firestore:', error);
+    return { success: false, error };
   }
-}
+};
 
-// Helper: Save Order in Firestore "orders" collection
-export async function saveOrderToFirestore(orderData: any) {
-  if (!db) return;
+export const getSettingsFromFirestore = async () => {
   try {
-    const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
-    const orderRef = doc(db, 'orders', orderId);
-    const dataToSave = {
-      ...orderData,
-      orderId,
-      createdAt: orderData.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    await setDoc(orderRef, dataToSave, { merge: true });
-    return orderId;
-  } catch (err) {
-    console.warn('Error saving order to Firestore:', err);
-  }
-}
-
-// Helper: Fetch User Orders from Firestore
-export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: string) {
-  if (!db) return [];
-  try {
-    const ordersRef = collection(db, 'orders');
-    let q = query(ordersRef, where('userId', '==', userId));
-    let snapshot = await getDocs(q);
-
-    if (snapshot.empty && userPhone) {
-      q = query(ordersRef, where('userPhone', '==', userPhone));
-      snapshot = await getDocs(q);
-    }
-
-    const orders: any[] = [];
-    snapshot.forEach((docSnap) => {
-      orders.push({ id: docSnap.id, ...docSnap.data() });
-    });
-    return orders;
-  } catch (err) {
-    console.warn('Error fetching user orders from Firestore:', err);
-    return [];
-  }
-}
-
-// Helper: Sync Admin Panel settings with Firestore "settings/app" document
-export async function saveSettingsToFirestore(settingsData: any) {
-  if (!db) return;
-  try {
-    const settingsRef = doc(db, 'settings', 'app');
-    await setDoc(
-      settingsRef,
-      {
-        ...settingsData,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
-  } catch (err) {
-    console.warn('Error saving settings to Firestore:', err);
-  }
-}
-
-// Helper: Fetch Admin Panel settings from Firestore
-export async function fetchSettingsFromFirestore() {
-  if (!db) return null;
-  try {
-    const settingsRef = doc(db, 'settings', 'app');
-    const docSnap = await getDoc(settingsRef);
+    const docRef = doc(db, 'settings', 'financial');
+    const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       return docSnap.data();
     }
-  } catch (err) {
-    console.warn('Error fetching settings from Firestore:', err);
+  } catch (error) {
+    console.error('❌ خطا در دریافت تنظیمات از Firestore:', error);
   }
   return null;
-}
+};
 
-// Helper: Check Database Connection Status
-export async function checkFirestoreConnection(): Promise<{
-  connected: boolean;
-  dbId?: string;
-  error?: string;
-}> {
-  if (!isFirebaseConfigured || !db) {
-    return { connected: false, error: 'Firebase configuration missing' };
-  }
+// 3. Direct Firestore Handlers for Orders
+export const saveOrderToFirestore = async (orderData: any) => {
   try {
-    const pingRef = doc(db, 'settings', 'healthcheck');
-    await setDoc(pingRef, { lastPing: new Date().toISOString() }, { merge: true });
-    return { connected: true, dbId: firestoreDatabaseId || '(default)' };
-  } catch (err: any) {
-    console.warn('Firestore connection check error:', err);
-    return { connected: false, error: err?.message || 'Connection failed' };
+    const orderId = orderData.id || `order_${Date.now()}`;
+    const docRef = doc(db, 'orders', orderId);
+    await setDoc(docRef, { ...orderData, updatedAt: new Date().toISOString() }, { merge: true });
+    console.log('✅ سفارش با موفقیت در Firestore ثبت شد.');
+    return { success: true, id: orderId };
+  } catch (error) {
+    console.error('❌ خطا در ثبت سفارش در Firestore:', error);
+    return { success: false, error };
   }
-}
+};
+
+// 4. Direct Firestore Handlers for CMS
+export const saveCmsToFirestore = async (cmsData: any) => {
+  try {
+    const docRef = doc(db, 'cms', 'config');
+    await setDoc(docRef, cmsData, { merge: true });
+    return { success: true };
+  } catch (error) {
+    console.error('❌ خطا در ذخیره CMS در Firestore:', error);
+    return { success: false, error };
+  }
+};
 
 export default app;

@@ -39,7 +39,7 @@ export const signInWithGoogle = async () => {
   }
 };
 
-// خروج از جیمیل
+// خروج از حساب کاربری
 export const logoutUser = async () => {
   try {
     await signOut(auth);
@@ -61,7 +61,38 @@ export const checkFirestoreConnection = async (): Promise<{ connected: boolean; 
   }
 };
 
-// ذخیره‌سازی و خواندن تنظیمات
+// ذخیره پروفایل کاربر در فایربیس (رفع ارور AuthModal.tsx)
+export const saveUserProfileToFirestore = async (userProfileData: any): Promise<{ success: boolean; error?: any }> => {
+  try {
+    const userId = userProfileData.uid || userProfileData.phoneNumber || String(Date.now());
+    const docRef = doc(db, 'users', userId);
+    await setDoc(docRef, {
+      ...userProfileData,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving user profile to Firestore:', error);
+    return { success: false, error };
+  }
+};
+
+// ثبت سفارش در فایربیس (رفع ارور PaymentModal.tsx)
+export const saveOrderToFirestore = async (orderData: any): Promise<{ success: boolean; error?: any }> => {
+  try {
+    const docRef = doc(db, 'orders', orderData.id || String(Date.now()));
+    await setDoc(docRef, {
+      ...orderData,
+      createdAt: orderData.createdAt || new Date().toISOString()
+    }, { merge: true });
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving order to Firestore:', error);
+    return { success: false, error };
+  }
+};
+
+// ذخیره‌سازی و خواندن تنظیمات مالی
 export const saveSettingsToFirestore = async (settingsData: any): Promise<{ success: boolean; error?: any }> => {
   try {
     const docRef = doc(db, 'settings', 'financial');
@@ -83,7 +114,7 @@ export const fetchSettingsFromFirestore = async (): Promise<any> => {
   return null;
 };
 
-// ذخیره‌سازی و خواندن CMS
+// ذخیره‌سازی و خواندن تنظیمات محتوا (CMS)
 export const saveCmsToFirestore = async (cmsData: any): Promise<{ success: boolean; error?: any }> => {
   try {
     const docRef = doc(db, 'cms', 'config');
@@ -105,7 +136,7 @@ export const getCmsFromFirestore = async (): Promise<any> => {
   return null;
 };
 
-// ذخیره و خواندن رمز ادمین در فایربیس
+// ذخیره و خواندن رمز عبور ادمین در فایربیس
 export const saveAdminPasswordToFirestore = async (newPassword: string): Promise<{ success: boolean; error?: any }> => {
   try {
     const docRef = doc(db, 'settings', 'security');
@@ -127,20 +158,6 @@ export const getAdminPasswordFromFirestore = async (): Promise<string | null> =>
     console.error('Error fetching admin password:', error);
   }
   return null;
-};
-// ثبت سفارش در فایربیس
-export const saveOrderToFirestore = async (orderData: any): Promise<{ success: boolean; error?: any }> => {
-  try {
-    const docRef = doc(db, 'orders', orderData.id || String(Date.now()));
-    await setDoc(docRef, {
-      ...orderData,
-      createdAt: orderData.createdAt || new Date().toISOString()
-    }, { merge: true });
-    return { success: true };
-  } catch (error) {
-    console.error('Error saving order to Firestore:', error);
-    return { success: false, error };
-  }
 };
 
 export default app;

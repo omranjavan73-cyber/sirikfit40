@@ -160,4 +160,16 @@ export const getAdminPasswordFromFirestore = async (): Promise<string | null> =>
   return null;
 };
 
+// خواندن تنظیمات مالی از فایربیس
+export const getSettingsFromFirestore = async (): Promise<any> => {
+  try {
+    const docRef = doc(db, 'settings', 'financial');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) return docSnap.data();
+  } catch (error) {
+    console.error('Error fetching settings from Firestore:', error);
+  }
+  return null;
+};
+
 export default app;

@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "sirik-fit"
-  }
+    "default": "sirikfit40"
+  },
+  "targets": {},
+  "etags": {}
 }

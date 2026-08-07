@@ -13,8 +13,9 @@ jobs:
           node-version: 20
       - run: npm install
       - run: npm run build
-      - uses: w9jds/setup-firebase@v2
+      - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          tools-version: 13.0.0
-          firebase_token: ${{ secrets.FIREBASE_TOKEN }}
-      - run: npx firebase-tools deploy --only hosting --project sirikfit40 --token "${{ secrets.FIREBASE_TOKEN }}"
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_SIRIKFIT40 }}'
+          channelId: live
+          projectId: sirikfit40

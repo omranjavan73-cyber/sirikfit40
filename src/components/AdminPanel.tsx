@@ -297,6 +297,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  const handleExportBackup = () => {
+    try {
+      const backupData = {
+        exportedAt: new Date().toISOString(),
+        settings,
+        cms,
+        orders,
+        localInventory: localInventoryList,
+        deals: dealsList
+      };
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupData, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', `sirikfit-backup-${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    } catch (e) {
+      alert('خطا در گرفتن بک‌آپ.');
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('omex_admin_token');
     setIsAuthenticated(false);
@@ -520,11 +542,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* ۴. تب حسابداری */}
       {activeAdminSubTab === 'accounting' && (
         <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
-          <h3 className="font-extrabold text-base text-slate-900">گزارش حسابداری و مالی</h3>
-          <p className="text-xs text-slate-500">خلاصه تراکنش‌ها و سود دهی بر اساس قیمت‌های خرید و فروش درهم</p>
+          <h3 className="font-extrabold text-base text-slate-900 border-b pb-3">گزارش حسابداری و مالی</h3>
           <div className="p-4 bg-slate-50 rounded-2xl text-xs font-bold space-y-2">
-            <div className="flex justify-between"><span>مجموع درآمد:</span><span>{formatToman(totalSalesToman)}</span></div>
-            <div className="flex justify-between"><span>مجموع خرید درهم:</span><span>{formatAed(totalAedSpent)}</span></div>
+            <div className="flex justify-between"><span>مجموع درآمد فاکتور شده:</span><span>{formatToman(totalSalesToman)}</span></div>
+            <div className="flex justify-between"><span>مجموع خرید درهمی دبی:</span><span>{formatAed(totalAedSpent)}</span></div>
+            <div className="flex justify-between"><span>نرخ فعال درهم:</span><span>{formatToman(settings.aedRate)}</span></div>
           </div>
         </div>
       )}
@@ -534,7 +556,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-5">
           <div className="flex items-center justify-between border-b pb-4">
             <h3 className="font-extrabold text-base text-slate-900">تنظیمات درگاه پرداخت و کارت به کارت</h3>
-            <button onClick={handleSaveAllCms} className="bg-slate-900 text-white text-xs px-5 py-2.5 rounded-xl font-bold">ذخیره</button>
+            <button onClick={handleSaveAllCms} className="bg-slate-900 text-white text-xs px-5 py-2.5 rounded-xl font-bold cursor-pointer">ذخیره</button>
           </div>
 
           <div className="space-y-4 text-xs">
@@ -682,7 +704,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b pb-3">
             <h3 className="font-extrabold text-base text-slate-900">مدیریت پیشنهادهای ویژه ({dealsList.length})</h3>
-            <button onClick={handleSaveAllCms} className="bg-slate-900 text-white text-xs px-4 py-2 rounded-xl font-bold">ذخیره</button>
+            <button onClick={handleSaveAllCms} className="bg-slate-900 text-white text-xs px-4 py-2 rounded-xl font-bold cursor-pointer">ذخیره</button>
           </div>
           <div className="space-y-3">
             {dealsList.map((deal, idx) => (
@@ -697,7 +719,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   }}
                   className="bg-white border p-2 rounded-xl w-full font-bold"
                 />
-                <button onClick={() => setDealsList(dealsList.filter((_, i) => i !== idx))} className="p-2 text-rose-600">
+                <button onClick={() => setDealsList(dealsList.filter((_, i) => i !== idx))} className="p-2 text-rose-600 cursor-pointer">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
@@ -711,7 +733,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b pb-3">
             <h3 className="font-extrabold text-base text-slate-900">مدیریت محصولات انبار ایران ({localInventoryList.length})</h3>
-            <button onClick={handleSaveAllCms} className="bg-slate-900 text-white text-xs px-4 py-2 rounded-xl font-bold">ذخیره</button>
+            <button onClick={handleSaveAllCms} className="bg-slate-900 text-white text-xs px-4 py-2 rounded-xl font-bold cursor-pointer">ذخیره</button>
           </div>
           <div className="space-y-3">
             {localInventoryList.map((item, idx) => (
@@ -726,7 +748,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   }}
                   className="bg-white border p-2 rounded-xl w-full font-bold"
                 />
-                <button onClick={() => setLocalInventoryList(localInventoryList.filter((_, i) => i !== idx))} className="p-2 text-rose-600">
+                <button onClick={() => setLocalInventoryList(localInventoryList.filter((_, i) => i !== idx))} className="p-2 text-rose-600 cursor-pointer">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
@@ -746,7 +768,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* ۱۱. تب بک‌آپ دیتابیس */}
       {activeAdminSubTab === 'backup' && (
         <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4 text-xs">
-          <h3 className="font-extrabold text-base text-slate-900 border-b pb-3">پشتیبان‌گیری از دیتابیس</h3>
+          <div className="flex items-center justify-between border-b pb-3">
+            <h3 className="font-extrabold text-base text-slate-900">پشتیبان‌گیری از دیتابیس (Backup)</h3>
+            <button onClick={handleExportBackup} className="bg-slate-900 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 cursor-pointer">
+              <Download className="w-4 h-4 text-emerald-400" />
+              <span>دانلود فایل JSON بک‌آپ</span>
+            </button>
+          </div>
           <p className="text-slate-500">تمامی داده‌ها شامل محصولات، سفارشات و تنظیمات به‌صورت زنده در دیتابیس آنلاین Firestore فایربیس همگام‌سازی و ذخیره می‌گردند.</p>
         </div>
       )}

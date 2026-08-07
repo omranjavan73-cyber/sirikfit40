@@ -21,7 +21,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-// Check Firestore Connection Status
+// 1. Check Firestore Connection Status
 export const checkFirestoreConnection = async (): Promise<boolean> => {
   try {
     const testDoc = doc(db, 'settings', 'financial');
@@ -33,7 +33,20 @@ export const checkFirestoreConnection = async (): Promise<boolean> => {
   }
 };
 
-// Save Financial Settings
+// 2. User Profile Handlers (دقیقا همان تابعی که AuthModal.tsx لازم داشت)
+export const saveUserProfileToFirestore = async (userData: any): Promise<{ success: boolean; error?: any }> => {
+  try {
+    const userId = userData.id || userData.uid || `user_${Date.now()}`;
+    const docRef = doc(db, 'users', userId);
+    await setDoc(docRef, { ...userData, updatedAt: new Date().toISOString() }, { merge: true });
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving user profile:', error);
+    return { success: false, error };
+  }
+};
+
+// 3. Financial Settings Handlers
 export const saveSettingsToFirestore = async (settingsData: any): Promise<{ success: boolean; error?: any }> => {
   try {
     const docRef = doc(db, 'settings', 'financial');
@@ -44,7 +57,6 @@ export const saveSettingsToFirestore = async (settingsData: any): Promise<{ succ
   }
 };
 
-// Fetch Financial Settings (Both alias names supported)
 export const getSettingsFromFirestore = async (): Promise<any> => {
   try {
     const docRef = doc(db, 'settings', 'financial');
@@ -60,7 +72,7 @@ export const getSettingsFromFirestore = async (): Promise<any> => {
 
 export const fetchSettingsFromFirestore = getSettingsFromFirestore;
 
-// Save Order
+// 4. Order Handlers
 export const saveOrderToFirestore = async (orderData: any): Promise<{ success: boolean; id?: string; error?: any }> => {
   try {
     const orderId = orderData.id || `order_${Date.now()}`;
@@ -72,7 +84,7 @@ export const saveOrderToFirestore = async (orderData: any): Promise<{ success: b
   }
 };
 
-// Save CMS
+// 5. CMS Handlers
 export const saveCmsToFirestore = async (cmsData: any): Promise<{ success: boolean; error?: any }> => {
   try {
     const docRef = doc(db, 'cms', 'config');

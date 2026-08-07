@@ -128,5 +128,19 @@ export const getAdminPasswordFromFirestore = async (): Promise<string | null> =>
   }
   return null;
 };
+// ثبت سفارش در فایربیس
+export const saveOrderToFirestore = async (orderData: any): Promise<{ success: boolean; error?: any }> => {
+  try {
+    const docRef = doc(db, 'orders', orderData.id || String(Date.now()));
+    await setDoc(docRef, {
+      ...orderData,
+      createdAt: orderData.createdAt || new Date().toISOString()
+    }, { merge: true });
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving order to Firestore:', error);
+    return { success: false, error };
+  }
+};
 
 export default app;

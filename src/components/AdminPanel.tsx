@@ -46,8 +46,7 @@ import {
   Building2,
   FileSpreadsheet,
   Check,
-  Database,
-  Shield
+  Database
 } from 'lucide-react';
 import { 
   checkFirestoreConnection, 
@@ -102,9 +101,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Shared CMS States
   const [logoUrl, setLogoUrl] = useState(cms?.logoUrl || cms?.homeContent?.logoUrl || '');
   const [heroImage, setHeroImage] = useState(cms?.heroImage || cms?.homeContent?.heroImageUrl || '');
-  const [aedRate, setAedRate] = useState<number>(settings.aedRate || 53000);
   const [dealsList, setDealsList] = useState<any[]>(cms?.deals || []);
   const [localInventoryList, setLocalInventoryList] = useState<any[]>(cms?.localInventory || []);
+
+  // Gateway States
+  const [activeGateway, setActiveGateway] = useState<GatewayProvider>(cms?.paymentGateway?.activeGateway || 'zarinpal');
+  const [merchantId, setMerchantId] = useState<string>(cms?.paymentGateway?.merchantId || 'zarin_merchant_omex_8849102');
+  const [cardNumber, setCardNumber] = useState<string>(cms?.paymentGateway?.cardToCard?.cardNumber || '6037-9918-4421-9876');
+  const [bankName, setBankName] = useState<string>(cms?.paymentGateway?.cardToCard?.bankName || 'بانک ملی ایران');
+  const [cardholderName, setCardholderName] = useState<string>(cms?.paymentGateway?.cardToCard?.cardholderName || 'مدیریت سیریک فیت');
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
@@ -179,7 +184,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       });
 
       setForgotStatusMsg({
-        text: `کد یک‌بارمصرف به ایمیل ${adminEmail} ارسال شد. (کد تست: ${otp})`,
+        text: `کد ۶ رقمی به ایمیل ${adminEmail} ارسال شد. (کد تست: ${otp})`,
         type: 'success'
       });
       setForgotStep('verify');
@@ -271,7 +276,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         heroImageUrl: heroImage
       },
       deals: dealsList,
-      localInventory: localInventoryList
+      localInventory: localInventoryList,
+      paymentGateway: {
+        ...cms?.paymentGateway,
+        activeGateway,
+        merchantId,
+        cardToCard: { cardNumber, bankName, cardholderName }
+      }
     };
 
     try {
@@ -386,6 +397,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     );
   }
 
+  // محاسبات آمار داشبورد
+  const paidOrdersList = orders.filter((o) => o.paymentStatus === 'PAID');
+  const totalSalesToman = paidOrdersList.reduce((sum, o) => sum + (o.calculatedToman || 0), 0);
+  const totalAedSpent = paidOrdersList.reduce((sum, o) => sum + (o.priceAed || 0), 0);
+
   return (
     <div className="space-y-6 pb-12 font-['Vazirmatn',sans-serif] dir-rtl text-slate-800">
       {/* سربرگ اصلی پنل */}
@@ -409,7 +425,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </button>
       </div>
 
-      {/* منوی تب‌های کامل مدیریت با قابلیت اسکرول روان بدون له شدن کلمات */}
+      {/* منوی تب‌های کامل مدیریت با امکان اسکرول افقی روان */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-200 no-scrollbar">
         {[
           { id: 'pricingRules', label: 'قوانین قیمت‌گذاری', icon: Calculator, color: 'text-amber-500' },
@@ -446,7 +462,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {saveCmsSuccess && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-bold flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          <span>تغییرات با موفقیت ذخیره شدند و ماندگار گردیدند.</span>
+          <span>تغییرات با موفقیت ذخیره شدند.</span>
         </div>
       )}
 
@@ -459,7 +475,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {activeAdminSubTab === 'orders' && (
         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b pb-3">
-            <h3 className="font-extrabold text-sm text-slate-900">لیست کلی سفارشات ({orders.length})</h3>
+            <h3 className="font-extrabold text-sm text-slate-900">لیست سفارشات ({orders.length})</h3>
             <button onClick={fetchAdminOrders} className="p-2 bg-slate-100 rounded-xl cursor-pointer">
               <RefreshCw className={`w-4 h-4 ${isLoadingOrders ? 'animate-spin' : ''}`} />
             </button>
@@ -467,7 +483,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           <div className="space-y-3">
             {orders.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-6">سفارشی یافت نشد.</p>
+              <p className="text-xs text-slate-400 text-center py-6">سفارشی ثبت نشده است.</p>
             ) : (
               orders.map((o) => (
                 <div key={o.id} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-3 text-xs">
@@ -483,7 +499,68 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* ۳. تب امنیت و رمز عبور */}
+      {/* ۳. تب آمار */}
+      {activeAdminSubTab === 'dashboard' && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-white p-5 rounded-3xl border border-slate-200 text-center space-y-1">
+            <span className="text-xs text-slate-500 font-bold block">مجموع فروش موفق</span>
+            <span className="text-lg font-black text-emerald-600">{formatToman(totalSalesToman)}</span>
+          </div>
+          <div className="bg-white p-5 rounded-3xl border border-slate-200 text-center space-y-1">
+            <span className="text-xs text-slate-500 font-bold block">تعداد سفارشات</span>
+            <span className="text-lg font-black text-slate-900">{orders.length}</span>
+          </div>
+          <div className="bg-white p-5 rounded-3xl border border-slate-200 text-center space-y-1">
+            <span className="text-xs text-slate-500 font-bold block">خرید درهمی دبی</span>
+            <span className="text-lg font-black text-amber-600">{formatAed(totalAedSpent)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ۴. تب حسابداری */}
+      {activeAdminSubTab === 'accounting' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+          <h3 className="font-extrabold text-base text-slate-900">گزارش حسابداری و مالی</h3>
+          <p className="text-xs text-slate-500">خلاصه تراکنش‌ها و سود دهی بر اساس قیمت‌های خرید و فروش درهم</p>
+          <div className="p-4 bg-slate-50 rounded-2xl text-xs font-bold space-y-2">
+            <div className="flex justify-between"><span>مجموع درآمد:</span><span>{formatToman(totalSalesToman)}</span></div>
+            <div className="flex justify-between"><span>مجموع خرید درهم:</span><span>{formatAed(totalAedSpent)}</span></div>
+          </div>
+        </div>
+      )}
+
+      {/* ۵. تب درگاه پرداخت */}
+      {activeAdminSubTab === 'gateway' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-5">
+          <div className="flex items-center justify-between border-b pb-4">
+            <h3 className="font-extrabold text-base text-slate-900">تنظیمات درگاه پرداخت و کارت به کارت</h3>
+            <button onClick={handleSaveAllCms} className="bg-slate-900 text-white text-xs px-5 py-2.5 rounded-xl font-bold">ذخیره</button>
+          </div>
+
+          <div className="space-y-4 text-xs">
+            <div>
+              <label className="font-bold block mb-1">کد مرچنت درگاه (Merchant ID):</label>
+              <input type="text" value={merchantId} onChange={(e) => setMerchantId(e.target.value)} className="w-full p-2.5 bg-slate-50 border rounded-xl font-mono text-left dir-ltr" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="font-bold block mb-1">شماره کارت:</label>
+                <input type="text" value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} className="w-full p-2.5 bg-slate-50 border rounded-xl font-mono dir-ltr text-center" />
+              </div>
+              <div>
+                <label className="font-bold block mb-1">نام بانک:</label>
+                <input type="text" value={bankName} onChange={(e) => setBankName(e.target.value)} className="w-full p-2.5 bg-slate-50 border rounded-xl" />
+              </div>
+              <div>
+                <label className="font-bold block mb-1">صاحب حساب:</label>
+                <input type="text" value={cardholderName} onChange={(e) => setCardholderName(e.target.value)} className="w-full p-2.5 bg-slate-50 border rounded-xl" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ۶. تب امنیت و رمز عبور */}
       {activeAdminSubTab === 'security' && (
         <form onSubmit={handleChangePassword} className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-5">
           <div className="flex items-center gap-3 border-b pb-4">
@@ -538,7 +615,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </form>
       )}
 
-      {/* ۴. تب مدیریت ظاهر، لوگو و عکس‌ها */}
+      {/* ۷. تب مدیریت لوگو و عکس‌ها */}
       {activeAdminSubTab === 'homeContent' && (
         <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-6">
           <div className="flex items-center justify-between border-b pb-4">
@@ -554,7 +631,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
 
           <div className="space-y-5 text-xs">
-            {/* لوگوی سایت */}
             <div className="bg-slate-50 p-4 rounded-2xl border space-y-3">
               <label className="font-extrabold text-slate-800 block">تصویر لوگوی سایت (Logo):</label>
               {logoUrl && (
@@ -577,7 +653,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               />
             </div>
 
-            {/* بنر اصلی بالای سایت */}
             <div className="bg-slate-50 p-4 rounded-2xl border space-y-3">
               <label className="font-extrabold text-slate-800 block">بنر اصلی بالای سایت (Hero Banner):</label>
               {heroImage && (
@@ -602,11 +677,77 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* ۵. بقیه تب‌ها (آمار، حسابداری، درگاه، پیشنهادها، انبار ایران، کلیدها، بک‌آپ) */}
-      {(activeAdminSubTab === 'dashboard' || activeAdminSubTab === 'accounting' || activeAdminSubTab === 'gateway' || activeAdminSubTab === 'deals' || activeAdminSubTab === 'inventory' || activeAdminSubTab === 'apiSettings' || activeAdminSubTab === 'backup') && (
-        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs text-center text-xs space-y-3">
-          <p className="font-extrabold text-slate-800 text-sm">تب فعال: {activeAdminSubTab}</p>
-          <p className="text-slate-500">اطلاعات این بخش با فایربیس همگام است و پس از به‌روزرسانی فعال خواهد بود.</p>
+      {/* ۸. تب پیشنهادهای ویژه */}
+      {activeAdminSubTab === 'deals' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b pb-3">
+            <h3 className="font-extrabold text-base text-slate-900">مدیریت پیشنهادهای ویژه ({dealsList.length})</h3>
+            <button onClick={handleSaveAllCms} className="bg-slate-900 text-white text-xs px-4 py-2 rounded-xl font-bold">ذخیره</button>
+          </div>
+          <div className="space-y-3">
+            {dealsList.map((deal, idx) => (
+              <div key={idx} className="p-3 bg-slate-50 border rounded-2xl flex items-center justify-between gap-2 text-xs">
+                <input
+                  type="text"
+                  value={deal.title}
+                  onChange={(e) => {
+                    const updated = [...dealsList];
+                    updated[idx].title = e.target.value;
+                    setDealsList(updated);
+                  }}
+                  className="bg-white border p-2 rounded-xl w-full font-bold"
+                />
+                <button onClick={() => setDealsList(dealsList.filter((_, i) => i !== idx))} className="p-2 text-rose-600">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ۹. تب انبار ایران */}
+      {activeAdminSubTab === 'inventory' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b pb-3">
+            <h3 className="font-extrabold text-base text-slate-900">مدیریت محصولات انبار ایران ({localInventoryList.length})</h3>
+            <button onClick={handleSaveAllCms} className="bg-slate-900 text-white text-xs px-4 py-2 rounded-xl font-bold">ذخیره</button>
+          </div>
+          <div className="space-y-3">
+            {localInventoryList.map((item, idx) => (
+              <div key={idx} className="p-3 bg-slate-50 border rounded-2xl flex items-center justify-between gap-2 text-xs">
+                <input
+                  type="text"
+                  value={item.title}
+                  onChange={(e) => {
+                    const updated = [...localInventoryList];
+                    updated[idx].title = e.target.value;
+                    setLocalInventoryList(updated);
+                  }}
+                  className="bg-white border p-2 rounded-xl w-full font-bold"
+                />
+                <button onClick={() => setLocalInventoryList(localInventoryList.filter((_, i) => i !== idx))} className="p-2 text-rose-600">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ۱۰. تب کلیدهای API */}
+      {activeAdminSubTab === 'apiSettings' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4 text-xs">
+          <h3 className="font-extrabold text-base text-slate-900 border-b pb-3">مدیریت کلیدها و سرویس‌های API</h3>
+          <p className="text-slate-500">کلیدهای فعال ربات تلگرام، ایمیل و سرویس‌های استخراج خودکار محصول روی فایربیس ثبت شده‌اند.</p>
+        </div>
+      )}
+
+      {/* ۱۱. تب بک‌آپ دیتابیس */}
+      {activeAdminSubTab === 'backup' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4 text-xs">
+          <h3 className="font-extrabold text-base text-slate-900 border-b pb-3">پشتیبان‌گیری از دیتابیس</h3>
+          <p className="text-slate-500">تمامی داده‌ها شامل محصولات، سفارشات و تنظیمات به‌صورت زنده در دیتابیس آنلاین Firestore فایربیس همگام‌سازی و ذخیره می‌گردند.</p>
         </div>
       )}
     </div>

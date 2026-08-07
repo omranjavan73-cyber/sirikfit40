@@ -27,7 +27,6 @@ import {
   ArrowDown,
   PackageCheck,
   Package,
-  Plane,
   Home,
   ToggleLeft,
   ToggleRight,
@@ -46,7 +45,6 @@ import {
   Eye,
   EyeOff,
   Calculator,
-  PieChart,
   Building2,
   FileSpreadsheet,
   Check,
@@ -99,10 +97,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Active Admin Sub-tab: 'dashboard' | 'orders' | 'financial' | 'cms' | 'deals' | 'inventory' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'apiSettings'
+  // Active Admin Sub-tab
   const [activeAdminSubTab, setActiveAdminSubTab] = useState<
-    'dashboard' | 'orders' | 'financial' | 'cms' | 'deals' | 'inventory' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'apiSettings'
+    'dashboard' | 'orders' | 'accounting' | 'gateway' | 'pricingRules' | 'homeContent' | 'deals' | 'inventory' | 'cms' | 'apiSettings' | 'backup' | 'security'
   >('dashboard');
+
+  // Forgot Password States
+  const [isForgotMode, setIsForgotMode] = useState(false);
+  const [forgotStep, setForgotStep] = useState<'request' | 'verify'>('request');
+  const [otpCodeInput, setForgotOtpCodeInput] = useState('');
+  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [newPasswordFromForgot, setNewPasswordFromForgot] = useState('');
+  const [forgotStatusMsg, setForgotStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Security Tab Inputs
+  const [currentPassInput, setCurrentPassInput] = useState('');
+  const [newPassInput, setNewPassInput] = useState('');
+  const [confirmPassInput, setConfirmPassInput] = useState('');
+  const [securityStatusMsg, setSecurityStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   // Orders State
   const [orders, setOrders] = useState<Order[]>([]);
@@ -129,7 +142,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [accountingSearchQuery, setAccountingSearchQuery] = useState<string>('');
   const [accountingStatusFilter, setAccountingStatusFilter] = useState<string>('ALL');
 
-  // Financial Form String Inputs (Fixes leading zero bugs & clearing empty state)
+  // Financial Form String Inputs
   const [aedRateInput, setAedRateInput] = useState<string>(String(settings.aedRate));
   const [manualAedRateInput, setManualAedRateInput] = useState<string>(String(settings.manualAedRate || settings.aedRate || 53000));
   const [cargoRateInput, setCargoRateInput] = useState<string>(String(settings.cargoRatePerKg));
@@ -141,7 +154,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [saveSettingsSuccess, setSaveSettingsSuccess] = useState(false);
-  const [scraperToast, setScraperToast] = useState<string | null>(null);
 
   // CMS Form State
   const [heroTitle, setHeroTitle] = useState(cms?.heroTitle || '');
@@ -159,6 +171,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [warehouseCategories, setWarehouseCategories] = useState<WarehouseCategory[]>(
     cms?.warehouseCategories?.length ? cms.warehouseCategories : DEFAULT_WAREHOUSE_CATEGORIES
   );
+
   const DEFAULT_BANNER_SLOGANS = [
     '⚡ ارسال مستقیم و تضمینی کالا از دبی تا درب منزل',
     '💯 تضمین ۱۰۰٪ اصالت مکملها و ضمانت بازگشت',
@@ -210,14 +223,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleResetSlogans = () => {
     setAnnouncementSlogans([...DEFAULT_BANNER_SLOGANS]);
   };
+
   const [currencyApiUrl, setCurrencyApiUrl] = useState(cms?.apiConfig?.currencyApiUrl || '');
   const [scraperEndpoint, setScraperEndpoint] = useState(cms?.apiConfig?.scraperEndpoint || '');
   const [scraperApiKey, setScraperApiKey] = useState<string>(() => {
-    try {
-      return localStorage.getItem('scraper_api_key') || cms?.apiConfig?.scraperApiKey || '';
-    } catch (_e) {
-      return cms?.apiConfig?.scraperApiKey || '';
-    }
+    try { return localStorage.getItem('scraper_api_key') || cms?.apiConfig?.scraperApiKey || ''; } catch (_e) { return cms?.apiConfig?.scraperApiKey || ''; }
   });
   const [enableScraperApi, setEnableScraperApi] = useState<boolean>(() => {
     try {
@@ -274,12 +284,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [appTitleText, setAppTitleText] = useState(cms?.homeContent?.appTitle || 'SIRIK FIT');
   const [appSubtitleText, setAppSubtitleText] = useState(cms?.homeContent?.appSubtitle || 'مکمل‌های ورزشی و اورجینال');
   const [headerPillSlogan, setHeaderPillSlogan] = useState(cms?.homeContent?.headerPillSlogan || 'مکمل‌های ورزشی و اورجینال');
-  const [logoUrl, setLogoUrl] = useState(cms?.homeContent?.logoUrl || '');
+  const [logoUrl, setLogoUrl] = useState(cms?.homeContent?.logoUrl || cms?.logoUrl || '');
 
   const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroMainHeadline || 'فقط اورجینال، فقط');
   const [heroHighlightWord, setHeroHighlightWord] = useState(cms?.homeContent?.heroHighlightWord || 'نتیجه.');
   const [heroBannerSubtitle, setHeroBannerSubtitle] = useState(cms?.homeContent?.heroSubtitle || 'تضمین اصالت کالا، تضمین کیفیت.');
-  const [heroImageUrl, setHeroImageUrl] = useState(cms?.homeContent?.heroImageUrl || '');
+  const [heroImageUrl, setHeroImageUrl] = useState(cms?.homeContent?.heroImageUrl || cms?.heroImage || '');
 
   const [calcBlackBadge, setCalcBlackBadge] = useState(cms?.homeContent?.calcBlackBadge || '✦ خرید مستقیم از دبی');
   const [calcMainHeadline, setCalcMainHeadline] = useState(cms?.homeContent?.calcMainHeadline || 'برآورد قیمت و ثبت سفارش');
@@ -315,257 +325,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [trustBadge2, setTrustBadge2] = useState(cms?.homeContent?.trustBadge2 || 'حمل ایمن کارگو');
   const [trustBadge3, setTrustBadge3] = useState(cms?.homeContent?.trustBadge3 || 'تحویل ۵ تا ۷ روزه');
 
-  // Backup & Restore State
   const [backupMessage, setBackupMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
-
-  // Backup Export and Import Handlers
-  const handleExportBackup = () => {
-    try {
-      const backupData = {
-        version: '2.0.0',
-        exportedAt: new Date().toISOString(),
-        platform: 'SIRIK FIT Imports Platform',
-        settings,
-        cms,
-        orders,
-        localInventory: localInventoryList,
-        deals: dealsList,
-        stores: storesList
-      };
-
-      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupData, null, 2));
-      const downloadAnchor = document.createElement('a');
-      downloadAnchor.setAttribute('href', dataStr);
-      const dateStr = new Date().toISOString().slice(0, 10);
-      downloadAnchor.setAttribute('download', `sirikfit-backup-${dateStr}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-      setBackupMessage({ text: 'خروجی فایل پشتیبان (JSON) با موفقیت دریافت شد.', type: 'success' });
-    } catch (err: any) {
-      setBackupMessage({ text: 'خطا در دانلود فایل پشتیبان: ' + (err.message || ''), type: 'error' });
-    }
-  };
-
-  const handleImportBackup = async (file: File) => {
-    setIsRestoringBackup(true);
-    setBackupMessage(null);
-    try {
-      const text = await file.text();
-      const importedData = JSON.parse(text);
-
-      if (!importedData || typeof importedData !== 'object') {
-        throw new Error('فرمت فایل انتخاب شده نامعتبر است.');
-      }
-
-      // Restore Settings if present
-      if (importedData.settings) {
-        onUpdateSettings(importedData.settings);
-        await saveSettingsToFirestore(importedData.settings);
-        await fetch('/api/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(importedData.settings)
-        }).catch(() => {});
-      }
-
-      // Restore CMS if present
-      if (importedData.cms) {
-        onUpdateCms(importedData.cms);
-        await saveSettingsToFirestore(importedData.cms);
-        await fetch('/api/cms', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(importedData.cms)
-        }).catch(() => {});
-      }
-
-      // Restore Orders if present
-      if (Array.isArray(importedData.orders)) {
-        setOrders(importedData.orders);
-        for (const order of importedData.orders) {
-          await fetch('/api/orders', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(order)
-          }).catch(() => {});
-        }
-      }
-
-      if (Array.isArray(importedData.deals)) setDealsList(importedData.deals);
-      if (Array.isArray(importedData.localInventory)) setLocalInventoryList(importedData.localInventory);
-      if (Array.isArray(importedData.stores)) setStoresList(importedData.stores);
-
-      setBackupMessage({ text: 'اطلاعات فایل پشتیبان با موفقیت بازیابی و همگام‌سازی شد.', type: 'success' });
-    } catch (err: any) {
-      console.error('Error restoring backup:', err);
-      setBackupMessage({ text: 'خطا در بازیابی فایل پشتیبان: ' + (err.message || 'فرمت فایل ناهمخوان است.'), type: 'error' });
-    } finally {
-      setIsRestoringBackup(false);
-    }
-  };
-
-  // Direct Image File Upload Handlers (Base64)
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 8 * 1024 * 1024) {
-        alert('حجم فایل تصویر لوگو نباید بیشتر از ۸ مگابایت باشد.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setLogoUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleHeroBannerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 15 * 1024 * 1024) {
-        alert('حجم فایل تصویر بنر نباید بیشتر از ۱۵ مگابایت باشد.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setHeroImageUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const [isSavingCms, setIsSavingCms] = useState(false);
   const [saveCmsSuccess, setSaveCmsSuccess] = useState(false);
-
-  // Sync inputs if props update
-  useEffect(() => {
-    setAedRateInput(String(settings.aedRate));
-    setCargoRateInput(String(settings.cargoRatePerKg));
-    setProfitMarginInput(String(settings.profitMargin));
-    setMinOrderAedInput(String(settings.minOrderAed || 200));
-  }, [settings]);
-
-  useEffect(() => {
-    if (cms) {
-      setHeroTitle(cms.heroTitle);
-      setHeroSubtitle(cms.heroSubtitle);
-      setHeroNotice(cms.heroNotice);
-      setHeroImage(cms.heroImage);
-      setStoresList(cms.stores || []);
-      setDealsList(cms.deals || []);
-      setShowLocalInventory(cms.showLocalInventory ?? true);
-      setWarehouseBannerTitle(cms.warehouseBannerTitle || 'کالاهای موجود در انبار ایران (ارسال فوری)');
-      setWarehouseBannerSubtitle(cms.warehouseBannerSubtitle || 'تحویل ۱ تا ۲ روزه در سراسر کشور • کالاها پلمپ و اورجینال');
-      setWarehouseBannerTheme(cms.warehouseBannerTheme || 'light');
-      setWarehouseBannerButtonText(cms.warehouseBannerButtonText || 'جستجو و مشاهده همه');
-      setLocalInventoryList(cms.localInventory || []);
-      if (cms.warehouseCategories && cms.warehouseCategories.length) {
-        setWarehouseCategories(cms.warehouseCategories);
-      }
-      setShowAnnouncementBanner(cms.showAnnouncementBanner ?? true);
-      setAnnouncementText(cms.announcementText || 'ارسال مستقیم و تضمینی کالا از دبی تا درب منزل');
-      setAnnouncementBadge(cms.announcementBadge || 'تحویل ۵ الی ۷ روز کاری');
-      if (cms.announcementSlogans && cms.announcementSlogans.length > 0) {
-        setAnnouncementSlogans(cms.announcementSlogans);
-      } else {
-        setAnnouncementSlogans(DEFAULT_BANNER_SLOGANS);
-      }
-      setCurrencyApiUrl(cms.apiConfig?.currencyApiUrl || '');
-      setScraperEndpoint(cms.apiConfig?.scraperEndpoint || '');
-      if (cms.apiConfig?.scraperApiKey) setScraperApiKey(cms.apiConfig.scraperApiKey);
-      if (cms.apiConfig?.enableScraperApi !== undefined) setEnableScraperApi(cms.apiConfig.enableScraperApi);
-      setAutoUpdateRates(cms.apiConfig?.autoUpdateRates ?? true);
-      setTelegramBotToken(cms.apiConfig?.telegramBotToken || cms.homeContent?.telegramBotToken || '');
-      setAdminChatId(cms.apiConfig?.adminChatId || cms.homeContent?.adminChatId || '');
-      setTelegramNotifyEnabled(cms.apiConfig?.telegramNotifyEnabled ?? true);
-      setAdminDestinationEmail(cms.apiConfig?.adminDestinationEmail || cms.homeContent?.adminDestinationEmail || 'omran.javan73@gmail.com');
-      setEmailNotifyEnabled(cms.apiConfig?.emailNotifyEnabled ?? true);
-      setEmailjsServiceId(cms.apiConfig?.emailjsServiceId || '');
-      setEmailjsTemplateId(cms.apiConfig?.emailjsTemplateId || '');
-      setEmailjsPublicKey(cms.apiConfig?.emailjsPublicKey || '');
-      setResendApiKey(cms.apiConfig?.resendApiKey || '');
-      if (cms.apiConfig?.allowedDomains && cms.apiConfig.allowedDomains.length > 0) {
-        setAllowedDomainsInput(cms.apiConfig.allowedDomains.join('\n'));
-      }
-      try {
-        const savedRestricted = localStorage.getItem('enable_domain_restriction');
-        if (savedRestricted !== null) {
-          setEnableDomainRestriction(JSON.parse(savedRestricted));
-        } else {
-          const savedFree = localStorage.getItem('is_free_extraction');
-          if (savedFree !== null) {
-            setEnableDomainRestriction(savedFree !== 'true');
-          } else if (cms.apiConfig?.enableDomainRestriction !== undefined) {
-            setEnableDomainRestriction(cms.apiConfig.enableDomainRestriction);
-          }
-        }
-      } catch (_e) {}
-
-      const loadedKeys = getEffectiveGeminiKeysList(cms.apiConfig?.geminiApiKeys || cms.apiConfig?.geminiApiKey);
-      setGeminiApiKey1(loadedKeys[0] || (typeof cms.apiConfig?.geminiApiKey === 'string' && cms.apiConfig.geminiApiKey !== '******' ? cms.apiConfig.geminiApiKey : ''));
-      setGeminiApiKey2(loadedKeys[1] || (typeof cms.apiConfig?.geminiApiKey2 === 'string' && cms.apiConfig.geminiApiKey2 !== '******' ? cms.apiConfig.geminiApiKey2 : ''));
-      setGeminiApiKey3(loadedKeys[2] || (typeof cms.apiConfig?.geminiApiKey3 === 'string' && cms.apiConfig.geminiApiKey3 !== '******' ? cms.apiConfig.geminiApiKey3 : ''));
-
-      if (cms.homeContent) {
-        const titleToUse = (cms.homeContent.brandTitle || cms.homeContent.appTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
-        const subToUse = (cms.homeContent.brandSubtitle || cms.homeContent.appSubtitle || 'مکمل‌های ورزشی و اورجینال').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکمل‌های ورزشی و اورجینال';
-        setTopPromoText(cms.homeContent.topPromoText || 'سیریک فیت - مکمل‌های تخصصی ورزشی و اورجینال');
-        setShowTopPromo(cms.homeContent.showTopPromo ?? false);
-        setAppTitleText(titleToUse);
-        setAppSubtitleText(subToUse);
-        setHeaderPillSlogan(cms.homeContent.headerPillSlogan || subToUse);
-        setLogoUrl(cms.homeContent.logoUrl || '');
-        setHeroMainHeadline(cms.homeContent.heroMainHeadline || 'فقط اورجینال، فقط');
-        setHeroHighlightWord(cms.homeContent.heroHighlightWord || 'نتیجه.');
-        setHeroBannerSubtitle(cms.homeContent.heroSubtitle || 'تضمین اصالت کالا، تضمین کیفیت.');
-        setHeroImageUrl(cms.homeContent.heroImageUrl || '');
-        setCalcBlackBadge(cms.homeContent.calcBlackBadge || '✦ خرید مستقیم از دبی');
-        setCalcMainHeadline(cms.homeContent.calcMainHeadline || 'برآورد قیمت و ثبت سفارش');
-        setCalcSubtitle(cms.homeContent.calcSubtitle || 'لینک محصول را وارد کنید تا قیمت تحویل در ایران فوری محاسبه شود.');
-        setCalcScheduleBadge(cms.homeContent.calcScheduleBadge || '📅 ارسال هر دوشنبه و پنجشنبه');
-        setTelegramHandle(cms.homeContent.telegramHandle || '@SIRIK_FIT_Support');
-        setTelegramLink(cms.homeContent.telegramLink || 'https://t.me/SIRIK_FIT_Support');
-        setWhatsappPhone(cms.homeContent.whatsappPhone || 'پاسخگویی سریع ۲۴ ساعته');
-        setWhatsappLink(cms.homeContent.whatsappLink || 'https://wa.me/989120000000');
-        setShowWhatsappCard(cms.homeContent.showWhatsappCard ?? true);
-        setOfficePhone(cms.homeContent.officePhone || '021-91000000');
-        setDubaiPhone(cms.homeContent.dubaiPhone || '+971-500000000');
-        setShowDubaiPhone(cms.homeContent.showDubaiPhone ?? true);
-        setSupportHeadline(cms.homeContent.supportHeadline || 'پشتیبانی و مشاوره تخصصی واردات دبی');
-        setSupportSubtitle(cms.homeContent.supportSubtitle || 'پاسخگویی ۲۴ ساعته توسط کارشناسان تغذیه و لاجستیک');
-        setShowSupportSection(cms.homeContent.showSupportSection ?? true);
-        setShowTelegramCard(cms.homeContent.showTelegramCard ?? true);
-        setTelegramTitle(cms.homeContent.telegramTitle || 'ارتباط با پشتیبانی در تلگرام');
-        setShowEmailCard(cms.homeContent.showEmailCard ?? true);
-        setEmailTitle(cms.homeContent.emailTitle || 'ارتباط از طریق ایمیل پشتیبانی');
-        setShowPhoneCard(cms.homeContent.showPhoneCard ?? true);
-        setPhoneTitle(cms.homeContent.phoneTitle || 'تلفن پشتیبانی');
-        setTrustBadge1(cms.homeContent.trustBadge1 || 'ارسال سریع');
-        setTrustBadge2(cms.homeContent.trustBadge2 || 'ضمانت اصالت');
-        setTrustBadge3(cms.homeContent.trustBadge3 || '100% اورجینال');
-      }
-
-      if (cms.paymentGateway) {
-        setActiveGateway(cms.paymentGateway.activeGateway || 'zarinpal');
-        setMerchantId(cms.paymentGateway.merchantId || '');
-        setCallbackUrl(cms.paymentGateway.callbackUrl || '/api/payment/callback');
-        setIsSandbox(cms.paymentGateway.isSandbox ?? true);
-        if (cms.paymentGateway.cardToCard) {
-          setCardNumber(cms.paymentGateway.cardToCard.cardNumber || '');
-          setBankName(cms.paymentGateway.cardToCard.bankName || '');
-          setCardholderName(cms.paymentGateway.cardToCard.cardholderName || '');
-          setShabaNumber(cms.paymentGateway.cardToCard.shabaNumber || '');
-        }
-      }
-    }
-  }, [cms]);
 
   // Database Connection Status State
   const [dbStatus, setDbStatus] = useState<{ connected: boolean; dbId?: string; loading: boolean }>({
@@ -573,7 +336,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     loading: true
   });
 
-  // Check existing auth token and Firestore DB status
   useEffect(() => {
     const token = localStorage.getItem('omex_admin_token');
     if (token) {
@@ -595,24 +357,105 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setLoginError('');
 
     try {
-      const res = await fetch('/api/admin/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: passwordInput })
-      });
+      const savedPassInDb = await getAdminPasswordFromFirestore();
+      const validPass = savedPassInDb || 'omex2025';
 
-      const data = await res.json();
-      if (res.ok && data.token) {
-        localStorage.setItem('omex_admin_token', data.token);
+      if (passwordInput === validPass) {
+        localStorage.setItem('omex_admin_token', 'token_' + Date.now());
         setIsAuthenticated(true);
         fetchAdminOrders();
       } else {
-        setLoginError(data.error || 'رمز عبور اشتباه است.');
+        setLoginError('رمز عبور اشتباه است.');
       }
     } catch (err) {
-      setLoginError('خطا در برقراری ارتباط با سرور.');
+      setLoginError('خطا در بررسی رمز عبور.');
     } finally {
       setIsLoggingIn(false);
+    }
+  };
+
+  const handleSendRecoveryEmail = async () => {
+    setForgotStatusMsg(null);
+    const adminEmail = cms?.apiConfig?.adminDestinationEmail || 'omran.javan73@gmail.com';
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    setGeneratedOtp(otp);
+
+    try {
+      await fetch('/api/notify/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderData: {
+            id: 'RESET-' + Date.now(),
+            customerName: 'مدیریت SIRIK FIT',
+            phoneNumber: adminEmail,
+            productTitle: `کد یک‌بارمصرف بازیابی رمز عبور: ${otp}`,
+            calculatedToman: 0
+          }
+        })
+      });
+
+      setForgotStatusMsg({
+        text: `کد ۶ رقمی بازیابی به ایمیل ${adminEmail} ارسال شد. (کد تست: ${otp})`,
+        type: 'success'
+      });
+      setForgotStep('verify');
+    } catch (e) {
+      setForgotStatusMsg({ text: 'خطا در ارسال ایمیل بازیابی.', type: 'error' });
+    }
+  };
+
+  const handleResetPasswordWithOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (otpCodeInput.trim() !== generatedOtp) {
+      setForgotStatusMsg({ text: 'کد واردشده اشتباه است.', type: 'error' });
+      return;
+    }
+    if (newPasswordFromForgot.length < 6) {
+      setForgotStatusMsg({ text: 'رمز عبور باید حداقل ۶ کاراکتر باشد.', type: 'error' });
+      return;
+    }
+
+    await saveAdminPasswordToFirestore(newPasswordFromForgot);
+    setForgotStatusMsg({ text: 'رمز عبور با موفقیت تغییر یافت. اکنون وارد شوید.', type: 'success' });
+    setTimeout(() => {
+      setIsForgotMode(false);
+      setForgotStep('request');
+      setPasswordInput(newPasswordFromForgot);
+    }, 1500);
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecurityStatusMsg(null);
+
+    const savedPassInDb = await getAdminPasswordFromFirestore();
+    const currentPass = savedPassInDb || 'omex2025';
+
+    if (currentPassInput !== currentPass) {
+      setSecurityStatusMsg({ text: 'رمز عبور فعلی اشتباه است.', type: 'error' });
+      return;
+    }
+    if (newPassInput.length < 6) {
+      setSecurityStatusMsg({ text: 'رمز عبور جدید باید حداقل ۶ کاراکتر باشد.', type: 'error' });
+      return;
+    }
+    if (newPassInput !== confirmPassInput) {
+      setSecurityStatusMsg({ text: 'تکرار رمز عبور جدید مطابقت ندارد.', type: 'error' });
+      return;
+    }
+
+    setIsSavingPassword(true);
+    try {
+      await saveAdminPasswordToFirestore(newPassInput);
+      setSecurityStatusMsg({ text: 'رمز عبور جدید با موفقیت در فایربیس ذخیره شد.', type: 'success' });
+      setCurrentPassInput('');
+      setNewPassInput('');
+      setConfirmPassInput('');
+    } catch (err) {
+      setSecurityStatusMsg({ text: 'خطا در ثبت رمز عبور.', type: 'error' });
+    } finally {
+      setIsSavingPassword(false);
     }
   };
 
@@ -763,7 +606,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     document.body.removeChild(link);
   };
 
-  // Financial Settings Save with String Clean Handlers
   const handleAedRateChange = (valStr: string) => {
     const clean = valStr.replace(/^0+(?=\d)/, '');
     setAedRateInput(clean);
@@ -880,7 +722,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // CMS Store Handlers
   const handleAddStore = () => {
     const newStore: StoreCardItem = {
       id: 'store-' + Date.now(),
@@ -903,11 +744,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setStoresList(prev => prev.filter(s => s.id !== id));
   };
 
-  // Auto-Extract New Deal State
   const [newDealUrlInput, setNewDealUrlInput] = useState('');
   const [isExtractingNewDeal, setIsExtractingNewDeal] = useState(false);
-
-  // Auto-Extract New Local Inventory Item State
   const [newLocalUrlInput, setNewLocalUrlInput] = useState('');
   const [isExtractingNewLocalItem, setIsExtractingNewLocalItem] = useState(false);
 
@@ -977,7 +815,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // CMS Deal Handlers
   const handleAutoExtractAndAddDeal = async () => {
     if (!newDealUrlInput.trim()) return;
     setIsExtractingNewDeal(true);
@@ -1094,7 +931,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setDealsList(prev => prev.filter(d => d.id !== id));
   };
 
-  // Local Inventory Handlers
   const handleAddLocalItem = () => {
     const newItem: LocalInventoryItem = {
       id: 'local-' + Date.now(),
@@ -1125,7 +961,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const applyHomeContentToDom = (homeSettings: HomePageSettings) => {
     try {
-      // 1. Top Promo Strip
       const topPromoEl = document.getElementById('top-promo-strip');
       if (topPromoEl) {
         if (homeSettings.showTopPromo) {
@@ -1140,16 +975,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (topPromoTextEl) {
         topPromoTextEl.textContent = homeSettings.topPromoText;
       }
-
-      // 2. Branding & Header
       const appTitleEl = document.getElementById('header-app-title');
-      if (appTitleEl) {
-        appTitleEl.textContent = homeSettings.appTitle;
-      }
+      if (appTitleEl) appTitleEl.textContent = homeSettings.appTitle;
       const appSubtitleEl = document.getElementById('header-app-subtitle');
-      if (appSubtitleEl) {
-        appSubtitleEl.textContent = homeSettings.appSubtitle;
-      }
+      if (appSubtitleEl) appSubtitleEl.textContent = homeSettings.appSubtitle;
       const appLogoEl = document.getElementById('header-app-logo');
       if (appLogoEl) {
         if (appLogoEl.tagName.toLowerCase() === 'img') {
@@ -1158,64 +987,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           appLogoEl.textContent = (homeSettings.appSubtitle || 'OMX').slice(0, 4);
         }
       }
-
-      // 3. Calculator Box Content
       const calcBlackBadgeEl = document.getElementById('calc-black-badge');
-      if (calcBlackBadgeEl) {
-        calcBlackBadgeEl.textContent = homeSettings.calcBlackBadge;
-      }
+      if (calcBlackBadgeEl) calcBlackBadgeEl.textContent = homeSettings.calcBlackBadge;
       const calcHeadlineEl = document.getElementById('calc-main-headline');
-      if (calcHeadlineEl) {
-        calcHeadlineEl.textContent = homeSettings.calcMainHeadline;
-      }
+      if (calcHeadlineEl) calcHeadlineEl.textContent = homeSettings.calcMainHeadline;
       const calcSubtitleEl = document.getElementById('calc-subtitle');
-      if (calcSubtitleEl) {
-        calcSubtitleEl.textContent = homeSettings.calcSubtitle;
-      }
+      if (calcSubtitleEl) calcSubtitleEl.textContent = homeSettings.calcSubtitle;
       const calcScheduleEl = document.getElementById('calc-schedule-badge');
-      if (calcScheduleEl) {
-        calcScheduleEl.textContent = homeSettings.calcScheduleBadge;
-      }
-
-      // 4. Support & Contact Section
+      if (calcScheduleEl) calcScheduleEl.textContent = homeSettings.calcScheduleBadge;
       const supportSectionEl = document.getElementById('support-section');
-      if (supportSectionEl) {
-        supportSectionEl.style.display = homeSettings.showSupportSection ? 'block' : 'none';
-      }
+      if (supportSectionEl) supportSectionEl.style.display = homeSettings.showSupportSection ? 'block' : 'none';
       const supportHeadlineEl = document.getElementById('support-headline');
-      if (supportHeadlineEl) {
-        supportHeadlineEl.textContent = homeSettings.supportHeadline;
-      }
+      if (supportHeadlineEl) supportHeadlineEl.textContent = homeSettings.supportHeadline;
       const supportSubtitleEl = document.getElementById('support-subtitle');
-      if (supportSubtitleEl) {
-        supportSubtitleEl.textContent = homeSettings.supportSubtitle;
-      }
+      if (supportSubtitleEl) supportSubtitleEl.textContent = homeSettings.supportSubtitle;
       const telegramTextEl = document.getElementById('telegram-handle-text');
-      if (telegramTextEl) {
-        telegramTextEl.textContent = homeSettings.telegramHandle;
-      }
+      if (telegramTextEl) telegramTextEl.textContent = homeSettings.telegramHandle;
       const telegramLinkEl = document.getElementById('telegram-link-element') as HTMLAnchorElement | null;
-      if (telegramLinkEl) {
-        telegramLinkEl.href = homeSettings.telegramLink;
-      }
+      if (telegramLinkEl) telegramLinkEl.href = homeSettings.telegramLink;
       const emailTextEl = document.getElementById('email-address-text');
-      if (emailTextEl) {
-        emailTextEl.textContent = adminDestinationEmail || 'omran.javan73@gmail.com';
-      }
+      if (emailTextEl) emailTextEl.textContent = adminDestinationEmail || 'omran.javan73@gmail.com';
       const emailLinkEl = document.getElementById('email-link-element') as HTMLAnchorElement | null;
-      if (emailLinkEl) {
-        emailLinkEl.href = `mailto:${adminDestinationEmail || 'omran.javan73@gmail.com'}`;
-      }
+      if (emailLinkEl) emailLinkEl.href = `mailto:${adminDestinationEmail || 'omran.javan73@gmail.com'}`;
       const officePhoneEl = document.getElementById('office-phone-number');
-      if (officePhoneEl) {
-        officePhoneEl.textContent = homeSettings.officePhone;
-      }
+      if (officePhoneEl) officePhoneEl.textContent = homeSettings.officePhone;
       const officePhoneLinkEl = document.getElementById('office-phone-link-element') as HTMLAnchorElement | null;
-      if (officePhoneLinkEl) {
-        officePhoneLinkEl.href = `tel:${homeSettings.officePhone.replace(/[^0-9+]/g, '')}`;
-      }
-
-      // 5. Trust Badges
+      if (officePhoneLinkEl) officePhoneLinkEl.href = `tel:${homeSettings.officePhone.replace(/[^0-9+]/g, '')}`;
       const trust1 = document.getElementById('trust-badge-1');
       if (trust1) trust1.textContent = homeSettings.trustBadge1;
       const trust2 = document.getElementById('trust-badge-2');
@@ -1227,144 +1024,120 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleSaveHomeContent = async (e?: React.FormEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
+  const handleExportBackup = () => {
+    try {
+      const backupData = {
+        version: '2.0.0',
+        exportedAt: new Date().toISOString(),
+        platform: 'SIRIK FIT Imports Platform',
+        settings,
+        cms,
+        orders,
+        localInventory: localInventoryList,
+        deals: dealsList,
+        stores: storesList
+      };
+
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupData, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      const dateStr = new Date().toISOString().slice(0, 10);
+      downloadAnchor.setAttribute('download', `sirikfit-backup-${dateStr}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      setBackupMessage({ text: 'خروجی فایل پشتیبان (JSON) با موفقیت دریافت شد.', type: 'success' });
+    } catch (err: any) {
+      setBackupMessage({ text: 'خطا در دانلود فایل پشتیبان: ' + (err.message || ''), type: 'error' });
     }
-    setIsSavingCms(true);
-    setSaveCmsSuccess(false);
+  };
 
+  const handleImportBackup = async (file: File) => {
+    setIsRestoringBackup(true);
+    setBackupMessage(null);
     try {
-      localStorage.setItem('enable_domain_restriction', JSON.stringify(enableDomainRestriction));
-      localStorage.setItem('is_free_extraction', (!enableDomainRestriction).toString());
-    } catch (_e) {}
+      const text = await file.text();
+      const importedData = JSON.parse(text);
 
-    const sanitizedTitle = (appTitleText || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
-    const sanitizedSubtitle = (appSubtitleText || 'مکملهای ورزشی و اورجینال').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکملهای ورزشی و اورجینال';
-    const sanitizedPillSlogan = (headerPillSlogan || 'مکملهای ورزشی و اورجینال').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکملهای ورزشی و اورجینال';
-
-    const homeContentData: HomePageSettings = {
-      topPromoText,
-      showTopPromo,
-      appTitle: sanitizedTitle,
-      appSubtitle: sanitizedSubtitle,
-      brandTitle: sanitizedTitle,
-      brandSubtitle: sanitizedSubtitle,
-      headerPillSlogan: sanitizedPillSlogan,
-      logoUrl,
-      heroMainHeadline,
-      heroHighlightWord,
-      heroSubtitle: heroBannerSubtitle,
-      heroImageUrl,
-      calcBlackBadge,
-      calcMainHeadline,
-      calcSubtitle,
-      calcScheduleBadge,
-      telegramHandle,
-      telegramLink,
-      whatsappPhone,
-      whatsappLink,
-      showWhatsappCard,
-      officePhone,
-      dubaiPhone,
-      showDubaiPhone,
-      supportHeadline,
-      supportSubtitle,
-      showSupportSection,
-      showTelegramCard,
-      telegramTitle,
-      showEmailCard,
-      emailTitle,
-      showPhoneCard,
-      phoneTitle,
-      trustBadge1,
-      trustBadge2,
-      trustBadge3
-    };
-
-    const updatedCms: CmsConfig = {
-      heroTitle,
-      heroSubtitle,
-      heroNotice,
-      heroImage,
-      showAnnouncementBanner,
-      announcementText: announcementSlogans[0] || announcementText || 'ارسال مستقیم و تضمینی کالا از دبی تا درب منزل',
-      announcementBadge,
-      announcementSlogans,
-      stores: storesList,
-      deals: dealsList,
-      showLocalInventory,
-      warehouseBannerTitle,
-      warehouseBannerSubtitle,
-      warehouseBannerTheme,
-      warehouseBannerButtonText,
-      localInventory: localInventoryList,
-      warehouseCategories,
-      homeContent: homeContentData,
-      apiConfig: {
-        currencyApiUrl,
-        autoUpdateRates,
-        scraperEndpoint,
-        geminiApiKey: geminiApiKey1 || cms?.apiConfig?.geminiApiKey || '',
-        geminiApiKey1: geminiApiKey1 || '',
-        geminiApiKey2: geminiApiKey2 || '',
-        geminiApiKey3: geminiApiKey3 || '',
-        geminiApiKeys: [geminiApiKey1, geminiApiKey2, geminiApiKey3].filter(k => k && k.trim() !== '' && k !== '******'),
-        telegramBotToken,
-        adminChatId,
-        telegramNotifyEnabled,
-        adminDestinationEmail,
-        emailNotifyEnabled,
-        emailjsServiceId,
-        emailjsTemplateId,
-        emailjsPublicKey,
-        resendApiKey,
-        allowedDomains: allowedDomainsInput
-          .split(/[\n,]+/)
-          .map(d => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
-          .filter(d => d.length > 0),
-        enableDomainRestriction: enableDomainRestriction,
-        scraperApiKey: scraperApiKey,
-        enableScraperApi: enableScraperApi
+      if (!importedData || typeof importedData !== 'object') {
+        throw new Error('فرمت فایل انتخاب شده نامعتبر است.');
       }
-    };
 
-    // Immediate DOM element update for #home elements dynamically via JS
-    applyHomeContentToDom(homeContentData);
-
-    // Persist locally & directly to Firestore
-    localStorage.setItem('omex_home_cms', JSON.stringify(homeContentData));
-    saveSettingsToFirestore(updatedCms);
-
-    try {
-      const res = await fetch('/api/cms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedCms)
-      });
-
-      let data: any = {};
-      const ct = res.headers.get('content-type');
-      if (ct && ct.includes('application/json')) {
-        data = await res.json();
+      if (importedData.settings) {
+        onUpdateSettings(importedData.settings);
+        await saveSettingsToFirestore(importedData.settings);
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(importedData.settings)
+        }).catch(() => {});
       }
-      if (res.ok && data.cms) {
-        onUpdateCms(data.cms);
-        setSaveCmsSuccess(true);
-        setTimeout(() => setSaveCmsSuccess(false), 3000);
-      } else {
-        onUpdateCms(updatedCms);
-        setSaveCmsSuccess(true);
-        setTimeout(() => setSaveCmsSuccess(false), 3000);
+
+      if (importedData.cms) {
+        onUpdateCms(importedData.cms);
+        await saveSettingsToFirestore(importedData.cms);
+        await fetch('/api/cms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(importedData.cms)
+        }).catch(() => {});
       }
-    } catch (err) {
-      console.error('Error saving home content CMS:', err);
-      onUpdateCms(updatedCms);
-      setSaveCmsSuccess(true);
-      setTimeout(() => setSaveCmsSuccess(false), 3000);
+
+      if (Array.isArray(importedData.orders)) {
+        setOrders(importedData.orders);
+        for (const order of importedData.orders) {
+          await fetch('/api/orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(order)
+          }).catch(() => {});
+        }
+      }
+
+      if (Array.isArray(importedData.deals)) setDealsList(importedData.deals);
+      if (Array.isArray(importedData.localInventory)) setLocalInventoryList(importedData.localInventory);
+      if (Array.isArray(importedData.stores)) setStoresList(importedData.stores);
+
+      setBackupMessage({ text: 'اطلاعات فایل پشتیبان با موفقیت بازیابی و همگام‌سازی شد.', type: 'success' });
+    } catch (err: any) {
+      console.error('Error restoring backup:', err);
+      setBackupMessage({ text: 'خطا در بازیابی فایل پشتیبان: ' + (err.message || 'فرمت فایل ناهمخوان است.'), type: 'error' });
     } finally {
-      setIsSavingCms(false);
+      setIsRestoringBackup(false);
+    }
+  };
+
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 8 * 1024 * 1024) {
+        alert('حجم فایل تصویر لوگو نباید بیشتر از ۸ مگابایت باشد.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setLogoUrl(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleHeroBannerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 15 * 1024 * 1024) {
+        alert('حجم فایل تصویر بنر نباید بیشتر از ۱۵ مگابایت باشد.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setHeroImageUrl(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -1422,7 +1195,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       heroTitle,
       heroSubtitle,
       heroNotice,
-      heroImage,
+      heroImage: heroImageUrl || heroImage,
+      logoUrl,
       showAnnouncementBanner,
       announcementText,
       announcementBadge,
@@ -1436,6 +1210,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       localInventory: localInventoryList,
       warehouseCategories,
       homeContent: currentHomeContent,
+      paymentGateway: {
+        activeGateway,
+        merchantId,
+        callbackUrl,
+        isSandbox,
+        cardToCard: { cardNumber, bankName, cardholderName, shabaNumber }
+      },
       apiConfig: {
         currencyApiUrl,
         autoUpdateRates,
@@ -1491,6 +1272,141 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  if (!isAuthenticated) {
+    return (
+      <div className="max-w-md mx-auto my-8 bg-white border border-neutral-200 rounded-3xl p-6 shadow-xl text-neutral-800 font-['Vazirmatn',sans-serif]">
+        <div className="text-center space-y-2 mb-6">
+          <div className="w-14 h-14 rounded-2xl bg-black text-white flex items-center justify-center mx-auto shadow-md">
+            <Lock className="w-7 h-7" />
+          </div>
+          <h2 className="text-xl font-black text-neutral-900">ورود به پنل مدیریت SIRIK FIT</h2>
+          <p className="text-xs text-neutral-500 font-medium">برای دسترسی به داشبورد و تنظیمات، رمز عبور را وارد کنید</p>
+        </div>
+
+        {loginError && (
+          <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2 font-semibold">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{loginError}</span>
+          </div>
+        )}
+
+        {forgotStatusMsg && (
+          <div className={`mb-4 p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+            forgotStatusMsg.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
+          }`}>
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{forgotStatusMsg.text}</span>
+          </div>
+        )}
+
+        {!isForgotMode ? (
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-neutral-700 block mb-1.5">رمز عبور مدیر:</label>
+              <input
+                type="password"
+                required
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="رمز عبور را وارد کنید (پیش‌فرض: omex2025)"
+                className="w-full bg-neutral-50 border border-neutral-300 focus:border-black focus:bg-white text-neutral-900 text-sm px-4 py-2.5 rounded-xl focus:outline-none transition font-mono"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoggingIn}
+              className="w-full bg-black hover:bg-neutral-800 text-white font-extrabold text-sm py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {isLoggingIn ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>در حال بررسی...</span>
+                </>
+              ) : (
+                <span>ورود به سامانه</span>
+              )}
+            </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => setIsForgotMode(true)}
+                className="text-xs font-extrabold text-slate-600 hover:text-slate-900 underline cursor-pointer"
+              >
+                رمز عبور را فراموش کرده‌اید؟ (بازیابی با ایمیل)
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="space-y-4">
+            {forgotStep === 'request' ? (
+              <div className="space-y-4">
+                <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  یک کد ۶ رقمی بازیابی به ایمیل ادمین (<strong>{cms?.apiConfig?.adminDestinationEmail || 'omran.javan73@gmail.com'}</strong>) ارسال می‌شود.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSendRecoveryEmail}
+                  className="w-full bg-slate-900 hover:bg-black text-white font-extrabold text-sm py-3 rounded-xl transition cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Mail className="w-4 h-4 text-emerald-400" />
+                  <span>ارسال کد بازیابی به ایمیل</span>
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleResetPasswordWithOtp} className="space-y-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">کد ۶ رقمی دریافتی در ایمیل:</label>
+                  <input
+                    type="text"
+                    required
+                    value={otpCodeInput}
+                    onChange={(e) => setForgotOtpCodeInput(e.target.value)}
+                    placeholder="123456"
+                    className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm px-4 py-2 rounded-xl text-center font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">رمز عبور جدید:</label>
+                  <input
+                    type="password"
+                    required
+                    value={newPasswordFromForgot}
+                    onChange={(e) => setNewPasswordFromForgot(e.target.value)}
+                    placeholder="حداقل ۶ کاراکتر"
+                    className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm px-4 py-2 rounded-xl font-mono dir-ltr"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm py-3 rounded-xl transition cursor-pointer"
+                >
+                  ذخیره رمز عبور جدید
+                </button>
+              </form>
+            )}
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsForgotMode(false);
+                  setForgotStep('request');
+                }}
+                className="text-xs font-extrabold text-slate-500 hover:text-slate-800 cursor-pointer"
+              >
+                ← بازگشت به صفحه ورود
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // Stats for Dashboard
   const totalRevenueToman = orders
     .filter(o => o.paymentStatus === 'PAID')
@@ -1514,60 +1430,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return matchesSearch;
   });
 
-  // Login Modal / Screen if not authenticated
-  if (!isAuthenticated) {
-    return (
-      <div className="max-w-md mx-auto my-8 bg-white border border-neutral-200 rounded-3xl p-6 shadow-xl text-neutral-800 font-['Vazirmatn',sans-serif]">
-        <div className="text-center space-y-2 mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-black text-white flex items-center justify-center mx-auto shadow-md">
-            <Lock className="w-7 h-7" />
-          </div>
-          <h2 className="text-xl font-black text-neutral-900">ورود به پنل مدیریت SIRIK FIT</h2>
-          <p className="text-xs text-neutral-500 font-medium">برای دسترسی به داشبورد و تنظیمات، رمز عبور را وارد کنید</p>
-        </div>
-
-        {loginError && (
-          <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2 font-semibold">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{loginError}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="text-xs font-bold text-neutral-700 block mb-1.5">رمز عبور مدیر:</label>
-            <input
-              type="password"
-              required
-              value={passwordInput}
-              onChange={(e) => setPasswordInput(e.target.value)}
-              placeholder="رمز عبور را وارد کنید (پیش‌فرض: omex2025)"
-              className="w-full bg-neutral-50 border border-neutral-300 focus:border-black focus:bg-white text-neutral-900 text-sm px-4 py-2.5 rounded-xl focus:outline-none transition font-mono"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoggingIn}
-            className="w-full bg-black hover:bg-neutral-800 text-white font-extrabold text-sm py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
-          >
-            {isLoggingIn ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>در حال بررسی...</span>
-              </>
-            ) : (
-              <span>ورود به سامانه</span>
-            )}
-          </button>
-        </form>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 pb-12 font-['Vazirmatn',sans-serif]">
-      {/* Top Admin Header Bar - Matching Screenshot Design */}
+      {/* Top Admin Header Bar */}
       <div className="bg-white border border-slate-200/80 rounded-3xl p-5 shadow-xs flex items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
           <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-500 shrink-0 shadow-2xs">
@@ -1589,33 +1454,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       </div>
 
       {/* Admin Sub-Tabs Navigation Menu */}
-      <div className="admin-menu grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-10 gap-2">
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-200 no-scrollbar">
         <button
           onClick={() => setActiveAdminSubTab('pricingRules')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
             activeAdminSubTab === 'pricingRules'
               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
           }`}
         >
-          <div className="flex items-center gap-1.5 truncate">
-            <Calculator className="w-4 h-4 shrink-0 text-indigo-500" />
-            <span className="truncate">قوانین قیمت‌گذاری</span>
-          </div>
-          <span className="text-xs">🧮</span>
+          <Calculator className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'pricingRules' ? 'text-amber-400' : 'text-indigo-500'}`} />
+          <span>قوانین قیمت‌گذاری</span>
         </button>
+
         <button
           onClick={() => setActiveAdminSubTab('orders')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
             activeAdminSubTab === 'orders'
               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
           }`}
         >
-          <div className="flex items-center gap-1.5 truncate">
-            <ShoppingBag className="w-4 h-4 shrink-0" />
-            <span className="truncate">سفارشات</span>
-          </div>
+          <ShoppingBag className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'orders' ? 'text-amber-400' : 'text-rose-500'}`} />
+          <span>سفارشات</span>
           <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
             activeAdminSubTab === 'orders' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'
           }`}>
@@ -1625,76 +1486,74 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         <button
           onClick={() => setActiveAdminSubTab('accounting')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
             activeAdminSubTab === 'accounting'
               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
           }`}
         >
-          <div className="flex items-center gap-1.5 truncate">
-            <FileSpreadsheet className="w-4 h-4 shrink-0 text-emerald-500" />
-            <span className="truncate">حسابداری و مالی</span>
-          </div>
-          <span className="text-xs">📈</span>
+          <FileSpreadsheet className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'accounting' ? 'text-amber-400' : 'text-emerald-500'}`} />
+          <span>حسابداری و مالی</span>
         </button>
 
         <button
           onClick={() => setActiveAdminSubTab('gateway')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
             activeAdminSubTab === 'gateway'
               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
           }`}
         >
-          <div className="flex items-center gap-1.5 truncate">
-            <CreditCard className="w-4 h-4 shrink-0 text-rose-500" />
-            <span className="truncate">تنظیمات درگاه</span>
-          </div>
-          <span className="text-xs">💳</span>
+          <CreditCard className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'gateway' ? 'text-amber-400' : 'text-purple-500'}`} />
+          <span>تنظیمات درگاه</span>
+        </button>
+
+        <button
+          onClick={() => setActiveAdminSubTab('security')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'security'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100 shadow-2xs'
+          }`}
+        >
+          <ShieldCheck className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'security' ? 'text-amber-400' : 'text-emerald-600'}`} />
+          <span>امنیت و رمز عبور</span>
         </button>
 
         <button
           onClick={() => setActiveAdminSubTab('dashboard')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
             activeAdminSubTab === 'dashboard'
               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
           }`}
         >
-          <div className="flex items-center gap-1.5 truncate">
-            <TrendingUp className="w-4 h-4 shrink-0" />
-            <span className="truncate">آمار</span>
-          </div>
-          <span className="text-xs">📊</span>
+          <TrendingUp className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'dashboard' ? 'text-amber-400' : 'text-sky-500'}`} />
+          <span>آمار</span>
         </button>
 
         <button
           onClick={() => setActiveAdminSubTab('homeContent')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
             activeAdminSubTab === 'homeContent'
               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
           }`}
         >
-          <div className="flex items-center gap-1.5 truncate">
-            <Home className="w-4 h-4 shrink-0 text-sky-500" />
-            <span className="truncate">تنظیمات ظاهری و محتوایی سایت</span>
-          </div>
-          <span className="text-xs">🎨</span>
+          <Home className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'homeContent' ? 'text-amber-400' : 'text-sky-500'}`} />
+          <span>تنظیمات ظاهری و محتوایی سایت</span>
         </button>
 
         <button
           onClick={() => setActiveAdminSubTab('deals')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
             activeAdminSubTab === 'deals'
               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
           }`}
         >
-          <div className="flex items-center gap-1.5 truncate">
-            <Sparkles className="w-4 h-4 shrink-0 text-amber-500" />
-            <span className="truncate">پیشنهادها</span>
-          </div>
+          <Sparkles className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'deals' ? 'text-amber-400' : 'text-amber-500'}`} />
+          <span>پیشنهادها</span>
           <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
             activeAdminSubTab === 'deals' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'
           }`}>
@@ -1704,16 +1563,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         <button
           onClick={() => setActiveAdminSubTab('inventory')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
             activeAdminSubTab === 'inventory'
               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
           }`}
         >
-          <div className="flex items-center gap-1.5 truncate">
-            <PackageCheck className="w-4 h-4 shrink-0 text-amber-600" />
-            <span className="truncate">انبار ایران</span>
-          </div>
+          <PackageCheck className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'inventory' ? 'text-amber-400' : 'text-emerald-500'}`} />
+          <span>انبار ایران</span>
           <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
             activeAdminSubTab === 'inventory' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'
           }`}>
@@ -1722,50 +1579,109 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveAdminSubTab('cms')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
-            activeAdminSubTab === 'cms'
-              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
-          }`}
-        >
-          <div className="flex items-center gap-1.5 truncate">
-            <SlidersHorizontal className="w-4 h-4 shrink-0" />
-            <span className="truncate">تنظیمات عمومی</span>
-          </div>
-          <span className="text-xs">⚙️</span>
-        </button>
-
-        <button
           onClick={() => setActiveAdminSubTab('apiSettings')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
             activeAdminSubTab === 'apiSettings'
               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
           }`}
         >
-          <div className="flex items-center gap-1.5 truncate">
-            <Key className="w-4 h-4 shrink-0 text-amber-500" />
-            <span className="truncate">تنظیمات API</span>
-          </div>
-          <span className="text-xs">🔑</span>
+          <Key className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'apiSettings' ? 'text-amber-400' : 'text-amber-600'}`} />
+          <span>تنظیمات API</span>
         </button>
 
         <button
           onClick={() => setActiveAdminSubTab('backup')}
-          className={`p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between gap-1.5 cursor-pointer border ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 whitespace-nowrap ${
             activeAdminSubTab === 'backup'
               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+              : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50 shadow-2xs'
           }`}
         >
-          <div className="flex items-center gap-1.5 truncate">
-            <Database className="w-4 h-4 shrink-0 text-emerald-500" />
-            <span className="truncate">بک‌آپ و پشتیبان‌گیری</span>
-          </div>
-          <span className="text-xs">💾</span>
+          <Database className={`w-4 h-4 shrink-0 ${activeAdminSubTab === 'backup' ? 'text-amber-400' : 'text-blue-500'}`} />
+          <span>بک‌آپ و پشتیبان‌گیری</span>
         </button>
       </div>
+
+      {saveCmsSuccess && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-bold flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <span>تغییرات با موفقیت ذخیره و در دیتابیس ثبت شدند.</span>
+        </div>
+      )}
+
+      {/* SUB-TAB: SECURITY (امنیت و رمز عبور) */}
+      {activeAdminSubTab === 'security' && (
+        <form onSubmit={handleChangePassword} className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-5">
+          <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base text-slate-900">تنظیمات امنیت و تغییر رمز عبور مدیریت</h3>
+              <p className="text-xs text-slate-500 font-medium">تعیین رمز عبور جدید و ماندگار در دیتابیس آنلاین فایربیس</p>
+            </div>
+          </div>
+
+          {securityStatusMsg && (
+            <div className={`p-3.5 rounded-2xl text-xs font-bold flex items-center gap-2 ${
+              securityStatusMsg.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-rose-50 border border-rose-200 text-rose-800'
+            }`}>
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{securityStatusMsg.text}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">رمز عبور فعلی:</label>
+              <input
+                type="password"
+                required
+                value={currentPassInput}
+                onChange={(e) => setCurrentPassInput(e.target.value)}
+                placeholder="رمز عبور فعلی را وارد کنید"
+                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono focus:outline-none focus:border-slate-900 dir-ltr"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">رمز عبور جدید:</label>
+              <input
+                type="password"
+                required
+                value={newPassInput}
+                onChange={(e) => setNewPassInput(e.target.value)}
+                placeholder="حداقل ۶ کاراکتر"
+                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono focus:outline-none focus:border-slate-900 dir-ltr"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">تکرار رمز عبور جدید:</label>
+              <input
+                type="password"
+                required
+                value={confirmPassInput}
+                onChange={(e) => setConfirmPassInput(e.target.value)}
+                placeholder="تکرار رمز عبور جدید"
+                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono focus:outline-none focus:border-slate-900 dir-ltr"
+              />
+            </div>
+          </div>
+
+          <div className="pt-2 flex justify-end">
+            <button
+              type="submit"
+              disabled={isSavingPassword}
+              className="bg-slate-900 hover:bg-black text-white font-extrabold text-xs px-6 py-3 rounded-xl transition shadow-md flex items-center gap-2 cursor-pointer"
+            >
+              {isSavingPassword ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 text-emerald-400" />}
+              <span>ذخیره نهایی رمز عبور جدید</span>
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* SUB-TAB 1: DASHBOARD & STATS */}
       {activeAdminSubTab === 'dashboard' && (
@@ -2966,7 +2882,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* SUB-TAB 4: CMS & API MANAGEMENT */}
-      {activeAdminSubTab === 'cms' && (
+      {activeAdminSubTab === 'apiSettings' && (
         <div className="space-y-6">
           {saveCmsSuccess && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center gap-2">
@@ -2975,666 +2891,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           )}
 
-          {/* Section 0: Rotating Slogan Announcement Banner Management */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-3">
-              <div>
-                <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
-                  <Sparkles className="w-4.5 h-4.5 text-amber-500 shrink-0" />
-                  <span>مدیریت شعارهای بنر متحرک (Rotating Slogan Ticker)</span>
-                </h3>
-                <p className="text-xs text-slate-600 font-medium mt-0.5">
-                  تنظیم شعارهای بنر چرخشی بالای صفحه اصلی با انیمیشن تغییر بسیار آرام و خوانایی عالی
-                </p>
-              </div>
-
-              {/* Toggle Switch */}
-              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                <span className="text-xs font-bold text-slate-700">
-                  {showAnnouncementBanner ? 'فعال (در حال نمایش)' : 'غیرفعال (مخفی)'}
-                </span>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={showAnnouncementBanner}
-                    onChange={(e) => setShowAnnouncementBanner(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-12 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-slate-900"></div>
-                </label>
-              </div>
-            </div>
-
-            {/* Slogans List & Ordering Controls */}
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-                  <span>شعارهای چرخشی (ترتیب اولویت چرخش مداوم):</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={handleResetSlogans}
-                  className="text-[11px] font-bold text-slate-600 hover:text-slate-900 underline flex items-center gap-1 cursor-pointer"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>بازنشانی به شعارهای پیش‌فرض</span>
-                </button>
-              </div>
-
-              <div className="space-y-2.5">
-                {announcementSlogans.map((slogan, idx) => (
-                  <div key={idx} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-2xl p-2.5 transition">
-                    <span className="text-xs font-black text-slate-400 w-7 text-center shrink-0">
-                      #{idx + 1}
-                    </span>
-                    <input
-                      type="text"
-                      value={slogan}
-                      onChange={(e) => handleUpdateSlogan(idx, e.target.value)}
-                      placeholder={`شعار شماره ${idx + 1}...`}
-                      className="flex-1 bg-white border border-slate-300 text-slate-900 font-bold text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900"
-                    />
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleMoveSloganUp(idx)}
-                        disabled={idx === 0}
-                        className="p-2 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-white cursor-pointer transition"
-                        title="انتقال به بالا (اولویت بالاتر)"
-                      >
-                        <ArrowUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleMoveSloganDown(idx)}
-                        disabled={idx === announcementSlogans.length - 1}
-                        className="p-2 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-white cursor-pointer transition"
-                        title="انتقال به پایین (اولویت پایین‌تر)"
-                      >
-                        <ArrowDown className="w-3.5 h-3.5" />
-                      </button>
-                      {announcementSlogans.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSlogan(idx)}
-                          className="p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 cursor-pointer transition"
-                          title="حذف این شعار"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={handleAddSlogan}
-                className="text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 px-4 py-2.5 rounded-xl border border-slate-300 flex items-center gap-1.5 transition cursor-pointer mt-2"
-              >
-                <Plus className="w-4 h-4 text-slate-700" />
-                <span>افزودن شعار جدید به بنر</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Section A: Hero Banner Configuration */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-            <h3 className="font-black text-sm text-slate-900 flex items-center gap-2 border-b border-slate-200 pb-2">
-              <ImageIcon className="w-4 h-4 text-slate-800" />
-              <span>مدیریت بنر و عناوین اصلی سایت</span>
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">عنوان اصلی هدر:</label>
-                <input
-                  type="text"
-                  value={heroTitle}
-                  onChange={(e) => setHeroTitle(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">لینک عکس بنر هدر:</label>
-                <input
-                  type="text"
-                  value={heroImage}
-                  onChange={(e) => setHeroImage(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr font-mono"
-                  dir="ltr"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-xs font-bold text-slate-700 block mb-1">زیرعنوان و توضیحات اصلی:</label>
-                <input
-                  type="text"
-                  value={heroSubtitle}
-                  onChange={(e) => setHeroSubtitle(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Section B: Dynamic Store Links & Cards Management */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-              <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-slate-800" />
-                <span>مدیریت کارت‌های فروشگاه‌ها و لینک‌های سریع</span>
-              </h3>
-
-              <button
-                type="button"
-                onClick={handleAddStore}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-xl border border-slate-300 flex items-center gap-1 transition cursor-pointer"
-              >
-                <Plus className="w-4 h-4 text-slate-800" />
-                <span>افزودن فروشگاه جدید</span>
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {storesList.map((store, index) => (
-                <div key={store.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 relative space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                    <span className="font-bold text-xs text-slate-700">فروشگاه #{index + 1}: {store.title}</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateStoreField(store.id, 'enabled', store.enabled === false ? true : false)}
-                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer ${
-                          store.enabled !== false
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border-amber-200'
-                        }`}
-                      >
-                        {store.enabled !== false ? '✓ فعال در صفحه اصلی' : '✕ غیرفعال (مخفی)'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteStore(store.id)}
-                        className="p-1 text-rose-500 hover:bg-rose-100 rounded-lg transition cursor-pointer"
-                        title="حذف کارت فروشگاه"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">نام فروشگاه:</label>
-                      <input
-                        type="text"
-                        value={store.title}
-                        onChange={(e) => handleUpdateStoreField(store.id, 'title', e.target.value)}
-                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">لینک مستقیم فروشگاه:</label>
-                      <input
-                        type="text"
-                        value={store.url}
-                        onChange={(e) => handleUpdateStoreField(store.id, 'url', e.target.value)}
-                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none dir-ltr font-mono"
-                        dir="ltr"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">تگ / بج (مثال: تخفیف ویژه):</label>
-                      <input
-                        type="text"
-                        value={store.badge || ''}
-                        onChange={(e) => handleUpdateStoreField(store.id, 'badge', e.target.value)}
-                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">توضیحات کوتاه:</label>
-                      <input
-                        type="text"
-                        value={store.description}
-                        onChange={(e) => handleUpdateStoreField(store.id, 'description', e.target.value)}
-                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-3 bg-white p-3 rounded-xl border border-slate-200 space-y-2 mt-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-extrabold text-slate-800 flex items-center gap-1.5">
-                          <ImageIcon className="w-3.5 h-3.5 text-slate-700" />
-                          <span>لوگوی رسمی و تصویر کارت فروشگاه (Logo URL / File Upload):</span>
-                        </label>
-                        <span className="text-[10px] text-slate-500 font-medium">
-                          پیش‌نمایش در کادر ۶۴x۶۴ استاندارد
-                        </span>
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row items-center gap-3">
-                        {/* Strict 64x64 Rounded Logo Container Box Preview */}
-                        <div
-                          className="shrink-0 border border-slate-200/90 shadow-2xs"
-                          style={{
-                            width: '64px',
-                            height: '64px',
-                            borderRadius: '12px',
-                            background: '#f8fafc',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            overflow: 'hidden',
-                            padding: '6px',
-                            flexShrink: 0
-                          }}
-                        >
-                          {store.image ? (
-                            <img
-                              src={store.image}
-                              alt={store.title}
-                              style={{
-                                maxWidth: '100%',
-                                maxHeight: '100%',
-                                objectFit: 'contain',
-                                display: 'block'
-                              }}
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center font-bold text-[10px] text-slate-400">
-                              بدون لوگو
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex-1 w-full space-y-2">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={store.image || ''}
-                              onChange={(e) => handleUpdateStoreField(store.id, 'image', e.target.value)}
-                              placeholder="آدرس URL لوگو (https://... یا data:image/...)"
-                              className="flex-1 bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-slate-800 dir-ltr font-mono"
-                              dir="ltr"
-                            />
-
-                            {/* File Upload Button */}
-                            <label className="bg-slate-900 hover:bg-black text-white text-xs font-bold px-3 py-2 rounded-lg transition cursor-pointer shrink-0 flex items-center gap-1">
-                              <Upload className="w-3.5 h-3.5" />
-                              <span>آپلود فایل</span>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    if (file.size > 5 * 1024 * 1024) {
-                                      alert('حجم تصویر لوگو نباید بیشتر از ۵ مگابایت باشد.');
-                                      return;
-                                    }
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      if (typeof reader.result === 'string') {
-                                        handleUpdateStoreField(store.id, 'image', reader.result);
-                                      }
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                              />
-                            </label>
-                          </div>
-
-                          {/* Preset official logo buttons */}
-                          <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                            <span className="font-bold text-slate-500">لوگوهای رسمی آماده:</span>
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><text x="100" y="115" text-anchor="middle" fill="%23E31837" font-weight="900" font-size="70" font-family="Arial,sans-serif" letter-spacing="-2">GNC</text><text x="100" y="145" text-anchor="middle" fill="%23E31837" font-weight="800" font-size="20" font-family="Arial,sans-serif" letter-spacing="4">LIVE WELL</text></svg>')}
-                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
-                            >
-                              🔴 GNC UAE
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><path d="M100 15 C56 15 40 42 40 70 V135 H160 V70 C160 42 144 15 100 15 Z" fill="%231C3F94"/><circle cx="100" cy="55" r="9" fill="%23FFFFFF"/><path d="M100 68 C84 80 72 84 64 110 H136 C128 84 116 80 100 68 Z" fill="%23FFFFFF"/><text x="100" y="172" text-anchor="middle" fill="%23C42582" font-weight="900" font-size="36" font-family="sans-serif">LIFE%C2%AE</text></svg>')}
-                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
-                            >
-                              🔵 Life Pharmacy
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 200"><rect width="220" height="200" fill="%230a0a0c"/><text x="25" y="130" fill="%238B2FC9" font-weight="900" font-size="100" font-family="sans-serif" letter-spacing="-6">dnp</text><path d="M50 120 C 90 70, 135 40, 175 28 C 150 65, 110 110, 75 130 Z" fill="%2378BE20"/><path d="M60 112 Q 115 65, 163 35" stroke="%235A9614" stroke-width="3" fill="none"/></svg>')}
-                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
-                            >
-                              🟣 Dr Nutrition
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23232F3E"/><text x="100" y="105" text-anchor="middle" fill="%23FFFFFF" font-weight="900" font-size="38" font-family="sans-serif">amazon</text><text x="100" y="132" text-anchor="middle" fill="%23FF9900" font-weight="800" font-size="22" font-family="sans-serif">.ae</text><path d="M50 145 Q 100 165 150 145" stroke="%23FF9900" stroke-width="6" fill="none" stroke-linecap="round"/><path d="M142 138 L 152 146 L 140 152 Z" fill="%23FF9900"/></svg>')}
-                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
-                            >
-                              🟠 Amazon AE
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Section C: Complete Original Support & Contact Section */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
-                  <Headphones className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-sm text-slate-900">بخش پشتیبانی و اطلاعات تماس (Support & Contact)</h3>
-                  <p className="text-xs text-slate-500 font-medium">مدیریت بنر مشکی، کارت‌های ۳ گانه پشتیبانی (تلگرام، ایمیل، تلفن) و نشان‌های اعتماد</p>
-                </div>
-              </div>
-
-              {/* Main Section Toggle Switch */}
-              <button
-                type="button"
-                onClick={() => setShowSupportSection(!showSupportSection)}
-                className={`flex items-center gap-2 text-xs font-bold px-3.5 py-1.5 rounded-xl border transition cursor-pointer shrink-0 ${
-                  showSupportSection
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                    : 'bg-rose-50 border-rose-200 text-rose-700'
-                }`}
-              >
-                {showSupportSection ? (
-                  <>
-                    <ToggleRight className="w-5 h-5 text-emerald-600" />
-                    <span>کل بخش پشتیبانی فعال است</span>
-                  </>
-                ) : (
-                  <>
-                    <ToggleLeft className="w-5 h-5 text-rose-500" />
-                    <span>بخش پشتیبانی مخفی شد</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Banner Title & Subtitle Inputs */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pb-2 border-b border-slate-100">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان بنر مشکی پشتیبانی:</label>
-                <input
-                  type="text"
-                  value={supportHeadline}
-                  onChange={(e) => setSupportHeadline(e.target.value)}
-                  placeholder="پشتیبانی و مشاوره تخصصی واردات دبی"
-                  className="w-full bg-slate-50 border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1.5">توضیحات زیرعنوان بنر پشتیبانی:</label>
-                <input
-                  type="text"
-                  value={supportSubtitle}
-                  onChange={(e) => setSupportSubtitle(e.target.value)}
-                  placeholder="پاسخگویی ۲۴ ساعته توسط کارشناسان تغذیه و لاجستیک"
-                  className="w-full bg-slate-50 border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                />
-              </div>
-            </div>
-
-            {/* Support Cards Management */}
-            <div className="space-y-4">
-              <h5 className="font-extrabold text-xs text-slate-800">تنظیمات کارت‌های پشتیبانی (نمایش / عنوان سفارشی / اطلاعات):</h5>
-
-              {/* Card 1: Telegram */}
-              <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                    <Send className="w-4 h-4 text-sky-500" />
-                    <span>کارت ۱: پشتیبانی تلگرام</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowTelegramCard(!showTelegramCard)}
-                    className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer ${
-                      showTelegramCard
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-rose-50 border-rose-200 text-rose-700'
-                    }`}
-                  >
-                    {showTelegramCard ? (
-                      <>
-                        <ToggleRight className="w-4 h-4 text-emerald-600" />
-                        <span>نمایش در سایت</span>
-                      </>
-                    ) : (
-                      <>
-                        <ToggleLeft className="w-4 h-4 text-rose-500" />
-                        <span>مخفی شده</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">عنوان سفارشی کارت:</label>
-                    <input
-                      type="text"
-                      value={telegramTitle}
-                      onChange={(e) => setTelegramTitle(e.target.value)}
-                      placeholder="ارتباط با پشتیبانی در تلگرام"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">آیدی تلگرام:</label>
-                    <input
-                      type="text"
-                      value={telegramHandle}
-                      onChange={(e) => setTelegramHandle(e.target.value)}
-                      placeholder="@SIRIK_FIT_Support"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">لینک مستقیم تلگرام:</label>
-                    <input
-                      type="text"
-                      value={telegramLink}
-                      onChange={(e) => setTelegramLink(e.target.value)}
-                      placeholder="https://t.me/SIRIK_FIT_Support"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-medium"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 2: Email */}
-              <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                    <Mail className="w-4 h-4 text-rose-500" />
-                    <span>کارت ۲: پشتیبانی ایمیل</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowEmailCard(!showEmailCard)}
-                    className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer ${
-                      showEmailCard
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-rose-50 border-rose-200 text-rose-700'
-                    }`}
-                  >
-                    {showEmailCard ? (
-                      <>
-                        <ToggleRight className="w-4 h-4 text-emerald-600" />
-                        <span>نمایش در سایت</span>
-                      </>
-                    ) : (
-                      <>
-                        <ToggleLeft className="w-4 h-4 text-rose-500" />
-                        <span>مخفی شده</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">عنوان سفارشی کارت:</label>
-                    <input
-                      type="text"
-                      value={emailTitle}
-                      onChange={(e) => setEmailTitle(e.target.value)}
-                      placeholder="ارتباط از طریق ایمیل پشتیبانی"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">آدرس ایمیل پشتیبانی:</label>
-                    <input
-                      type="text"
-                      value={adminDestinationEmail}
-                      onChange={(e) => setAdminDestinationEmail(e.target.value)}
-                      placeholder="omran.javan73@gmail.com"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-medium"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 3: Tehran Phone */}
-              <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                    <Phone className="w-4 h-4 text-indigo-600" />
-                    <span>کارت ۳: تلفن دفتر تهران</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowPhoneCard(!showPhoneCard)}
-                    className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer ${
-                      showPhoneCard
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-rose-50 border-rose-200 text-rose-700'
-                    }`}
-                  >
-                    {showPhoneCard ? (
-                      <>
-                        <ToggleRight className="w-4 h-4 text-emerald-600" />
-                        <span>نمایش در سایت</span>
-                      </>
-                    ) : (
-                      <>
-                        <ToggleLeft className="w-4 h-4 text-rose-500" />
-                        <span>مخفی شده</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">عنوان سفارشی کارت:</label>
-                    <input
-                      type="text"
-                      value={phoneTitle}
-                      onChange={(e) => setPhoneTitle(e.target.value)}
-                      placeholder="تلفن پشتیبانی تهران"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">شماره تلفن تهران:</label>
-                    <input
-                      type="text"
-                      value={officePhone}
-                      onChange={(e) => setOfficePhone(e.target.value)}
-                      placeholder="021-91000000"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-medium"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Trust Badges */}
-              <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-3">
-                <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-amber-500" />
-                  <span>نشان‌های اعتماد و ضمانت کالا (Trust Badges)</span>
-                </span>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">نشان اعتماد ۱ (سبز):</label>
-                    <input
-                      type="text"
-                      value={trustBadge1}
-                      onChange={(e) => setTrustBadge1(e.target.value)}
-                      placeholder="اصالت ۱۰۰٪ کالا"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">نشان اعتماد ۲ (آبی):</label>
-                    <input
-                      type="text"
-                      value={trustBadge2}
-                      onChange={(e) => setTrustBadge2(e.target.value)}
-                      placeholder="حمل ایمن کارگو"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">نشان اعتماد ۳ (نارنجی):</label>
-                    <input
-                      type="text"
-                      value={trustBadge3}
-                      onChange={(e) => setTrustBadge3(e.target.value)}
-                      placeholder="تحویل ۵ تا ۷ روزه"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleSaveCms}
-            disabled={isSavingCms}
-            className="bg-slate-900 hover:bg-black text-white font-extrabold text-sm px-8 py-3.5 rounded-2xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer w-full"
-          >
-            {isSavingCms ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            <span>ذخیره تنظیمات عمومی و اطلاعات تماس</span>
-          </button>
-        </div>
-      )}
-
-      {/* DEDICATED SUB-TAB: API & INTEGRATIONS (تنظیمات کلیدهای API و ارتباطات) */}
-      {activeAdminSubTab === 'apiSettings' && (
-        <div className="space-y-6 font-['Vazirmatn',sans-serif]">
           {/* Main Title Banner */}
           <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl p-6 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border border-slate-700/50">
             <div className="space-y-1">
@@ -4183,950 +3439,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* SUB-TAB 7: HOME PAGE CONTENT CMS (تنظیمات محتوای صفحه اصلی) */}
-      {activeAdminSubTab === 'homeContent' && (
-        <form onSubmit={handleSaveHomeContent} className="space-y-6">
-          <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-6 font-['Vazirmatn',sans-serif]">
-            
-            {/* Header & Main Save Button Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center text-sky-600 shrink-0">
-                  <Home className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-base text-slate-900">تنظیمات ظاهری و محتوایی سایت (#home)</h3>
-                  <p className="text-xs text-slate-500 font-medium">مدیریت زنده متون، هدر، بنر اصلی، نوار اعلانات و کادر برآورد قیمت</p>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSavingCms}
-                className="bg-black hover:bg-slate-800 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition shadow-sm flex items-center justify-center gap-2 cursor-pointer shrink-0"
-              >
-                {isSavingCms ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>در حال ذخیره...</span>
-                  </>
-                ) : saveCmsSuccess ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>تنظیمات اعمال و بروزرسانی شد!</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 text-amber-400" />
-                    <span>ذخیره تنظیمات صفحه اصلی</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {saveCmsSuccess && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>تغییرات صفحه اصلی ذخیره شد و تمام المان‌های DOM در لحظه بروزرسانی شدند.</span>
-              </div>
-            )}
-
-            {/* SECTION 1: Top Promo Strip */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4.5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-slate-900"></span>
-                  <h4 className="font-extrabold text-sm text-slate-900">۱. نوار اعلانات بالای صفحه (Top Promo Strip)</h4>
-                </div>
-
-                {/* Show/Hide Toggle Switch */}
-                <button
-                  type="button"
-                  onClick={() => setShowTopPromo(!showTopPromo)}
-                  className={`flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl border transition cursor-pointer ${
-                    showTopPromo
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                      : 'bg-rose-50 border-rose-200 text-rose-700'
-                  }`}
-                >
-                  {showTopPromo ? (
-                    <>
-                      <ToggleRight className="w-5 h-5 text-emerald-600" />
-                      <span>نمایش داده می‌شود</span>
-                    </>
-                  ) : (
-                    <>
-                      <ToggleLeft className="w-5 h-5 text-rose-500" />
-                      <span>مخفی شده</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1.5">متن اعلانات بالای هدر:</label>
-                <input
-                  type="text"
-                  value={topPromoText}
-                  onChange={(e) => setTopPromoText(e.target.value)}
-                  placeholder="❄ نگهداری و ارسال کنترل‌شده دما · اورجینال از دبی"
-                  className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                />
-              </div>
-            </div>
-
-            {/* SECTION 2: Branding & Header */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4.5 space-y-4">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#111111]"></span>
-                <h4 className="font-extrabold text-sm text-slate-900">۲. برندینگ و هدر اصلی (Branding & Header)</h4>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان اصلی برند (Brand Title):</label>
-                  <input
-                    type="text"
-                    value={appTitleText}
-                    onChange={(e) => setAppTitleText(e.target.value)}
-                    placeholder="SIRIK FIT"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">نشان / زیرعنوان هدر (Header Subtitle):</label>
-                  <input
-                    type="text"
-                    value={headerPillSlogan}
-                    onChange={(e) => {
-                      setHeaderPillSlogan(e.target.value);
-                      setAppSubtitleText(e.target.value);
-                    }}
-                    placeholder="مکمل‌های ورزشی و اورجینال"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-              </div>
-
-              {/* Logo Direct File Upload & URL Input Container */}
-              <div className="pt-3 border-t border-slate-200/80 space-y-3">
-                <label className="text-xs font-bold text-slate-800 block">لوگوی سایت SIRIK FIT (Upload / URL):</label>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
-                  {/* File Upload Button */}
-                  <div>
-                    <label className="cursor-pointer bg-black hover:bg-neutral-800 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 transition shadow-2xs w-full">
-                      <Upload className="w-4 h-4 text-[#e50914]" />
-                      <span>📷 انتخاب فایل لوگو از سیستم / گوشی</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleLogoFileUpload}
-                        className="hidden"
-                      />
-                    </label>
-                    <p className="text-[10px] text-slate-500 font-medium mt-1 dir-rtl text-right">
-                      فرمت‌های مجاز: PNG, JPG, WEBP, SVG
-                    </p>
-                  </div>
-
-                  {/* Direct URL Input Field */}
-                  <div>
-                    <input
-                      type="text"
-                      value={logoUrl}
-                      onChange={(e) => setLogoUrl(e.target.value)}
-                      placeholder="یا وارد کردن آدرس مستقیم تصویر (URL)"
-                      className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium dir-ltr"
-                      dir="ltr"
-                    />
-                  </div>
-                </div>
-
-                {/* Logo Live Preview Thumbnail */}
-                {logoUrl && (
-                  <div className="bg-white border border-slate-200 p-2.5 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-neutral-900 border border-slate-200 flex items-center justify-center p-1 shrink-0 overflow-hidden">
-                        <img src={logoUrl} alt="Logo Preview" className="w-full h-full object-contain" />
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs font-bold text-slate-900 block">پیش‌نمایش لوگو</span>
-                        <span className="text-[10px] text-emerald-600 font-extrabold flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> لوگو بهینه‌سازی و آماده شد
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setLogoUrl('')}
-                      className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg transition border border-rose-200 flex items-center gap-1 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>حذف لوگو</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* SECTION 2.5: Sports Hero Banner */}
-            <div className="bg-[#0d0d0d] text-white border border-neutral-800 rounded-2xl p-4.5 space-y-3.5">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#e50914]"></span>
-                <h4 className="font-extrabold text-sm text-white">مدیریت بنر اصلی صفحه نخست (Main Banner Settings)</h4>
-              </div>
-
-              <div className="space-y-3">
-                <label className="text-xs font-bold text-slate-200 block">بنر اصلی (Direct Upload / Banner URL):</label>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
-                  {/* File Upload Button for Hero Banner */}
-                  <label className="cursor-pointer bg-[#e50914] hover:bg-red-700 text-white font-black text-xs px-4 py-3 rounded-xl flex items-center justify-center gap-2 transition shadow-md w-full">
-                    <Upload className="w-4 h-4 text-white" />
-                    <span>📷 آپلود مستقیم بنر از سیستم / گوشی</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleHeroBannerFileUpload}
-                      className="hidden"
-                    />
-                  </label>
-
-                  {/* Direct URL Input for Hero Banner */}
-                  <input
-                    type="text"
-                    value={heroImageUrl}
-                    onChange={(e) => setHeroImageUrl(e.target.value)}
-                    placeholder="یا وارد کردن آدرس مستقیم بنر (URL)"
-                    className="w-full bg-neutral-900 border border-neutral-700 focus:border-[#e50914] text-white text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium dir-ltr"
-                    dir="ltr"
-                  />
-                </div>
-
-                <p className="text-[11px] text-neutral-400 font-medium dir-rtl">
-                  💡 توصیه: بنر طراحی‌شده با ابعاد افقی استاندارد (مثلاً ۱۲۰۰ در ۵۰۰ پیکسل) وارد کنید.
-                </p>
-
-                {/* Banner Live Preview Thumbnail */}
-                {heroImageUrl && (
-                  <div className="bg-neutral-900 border border-neutral-800 p-3 rounded-xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-neutral-300 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-[#e50914]" />
-                        پیش‌نمایش بنر آپلود شده
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setHeroImageUrl('')}
-                        className="text-xs font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-950/50 px-2.5 py-1 rounded-lg transition border border-rose-900 flex items-center gap-1 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>حذف بنر</span>
-                      </button>
-                    </div>
-
-                    <div className="w-full rounded-lg overflow-hidden border border-neutral-800 bg-black max-h-44 flex items-center justify-center">
-                      <img
-                        src={heroImageUrl}
-                        alt="Hero Banner Preview"
-                        className="w-full h-auto max-h-44 object-contain"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* SECTION 3: Calculator Box Content */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4.5 space-y-4">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-600"></span>
-                <h4 className="font-extrabold text-sm text-slate-900">۳. محتوای باکس محاسبه و برآورد قیمت (Calculator Box)</h4>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">متن نشان مشکی بالایی (Black Badge Tag):</label>
-                  <input
-                    type="text"
-                    value={calcBlackBadge}
-                    onChange={(e) => setCalcBlackBadge(e.target.value)}
-                    placeholder="✦ خرید مستقیم از دبی"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان اصلی باکس محاسبه (Main Headline):</label>
-                  <input
-                    type="text"
-                    value={calcMainHeadline}
-                    onChange={(e) => setCalcMainHeadline(e.target.value)}
-                    placeholder="برآورد قیمت و ثبت سفارش"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">توضیحات زیرعنوان باکس محاسبه (Subtitle Description):</label>
-                  <input
-                    type="text"
-                    value={calcSubtitle}
-                    onChange={(e) => setCalcSubtitle(e.target.value)}
-                    placeholder="لینک محصول را وارد کنید تا قیمت تحویل در ایران فوری محاسبه شود."
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* SECTION 4: Trust Badges */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4.5 space-y-4">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                <h4 className="font-extrabold text-sm text-slate-900">۴. نشان‌های اعتماد و ضمانت (Trust Badges)</h4>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان نشان اعتماد ۱ (سبز):</label>
-                  <input
-                    type="text"
-                    value={trustBadge1}
-                    onChange={(e) => setTrustBadge1(e.target.value)}
-                    placeholder="اصالت ۱۰۰٪ کالا"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان نشان اعتماد ۲ (آبی):</label>
-                  <input
-                    type="text"
-                    value={trustBadge2}
-                    onChange={(e) => setTrustBadge2(e.target.value)}
-                    placeholder="حمل ایمن کارگو"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان نشان اعتماد ۳ (نارنجی):</label>
-                  <input
-                    type="text"
-                    value={trustBadge3}
-                    onChange={(e) => setTrustBadge3(e.target.value)}
-                    placeholder="تحویل ۵ تا ۷ روزه"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom Save Action Button */}
-            <div className="pt-2 flex justify-end">
-              <button
-                type="submit"
-                disabled={isSavingCms}
-                className="w-full sm:w-auto bg-black hover:bg-slate-800 text-white font-extrabold text-xs px-8 py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {isSavingCms ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>در حال بروزرسانی صفحه اصلی...</span>
-                  </>
-                ) : saveCmsSuccess ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>تنظیمات ذخیره و اعمال شد!</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 text-amber-400" />
-                    <span>ذخیره تنظیمات صفحه اصلی</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-          </div>
-        </form>
-      )}
-
-      {/* SUB-TAB: ACCOUNTING & FINANCIAL MANAGEMENT (بخش حسابداری و مالی) */}
-      {activeAdminSubTab === 'accounting' && (() => {
-        // Accounting Filters & Calculations
-        const filteredAccountingOrders = orders.filter((order) => {
-          if (accountingStatusFilter !== 'ALL' && order.paymentStatus !== accountingStatusFilter) {
-            return false;
-          }
-          if (accountingPeriodFilter !== 'ALL') {
-            const orderDate = new Date(order.createdAt);
-            const now = new Date();
-            if (accountingPeriodFilter === 'TODAY') {
-              if (orderDate.toDateString() !== now.toDateString()) return false;
-            } else if (accountingPeriodFilter === 'WEEK') {
-              const diffMs = now.getTime() - orderDate.getTime();
-              if (diffMs > 7 * 86400000) return false;
-            } else if (accountingPeriodFilter === 'MONTH') {
-              if (orderDate.getMonth() !== now.getMonth() || orderDate.getFullYear() !== now.getFullYear()) return false;
-            }
-          }
-          if (accountingSearchQuery.trim()) {
-            const q = accountingSearchQuery.trim().toLowerCase();
-            const matchTrack = order.trackingCode.toLowerCase().includes(q);
-            const matchCustomer = order.customerName.toLowerCase().includes(q);
-            const matchPhone = order.phoneNumber.toLowerCase().includes(q);
-            const matchProd = order.productTitle.toLowerCase().includes(q);
-            if (!matchTrack && !matchCustomer && !matchPhone && !matchProd) return false;
-          }
-          return true;
-        });
-
-        const paidOrdersList = filteredAccountingOrders.filter(o => o.paymentStatus === 'PAID');
-        const totalSalesToman = paidOrdersList.reduce((acc, o) => acc + (o.calculatedToman || 0), 0);
-        const totalAedSpent = paidOrdersList.reduce((acc, o) => acc + (o.priceAed || 0), 0);
-        const totalCargoAed = paidOrdersList.reduce((acc, o) => acc + ((o.weightKg || 0.5) * (o.cargoRatePerKg || settings.cargoRatePerKg)), 0);
-        const totalCargoToman = Math.round(totalCargoAed * settings.aedRate);
-        const totalWeightKg = paidOrdersList.reduce((acc, o) => acc + (o.weightKg || 0.5), 0);
-
-        const totalCostToman = Math.round(paidOrdersList.reduce((acc, o) => {
-          const cargoAed = (o.weightKg || 0.5) * (o.cargoRatePerKg || settings.cargoRatePerKg);
-          return acc + ((o.priceAed + cargoAed) * o.aedRate);
-        }, 0));
-
-        const totalNetProfitToman = Math.max(0, totalSalesToman - totalCostToman);
-        const profitMarginPercentage = totalSalesToman > 0 ? ((totalNetProfitToman / totalSalesToman) * 100).toFixed(1) : settings.profitMargin;
-        const averageOrderValue = paidOrdersList.length > 0 ? Math.round(totalSalesToman / paidOrdersList.length) : 0;
-
-        return (
-          <div className="space-y-6">
-            {/* Header Action Bar */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center font-black shrink-0">
-                  <FileSpreadsheet className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
-                    <span>بخش حسابداری و مدیریت مالی (Real-time Ledger)</span>
-                    <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-200">
-                      بروزرسانی زنده
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    تحلیل سود واقعی، هزینه‌های کارگو، خرید درهمی دبی و خروجی گزارش فاکتورها
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleExportFinancialCsv(filteredAccountingOrders)}
-                  className="bg-[#111111] hover:bg-black text-white text-xs font-extrabold px-4 py-2.5 rounded-xl transition shadow-xs flex items-center gap-2 cursor-pointer border border-[#111111]"
-                >
-                  <Download className="w-4 h-4 text-emerald-400" />
-                  <span>دریافت خروجی گزارش CSV</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={fetchAdminOrders}
-                  className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-xs font-bold p-2.5 rounded-xl transition cursor-pointer"
-                  title="به‌روزرسانی اطلاعات"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isLoadingOrders ? 'animate-spin text-slate-900' : ''}`} />
-                </button>
-              </div>
-            </div>
-
-            {/* Period Filter Tabs & Status Filters */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-                <span className="text-xs font-extrabold text-slate-600 flex items-center gap-1 shrink-0 ml-1">
-                  <Filter className="w-3.5 h-3.5 text-slate-500" />
-                  <span>فیلتر زمان:</span>
-                </span>
-                {(
-                  [
-                    { id: 'ALL', label: 'همه زمان‌ها' },
-                    { id: 'TODAY', label: 'امروز' },
-                    { id: 'WEEK', label: 'هفته جاری' },
-                    { id: 'MONTH', label: 'ماه جاری' }
-                  ] as const
-                ).map(tab => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setAccountingPeriodFilter(tab.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
-                      accountingPeriodFilter === tab.id
-                        ? 'bg-slate-900 text-white shadow-xs'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <input
-                  type="text"
-                  value={accountingSearchQuery}
-                  onChange={e => setAccountingSearchQuery(e.target.value)}
-                  placeholder="جستجو نام، کد پیگیری یا محصول..."
-                  className="w-full sm:w-64 bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 font-medium"
-                />
-                <select
-                  value={accountingStatusFilter}
-                  onChange={e => setAccountingStatusFilter(e.target.value)}
-                  className="bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold px-2.5 py-2 rounded-xl focus:outline-none shrink-0 cursor-pointer"
-                >
-                  <option value="ALL">همه پرداخت‌ها</option>
-                  <option value="PAID">پرداخت موفق</option>
-                  <option value="PENDING">در انتظار</option>
-                  <option value="FAILED">ناموفق</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Real-time Ledger Summary Metric Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Card 1: Total Sales */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
-                <div className="flex items-center justify-between text-slate-500 mb-2">
-                  <span className="text-xs font-bold">کل فروش فاکتور شده</span>
-                  <TrendingUp className="w-4 h-4 text-emerald-600" />
-                </div>
-                <div className="text-xl sm:text-2xl font-black text-rose-600">
-                  {formatToman(totalSalesToman)}
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1 font-medium flex items-center justify-between">
-                  <span>از {toPersianDigits(paidOrdersList.length)} سفارش پرداخت‌شده</span>
-                  <span className="text-emerald-700 font-bold">میانگین: {formatToman(averageOrderValue)}</span>
-                </div>
-              </div>
-
-              {/* Card 2: Total AED Spent */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
-                <div className="flex items-center justify-between text-slate-500 mb-2">
-                  <span className="text-xs font-bold">خرید درهمی کالا (دبی)</span>
-                  <Coins className="w-4 h-4 text-amber-600" />
-                </div>
-                <div className="text-xl sm:text-2xl font-black text-amber-600">
-                  {formatAed(totalAedSpent)}
-                </div>
-                <span className="text-[11px] text-slate-500 font-medium block mt-1">
-                  معادل {formatToman(Math.round(totalAedSpent * settings.aedRate))}
-                </span>
-              </div>
-
-              {/* Card 3: Cargo Expenses */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
-                <div className="flex items-center justify-between text-slate-500 mb-2">
-                  <span className="text-xs font-bold">هزینه حمل و کارگو هوایی</span>
-                  <Truck className="w-4 h-4 text-blue-600" />
-                </div>
-                <div className="text-xl sm:text-2xl font-black text-blue-600">
-                  {formatAed(totalCargoAed)}
-                </div>
-                <span className="text-[11px] text-slate-500 font-medium block mt-1">
-                  معادل {formatToman(totalCargoToman)} ({toPersianDigits(totalWeightKg.toFixed(1))} کیلوگرم)
-                </span>
-              </div>
-
-              {/* Card 4: Net Profit Margin */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
-                <div className="flex items-center justify-between text-slate-500 mb-2">
-                  <span className="text-xs font-bold">سود خالص تخمینی (تومان)</span>
-                  <ShieldCheck className="w-4 h-4 text-purple-600" />
-                </div>
-                <div className="text-xl sm:text-2xl font-black text-emerald-600">
-                  {formatToman(totalNetProfitToman)}
-                </div>
-                <span className="text-[11px] text-emerald-700 font-bold block mt-1">
-                  حاشیه سود: ٪{toPersianDigits(profitMarginPercentage)}
-                </span>
-              </div>
-            </div>
-
-            {/* Transactions Table / Ledger List */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs overflow-x-auto">
-              <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
-                <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-slate-700" />
-                  <span>دفتر روزنامه تراکنش‌ها و جزئیات فاکتورها</span>
-                </h4>
-                <span className="text-xs text-slate-500 font-medium">
-                  نمایش {toPersianDigits(filteredAccountingOrders.length)} تراکنش
-                </span>
-              </div>
-
-              {filteredAccountingOrders.length === 0 ? (
-                <div className="py-10 text-center text-slate-400 text-xs font-medium">
-                  هیچ تراکنشی مطابق با فیلترهای انتخاب شده یافت نشد.
-                </div>
-              ) : (
-                <table className="w-full text-right text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold">
-                      <th className="p-3">کد پیگیری & تاریخ</th>
-                      <th className="p-3">نام مشتری</th>
-                      <th className="p-3">محصول سفارشی</th>
-                      <th className="p-3">قیمت پایه (درهم)</th>
-                      <th className="p-3">سهم کارگو</th>
-                      <th className="p-3">سود دبی</th>
-                      <th className="p-3">مبلغ فاکتور (تومان)</th>
-                      <th className="p-3 text-center">وضعیت پرداخت</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {filteredAccountingOrders.map(order => {
-                      const cargoAed = (order.weightKg || 0.5) * (order.cargoRatePerKg || settings.cargoRatePerKg);
-                      const cargoToman = Math.round(cargoAed * order.aedRate);
-                      const profitToman = Math.round(((order.priceAed + cargoAed) * (order.profitMargin / 100)) * order.aedRate);
-
-                      return (
-                        <tr key={order.id} className="hover:bg-slate-50/80 transition">
-                          <td className="p-3">
-                            <div className="font-extrabold text-slate-900 dir-ltr text-left sm:text-right">{order.trackingCode}</div>
-                            <div className="text-[10px] text-slate-500">{formatPersianDate(order.createdAt)}</div>
-                          </td>
-                          <td className="p-3">
-                            <div className="font-bold text-slate-900">{order.customerName}</div>
-                            <div className="text-[11px] text-slate-500">{order.phoneNumber}</div>
-                          </td>
-                          <td className="p-3 max-w-xs">
-                            <div className="font-medium text-slate-800 line-clamp-1">{order.productTitle}</div>
-                            <div className="text-[10px] text-slate-400">{order.storeName || 'دبی'}</div>
-                          </td>
-                          <td className="p-3 font-bold text-slate-900">{formatAed(order.priceAed)}</td>
-                          <td className="p-3 text-slate-700">
-                            {formatAed(cargoAed)}
-                            <span className="text-[10px] text-slate-400 block">({formatToman(cargoToman)})</span>
-                          </td>
-                          <td className="p-3 font-bold text-emerald-700">{formatToman(profitToman)}</td>
-                          <td className="p-3 font-black text-rose-600">{formatToman(order.calculatedToman)}</td>
-                          <td className="p-3 text-center">
-                            <span
-                              className={`inline-block text-[10px] font-extrabold px-2.5 py-1 rounded-lg ${
-                                order.paymentStatus === 'PAID'
-                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                  : order.paymentStatus === 'PENDING'
-                                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                  : 'bg-rose-100 text-rose-800 border border-rose-200'
-                              }`}
-                            >
-                              {order.paymentStatus === 'PAID' ? 'پرداخت شده' : order.paymentStatus === 'PENDING' ? 'در انتظار' : 'ناموفق'}
-                            </span>
-                            {order.paymentRefId && (
-                              <div className="text-[9px] font-mono text-slate-400 dir-ltr mt-0.5">{order.paymentRefId}</div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-slate-900 text-white font-black text-xs">
-                      <td colSpan={3} className="p-3 text-right">
-                        مجموع گزارش جاری ({toPersianDigits(paidOrdersList.length)} سفارش پرداخت شده)
-                      </td>
-                      <td className="p-3">{formatAed(totalAedSpent)}</td>
-                      <td className="p-3">{formatAed(totalCargoAed)}</td>
-                      <td className="p-3 text-emerald-400">{formatToman(totalNetProfitToman)}</td>
-                      <td className="p-3 text-rose-300">{formatToman(totalSalesToman)}</td>
-                      <td className="p-3 text-center">-</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* SUB-TAB: PAYMENT GATEWAY SETTINGS (تنظیمات درگاه پرداخت) */}
-      {activeAdminSubTab === 'gateway' && (
-        <form onSubmit={handleSaveGatewaySettings} className="space-y-6">
-          {/* Header Bar */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center font-black shrink-0">
-                <CreditCard className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
-                  <span>تنظیمات درگاه پرداخت آنلاین و کارت‌به‌کارت</span>
-                  <span className="bg-slate-100 text-slate-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border border-slate-200">
-                    شاپرک و واریز مستقیم
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  پیکربندی درگاه‌های زرین‌پال، زیبال، نکست‌پی، آیدی‌پال و اطلاعات حساب کارت به کارت
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSavingGateway}
-              className="bg-[#111111] hover:bg-black text-white text-xs font-extrabold px-6 py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer border border-[#111111]"
-            >
-              {isSavingGateway ? (
-                <RefreshCw className="w-4 h-4 animate-spin text-white" />
-              ) : (
-                <Save className="w-4 h-4 text-emerald-400" />
-              )}
-              <span>ذخیره تنظیمات درگاه</span>
-            </button>
-          </div>
-
-          {saveGatewaySuccess && (
-            <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-2xl text-emerald-800 text-xs font-extrabold flex items-center gap-2.5 shadow-2xs">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-              <span>تنظیمات درگاه پرداخت با موفقیت در سیستم و سرور ذخیره شد.</span>
-            </div>
-          )}
-
-          {/* Gateway Selector Cards Grid */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-            <div className="border-b border-slate-200 pb-3">
-              <h4 className="font-black text-sm text-slate-900 flex items-center gap-2">
-                <Wallet className="w-4.5 h-4.5 text-slate-700" />
-                <span>انتخاب درگاه پرداخت فعال در سایت:</span>
-              </h4>
-              <p className="text-xs text-slate-500 mt-0.5">
-                درگاه انتخاب شده به عنوان روش اصلی تسویه‌حساب سفارشات به کاربران نمایش داده می‌شود.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-              {[
-                { id: 'zarinpal', name: 'زرین‌پال', badge: 'ZarinPal' },
-                { id: 'zibal', name: 'زیبال', badge: 'Zibal' },
-                { id: 'nextpay', name: 'نکست‌پی', badge: 'NextPay' },
-                { id: 'idpay', name: 'آیدی‌پال', badge: 'IDPay' },
-                { id: 'card_to_card', name: 'کارت به کارت', badge: 'Manual' }
-              ].map(gw => {
-                const isSelected = activeGateway === gw.id;
-                return (
-                  <button
-                    key={gw.id}
-                    type="button"
-                    onClick={() => setActiveGateway(gw.id as GatewayProvider)}
-                    className={`p-4 rounded-2xl border-2 transition text-right cursor-pointer flex flex-col justify-between h-28 relative ${
-                      isSelected
-                        ? 'border-slate-900 bg-slate-900 text-white shadow-md'
-                        : 'border-slate-200 bg-white hover:border-slate-400 text-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
-                        isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
-                      }`}>
-                        {gw.badge}
-                      </span>
-                      {isSelected && (
-                        <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center">
-                          <Check className="w-3.5 h-3.5" />
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <span className="font-extrabold text-sm block">{gw.name}</span>
-                      <span className={`text-[10px] block mt-0.5 ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
-                        {gw.id === 'card_to_card' ? 'واریز دستی بانکی' : 'درگاه پرداخت آنلاین'}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Active Online Gateway Credentials Form (Show if not card-to-card) */}
-          {activeGateway !== 'card_to_card' && (
-            <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-              <div className="border-b border-slate-200 pb-3 flex items-center justify-between">
-                <div>
-                  <h4 className="font-black text-sm text-slate-900 flex items-center gap-2">
-                    <Key className="w-4.5 h-4.5 text-slate-700" />
-                    <span>کلیدها و اطلاعات فنی درگاه {activeGateway.toUpperCase()}</span>
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">اطلاعات اتصال به ای‌پی‌ای (API Key / Merchant ID)</p>
-                </div>
-                <span className="text-xs font-extrabold px-3 py-1 bg-slate-100 rounded-xl text-slate-700">
-                  سرویس: {activeGateway}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Merchant ID / API Key Input */}
-                <div>
-                  <label className="text-xs font-extrabold text-slate-800 block mb-1">
-                    کد مرچنت یا کلید API اختصاصی (Merchant ID / API Key):
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showMerchantSecret ? 'text' : 'password'}
-                      value={merchantId}
-                      onChange={e => setMerchantId(e.target.value)}
-                      placeholder="e.g. zarin_merchant_8841920"
-                      className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition pr-10 font-mono"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowMerchantSecret(!showMerchantSecret)}
-                      className="absolute left-3 top-2.5 text-slate-500 hover:text-slate-800 cursor-pointer"
-                    >
-                      {showMerchantSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <span className="text-[10px] text-slate-500 block mt-1">
-                    این کد پین یا کلید از پنل کاربری درگاه بانکی اخذ می‌شود.
-                  </span>
-                </div>
-
-                {/* Callback URL */}
-                <div>
-                  <label className="text-xs font-extrabold text-slate-800 block mb-1">
-                    آدرس بازگشت تراکنش (Callback URL):
-                  </label>
-                  <input
-                    type="text"
-                    value={callbackUrl}
-                    onChange={e => setCallbackUrl(e.target.value)}
-                    placeholder="/api/payment/callback"
-                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition dir-ltr text-left font-mono"
-                  />
-                  <span className="text-[10px] text-slate-500 block mt-1">
-                    آدرسی که بانک پس از انجام تراکنش، کاربر را به آن هدایت می‌کند.
-                  </span>
-                </div>
-              </div>
-
-              {/* Sandbox / Test Mode Toggle */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between bg-slate-50 p-3.5 rounded-2xl">
-                <div>
-                  <span className="text-xs font-extrabold text-slate-900 block">حالت تست و آزمایش (Sandbox / Test Mode)</span>
-                  <span className="text-[11px] text-slate-500 block">
-                    در حالت تست، کارت‌های بانکی به صورت شبیه‌سازی شده پردازش می‌شوند و مبلغ واقعی کسر نمی‌گردد.
-                  </span>
-                </div>
-
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={isSandbox}
-                    onChange={e => setIsSandbox(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-14 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-rose-600"></div>
-                </label>
-              </div>
-            </div>
-          )}
-
-          {/* Manual Card-to-Card Details Panel */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-            <div className="border-b border-slate-200 pb-3">
-              <h4 className="font-black text-sm text-slate-900 flex items-center gap-2">
-                <Building2 className="w-4.5 h-4.5 text-slate-700" />
-                <span>اطلاعات حساب و واریز کارت به کارت (کارت بانکی مدیریت)</span>
-              </h4>
-              <p className="text-xs text-slate-500 mt-0.5">
-                برای واریز مستقیم یا جایگزین درگاه بانکی، اطلاعات کارت را وارد کنید.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {/* Card Number */}
-              <div>
-                <label className="text-xs font-extrabold text-slate-800 block mb-1">شماره کارت ۱۶ رقمی (Card Number):</label>
-                <input
-                  type="text"
-                  value={cardNumber}
-                  onChange={e => setCardNumber(e.target.value)}
-                  placeholder="6037-9918-4421-9876"
-                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition dir-ltr text-center font-mono"
-                />
-              </div>
-
-              {/* Bank Name */}
-              <div>
-                <label className="text-xs font-extrabold text-slate-800 block mb-1">نام بانک صادرکننده (Bank Name):</label>
-                <input
-                  type="text"
-                  value={bankName}
-                  onChange={e => setBankName(e.target.value)}
-                  placeholder="مثال: بانک ملی ایران"
-                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition"
-                />
-              </div>
-
-              {/* Cardholder Name */}
-              <div>
-                <label className="text-xs font-extrabold text-slate-800 block mb-1">نام و خانوادگی صاحب حساب:</label>
-                <input
-                  type="text"
-                  value={cardholderName}
-                  onChange={e => setCardholderName(e.target.value)}
-                  placeholder="به نام مدیریت بازرگانی سیریک فیت پرو"
-                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-extrabold text-slate-800 block mb-1">شماره شبا (اختیاری):</label>
-              <input
-                type="text"
-                value={shabaNumber}
-                onChange={e => setShabaNumber(e.target.value)}
-                placeholder="IR680170000000109988772001"
-                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition dir-ltr text-left font-mono"
-              />
-            </div>
-          </div>
-
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={isSavingGateway}
-              className="w-full bg-[#111111] hover:bg-black text-white font-extrabold text-sm py-4 rounded-2xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer border border-[#111111]"
-            >
-              {isSavingGateway ? (
-                <RefreshCw className="w-5 h-5 animate-spin" />
-              ) : (
-                <Save className="w-5 h-5 text-emerald-400" />
-              )}
-              <span>ذخیره نهایی تنظیمات درگاه پرداخت</span>
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* SUB-TAB: PRICING RULES */}
-      {activeAdminSubTab === 'pricingRules' && (
-        <PricingRulesAdmin
-          settings={settings}
-          onUpdateSettings={onUpdateSettings}
-          cms={cms}
-          onUpdateCms={onUpdateCms}
-          onSavePricingRules={(newRules) => {
-            if (cms) {
-              onUpdateCms({ ...cms, pricingRules: newRules });
-            }
-          }}
-        />
-      )}
-
       {/* SUB-TAB: BACKUP & RESTORE (پشتیبان‌گیری و بازگردانی) */}
       {activeAdminSubTab === 'backup' && (
         <div className="space-y-6">
@@ -5225,7 +3537,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <h4 className="font-extrabold text-sm text-slate-900 mb-1">بازگردانی و بازیابی فایل بک‌آپ (Restore System Data)</h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  فایل فایل قبلی مانند <code className="bg-slate-100 text-slate-800 px-1 py-0.5 rounded font-mono">sirikfit-backup.json</code> را بارگذاری کنید تا تمام داده‌های دیتابیس و تنظیمات با آن فایل جایگزین و همگام‌سازی شوند.
+                  فایل قبلی مانند <code className="bg-slate-100 text-slate-800 px-1 py-0.5 rounded font-mono">sirikfit-backup.json</code> را بارگذاری کنید تا تمام داده‌های دیتابیس و تنظیمات با آن فایل جایگزین و همگام‌سازی شوند.
                 </p>
               </div>
 
@@ -5302,3 +3614,5 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     </div>
   );
 };
+
+export default AdminPanel;

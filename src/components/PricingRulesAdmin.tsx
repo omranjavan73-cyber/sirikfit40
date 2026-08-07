@@ -30,6 +30,7 @@ import {
 } from '../utils/pricingEngine';
 import { formatToman, formatAed, toPersianDigits } from '../utils/formatters';
 import { getEffectiveGeminiKey } from '../utils/geminiKey';
+import { saveSettingsToFirestore, saveCmsToFirestore } from '../firebase';
 
 interface PricingRulesAdminProps {
   settings: FinancialSettings;
@@ -41,7 +42,6 @@ interface PricingRulesAdminProps {
 
 const sanitizeNumericInput = (val: string): string => {
   if (val === '') return '';
-  // Strips leading zeros before any digits (e.g. "0200" -> "200", "020" -> "20", "0.5" -> "0.5", "00" -> "0")
   let cleaned = val.replace(/^0+(?=\d)/, '');
   if (cleaned.startsWith('.')) cleaned = '0' + cleaned;
   return cleaned;
@@ -58,10 +58,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
   onUpdateCms,
   onSavePricingRules
 }) => {
-  // Load initial configuration
   const initialConfig = cms?.pricingRules || loadPricingRulesFromStorage();
 
-  // SECTION 0: AED Exchange Rate & Financial Settings State
   const [aedRateInput, setAedRateInput] = useState<string>(String(settings.aedRate || 53000));
   const [manualAedRateInput, setManualAedRateInput] = useState<string>(
     String(settings.manualAedRate || settings.aedRate || 53000)
@@ -86,7 +84,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     rate?: number;
   } | null>(null);
 
-  // SECTION 1: Base Commission State
   const [baseCommissionPercent, setBaseCommissionPercent] = useState<string>(
     String(initialConfig.baseCommission?.percentage ?? 20)
   );
@@ -94,14 +91,12 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     initialConfig.baseCommission?.isEnabled ?? true
   );
 
-  // SECTION 2: Commission Rules State
   const [commissionRules, setCommissionRules] = useState<CommissionRule[]>(
     initialConfig.commissionRules && initialConfig.commissionRules.length > 0
       ? initialConfig.commissionRules
       : DEFAULT_PRICING_RULES.commissionRules
   );
 
-  // SECTION 3: Shipping Configuration State
   const [baseShippingCost, setBaseShippingCost] = useState<string>(
     String(initialConfig.shippingConfig?.baseShippingCostAed ?? 20)
   );
@@ -112,28 +107,23 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     String(initialConfig.shippingConfig?.maxShippingCostAed ?? 40)
   );
 
-  // SECTION 4: Shipping Increment Rules State
   const [shippingIncrementRules, setShippingIncrementRules] = useState<ShippingIncrementRule[]>(
     initialConfig.shippingIncrementRules && initialConfig.shippingIncrementRules.length > 0
       ? initialConfig.shippingIncrementRules
       : DEFAULT_PRICING_RULES.shippingIncrementRules
   );
 
-  // UI Save / Toast State
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
 
-  // SECTION 7: Live Pricing Simulator State
   const [simOrderAmount, setSimOrderAmount] = useState<string>('750');
   const [simProductCount, setSimProductCount] = useState<string>('2');
   const [simAedRate, setSimAedRate] = useState<string>(String(settings.aedRate || 53000));
 
-  // Active AED Rate calculation
   const currentActiveAedRate = autoUpdateRates
     ? (parseFloat(aedRateInput) || parseFloat(manualAedRateInput) || 53000)
     : (parseFloat(manualAedRateInput) || 53000);
 
-  // Sync state if settings change
   useEffect(() => {
     if (settings) {
       setAedRateInput(String(settings.aedRate || 53000));
@@ -151,7 +141,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     }
   }, [cms?.apiConfig?.currencyApiUrl, cms?.apiConfig?.autoUpdateRates]);
 
-  // Build current rules config object dynamically
   const getCurrentRulesConfig = (): PricingRulesConfig => {
     return {
       baseCommission: {
@@ -168,7 +157,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     };
   };
 
-  // Run calculation simulator
   const activeConfig = getCurrentRulesConfig();
   const simResult = calculateOrderPricing(
     parseFloat(simOrderAmount) || 0,
@@ -177,7 +165,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     activeConfig
   );
 
-  // SECTION 0 Handlers: Rate API Test & Manual Lock
   const handleTestApiRate = async () => {
     if (!currencyApiUrl.trim()) {
       setRateTestResult({
@@ -228,7 +215,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     });
   };
 
-  // SECTION 2 Handlers: Commission Rules
   const handleAddCommissionRule = () => {
     const lastRule = commissionRules[commissionRules.length - 1];
     const newMin = lastRule ? (lastRule.maxAmountAed || lastRule.minAmountAed + 1000) : 2000;
@@ -263,7 +249,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     setCommissionRules(updated);
   };
 
-  // SECTION 4 Handlers: Shipping Increment Rules
   const handleAddShippingIncrementRule = () => {
     const nextItemNumber = shippingIncrementRules.length + 2;
     const newRule: ShippingIncrementRule = {
@@ -285,7 +270,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     setShippingIncrementRules(prev => prev.filter(r => r.id !== id));
   };
 
-  // Unified Save Config Handler
+  // ذخیره‌سازی مستقیم در دیتابیس Firestore فایربیس
   const handleSaveAllRules = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
@@ -296,83 +281,43 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       : manualAedRate;
     const cargoRatePerKg = Math.max(0, parseFloat(cargoRateKgInput) || 35);
     const profitMargin = Math.max(0, parseFloat(profitMarginInput) || 15);
-    const savedGeminiKey = getEffectiveGeminiKey(cms?.apiConfig?.geminiApiKey);
 
-    // 1. Save settings to /api/settings
-    try {
-      const settingsRes = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          aedRate,
-          manualAedRate,
-          autoUpdateRates,
-          currencyApiUrl,
-          cargoRatePerKg,
-          profitMargin,
-          geminiApiKey: savedGeminiKey
-        })
-      });
+    const settingsPayload = {
+      aedRate,
+      manualAedRate,
+      autoUpdateRates,
+      currencyApiUrl,
+      cargoRatePerKg,
+      profitMargin,
+      updatedAt: new Date().toISOString()
+    };
 
-      const settingsData = await settingsRes.json();
-      if (settingsRes.ok && settingsData.settings && onUpdateSettings) {
-        onUpdateSettings(settingsData.settings);
-      }
-    } catch (err) {
-      console.error('Error saving financial settings:', err);
-    }
-
-    // 2. Save Pricing Rules & CMS config
     const configToSave = getCurrentRulesConfig();
 
-    // Persist to localStorage
-    savePricingRulesToStorage(configToSave);
-
-    if (onSavePricingRules) {
-      onSavePricingRules(configToSave);
-    }
-
-    // Persist to CMS API if available
     try {
-      const updatedCms: CmsConfig = {
-        ...(cms || {
-          heroTitle: '',
-          heroSubtitle: '',
-          heroNotice: '',
-          heroImage: '',
-          stores: [],
-          apiConfig: { currencyApiUrl: '', autoUpdateRates: true, scraperEndpoint: '', geminiApiKey: '' }
-        }),
-        pricingRules: configToSave,
-        apiConfig: {
-          ...(cms?.apiConfig || { scraperEndpoint: '', geminiApiKey: '' }),
-          currencyApiUrl,
-          autoUpdateRates
-        }
-      };
+      savePricingRulesToStorage(configToSave);
 
-      const cmsRes = await fetch('/api/cms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedCms)
+      // ذخیره مستقیم روی فایربیس
+      await saveSettingsToFirestore(settingsPayload);
+      await saveCmsToFirestore({ 
+        pricingRules: configToSave, 
+        apiConfig: { currencyApiUrl, autoUpdateRates } 
       });
-      const cmsData = await cmsRes.json();
-      if (cmsRes.ok && cmsData.cms && onUpdateCms) {
-        onUpdateCms(cmsData.cms);
-      }
-    } catch (e) {
-      console.error('Error syncing pricing rules to server:', e);
-    } finally {
-      setIsSaving(false);
+
+      if (onUpdateSettings) onUpdateSettings(settingsPayload as any);
+      if (onSavePricingRules) onSavePricingRules(configToSave);
+
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3500);
+    } catch (err) {
+      console.error('Error saving settings directly to Firestore:', err);
+    } finally {
+      setIsSaving(false);
     }
   };
 
   return (
     <div className="space-y-6 font-['Vazirmatn',sans-serif] animate-fade-in text-slate-800">
-      
-      {/* Top Banner & Header */}
       <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 shadow-2xs">
@@ -410,7 +355,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </button>
       </div>
 
-      {/* Success Toast / Notification */}
       {saveSuccess && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-extrabold flex items-center justify-between shadow-2xs animate-fade-in">
           <div className="flex items-center gap-2.5">
@@ -423,7 +367,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       )}
 
-      {/* SECTION 0: AED Exchange Rate Configuration (تنظیمات نرخ درهم) */}
       <div id="ap-rate" className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-5">
         <div className="border-b border-slate-100 pb-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -455,7 +398,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           </div>
         </div>
 
-        {/* Dual Mode Controls & Rate Inputs */}
         <div className="bg-slate-50/90 border border-slate-200 rounded-2xl p-4.5 space-y-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-200/80 pb-3.5">
             <div>
@@ -554,7 +496,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             </div>
           </div>
 
-          {/* Test Preview Box */}
           {rateTestResult && (
             <div className={`p-3.5 rounded-xl border text-xs font-bold flex items-center justify-between gap-2 ${
               rateTestResult.type === 'success'
@@ -577,10 +518,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       </div>
 
-      {/* Grid: Section 1 (Base Commission) & Section 3 (Shipping Config) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        
-        {/* SECTION 1 - Base Commission */}
         <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-2xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2.5">
@@ -590,7 +528,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
               <h3 className="font-extrabold text-sm text-slate-900">۱. کارمزد پایه (Base Commission)</h3>
             </div>
 
-            {/* Toggle Switch */}
             <label className="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
               <span className="text-[11px] font-extrabold text-slate-700">
                 {isBaseCommissionEnabled ? 'فعال' : 'غیرفعال'}
@@ -638,7 +575,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           </div>
         </div>
 
-        {/* SECTION 3 - Shipping Configuration */}
         <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-2xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2.5">
@@ -699,7 +635,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       </div>
 
-      {/* SECTION 2 - Commission Rules Based on Order Value */}
       <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
@@ -724,7 +659,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           </button>
         </div>
 
-        {/* Dynamic Rules List */}
         <div className="space-y-2.5">
           {commissionRules.map((rule, idx) => (
             <div
@@ -733,7 +667,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                 rule.isEnabled ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-50 border-slate-200/60 opacity-60'
               }`}
             >
-              {/* Rule Sequence Badge & Range Input */}
               <div className="flex items-center gap-3 w-full md:w-auto">
                 <div className="w-7 h-7 rounded-lg bg-slate-900 text-white font-black text-xs flex items-center justify-center shrink-0">
                   {idx + 1}
@@ -795,7 +728,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons: Enable, Move Up/Down, Delete */}
               <div className="flex items-center gap-2 self-end md:self-auto shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 w-full md:w-auto justify-end">
                 <label className="flex items-center gap-1.5 cursor-pointer bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-bold">
                   <input
@@ -841,7 +773,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       </div>
 
-      {/* SECTION 4 - Shipping Increment Rules */}
       <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
@@ -923,7 +854,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       </div>
 
-      {/* SECTION 5 - Calculation Order Reference */}
       <div className="bg-[#111111] text-white rounded-3xl p-5 sm:p-6 shadow-md space-y-3">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0" />
@@ -962,7 +892,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       </div>
 
-      {/* SECTION 7 - Live Pricing Simulator */}
       <div className="bg-white border-2 border-slate-900 rounded-3xl p-5 sm:p-6 shadow-md space-y-5">
         <div className="flex items-center justify-between pb-3 border-b border-slate-200">
           <div className="flex items-center gap-2.5">
@@ -982,7 +911,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           </span>
         </div>
 
-        {/* Inputs */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
           <div>
             <label className="text-xs font-extrabold text-slate-800 block mb-1">ارزش کل سفارش (AED):</label>
@@ -1024,7 +952,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           </div>
         </div>
 
-        {/* Output Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="bg-indigo-50/80 border border-indigo-200/80 p-3.5 rounded-2xl space-y-1">
             <span className="text-[11px] font-bold text-indigo-700 block">قانون کارمزد اعمال‌شده:</span>
@@ -1074,7 +1001,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           </div>
         </div>
 
-        {/* Step-by-Step Breakdown Table */}
         <div className="border border-slate-200 rounded-2xl overflow-hidden">
           <div className="bg-slate-100 px-4 py-2.5 text-xs font-extrabold text-slate-800 border-b border-slate-200">
             جزئیات گام‌به‌گام محاسبه قیمت (Breakdown):
@@ -1094,9 +1020,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             ))}
           </div>
         </div>
-
       </div>
-
     </div>
   );
 };

@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profile",
+      "description": "Registered users of the platform",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "orders": {
+      "title": "Orders",
+      "description": "User purchases and store transactions",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhone": { "type": "string" },
+        "items": { "type": "array" },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["orderId", "items", "totalAmount"]
+    },
+    "settings": {
+      "title": "Settings",
+      "description": "Application settings and configuration",
+      "type": "object",
+      "properties": {
+        "general": { "type": "object" },
+        "banners": { "type": "object" },
+        "api": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      }
+    }
+  }
+}

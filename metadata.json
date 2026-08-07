@@ -1,0 +1,6 @@
+{
+  "name": "SIRIK FIT PRO",
+  "description": "سیریک فیت پرو - سامانه تخصصی سفارش و خرید مکمل‌های ورزشی و اورجینال",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

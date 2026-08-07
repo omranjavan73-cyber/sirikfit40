@@ -3,7 +3,9 @@ import {
   getFirestore, 
   doc, 
   setDoc, 
-  getDoc 
+  getDoc,
+  collection,
+  getDocs
 } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -19,6 +21,19 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
+// Check Firestore Connection Status
+export const checkFirestoreConnection = async (): Promise<boolean> => {
+  try {
+    const testDoc = doc(db, 'settings', 'financial');
+    await getDoc(testDoc);
+    return true;
+  } catch (e) {
+    console.error('Firestore connection error:', e);
+    return false;
+  }
+};
+
+// Save Financial Settings
 export const saveSettingsToFirestore = async (settingsData: any): Promise<{ success: boolean; error?: any }> => {
   try {
     const docRef = doc(db, 'settings', 'financial');
@@ -29,6 +44,7 @@ export const saveSettingsToFirestore = async (settingsData: any): Promise<{ succ
   }
 };
 
+// Fetch Financial Settings (Both alias names supported)
 export const getSettingsFromFirestore = async (): Promise<any> => {
   try {
     const docRef = doc(db, 'settings', 'financial');
@@ -42,6 +58,9 @@ export const getSettingsFromFirestore = async (): Promise<any> => {
   return null;
 };
 
+export const fetchSettingsFromFirestore = getSettingsFromFirestore;
+
+// Save Order
 export const saveOrderToFirestore = async (orderData: any): Promise<{ success: boolean; id?: string; error?: any }> => {
   try {
     const orderId = orderData.id || `order_${Date.now()}`;
@@ -53,6 +72,7 @@ export const saveOrderToFirestore = async (orderData: any): Promise<{ success: b
   }
 };
 
+// Save CMS
 export const saveCmsToFirestore = async (cmsData: any): Promise<{ success: boolean; error?: any }> => {
   try {
     const docRef = doc(db, 'cms', 'config');

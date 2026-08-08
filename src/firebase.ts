@@ -4,12 +4,13 @@ import {
   doc, 
   setDoc, 
   getDoc, 
-  onSnapshot 
+  onSnapshot,
+  collection,
+  addDoc
 } from 'firebase/firestore';
 
-// تنظیمات مستقیم پروژه sirikfit40
 const firebaseConfig = {
-  apiKey: "AIzaSy...", // کلید API شما در کنسول فایربیس
+  apiKey: "AIzaSy...", 
   authDomain: "sirikfit40.firebaseapp.com",
   projectId: "sirikfit40",
   storageBucket: "sirikfit40.appspot.com",
@@ -20,14 +21,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-// سند ثابت برای ذخیره‌سازی تنظیمات کلی
 const SETTINGS_DOC_REF = doc(db, 'site_config', 'global_settings');
 const CMS_DOC_REF = doc(db, 'site_config', 'cms_data');
 
-// ۱. بررسی سلامت اتصال
 export const checkFirestoreConnection = async () => {
   try {
-    const snap = await getDoc(SETTINGS_DOC_REF);
+    await getDoc(SETTINGS_DOC_REF);
     return { connected: true, dbId: 'sirikfit40' };
   } catch (error) {
     console.error("Firestore connection error:", error);
@@ -35,11 +34,9 @@ export const checkFirestoreConnection = async () => {
   }
 };
 
-// ۲. ذخیره یکپارچه تنظیمات مالی
 export const saveSettingsToFirestore = async (settingsData: any) => {
   try {
     await setDoc(SETTINGS_DOC_REF, settingsData, { merge: true });
-    // ذخیره همزمان در localStorage جهت پشتیبان محلی
     localStorage.setItem('omex_settings_cache', JSON.stringify(settingsData));
     return true;
   } catch (error) {
@@ -48,21 +45,21 @@ export const saveSettingsToFirestore = async (settingsData: any) => {
   }
 };
 
-// ۳. خواندن یکپارچه تنظیمات مالی
-export const fetchSettingsFromFirestore = async () => {
+export const getSettingsFromFirestore = async () => {
   try {
     const snap = await getDoc(SETTINGS_DOC_REF);
     if (snap.exists()) {
       return snap.data();
     }
   } catch (error) {
-    console.warn("Error fetching settings from Firestore, loading local cache:", error);
+    console.warn("Error fetching settings from Firestore:", error);
   }
   const cached = localStorage.getItem('omex_settings_cache');
   return cached ? JSON.parse(cached) : null;
 };
 
-// ۴. ذخیره یکپارچه CMS (فروشگاه‌ها، انبار ایران، بنرها)
+export const fetchSettingsFromFirestore = getSettingsFromFirestore;
+
 export const saveCmsToFirestore = async (cmsData: any) => {
   try {
     await setDoc(CMS_DOC_REF, cmsData, { merge: true });
@@ -74,25 +71,40 @@ export const saveCmsToFirestore = async (cmsData: any) => {
   }
 };
 
-// ۵. خواندن یکپارچه CMS
-export const fetchCmsFromFirestore = async () => {
+export const getCmsFromFirestore = async () => {
   try {
     const snap = await getDoc(CMS_DOC_REF);
     if (snap.exists()) {
       return snap.data();
     }
   } catch (error) {
-    console.warn("Error fetching CMS from Firestore, loading local cache:", error);
+    console.warn("Error fetching CMS from Firestore:", error);
   }
   const cached = localStorage.getItem('omex_cms_cache');
   return cached ? JSON.parse(cached) : null;
 };
 
-// ۶. همگام‌سازی زنده (Real-time Listener)
+export const fetchCmsFromFirestore = getCmsFromFirestore;
+
 export const subscribeToCmsChanges = (callback: (data: any) => void) => {
   return onSnapshot(CMS_DOC_REF, (docSnap) => {
     if (docSnap.exists()) {
       callback(docSnap.data());
     }
   });
+};
+
+// ثبت سفارشات در دیتابیس Firestore
+export const saveOrderToFirestore = async (orderData: any) => {
+  try {
+    const ordersCol = collection(db, 'orders');
+    const docRef = await addDoc(ordersCol, {
+      ...orderData,
+      createdAt: new Date().toISOString()
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error("Error saving order to Firestore:", error);
+    return null;
+  }
 };

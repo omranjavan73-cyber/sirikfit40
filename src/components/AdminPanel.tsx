@@ -53,7 +53,7 @@ import {
   Copy,
   Database
 } from 'lucide-react';
-import { checkFirestoreConnection, saveSettingsToFirestore, fetchSettingsFromFirestore } from '../firebase';
+import { checkFirestoreConnection, saveSettingsToFirestore, fetchSettingsFromFirestore, saveCmsToFirestore, getCmsFromFirestore } from '../firebase';
 import {
   FinancialSettings,
   Order,
@@ -119,6 +119,62 @@ const DEFAULT_STORES: StoreCardItem[] = [
     image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><text x="100" y="115" text-anchor="middle" fill="%23E31837" font-weight="900" font-size="70" font-family="Arial,sans-serif" letter-spacing="-2">GNC</text><text x="100" y="145" text-anchor="middle" fill="%23E31837" font-weight="800" font-size="20" font-family="Arial,sans-serif" letter-spacing="4">LIVE WELL</text></svg>'
   }
 ];
+
+// Helper Function: Auto Image Compressor & Resizer (Max 800x800, quality 0.7)
+export const compressImageFile = (
+  file: File,
+  maxWidth = 800,
+  maxHeight = 800,
+  quality = 0.7
+): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!file) {
+      resolve('');
+      return;
+    }
+    // SVG or non-image files read directly
+    if (!file.type.startsWith('image/') || file.type.includes('svg')) {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve((e.target?.result as string) || '');
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve((e.target?.result as string) || '');
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        const dataUrl = canvas.toDataURL(mimeType, quality);
+        resolve(dataUrl);
+      };
+      img.onerror = () => resolve((e.target?.result as string) || '');
+      img.src = (e.target?.result as string) || '';
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+};
 
 interface AdminPanelProps {
   settings: FinancialSettings;
@@ -315,15 +371,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setHomeBannersList(homeBannersList.filter((_, i) => i !== index));
   };
 
-  const handleBannerFileUpload = (index: number, file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      if (result) {
-        handleUpdateBanner(index, 'imageUrl', result);
+  const handleBannerFileUpload = async (index: number, file: File) => {
+    try {
+      const compressed = await compressImageFile(file, 1200, 800, 0.7);
+      if (compressed) {
+        handleUpdateBanner(index, 'imageUrl', compressed);
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (_e) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        if (result) handleUpdateBanner(index, 'imageUrl', result);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const [currencyApiUrl, setCurrencyApiUrl] = useState(cms?.apiConfig?.currencyApiUrl || '');
@@ -934,38 +995,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // Direct Image File Upload Handlers (Base64)
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Direct Image File Upload Handlers (Base64 + Auto Compressor & Resizer)
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 8 * 1024 * 1024) {
-        alert('حجم فایل تصویر لوگو نباید بیشتر از ۸ مگابایت باشد.');
-        return;
+      const compressed = await compressImageFile(file, 800, 800, 0.7);
+      if (compressed) {
+        setLogoUrl(compressed);
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setLogoUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
     }
   };
 
-  const handleHeroBannerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleHeroBannerFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 15 * 1024 * 1024) {
-        alert('حجم فایل تصویر بنر نباید بیشتر از ۱۵ مگابایت باشد.');
-        return;
+      const compressed = await compressImageFile(file, 1200, 800, 0.7);
+      if (compressed) {
+        setHeroImageUrl(compressed);
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setHeroImageUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -1229,24 +1276,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     };
 
+    // Layer 1: React Props state update
+    if (cms) {
+      onUpdateCms({ ...cms, paymentGateway: configPayload });
+    }
+    setSaveGatewaySuccess(true);
+
+    // Layer 2: LocalStorage lock
+    try {
+      localStorage.setItem('sirikfit_gateway_config', JSON.stringify(configPayload));
+    } catch (_e) {}
+
+    // Layer 3: Firestore Cloud & Server API
+    saveSettingsToFirestore({ paymentGateway: configPayload });
+    saveCmsToFirestore({ paymentGateway: configPayload });
+
     try {
       const res = await fetch('/api/payment-gateway', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(configPayload)
       });
-
-      if (res.ok) {
-        setSaveGatewaySuccess(true);
-        setTimeout(() => setSaveGatewaySuccess(false), 3500);
-        if (cms) {
-          onUpdateCms({ ...cms, paymentGateway: configPayload });
-        }
+      if (res.ok && cms) {
+        onUpdateCms({ ...cms, paymentGateway: configPayload });
       }
     } catch (err) {
       console.error('Error saving gateway config:', err);
     } finally {
       setIsSavingGateway(false);
+      setTimeout(() => setSaveGatewaySuccess(false), 3500);
     }
   };
 
@@ -1380,36 +1438,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       .filter(k => k !== '' && k !== '******');
     setEffectiveGeminiKeysList(allKeys);
 
+    const newSettingsPayload: FinancialSettings = {
+      aedRate,
+      manualAedRate,
+      autoUpdateRates,
+      currencyApiUrl,
+      cargoRatePerKg,
+      profitMargin,
+      minOrderAed
+    };
+
+    // Layer 1: React Props state update
+    onUpdateSettings(newSettingsPayload);
+    setSaveSettingsSuccess(true);
+
+    // Layer 2: LocalStorage lock
+    try {
+      localStorage.setItem('sirikfit_financial_settings', JSON.stringify(newSettingsPayload));
+      localStorage.setItem('omex_financial_settings', JSON.stringify(newSettingsPayload));
+    } catch (_e) {}
+
+    // Layer 3: Firestore Cloud & Server API
+    saveSettingsToFirestore(newSettingsPayload);
+
     try {
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          aedRate,
-          manualAedRate,
-          autoUpdateRates,
-          currencyApiUrl,
-          cargoRatePerKg,
-          profitMargin,
-          minOrderAed,
-          geminiApiKey: geminiApiKey1 || allKeys[0] || '',
-          geminiApiKey1,
-          geminiApiKey2,
-          geminiApiKey3,
-          geminiApiKeys: allKeys
-        })
+        body: JSON.stringify(newSettingsPayload)
       });
 
       const data = await res.json();
       if (res.ok && data.settings) {
         onUpdateSettings(data.settings);
-        setSaveSettingsSuccess(true);
-        setTimeout(() => setSaveSettingsSuccess(false), 3000);
       }
     } catch (err) {
       console.error('Error saving settings:', err);
     } finally {
       setIsSavingSettings(false);
+      setTimeout(() => setSaveSettingsSuccess(false), 3000);
     }
   };
 
@@ -1996,6 +2063,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     };
 
     applyHomeContentToDom(currentHomeContent);
+
+    // Layer 1: React Props state update
+    onUpdateCms(updatedCms);
+    setSaveCmsSuccess(true);
+
+    // Layer 2: LocalStorage lock
+    try {
+      localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+      localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+      if (currentHomeContent) {
+        localStorage.setItem('sirikfit_home_content', JSON.stringify(currentHomeContent));
+      }
+    } catch (_e) {}
+
+    // Layer 3: Firestore Cloud & Server API
+    saveCmsToFirestore(updatedCms);
     saveSettingsToFirestore(updatedCms);
 
     try {
@@ -2012,13 +2095,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
       if (res.ok && data.cms) {
         onUpdateCms(data.cms);
-        setSaveCmsSuccess(true);
-        setTimeout(() => setSaveCmsSuccess(false), 3000);
       }
     } catch (err) {
       console.error('Error saving CMS:', err);
     } finally {
       setIsSavingCms(false);
+      setTimeout(() => setSaveCmsSuccess(false), 3000);
     }
   };
 
@@ -3095,20 +3177,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              if (file.size > 8 * 1024 * 1024) {
-                                alert('حجم تصویر نباید بیشتر از ۸ مگابایت باشد.');
-                                return;
+                              const compressed = await compressImageFile(file, 800, 800, 0.7);
+                              if (compressed) {
+                                handleUpdateLocalItemField(item.id, 'image', compressed);
                               }
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                if (typeof reader.result === 'string') {
-                                  handleUpdateLocalItemField(item.id, 'image', reader.result);
-                                }
-                              };
-                              reader.readAsDataURL(file);
                             }
                           }}
                         />
@@ -3187,20 +3262,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              if (file.size > 5 * 1024 * 1024) {
-                                alert('حجم تصویر دسته‌بندی نباید بیشتر از ۵ مگابایت باشد.');
-                                return;
+                              const compressed = await compressImageFile(file, 600, 600, 0.7);
+                              if (compressed) {
+                                handleUpdateWarehouseCategoryField(cat.id, 'iconUrl', compressed);
                               }
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                if (typeof reader.result === 'string') {
-                                  handleUpdateWarehouseCategoryField(cat.id, 'iconUrl', reader.result);
-                                }
-                              };
-                              reader.readAsDataURL(file);
                             }
                           }}
                         />
@@ -4258,20 +4326,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 type="file"
                                 accept="image/*"
                                 className="hidden"
-                                onChange={(e) => {
+                                onChange={async (e) => {
                                   const file = e.target.files?.[0];
                                   if (file) {
-                                    if (file.size > 5 * 1024 * 1024) {
-                                      alert('حجم تصویر لوگو نباید بیشتر از ۵ مگابایت باشد.');
-                                      return;
+                                    const compressed = await compressImageFile(file, 600, 600, 0.7);
+                                    if (compressed) {
+                                      handleUpdateStoreField(store.id, 'image', compressed);
                                     }
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      if (typeof reader.result === 'string') {
-                                        handleUpdateStoreField(store.id, 'image', reader.result);
-                                      }
-                                    };
-                                    reader.readAsDataURL(file);
                                   }
                                 }}
                               />

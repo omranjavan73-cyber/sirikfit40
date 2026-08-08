@@ -84,6 +84,42 @@ const DEFAULT_WAREHOUSE_CATEGORIES: WarehouseCategory[] = [
   { id: 'hot', label: 'پرفروش', filterKey: 'hot', iconUrl: '' },
 ];
 
+const DEFAULT_STORES: StoreCardItem[] = [
+  {
+    id: 'store-dnp',
+    title: 'Doctor Nutrition Dubai',
+    shortTitle: 'Dr. Nutrition',
+    subtitle: 'بزرگترین مرجع مکمل دبی',
+    description: 'بزرگترین مرجع تخصصی مکمل‌های ورزشی، ویتامین و پروتئین ایزوله در امارات و خاورمیانه',
+    url: 'https://www.drnutrition.com/en-ae',
+    badge: 'تخفیف ویژه دبی',
+    enabled: true,
+    image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 200"><rect width="220" height="200" fill="%230a0a0c"/><text x="25" y="130" fill="%238B2FC9" font-weight="900" font-size="100" font-family="sans-serif" letter-spacing="-6">dnp</text><path d="M50 120 C 90 70, 135 40, 175 28 C 150 65, 110 110, 75 130 Z" fill="%2378BE20"/><path d="M60 112 Q 115 65, 163 35" stroke="%235A9614" stroke-width="3" fill="none"/></svg>'
+  },
+  {
+    id: 'store-life',
+    title: 'Life Pharmacy UAE',
+    shortTitle: 'Life Pharmacy',
+    subtitle: 'داروخانه آنلاین دبی',
+    description: 'بزرگترین زنجیره داروخانه آنلاین دبی - داروها، ویتامین‌ها، مکمل‌ها و محصولات آرایشی بهداشتی معتبر',
+    url: 'https://www.lifepharmacy.com',
+    badge: 'داروخانه آنلاین دبی',
+    enabled: true,
+    image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><path d="M100 15 C56 15 40 42 40 70 V135 H160 V70 C160 42 144 15 100 15 Z" fill="%231C3F94"/><circle cx="100" cy="55" r="9" fill="%23FFFFFF"/><path d="M100 68 C84 80 72 84 64 110 H136 C128 84 116 80 100 68 Z" fill="%23FFFFFF"/><text x="100" y="172" text-anchor="middle" fill="%23C42582" font-weight="900" font-size="36" font-family="sans-serif">LIFE%C2%AE</text></svg>'
+  },
+  {
+    id: 'store-gnc',
+    title: 'GNC UAE',
+    shortTitle: 'GNC',
+    subtitle: 'نمایندگی رسمی GNC',
+    description: 'نمایندگی رسمی برند جهانی GNC در امارات - انواع مولتی‌ویتامین‌ها، امگا ۳ و مکمل‌های سلامتی اورجینال',
+    url: 'https://gnc-mena.com/',
+    badge: 'ضمانت ۱۰۰٪ اورجینال',
+    enabled: true,
+    image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><text x="100" y="115" text-anchor="middle" fill="%23E31837" font-weight="900" font-size="70" font-family="Arial,sans-serif" letter-spacing="-2">GNC</text><text x="100" y="145" text-anchor="middle" fill="%23E31837" font-weight="800" font-size="20" font-family="Arial,sans-serif" letter-spacing="4">LIVE WELL</text></svg>'
+  }
+];
+
 interface AdminPanelProps {
   settings: FinancialSettings;
   onUpdateSettings: (newSettings: FinancialSettings) => void;
@@ -151,7 +187,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [heroSubtitle, setHeroSubtitle] = useState(cms?.heroSubtitle || '');
   const [heroNotice, setHeroNotice] = useState(cms?.heroNotice || '');
   const [heroImage, setHeroImage] = useState(cms?.heroImage || '');
-  const [storesList, setStoresList] = useState<StoreCardItem[]>(cms?.stores || []);
+  const [storesList, setStoresList] = useState<StoreCardItem[]>(
+    cms?.stores && cms.stores.length > 0 ? cms.stores : DEFAULT_STORES
+  );
   const [dealsList, setDealsList] = useState<FeaturedDeal[]>(cms?.deals || []);
   const [showLocalInventory, setShowLocalInventory] = useState<boolean>(cms?.showLocalInventory ?? true);
   const [warehouseBannerTitle, setWarehouseBannerTitle] = useState(cms?.warehouseBannerTitle || 'کالاهای موجود در انبار ایران (ارسال فوری)');
@@ -948,7 +986,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setHeroSubtitle(cms.heroSubtitle);
       setHeroNotice(cms.heroNotice);
       setHeroImage(cms.heroImage);
-      setStoresList(cms.stores || []);
+      setStoresList(cms.stores && cms.stores.length > 0 ? cms.stores : DEFAULT_STORES);
       setDealsList(cms.deals || []);
       setShowLocalInventory(cms.showLocalInventory ?? true);
       setWarehouseBannerTitle(cms.warehouseBannerTitle || 'کالاهای موجود در انبار ایران (ارسال فوری)');

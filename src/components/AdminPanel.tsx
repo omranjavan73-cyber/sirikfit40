@@ -1422,7 +1422,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // 🟢 [FIXED_BY_AI]: Bypassed failing /api proxy call and saved financial settings directly to Firestore and LocalStorage
- const handleSaveFinancialSettings = async (e: React.FormEvent) => {
+const handleSaveFinancialSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingSettings(true);
     setSaveSettingsSuccess(false);
@@ -1435,11 +1435,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const profitMargin = Math.max(0, parseFloat(profitMarginInput) || 15);
     const minOrderAed = Math.max(0, parseFloat(minOrderAedInput) || 200);
 
-    const allKeys = [geminiApiKey1, geminiApiKey2, geminiApiKey3]
-      .map(k => k ? k.trim() : '')
-      .filter(k => k !== '' && k !== '******');
-    setEffectiveGeminiKeysList(allKeys);
-
     const newSettingsPayload: FinancialSettings = {
       aedRate,
       manualAedRate,
@@ -1450,17 +1445,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       minOrderAed
     };
 
-    // Layer 1: React Props state update
+    // 🟢 ۱. بروزرسانی آنی در سطح پراپ‌ها و والد (App.tsx)
     onUpdateSettings(newSettingsPayload);
     setSaveSettingsSuccess(true);
 
-    // Layer 2: LocalStorage lock
+    // 🟢 ۲. ذخیره قطعی در LocalStorage جهت ماندگاری بعد از رفرش
     try {
       localStorage.setItem('sirikfit_financial_settings', JSON.stringify(newSettingsPayload));
       localStorage.setItem('omex_financial_settings', JSON.stringify(newSettingsPayload));
     } catch (_e) {}
 
-    // Layer 3: Direct Firestore Cloud Save (Bypassing non-existent /api backend)
+    // 🟢 ۳. ذخیره در فایربیس
     try {
       await saveSettingsToFirestore(newSettingsPayload);
     } catch (fsErr) {

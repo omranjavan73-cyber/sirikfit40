@@ -286,6 +286,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
   };
 
   // Unified Save Config Handler
+ // Unified Save Config Handler
   const handleSaveAllRules = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
@@ -298,73 +299,61 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     const profitMargin = Math.max(0, parseFloat(profitMarginInput) || 15);
     const savedGeminiKey = getEffectiveGeminiKey(cms?.apiConfig?.geminiApiKey);
 
-    // 1. Save settings to /api/settings
-    try {
-      const settingsRes = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          aedRate,
-          manualAedRate,
-          autoUpdateRates,
-          currencyApiUrl,
-          cargoRatePerKg,
-          profitMargin,
-          geminiApiKey: savedGeminiKey
-        })
-      });
+    const newSettingsPayload = {
+      ...settings,
+      aedRate,
+      manualAedRate,
+      autoUpdateRates,
+      currencyApiUrl,
+      cargoRatePerKg,
+      profitMargin
+    };
 
-      const settingsData = await settingsRes.json();
-      if (settingsRes.ok && settingsData.settings && onUpdateSettings) {
-        onUpdateSettings(settingsData.settings);
-      }
-    } catch (err) {
-      console.error('Error saving financial settings:', err);
+    // 1. آپدیت لحظه‌ای state در سطح برنامه والد (App.tsx)
+    if (onUpdateSettings) {
+      onUpdateSettings(newSettingsPayload);
     }
 
-    // 2. Save Pricing Rules & CMS config
-    const configToSave = getCurrentRulesConfig();
-
-    // Persist to localStorage
-    savePricingRulesToStorage(configToSave);
-
-    if (onSavePricingRules) {
-      onSavePricingRules(configToSave);
-    }
-
-    // Persist to CMS API if available
+    // 2. ذخیره روی LocalStorage برای پایداری بعد از رفرش
     try {
-      const updatedCms: CmsConfig = {
-        ...(cms || {
-          heroTitle: '',
-          heroSubtitle: '',
-          heroNotice: '',
-          heroImage: '',
-          stores: [],
-          apiConfig: { currencyApiUrl: '', autoUpdateRates: true, scraperEndpoint: '', geminiApiKey: '' }
-        }),
-        pricingRules: configToSave,
-        apiConfig: {
-          ...(cms?.apiConfig || { scraperEndpoint: '', geminiApiKey: '' }),
-          currencyApiUrl,
-          autoUpdateRates
-        }
+      localStorage.setItem('sirikfit_financial_settings', JSON.stringify(newSettingsPayload));
+      localStorage.setItem('omex_financial_settings', JSON.stringify(newSettingsPayload));
+    } catch (_e) {}
+
+    try {
+      // 3. ذخیره مستقیم و ایمن در فایربیس (بدون نیاز به پشتبانی سرور API)
+      await saveSettingsToFirestore(newSettingsPayload);
+
+      const configToSave = {
+        shippingIncrementRules,
+        // سایر قوانین موجود در کامپوننت شما...
       };
 
-      const cmsRes = await fetch('/api/cms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedCms)
-      });
-      const cmsData = await cmsRes.json();
-      if (cmsRes.ok && cmsData.cms && onUpdateCms) {
-        onUpdateCms(cmsData.cms);
+      if (cms) {
+        const updatedCms = {
+          ...cms,
+          pricingRules: configToSave,
+          apiConfig: {
+            ...(cms?.apiConfig || { scraperEndpoint: '', geminiApiKey: '' }),
+            currencyApiUrl,
+            autoUpdateRates
+          }
+        };
+        if (onUpdateCms) {
+          onUpdateCms(updatedCms);
+        }
+        await saveCmsToFirestore(updatedCms);
       }
+
+      if (onSavePricingRules) {
+        onSavePricingRules(configToSave);
+      }
+
+      setSaveSuccess(true);
     } catch (e) {
-      console.error('Error syncing pricing rules to server:', e);
+      console.error('Error saving pricing rules to Firebase:', e);
     } finally {
       setIsSaving(false);
-      setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3500);
     }
   };

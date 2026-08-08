@@ -1445,7 +1445,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   };
 
-  const handleSaveFinancials = async () => {
+const handleSaveFinancials = async () => {
     setIsSavingSettings(true);
     const newSettingsPayload: FinancialSettings = {
       ...settings,

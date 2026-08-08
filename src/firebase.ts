@@ -130,5 +130,22 @@ export async function deleteOrderFromFirestore(orderId: string) {
         return false;
     }
 }
-
+// Helper: Save Order in Firestore "orders" collection
+export async function saveOrderToFirestore(orderData: any) {
+  if (!db) return;
+  const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
+  try {
+    const orderRef = doc(db, 'orders', orderId);
+    const dataToSave = {
+      ...orderData,
+      orderId,
+      createdAt: orderData.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(orderRef, dataToSave, { merge: true });
+    return orderId;
+  } catch (err) {
+    console.error("Error saving order to Firestore:", err);
+  }
+}
 export default app;

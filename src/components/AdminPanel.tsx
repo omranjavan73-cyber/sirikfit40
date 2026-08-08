@@ -27,6 +27,7 @@ import {
   ArrowDown,
   PackageCheck,
   Package,
+  Plane,
   Home,
   ToggleLeft,
   ToggleRight,
@@ -52,7 +53,7 @@ import {
   Copy,
   Database
 } from 'lucide-react';
-import { checkFirestoreConnection, saveSettingsToFirestore } from '../firebase';
+import { checkFirestoreConnection, saveSettingsToFirestore, fetchSettingsFromFirestore } from '../firebase';
 import {
   FinancialSettings,
   Order,
@@ -66,6 +67,7 @@ import {
   HomePageSettings,
   GatewayProvider,
   PaymentGatewayConfig,
+  PricingRulesConfig,
   HomeBanner,
   DomainItem
 } from '../types';
@@ -168,19 +170,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [profitMarginInput, setProfitMarginInput] = useState<string>(String(settings.profitMargin));
   const [minOrderAedInput, setMinOrderAedInput] = useState<string>(String(settings.minOrderAed || 200));
 
+  const [isTestingRateApi, setIsTestingRateApi] = useState<boolean>(false);
   const [rateTestResult, setRateTestResult] = useState<{ message: string; type: 'success' | 'error' | 'warning'; rate?: number } | null>(null);
+
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [saveSettingsSuccess, setSaveSettingsSuccess] = useState(false);
+  const [scraperToast, setScraperToast] = useState<string | null>(null);
 
   const [heroTitle, setHeroTitle] = useState(cms?.heroTitle || '');
   const [heroSubtitle, setHeroSubtitle] = useState(cms?.heroSubtitle || '');
   const [heroNotice, setHeroNotice] = useState(cms?.heroNotice || '');
   const [heroImage, setHeroImage] = useState(cms?.heroImage || '');
+  
+  // اصلاحیه اصلی برای نمایش فروشگاه‌ها
   const [storesList, setStoresList] = useState<StoreCardItem[]>(() => {
     if (cms?.stores && cms.stores.length > 0) {
       return cms.stores;
     }
     return DEFAULT_STORES;
   });
+
   const [dealsList, setDealsList] = useState<FeaturedDeal[]>(cms?.deals || []);
   const [showLocalInventory, setShowLocalInventory] = useState<boolean>(cms?.showLocalInventory ?? true);
   const [warehouseBannerTitle, setWarehouseBannerTitle] = useState(cms?.warehouseBannerTitle || 'کالاهای موجود در انبار ایران (ارسال فوری)');
@@ -191,7 +200,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [warehouseCategories, setWarehouseCategories] = useState<WarehouseCategory[]>(
     cms?.warehouseCategories?.length ? cms.warehouseCategories : DEFAULT_WAREHOUSE_CATEGORIES
   );
-
   const DEFAULT_BANNER_SLOGANS = [
     '⚡ ارسال مستقیم و تضمینی کالا از دبی تا درب منزل',
     '💯 تضمین ۱۰۰٪ اصالت مکملها و ضمانت بازگشت',
@@ -1053,9 +1061,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setEmailTitle(cms.homeContent.emailTitle || 'ارتباط از طریق ایمیل پشتیبانی');
         setShowPhoneCard(cms.homeContent.showPhoneCard ?? true);
         setPhoneTitle(cms.homeContent.phoneTitle || 'تلفن پشتیبانی');
-        setTrustBadge1(cms.homeContent.trustBadge1 || 'ارسال سریع');
-        setTrustBadge2(cms.homeContent.trustBadge2 || 'ضمانت اصالت');
-        setTrustBadge3(cms.homeContent.trustBadge3 || '100% اورجینال');
+        setTrustBadge1(cms.homeContent.trustBadge1 || 'اصالت ۱۰۰٪ کالا');
+        setTrustBadge2(cms.homeContent.trustBadge2 || 'حمل ایمن کارگو');
+        setTrustBadge3(cms.homeContent.trustBadge3 || 'تحویل ۵ تا ۷ روزه');
       }
 
       if (cms.paymentGateway) {
@@ -1333,7 +1341,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     } catch (err) {
       console.error('Error auto extracting local item:', err);
       handleAddLocalItem();
-    } font-medium: finally {
+    } finally {
       setIsExtractingNewLocalItem(false);
     }
   };
@@ -1700,6 +1708,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     .filter(o => o.paymentStatus === 'PAID')
     .reduce((sum, o) => sum + o.calculatedToman, 0);
 
+  const paidOrdersCount = orders.filter(o => o.paymentStatus === 'PAID').length;
   const pendingOrdersCount = orders.filter(o => o.paymentStatus === 'PENDING').length;
   const shippedOrdersCount = orders.filter(o => o.shippingStatus === 'SHIPPED' || o.shippingStatus === 'DELIVERED').length;
 
@@ -1972,6 +1981,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <span className="text-xs font-bold text-slate-500 block mb-2">ارسال شده از دبی</span>
               <div className="text-2xl font-black text-blue-600">{shippedOrdersCount}</div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB: GENERAL SETTINGS (CMS) */}
+      {activeAdminSubTab === 'cms' && (
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+            <h3 className="font-black text-sm text-slate-900">مدیریت کارت‌های فروشگاه‌ها و لینک‌های سریع</h3>
+            <div className="space-y-4">
+              {storesList.map((store, index) => (
+                <div key={store.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between border-b pb-2">
+                    <span className="font-bold text-xs">فروشگاه #{index + 1}: {store.title}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateStoreField(store.id, 'enabled', store.enabled === false ? true : false)}
+                      className="text-xs font-bold px-2 py-1 bg-white border rounded-lg cursor-pointer"
+                    >
+                      {store.enabled !== false ? '✓ فعال' : '✕ غیرفعال'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      value={store.title}
+                      onChange={(e) => handleUpdateStoreField(store.id, 'title', e.target.value)}
+                      className="bg-white border p-2 text-xs rounded-lg"
+                      placeholder="نام فروشگاه"
+                    />
+                    <input
+                      type="text"
+                      value={store.url}
+                      onChange={(e) => handleUpdateStoreField(store.id, 'url', e.target.value)}
+                      className="bg-white border p-2 text-xs rounded-lg dir-ltr font-mono"
+                      placeholder="آدرس لینک"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveCms}
+              className="bg-black text-white text-xs font-bold px-6 py-2.5 rounded-xl cursor-pointer"
+            >
+              ذخیره تغییرات فروشگاه‌ها
+            </button>
           </div>
         </div>
       )}

@@ -1422,7 +1422,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // 🟢 [FIXED_BY_AI]: Bypassed failing /api proxy call and saved financial settings directly to Firestore and LocalStorage
-  const handleSaveFinancialSettings = async (e: React.FormEvent) => {
+ const handleSaveFinancialSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingSettings(true);
     setSaveSettingsSuccess(false);
@@ -1460,7 +1460,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       localStorage.setItem('omex_financial_settings', JSON.stringify(newSettingsPayload));
     } catch (_e) {}
 
-    // Layer 3: Direct Firestore Cloud Save
+    // Layer 3: Direct Firestore Cloud Save (Bypassing non-existent /api backend)
     try {
       await saveSettingsToFirestore(newSettingsPayload);
     } catch (fsErr) {

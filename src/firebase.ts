@@ -108,3 +108,15 @@ export const saveOrderToFirestore = async (orderData: any) => {
     return null;
   }
 };
+
+// ذخیره پروفایل کاربر در Firestore
+export const saveUserProfileToFirestore = async (userId: string, profileData: any) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    await setDoc(userRef, profileData, { merge: true });
+    return true;
+  } catch (error) {
+    console.error("Error saving user profile to Firestore:", error);
+    return false;
+  }
+};

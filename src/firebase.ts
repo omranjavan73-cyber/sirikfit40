@@ -9,13 +9,15 @@ import {
   addDoc
 } from 'firebase/firestore';
 
+// کلیدهای واقعی و مستقیم فایربیس پروژه sirikfit40 از تصویر
 const firebaseConfig = {
-  apiKey: "AIzaSy...", 
+  apiKey: "AIzaSyBAB1TsbUTwgLcHxFAeIMVECS9zqGP7Zk0",
   authDomain: "sirikfit40.firebaseapp.com",
   projectId: "sirikfit40",
-  storageBucket: "sirikfit40.appspot.com",
-  messagingSenderId: "1234567890",
-  appId: "1:1234567890:web:abc123def456"
+  storageBucket: "sirikfit40.firebasestorage.app",
+  messagingSenderId: "532757567852",
+  appId: "1:532757567852:web:01f36071e84c96b4933b49",
+  measurementId: "G-QFR8G0QFNH"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -24,7 +26,7 @@ export const db = getFirestore(app);
 const SETTINGS_DOC_REF = doc(db, 'site_config', 'global_settings');
 const CMS_DOC_REF = doc(db, 'site_config', 'cms_data');
 
-// ۱. بررسی اتصال
+// ۱. بررسی اتصال به Firestore
 export const checkFirestoreConnection = async () => {
   try {
     await getDoc(SETTINGS_DOC_REF);
@@ -35,7 +37,7 @@ export const checkFirestoreConnection = async () => {
   }
 };
 
-// ۲. مدیریت تنظیمات مالی
+// ۲. مدیریت ذخیره و خواندن تنظیمات مالی
 export const saveSettingsToFirestore = async (settingsData: any) => {
   try {
     await setDoc(SETTINGS_DOC_REF, settingsData, { merge: true });
@@ -59,7 +61,7 @@ export const getSettingsFromFirestore = async () => {
 };
 export const fetchSettingsFromFirestore = getSettingsFromFirestore;
 
-// ۳. مدیریت محتوای CMS
+// ۳. مدیریت محتوای CMS (فروشگاه‌ها، انبار، بنرها)
 export const saveCmsToFirestore = async (cmsData: any) => {
   try {
     await setDoc(CMS_DOC_REF, cmsData, { merge: true });
@@ -83,14 +85,14 @@ export const getCmsFromFirestore = async () => {
 };
 export const fetchCmsFromFirestore = getCmsFromFirestore;
 
-// ۴. همگام‌سازی زنده
+// ۴. شنونده زنده تغییرات
 export const subscribeToCmsChanges = (callback: (data: any) => void) => {
   return onSnapshot(CMS_DOC_REF, (docSnap) => {
     if (docSnap.exists()) callback(docSnap.data());
   });
 };
 
-// ۵. ثبت سفارش‌ها (نیازمند PaymentModal)
+// ۵. ثبت سفارش‌ها
 export const saveOrderToFirestore = async (orderData: any) => {
   try {
     const ordersCol = collection(db, 'orders');
@@ -105,7 +107,7 @@ export const saveOrderToFirestore = async (orderData: any) => {
   }
 };
 
-// ۶. مدیریت پروفایل کاربران (نیازمند AuthModal)
+// ۶. مدیریت پروفایل کاربر
 export const saveUserProfileToFirestore = async (userId: string, profileData: any) => {
   try {
     const userRef = doc(db, 'users', userId);

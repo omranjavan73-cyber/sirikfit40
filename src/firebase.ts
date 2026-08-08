@@ -15,7 +15,7 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 
-// اطلاعات دقیق پروژه sirikfit40 بر اساس تصویر ارسالی شما
+// کانفیگ دقیق فایربیس پروژه sirikfit40
 const firebaseConfig = {
   apiKey: "AIzaSyBAB1tsbUtWgLcHxFaelMVECS9zqGP7Zk0",
   authDomain: "sirikfit40.firebaseapp.com",
@@ -56,6 +56,8 @@ export async function fetchSettingsFromFirestore() {
   }
   return null;
 }
+
+export const getSettingsFromFirestore = fetchSettingsFromFirestore;
 
 export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
   if (!db) return false;
@@ -110,27 +112,28 @@ export async function fetchAllOrdersFromFirestore() {
 }
 
 export async function updateOrderInFirestore(orderId: string, data: any) {
-    if (!db) return false;
-    try {
-        const orderRef = doc(db, 'orders', orderId);
-        await updateDoc(orderRef, data);
-        return true;
-    } catch(e) {
-        return false;
-    }
+  if (!db) return false;
+  try {
+    const orderRef = doc(db, 'orders', orderId);
+    await updateDoc(orderRef, data);
+    return true;
+  } catch(e) {
+    return false;
+  }
 }
 
 export async function deleteOrderFromFirestore(orderId: string) {
-    if (!db) return false;
-    try {
-        const orderRef = doc(db, 'orders', orderId);
-        await deleteDoc(orderRef);
-        return true;
-    } catch(e) {
-        return false;
-    }
+  if (!db) return false;
+  try {
+    const orderRef = doc(db, 'orders', orderId);
+    await deleteDoc(orderRef);
+    return true;
+  } catch(e) {
+    return false;
+  }
 }
-// Helper: Save User Profile in Firestore "users" collection
+
+// === توابع کاربر و ثبت سفارش ===
 export async function saveUserProfileToFirestore(userData: {
   id: string;
   name: string;
@@ -157,7 +160,7 @@ export async function saveUserProfileToFirestore(userData: {
     console.error("Error saving user profile to Firestore:", err);
   }
 }
-// Helper: Save Order in Firestore "orders" collection
+
 export async function saveOrderToFirestore(orderData: any) {
   if (!db) return;
   const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
@@ -175,4 +178,28 @@ export async function saveOrderToFirestore(orderData: any) {
     console.error("Error saving order to Firestore:", err);
   }
 }
+
+export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: string) {
+  if (!db) return [];
+  try {
+    const ordersRef = collection(db, 'orders');
+    let q = query(ordersRef, where('userId', '==', userId));
+    let snapshot = await getDocs(q);
+
+    if (snapshot.empty && userPhone) {
+      q = query(ordersRef, where('userPhone', '==', userPhone));
+      snapshot = await getDocs(q);
+    }
+
+    const orders: any[] = [];
+    snapshot.forEach((docSnap) => {
+      orders.push({ id: docSnap.id, ...docSnap.data() });
+    });
+    return orders;
+  } catch (err) {
+    console.error("Error fetching user orders:", err);
+    return [];
+  }
+}
+
 export default app;

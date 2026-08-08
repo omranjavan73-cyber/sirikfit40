@@ -1,288 +1,98 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import {
-  getFirestore,
-  doc,
-  setDoc,
-  getDoc,
-  collection,
-  getDocs,
-  query,
-  where
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  onSnapshot 
 } from 'firebase/firestore';
-import firebaseConfigJson from '../firebase-applet-config.json';
 
-const metaEnv = (import.meta as any).env || {};
-const apiKey = firebaseConfigJson?.apiKey || metaEnv.VITE_FIREBASE_API_KEY || 'AIzaSyDDT03m1Qxzzdk9drEMF-R9L1Y_VzhkyCY';
-const authDomain = firebaseConfigJson?.authDomain || metaEnv.VITE_FIREBASE_AUTH_DOMAIN || 'sirik-fit-db.firebaseapp.com';
-const projectId = firebaseConfigJson?.projectId || metaEnv.VITE_FIREBASE_PROJECT_ID || 'sirik-fit-db';
-const storageBucket = firebaseConfigJson?.storageBucket || metaEnv.VITE_FIREBASE_STORAGE_BUCKET || 'sirik-fit-db.firebasestorage.app';
-const messagingSenderId = firebaseConfigJson?.messagingSenderId || metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '647943404812';
-const appId = firebaseConfigJson?.appId || metaEnv.VITE_FIREBASE_APP_ID || '1:647943404812:web:2aac3fab6cdfab690f1d29';
-const firestoreDatabaseId = firebaseConfigJson?.firestoreDatabaseId;
-
+// تنظیمات مستقیم پروژه sirikfit40
 const firebaseConfig = {
-  apiKey,
-  authDomain,
-  projectId,
-  storageBucket,
-  messagingSenderId,
-  appId,
+  apiKey: "AIzaSy...", // کلید API شما در کنسول فایربیس
+  authDomain: "sirikfit40.firebaseapp.com",
+  projectId: "sirikfit40",
+  storageBucket: "sirikfit40.appspot.com",
+  messagingSenderId: "1234567890",
+  appId: "1:1234567890:web:abc123def456"
 };
 
-export const isFirebaseConfigured = Boolean(apiKey && projectId && apiKey !== '');
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+// سند ثابت برای ذخیره‌سازی تنظیمات کلی
+const SETTINGS_DOC_REF = doc(db, 'site_config', 'global_settings');
+const CMS_DOC_REF = doc(db, 'site_config', 'cms_data');
 
-export const auth = getAuth(app);
-export const db = (firestoreDatabaseId && firestoreDatabaseId !== '(default)') ? getFirestore(app, firestoreDatabaseId) : getFirestore(app);
-
-export enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-export interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
-  };
-}
-
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): FirestoreErrorInfo {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid || null,
-      email: auth.currentUser?.email || null,
-      emailVerified: auth.currentUser?.emailVerified || null,
-      isAnonymous: auth.currentUser?.isAnonymous || null,
-      tenantId: auth.currentUser?.tenantId || null,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
-    },
-    operationType,
-    path
-  };
-  console.warn('Firestore Error Context: ', JSON.stringify(errInfo));
-  return errInfo;
-}
-
-// Helper: Save/Update User Profile in Firestore "users" collection
-export async function saveUserProfileToFirestore(userData: {
-  id: string;
-  name: string;
-  phoneNumber: string;
-  email?: string;
-  createdAt?: string;
-}) {
-  if (!db) return;
-  const path = `users/${userData.id}`;
+// ۱. بررسی سلامت اتصال
+export const checkFirestoreConnection = async () => {
   try {
-    const userRef = doc(db, 'users', userData.id);
-    await setDoc(
-      userRef,
-      {
-        uid: userData.id,
-        name: userData.name,
-        phoneNumber: userData.phoneNumber,
-        email: userData.email || '',
-        createdAt: userData.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+    const snap = await getDoc(SETTINGS_DOC_REF);
+    return { connected: true, dbId: 'sirikfit40' };
+  } catch (error) {
+    console.error("Firestore connection error:", error);
+    return { connected: false };
   }
-}
+};
 
-// Helper: Save Order in Firestore "orders" collection
-export async function saveOrderToFirestore(orderData: any) {
-  if (!db) return;
-  const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
-  const path = `orders/${orderId}`;
+// ۲. ذخیره یکپارچه تنظیمات مالی
+export const saveSettingsToFirestore = async (settingsData: any) => {
   try {
-    const orderRef = doc(db, 'orders', orderId);
-    const dataToSave = {
-      ...orderData,
-      orderId,
-      createdAt: orderData.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    await setDoc(orderRef, dataToSave, { merge: true });
-    return orderId;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+    await setDoc(SETTINGS_DOC_REF, settingsData, { merge: true });
+    // ذخیره همزمان در localStorage جهت پشتیبان محلی
+    localStorage.setItem('omex_settings_cache', JSON.stringify(settingsData));
+    return true;
+  } catch (error) {
+    console.error("Error saving settings to Firestore:", error);
+    return false;
   }
-}
+};
 
-// Helper: Fetch User Orders from Firestore
-export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: string) {
-  if (!db) return [];
-  const path = 'orders';
+// ۳. خواندن یکپارچه تنظیمات مالی
+export const fetchSettingsFromFirestore = async () => {
   try {
-    const ordersRef = collection(db, 'orders');
-    let q = query(ordersRef, where('userId', '==', userId));
-    let snapshot = await getDocs(q);
-
-    if (snapshot.empty && userPhone) {
-      q = query(ordersRef, where('userPhone', '==', userPhone));
-      snapshot = await getDocs(q);
+    const snap = await getDoc(SETTINGS_DOC_REF);
+    if (snap.exists()) {
+      return snap.data();
     }
-
-    const orders: any[] = [];
-    snapshot.forEach((docSnap) => {
-      orders.push({ id: docSnap.id, ...docSnap.data() });
-    });
-    return orders;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, path);
-    return [];
+  } catch (error) {
+    console.warn("Error fetching settings from Firestore, loading local cache:", error);
   }
-}
+  const cached = localStorage.getItem('omex_settings_cache');
+  return cached ? JSON.parse(cached) : null;
+};
 
-// Helper: Sync Admin Panel settings with Firestore "settings/app" document
-export async function saveSettingsToFirestore(settingsData: any) {
-  if (!db) return;
-  const path = 'settings/app';
+// ۴. ذخیره یکپارچه CMS (فروشگاه‌ها، انبار ایران، بنرها)
+export const saveCmsToFirestore = async (cmsData: any) => {
   try {
-    const settingsRef = doc(db, 'settings', 'app');
-    await setDoc(
-      settingsRef,
-      {
-        ...settingsData,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+    await setDoc(CMS_DOC_REF, cmsData, { merge: true });
+    localStorage.setItem('omex_cms_cache', JSON.stringify(cmsData));
+    return true;
+  } catch (error) {
+    console.error("Error saving CMS to Firestore:", error);
+    return false;
   }
-}
+};
 
-// Helper: Fetch Admin Panel settings from Firestore (Alias)
-export async function fetchSettingsFromFirestore() {
-  if (!db) return null;
-  const path = 'settings/app';
+// ۵. خواندن یکپارچه CMS
+export const fetchCmsFromFirestore = async () => {
   try {
-    const settingsRef = doc(db, 'settings', 'app');
-    const docSnap = await getDoc(settingsRef);
+    const snap = await getDoc(CMS_DOC_REF);
+    if (snap.exists()) {
+      return snap.data();
+    }
+  } catch (error) {
+    console.warn("Error fetching CMS from Firestore, loading local cache:", error);
+  }
+  const cached = localStorage.getItem('omex_cms_cache');
+  return cached ? JSON.parse(cached) : null;
+};
+
+// ۶. همگام‌سازی زنده (Real-time Listener)
+export const subscribeToCmsChanges = (callback: (data: any) => void) => {
+  return onSnapshot(CMS_DOC_REF, (docSnap) => {
     if (docSnap.exists()) {
-      return docSnap.data();
+      callback(docSnap.data());
     }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, path);
-  }
-  return null;
-}
-
-export const getSettingsFromFirestore = fetchSettingsFromFirestore;
-
-// Helper: Save CMS Config in Firestore "cms/app" document
-export async function saveCmsToFirestore(cmsData: any) {
-  if (!db) return;
-  const path = 'cms/app';
-  try {
-    const cmsRef = doc(db, 'cms', 'app');
-    await setDoc(
-      cmsRef,
-      {
-        ...cmsData,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-  }
-}
-
-// Helper: Fetch CMS Config from Firestore
-export async function getCmsFromFirestore() {
-  if (!db) return null;
-  const path = 'cms/app';
-  try {
-    const cmsRef = doc(db, 'cms', 'app');
-    const docSnap = await getDoc(cmsRef);
-    if (docSnap.exists()) {
-      return docSnap.data();
-    }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, path);
-  }
-  return null;
-}
-
-// Helper: Save Admin Password in Firestore "settings/admin" document
-export async function saveAdminPasswordToFirestore(password: string) {
-  if (!db) return;
-  const path = 'settings/admin';
-  try {
-    const adminRef = doc(db, 'settings', 'admin');
-    await setDoc(
-      adminRef,
-      {
-        password,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-  }
-}
-
-// Helper: Fetch Admin Password from Firestore
-export async function getAdminPasswordFromFirestore() {
-  if (!db) return null;
-  const path = 'settings/admin';
-  try {
-    const adminRef = doc(db, 'settings', 'admin');
-    const docSnap = await getDoc(adminRef);
-    if (docSnap.exists()) {
-      return docSnap.data()?.password || null;
-    }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, path);
-  }
-  return null;
-}
-
-// Helper: Check Database Connection Status
-export async function checkFirestoreConnection(): Promise<{
-  connected: boolean;
-  dbId?: string;
-  error?: string;
-}> {
-  if (!isFirebaseConfigured || !db) {
-    return { connected: false, error: 'Firebase configuration missing' };
-  }
-  const path = 'settings/healthcheck';
-  try {
-    const pingRef = doc(db, 'settings', 'healthcheck');
-    await setDoc(pingRef, { lastPing: new Date().toISOString() }, { merge: true });
-    return { connected: true, dbId: firestoreDatabaseId || '(default)' };
-  } catch (err: any) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-    return { connected: false, error: err?.message || 'Connection failed' };
-  }
-}
-
-export default app;
+  });
+};

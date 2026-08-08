@@ -42,7 +42,6 @@ interface PricingRulesAdminProps {
 
 const sanitizeNumericInput = (val: string): string => {
   if (val === '') return '';
-  // Strips leading zeros before any digits (e.g. "0200" -> "200", "020" -> "20", "0.5" -> "0.5", "00" -> "0")
   let cleaned = val.replace(/^0+(?=\d)/, '');
   if (cleaned.startsWith('.')) cleaned = '0' + cleaned;
   return cleaned;
@@ -59,8 +58,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
   onUpdateCms,
   onSavePricingRules
 }) => {
-  // Load initial configuration
-  const initialConfig = cms?.pricingRules || loadPricingRulesFromStorage();
+  // Safe initial configuration with fallback to prevent undefined errors
+  const initialConfig = cms?.pricingRules || loadPricingRulesFromStorage() || DEFAULT_PRICING_RULES;
 
   // SECTION 0: AED Exchange Rate & Financial Settings State
   const [aedRateInput, setAedRateInput] = useState<string>(String(settings.aedRate || 53000));
@@ -95,9 +94,9 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     initialConfig.baseCommission?.isEnabled ?? true
   );
 
-  // SECTION 2: Commission Rules State
+  // SECTION 2: Commission Rules State (Safe fallback)
   const [commissionRules, setCommissionRules] = useState<CommissionRule[]>(
-    initialConfig.commissionRules && initialConfig.commissionRules.length > 0
+    Array.isArray(initialConfig.commissionRules) && initialConfig.commissionRules.length > 0
       ? initialConfig.commissionRules
       : DEFAULT_PRICING_RULES.commissionRules
   );
@@ -113,9 +112,9 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     String(initialConfig.shippingConfig?.maxShippingCostAed ?? 40)
   );
 
-  // SECTION 4: Shipping Increment Rules State
+  // SECTION 4: Shipping Increment Rules State (Safe fallback)
   const [shippingIncrementRules, setShippingIncrementRules] = useState<ShippingIncrementRule[]>(
-    initialConfig.shippingIncrementRules && initialConfig.shippingIncrementRules.length > 0
+    Array.isArray(initialConfig.shippingIncrementRules) && initialConfig.shippingIncrementRules.length > 0
       ? initialConfig.shippingIncrementRules
       : DEFAULT_PRICING_RULES.shippingIncrementRules
   );
@@ -159,17 +158,17 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         percentage: Math.max(0, parseFloat(baseCommissionPercent) || 0),
         isEnabled: isBaseCommissionEnabled
       },
-      commissionRules,
+      commissionRules: commissionRules || [],
       shippingConfig: {
         baseShippingCostAed: Math.max(0, parseFloat(baseShippingCost) || 0),
         minShippingCostAed: Math.max(0, parseFloat(minShippingCost) || 0),
         maxShippingCostAed: Math.max(0, parseFloat(maxShippingCost) || 0)
       },
-      shippingIncrementRules
+      shippingIncrementRules: shippingIncrementRules || []
     };
   };
 
-  // Run calculation simulator
+  // Run calculation simulator safely
   const activeConfig = getCurrentRulesConfig();
   const simResult = calculateOrderPricing(
     parseFloat(simOrderAmount) || 0,
@@ -231,7 +230,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
 
   // SECTION 2 Handlers: Commission Rules
   const handleAddCommissionRule = () => {
-    const lastRule = commissionRules[commissionRules.length - 1];
+    const rulesList = commissionRules || [];
+    const lastRule = rulesList[rulesList.length - 1];
     const newMin = lastRule ? (lastRule.maxAmountAed || lastRule.minAmountAed + 1000) : 2000;
     const newRule: CommissionRule = {
       id: 'rule-' + Date.now(),
@@ -240,24 +240,25 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       commissionPercent: 12,
       isEnabled: true
     };
-    setCommissionRules([...commissionRules, newRule]);
+    setCommissionRules([...rulesList, newRule]);
   };
 
   const handleUpdateCommissionRule = (id: string, field: keyof CommissionRule, value: any) => {
     setCommissionRules(prev =>
-      prev.map(r => (r.id === id ? { ...r, [field]: value } : r))
+      (prev || []).map(r => (r.id === id ? { ...r, [field]: value } : r))
     );
   };
 
   const handleDeleteCommissionRule = (id: string) => {
-    setCommissionRules(prev => prev.filter(r => r.id !== id));
+    setCommissionRules(prev => (prev || []).filter(r => r.id !== id));
   };
 
   const handleMoveCommissionRule = (index: number, direction: 'up' | 'down') => {
+    const rulesList = commissionRules || [];
     if (direction === 'up' && index === 0) return;
-    if (direction === 'down' && index === commissionRules.length - 1) return;
+    if (direction === 'down' && index === rulesList.length - 1) return;
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    const updated = [...commissionRules];
+    const updated = [...rulesList];
     const temp = updated[index];
     updated[index] = updated[targetIndex];
     updated[targetIndex] = temp;
@@ -266,28 +267,28 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
 
   // SECTION 4 Handlers: Shipping Increment Rules
   const handleAddShippingIncrementRule = () => {
-    const nextItemNumber = shippingIncrementRules.length + 2;
+    const incList = shippingIncrementRules || [];
+    const nextItemNumber = incList.length + 2;
     const newRule: ShippingIncrementRule = {
       id: 'ship-inc-' + Date.now(),
       itemNumber: nextItemNumber,
       additionalCostAed: 5,
       isEnabled: true
     };
-    setShippingIncrementRules([...shippingIncrementRules, newRule]);
+    setShippingIncrementRules([...incList, newRule]);
   };
 
   const handleUpdateShippingIncrementRule = (id: string, field: keyof ShippingIncrementRule, value: any) => {
     setShippingIncrementRules(prev =>
-      prev.map(r => (r.id === id ? { ...r, [field]: value } : r))
+      (prev || []).map(r => (r.id === id ? { ...r, [field]: value } : r))
     );
   };
 
   const handleDeleteShippingIncrementRule = (id: string) => {
-    setShippingIncrementRules(prev => prev.filter(r => r.id !== id));
+    setShippingIncrementRules(prev => (prev || []).filter(r => r.id !== id));
   };
 
   // Unified Save Config Handler
- // Unified Save Config Handler
   const handleSaveAllRules = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
@@ -319,16 +320,16 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     try {
       localStorage.setItem('sirikfit_financial_settings', JSON.stringify(newSettingsPayload));
       localStorage.setItem('omex_financial_settings', JSON.stringify(newSettingsPayload));
+      
+      const configToSave = getCurrentRulesConfig();
+      savePricingRulesToStorage(configToSave);
     } catch (_e) {}
 
     try {
-      // 3. ذخیره مستقیم و ایمن در فایربیس (بدون نیاز به پشتبانی سرور API)
+      // 3. ذخیره مستقیم و ایمن در فایربیس
       await saveSettingsToFirestore(newSettingsPayload);
 
-      const configToSave = {
-        shippingIncrementRules,
-        // سایر قوانین موجود در کامپوننت شما...
-      };
+      const configToSave = getCurrentRulesConfig();
 
       if (cms) {
         const updatedCms = {
@@ -413,10 +414,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       )}
 
-      {/* SECTION 0: AED Exchange Rate Configuration (تنظیمات نرخ درهم) */}
+      {/* SECTION 0: AED Exchange Rate Configuration */}
       <div id="ap-rate" className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-2xs space-y-6">
-        
-        {/* Header Bar with Active Rate Display */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center shrink-0 shadow-xs">
@@ -437,7 +436,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             </div>
           </div>
 
-          {/* Active Status Badge */}
           <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-2xl flex items-center gap-3 self-start lg:self-auto shrink-0">
             <div className="text-right">
               <span className="text-[10px] font-bold text-slate-400 block">نرخ فعلی مبنای محاسبات:</span>
@@ -465,15 +463,12 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           </div>
         </div>
 
-        {/* Dual Mode Card Selector (Two Big Interactive Cards) */}
+        {/* Dual Mode Card Selector */}
         <div>
           <label className="text-xs font-black text-slate-800 block mb-2.5">
             انتخاب حالت قیمت‌گذاری و استعلام ارز (Mode Selection):
           </label>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
-            {/* Card 1: Auto Update via API */}
             <div
               onClick={() => setAutoUpdateRates(true)}
               className={`p-4.5 rounded-2xl border-2 transition-all cursor-pointer space-y-3 relative overflow-hidden ${
@@ -494,7 +489,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                     <span className="text-[10px] text-slate-500 font-medium block">استعلام لحظه‌ای نرخ درهم از سرویس ارز</span>
                   </div>
                 </div>
-
                 <div className="shrink-0">
                   {autoUpdateRates ? (
                     <span className="bg-emerald-600 text-white text-[10px] font-black px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-2xs">
@@ -508,13 +502,11 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                   )}
                 </div>
               </div>
-
               <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
                 سیستم با هر سفارش یا درخواست، نرخ روز درهم را مستقیم از سرویس استعلام API دریافت کرده و قیمت‌های ریالی را بروز نگه می‌دارد.
               </p>
             </div>
 
-            {/* Card 2: Manual Fixed Rate */}
             <div
               onClick={() => handleForceManualRate()}
               className={`p-4.5 rounded-2xl border-2 transition-all cursor-pointer space-y-3 relative overflow-hidden ${
@@ -535,7 +527,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                     <span className="text-[10px] text-slate-500 font-medium block">ثابت ماندن نرخ بر روی عدد تعیین‌شده توسط مدیریت</span>
                   </div>
                 </div>
-
                 <div className="shrink-0">
                   {!autoUpdateRates ? (
                     <span className="bg-amber-600 text-white text-[10px] font-black px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-2xs">
@@ -549,20 +540,16 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                   )}
                 </div>
               </div>
-
               <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
                 استعلام از API نادیده گرفته شده و تمام محاسبات قیمت فقط بر اساس عدد دستی وارد شده پایین انجام می‌پذیرد.
               </p>
             </div>
-
           </div>
         </div>
 
         {/* Input Configuration Grid */}
         <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-5 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-            
-            {/* Manual Rate Input */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
                 <span>نرخ دستی / ثابت درهم (تومان):</span>
@@ -595,7 +582,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
               </div>
             </div>
 
-            {/* Rate API URL Input */}
             <div className="md:col-span-2 space-y-1.5">
               <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
                 <span>آدرس آندپینت API استعلام آنلاین (Currency API Endpoint):</span>
@@ -624,10 +610,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                 </button>
               </div>
             </div>
-
           </div>
 
-          {/* Test Preview Result Banner */}
           {rateTestResult && (
             <div className={`p-4 rounded-xl border text-xs font-bold flex items-center justify-between gap-3 shadow-2xs ${
               rateTestResult.type === 'success'
@@ -648,13 +632,10 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             </div>
           )}
         </div>
-
       </div>
 
-      {/* Grid: Section 1 (Base Commission) & Section 3 (Shipping Config) */}
+      {/* Grid: Section 1 & Section 3 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        
-        {/* SECTION 1 - Base Commission */}
         <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-2xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2.5">
@@ -663,8 +644,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
               </div>
               <h3 className="font-extrabold text-sm text-slate-900">۱. کارمزد پایه (Base Commission)</h3>
             </div>
-
-            {/* Toggle Switch */}
             <label className="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
               <span className="text-[11px] font-extrabold text-slate-700">
                 {isBaseCommissionEnabled ? 'فعال' : 'غیرفعال'}
@@ -695,24 +674,10 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                 />
                 <span className="absolute left-3 top-2.5 text-xs font-black text-slate-400">٪</span>
               </div>
-              <p className="text-[11px] text-slate-500 font-medium mt-1.5 leading-relaxed">
-                در صورتی که هیچ قانون متغیر دیگری شامل مبلغ سفارش نشود، این درصد به عنوان نرخ پیش‌فرض کارمزد محاسبه می‌شود.
-              </p>
-            </div>
-
-            <div className="bg-amber-50/70 border border-amber-200/60 rounded-xl p-3 text-[11px] text-amber-900 space-y-1">
-              <div className="font-bold flex items-center gap-1.5">
-                <Info className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                <span>مثال کاربردی:</span>
-              </div>
-              <p className="text-amber-800">
-                اگر کارمزد پایه <strong>۲۰٪</strong> باشد و سفارش مشتری به ارزش <strong>۳۰۰ درهم</strong> ثبت گردد، مبلغ کارمزد برابر <strong>۶۰ درهم</strong> خواهد بود.
-              </p>
             </div>
           </div>
         </div>
 
-        {/* SECTION 3 - Shipping Configuration */}
         <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-2xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2.5">
@@ -735,9 +700,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                 className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-black text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 focus:bg-white"
                 placeholder="20"
               />
-              <span className="text-[10px] text-slate-400 font-bold mt-1 block">پیش‌فرض: ۲۰ درهم</span>
             </div>
-
             <div>
               <label className="text-[11px] font-extrabold text-slate-700 block mb-1">حداقل هزینه (AED):</label>
               <input
@@ -749,9 +712,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                 className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-black text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 focus:bg-white"
                 placeholder="20"
               />
-              <span className="text-[10px] text-slate-400 font-bold mt-1 block">کف هزینه ارسال</span>
             </div>
-
             <div>
               <label className="text-[11px] font-extrabold text-slate-700 block mb-1">حداکثر هزینه (AED):</label>
               <input
@@ -763,17 +724,12 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                 className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-black text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 focus:bg-white"
                 placeholder="40"
               />
-              <span className="text-[10px] text-slate-400 font-bold mt-1 block">سقف هزینه ارسال</span>
             </div>
           </div>
-
-          <p className="text-[11px] text-slate-500 font-medium leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200/80">
-            هزینه ارسال محاسبه‌شده هیچ‌گاه کمتر از <strong>حداقل ({minShippingCost} درهم)</strong> یا بیشتر از <strong>حداکثر ({maxShippingCost} درهم)</strong> نخواهد شد.
-          </p>
         </div>
       </div>
 
-      {/* SECTION 2 - Commission Rules Based on Order Value */}
+      {/* SECTION 2 - Commission Rules */}
       <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
@@ -782,12 +738,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             </div>
             <div>
               <h3 className="font-extrabold text-sm text-slate-900">۲. قوانین کارمزد بر اساس ارزش سفارش (Commission Rules)</h3>
-              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                تعیین پلکانی کارمزد بر اساس مبلغ کل سفارش مشتری (AED)
-              </p>
             </div>
           </div>
-
           <button
             type="button"
             onClick={handleAddCommissionRule}
@@ -798,21 +750,18 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           </button>
         </div>
 
-        {/* Dynamic Rules List */}
         <div className="space-y-2.5">
-          {commissionRules.map((rule, idx) => (
+          {(commissionRules || []).map((rule, idx) => (
             <div
               key={rule.id}
               className={`p-3.5 rounded-2xl border transition flex flex-col md:flex-row items-start md:items-center justify-between gap-3 ${
                 rule.isEnabled ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-50 border-slate-200/60 opacity-60'
               }`}
             >
-              {/* Rule Sequence Badge & Range Input */}
               <div className="flex items-center gap-3 w-full md:w-auto">
                 <div className="w-7 h-7 rounded-lg bg-slate-900 text-white font-black text-xs flex items-center justify-center shrink-0">
                   {idx + 1}
                 </div>
-
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 w-full">
                   <div>
                     <label className="text-[10px] font-extrabold text-slate-500 block">حداقل مبلغ (AED):</label>
@@ -828,9 +777,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                       className="w-full bg-slate-50 border border-slate-300 font-extrabold text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900"
                     />
                   </div>
-
                   <div>
-                    <label className="text-[10px] font-extrabold text-slate-500 block">حداکثر مبلغ (AED / به بالا):</label>
+                    <label className="text-[10px] font-extrabold text-slate-500 block">حداکثر مبلغ (AED):</label>
                     <input
                       type="text"
                       value={rule.maxAmountAed === null ? 'به بالا' : rule.maxAmountAed}
@@ -845,11 +793,9 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                         }
                       }}
                       onFocus={handleNumberInputFocus}
-                      placeholder="مثلا 1000 یا 'به بالا'"
                       className="w-full bg-slate-50 border border-slate-300 font-extrabold text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 text-indigo-700"
                     />
                   </div>
-
                   <div className="col-span-2 sm:col-span-1">
                     <label className="text-[10px] font-extrabold text-slate-500 block">درصد کارمزد (%):</label>
                     <input
@@ -869,7 +815,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons: Enable, Move Up/Down, Delete */}
               <div className="flex items-center gap-2 self-end md:self-auto shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 w-full md:w-auto justify-end">
                 <label className="flex items-center gap-1.5 cursor-pointer bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-bold">
                   <input
@@ -880,32 +825,26 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                   />
                   <span>{rule.isEnabled ? 'فعال' : 'غیرفعال'}</span>
                 </label>
-
                 <button
                   type="button"
                   disabled={idx === 0}
                   onClick={() => handleMoveCommissionRule(idx, 'up')}
                   className="p-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded-lg text-slate-700 cursor-pointer"
-                  title="انتقال به بالا"
                 >
                   <ArrowUp className="w-3.5 h-3.5" />
                 </button>
-
                 <button
                   type="button"
-                  disabled={idx === commissionRules.length - 1}
+                  disabled={idx === (commissionRules || []).length - 1}
                   onClick={() => handleMoveCommissionRule(idx, 'down')}
                   className="p-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded-lg text-slate-700 cursor-pointer"
-                  title="انتقال به پایین"
                 >
                   <ArrowDown className="w-3.5 h-3.5" />
                 </button>
-
                 <button
                   type="button"
                   onClick={() => handleDeleteCommissionRule(rule.id)}
                   className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer transition border border-rose-200/60"
-                  title="حذف قانون"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -924,12 +863,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             </div>
             <div>
               <h3 className="font-extrabold text-sm text-slate-900">۴. افزایش هزینه ارسال با تعداد کالا (Shipping Increment Rules)</h3>
-              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                تعیین مبلغ اضافه برای کالای دوم، سوم، چهارم و... در یک سفارش
-              </p>
             </div>
           </div>
-
           <button
             type="button"
             onClick={handleAddShippingIncrementRule}
@@ -941,7 +876,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-          {shippingIncrementRules.map((incRule) => (
+          {(shippingIncrementRules || []).map((incRule) => (
             <div
               key={incRule.id}
               className={`p-3.5 rounded-2xl border transition space-y-2.5 ${
@@ -952,7 +887,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                 <span className="text-xs font-black text-slate-900 bg-purple-50 text-purple-800 px-2.5 py-1 rounded-lg">
                   کالای {incRule.itemNumber}‌ام
                 </span>
-
                 <div className="flex items-center gap-1.5">
                   <label className="flex items-center gap-1 cursor-pointer text-[11px] font-bold text-slate-600">
                     <input
@@ -963,7 +897,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                     />
                     <span>{incRule.isEnabled ? 'فعال' : 'غیرفعال'}</span>
                   </label>
-
                   <button
                     type="button"
                     onClick={() => handleDeleteShippingIncrementRule(incRule.id)}
@@ -973,7 +906,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
                   </button>
                 </div>
               </div>
-
               <div>
                 <label className="text-[10px] font-extrabold text-slate-500 block mb-1">افزایش هزینه (AED):</label>
                 <input
@@ -997,45 +929,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       </div>
 
-      {/* SECTION 5 - Calculation Order Reference */}
-      <div className="bg-[#111111] text-white rounded-3xl p-5 sm:p-6 shadow-md space-y-3">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0" />
-          <h3 className="font-extrabold text-sm text-white">۵. ترتیب استاندارد محاسبه موتور قیمت‌گذاری (Calculation Order)</h3>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 pt-1 text-[11px] font-extrabold">
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۱</span>
-            <span>جمع سفارش (Subtotal)</span>
-          </div>
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۲</span>
-            <span>انتخاب قانون کارمزد</span>
-          </div>
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۳</span>
-            <span>محاسبه کارمزد درهمی</span>
-          </div>
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۴</span>
-            <span>محاسبه هزینه ارسال</span>
-          </div>
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۵</span>
-            <span>اعمال حداقل کف</span>
-          </div>
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۶</span>
-            <span>اعمال حداکثر سقف</span>
-          </div>
-          <div className="bg-amber-500 text-slate-950 p-2.5 rounded-xl text-center font-black col-span-2 sm:col-span-1">
-            <span className="block text-[10px] opacity-80">گام ۷</span>
-            <span>نمایش قیمت نهایی</span>
-          </div>
-        </div>
-      </div>
-
       {/* SECTION 7 - Live Pricing Simulator */}
       <div className="bg-white border-2 border-slate-900 rounded-3xl p-5 sm:p-6 shadow-md space-y-5">
         <div className="flex items-center justify-between pb-3 border-b border-slate-200">
@@ -1045,18 +938,13 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             </div>
             <div>
               <h3 className="font-extrabold text-base text-slate-900">۷. شبیه‌ساز زنده قیمت‌گذاری (Live Pricing Simulator)</h3>
-              <p className="text-xs text-slate-500 font-medium">
-                تست آنی کارکرد موتور قیمت‌گذاری با مقادیر نمونه درهمی
-              </p>
             </div>
           </div>
-
           <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-3 py-1 rounded-full border border-emerald-200">
             محاسبه فوری (Real-Time)
           </span>
         </div>
 
-        {/* Inputs */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
           <div>
             <label className="text-xs font-extrabold text-slate-800 block mb-1">ارزش کل سفارش (AED):</label>
@@ -1067,10 +955,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
               onChange={(e) => setSimOrderAmount(sanitizeNumericInput(e.target.value))}
               onFocus={handleNumberInputFocus}
               className="w-full bg-white border border-slate-300 text-slate-900 font-extrabold text-sm px-3.5 py-2 rounded-xl focus:outline-none focus:border-slate-900 shadow-2xs"
-              placeholder="750"
             />
           </div>
-
           <div>
             <label className="text-xs font-extrabold text-slate-800 block mb-1">تعداد محصولات سفارش:</label>
             <input
@@ -1080,10 +966,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
               onChange={(e) => setSimProductCount(sanitizeNumericInput(e.target.value))}
               onFocus={handleNumberInputFocus}
               className="w-full bg-white border border-slate-300 text-slate-900 font-extrabold text-sm px-3.5 py-2 rounded-xl focus:outline-none focus:border-slate-900 shadow-2xs"
-              placeholder="2"
             />
           </div>
-
           <div>
             <label className="text-xs font-extrabold text-slate-800 block mb-1">نرخ درهم فعال (تومان):</label>
             <input
@@ -1093,12 +977,10 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
               onChange={(e) => setSimAedRate(sanitizeNumericInput(e.target.value))}
               onFocus={handleNumberInputFocus}
               className="w-full bg-white border border-slate-300 text-slate-900 font-extrabold text-sm px-3.5 py-2 rounded-xl focus:outline-none focus:border-slate-900 shadow-2xs"
-              placeholder="53000"
             />
           </div>
         </div>
 
-        {/* Output Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="bg-indigo-50/80 border border-indigo-200/80 p-3.5 rounded-2xl space-y-1">
             <span className="text-[11px] font-bold text-indigo-700 block">قانون کارمزد اعمال‌شده:</span>
@@ -1125,16 +1007,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             <div className="text-sm font-black text-sky-950">
               {simResult.shippingCostAed} درهم
             </div>
-            {simResult.isMaxShippingApplied && (
-              <span className="text-[10px] font-extrabold bg-sky-200 text-sky-900 px-1.5 py-0.5 rounded-md inline-block">
-                اعمال سقف {simResult.shippingCostAed} درهم
-              </span>
-            )}
-            {simResult.isMinShippingApplied && (
-              <span className="text-[10px] font-extrabold bg-sky-200 text-sky-900 px-1.5 py-0.5 rounded-md inline-block">
-                اعمال کف {simResult.shippingCostAed} درهم
-              </span>
-            )}
           </div>
 
           <div className="bg-[#111111] text-white p-3.5 rounded-2xl space-y-1 col-span-2 md:col-span-1 shadow-sm">
@@ -1147,28 +1019,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             </div>
           </div>
         </div>
-
-        {/* Step-by-Step Breakdown Table */}
-        <div className="border border-slate-200 rounded-2xl overflow-hidden">
-          <div className="bg-slate-100 px-4 py-2.5 text-xs font-extrabold text-slate-800 border-b border-slate-200">
-            جزئیات گام‌به‌گام محاسبه قیمت (Breakdown):
-          </div>
-
-          <div className="divide-y divide-slate-100 text-xs">
-            {simResult.breakdownSteps.map((step) => (
-              <div key={step.step} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 font-black text-[10px] flex items-center justify-center shrink-0">
-                    {step.step}
-                  </span>
-                  <span className="font-bold text-slate-700">{step.label}</span>
-                </div>
-                <span className="font-black text-slate-900 dir-ltr">{step.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
       </div>
 
     </div>

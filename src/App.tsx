@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import Header from './components/Header';
+import { Header } from './components/Header';
 import { AdminPanel } from './components/AdminPanel';
 import { PaymentModal } from './components/PaymentModal';
 import { AuthModal } from './components/AuthModal';
-import { FinancialSettings, CmsConfig, CartItem, Product } from './types';
+import { FinancialSettings, CmsConfig, CartItem } from './types';
 import { getSettingsFromFirestore, getCmsFromFirestore } from './firebase';
 
 const DEFAULT_SETTINGS: FinancialSettings = {
@@ -81,7 +81,7 @@ export default function App() {
             <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm text-center space-y-4">
               <h2 className="text-base font-extrabold text-slate-900">به سامانه SIRIK FIT خوش آمدید</h2>
               <p className="text-xs text-slate-500">
-                جهت مدیریت محصولات، نرخ درهم، تنظیمات دیتابیس و پشتیبان‌گیری، روی برند در هدر کلیک کنید.
+                جهت مدیریت محصولات، نرخ درهم، تنظیمات دیتابیس و پشتیبان‌گیری، روی لوگوی SIRIK FIT در هدر کلیک کنید.
               </p>
             </div>
           </div>

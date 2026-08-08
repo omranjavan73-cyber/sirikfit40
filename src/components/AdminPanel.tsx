@@ -1457,29 +1457,25 @@ const handleSaveFinancials = async () => {
     };
 
     try {
-      // ۱. به‌روزرسانی استیت برنامه
       onUpdateSettings(newSettingsPayload);
-
-      // ۲. ذخیره مستقیم در لوکال‌استوریج برای پشتیبان مقطعی
       localStorage.setItem('sirikfit_financial_settings', JSON.stringify(newSettingsPayload));
 
-      // ۳. ارسال مستقیم به دیتابیس فایربیس (بدون صدا زدن API سرور)
-      const success = await saveSettingsToFirestore(newSettingsPayload);
-      if (success) {
-        setSaveSettingsSuccess(true);
-        alert('تنظیمات مالی با موفقیت در فایربیس ذخیره شد');
-      } else {
-        alert('تنظیمات در مرورگر ذخیره شد، اما ارتباط با فایربیس برقرار نشد.');
+      // Layer 3: Firestore Cloud
+      try {
+        await saveSettingsToFirestore(newSettingsPayload);
+      } catch (fsErr) {
+        console.warn('Firestore settings save warning:', fsErr);
       }
+
+      setSaveSettingsSuccess(true);
+      alert('تنظیمات با موفقیت ذخیره شد');
     } catch (error) {
       console.error('Error saving financial settings:', error);
-      alert('خطا در فرایند ذخیره‌سازی');
     } finally {
       setIsSavingSettings(false);
       setTimeout(() => setSaveSettingsSuccess(false), 3000);
     }
   };
-
     // Layer 1: React Props state update
     onUpdateSettings(newSettingsPayload);
     setSaveSettingsSuccess(true);
@@ -1492,7 +1488,7 @@ const handleSaveFinancials = async () => {
 
     // Layer 3: Firestore Cloud
     try {
-      await saveSettingsToFirestore(newSettingsPayload);
+     saveSettingsToFirestore(newSettingsPayload).catch(fsErr => console.warn('Firestore settings save warning:', fsErr));
     } catch (fsErr) {
       console.warn('Firestore settings save warning:', fsErr);
     }

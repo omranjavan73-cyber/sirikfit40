@@ -71,7 +71,7 @@ import {
   HomeBanner,
   DomainItem
 } from '../types';
-
+import { formatToman, formatAed, formatPersianDate, toPersianDigits } from '../utils/formatters';
 import { getEffectiveGeminiKeysList, setEffectiveGeminiKeysList } from '../utils/geminiKey';
 import { PricingRulesAdmin } from './PricingRulesAdmin';
 
@@ -593,25 +593,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [visitorStatsData, setVisitorStatsData] = useState<any | null>(null);
   const [isLoadingVisitorStats, setIsLoadingVisitorStats] = useState(false);
 
- const fetchVisitorStats = async () => {
-  setIsLoadingVisitorStats(true);
-  try {
-    const res = await fetch('/api/admin/visitor-stats');
-    const contentType = res.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
+  const fetchVisitorStats = async () => {
+    setIsLoadingVisitorStats(true);
+    try {
+      const res = await fetch('/api/admin/visitor-stats');
       const data = await res.json();
       if (data.success) {
         setVisitorStatsData(data);
       }
-    } else {
-      setVisitorStatsData({ totalVisits: 0, uniqueVisitors: 0 });
+    } catch (err) {
+      console.warn('Error fetching visitor stats:', err);
+    } finally {
+      setIsLoadingVisitorStats(false);
     }
-  } catch (err) {
-    console.warn('Error fetching visitor stats:', err);
-  } finally {
-    setIsLoadingVisitorStats(false);
-  }
-};
+  };
 
   // Copy Product Link Handler
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
@@ -1942,8 +1937,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     // Immediate DOM element update for #home elements dynamically via JS
     applyHomeContentToDom(homeContentData);
 
-    // Persist locally & directly to Firestore
-    localStorage.setItem('omex_home_cms', JSON.stringify(homeContentData));
+    // Layer 1: React State instant update
+    onUpdateCms(updatedCms);
+    setSaveCmsSuccess(true);
+
+    // Layer 2: LocalStorage lock
+    try {
+      localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+      localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+      localStorage.setItem('sirikfit_home_content', JSON.stringify(homeContentData));
+    } catch (_e) {}
+
+    // Layer 3: Firestore Cloud & Server API
+    saveCmsToFirestore(updatedCms);
     saveSettingsToFirestore(updatedCms);
 
     try {
@@ -1960,18 +1966,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
       if (res.ok && data.cms) {
         onUpdateCms(data.cms);
-        setSaveCmsSuccess(true);
-        setTimeout(() => setSaveCmsSuccess(false), 3000);
-      } else {
-        onUpdateCms(updatedCms);
-        setSaveCmsSuccess(true);
-        setTimeout(() => setSaveCmsSuccess(false), 3000);
       }
     } catch (err) {
       console.error('Error saving home content CMS:', err);
-      onUpdateCms(updatedCms);
-      setSaveCmsSuccess(true);
-      setTimeout(() => setSaveCmsSuccess(false), 3000);
     } finally {
       setIsSavingCms(false);
     }
@@ -7011,4 +7008,4 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   );
 };
 
-
+export default AdminPanel;

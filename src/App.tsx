@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Header } from './components/Header';
-import { Hero } from './components/Hero';
-import { CategoryFilter } from './components/CategoryFilter';
-import { ProductGrid } from './components/ProductGrid';
-import { AdminPanel } from './components/AdminPanel';
-import { CartDrawer } from './components/CartDrawer';
-import { PaymentModal } from './components/PaymentModal';
-import { AuthModal } from './components/AuthModal';
+import Header from './components/Header';
+import CategoryFilter from './components/CategoryFilter';
+import ProductGrid from './components/ProductGrid';
+import AdminPanel from './components/AdminPanel';
+import CartDrawer from './components/CartDrawer';
+import PaymentModal from './components/PaymentModal';
+import AuthModal from './components/AuthModal';
 import { FinancialSettings, CmsConfig, CartItem, Product } from './types';
 import { getSettingsFromFirestore, getCmsFromFirestore } from './firebase';
 
@@ -30,19 +29,14 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
 
-  // بارگذاری مستقیم تنظیمات و CMS از دیتابیس Firestore بدون نیاز به API
   useEffect(() => {
     const loadFirestoreData = async () => {
       try {
         const dbSettings = await getSettingsFromFirestore();
-        if (dbSettings) {
-          setSettings(dbSettings);
-        }
+        if (dbSettings) setSettings(dbSettings);
 
         const dbCms = await getCmsFromFirestore();
-        if (dbCms) {
-          setCms(dbCms);
-        }
+        if (dbCms) setCms(dbCms);
       } catch (error) {
         console.error('Firestore load error:', error);
       }
@@ -65,6 +59,8 @@ export default function App() {
     });
   };
 
+  const heroBannerUrl = cms?.homeContent?.heroImageUrl || cms?.heroImage;
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 font-['Vazirmatn',sans-serif] pb-24 dir-rtl">
       <Header
@@ -86,11 +82,22 @@ export default function App() {
           />
         ) : (
           <>
-            <Hero heroImageUrl={cms?.homeContent?.heroImageUrl || cms?.heroImage} />
+            {/* بنر اصلی هیرو بدون نیاز به فایل مجزای Hero.tsx */}
+            {heroBannerUrl && (
+              <div className="mb-6 rounded-3xl overflow-hidden shadow-md border border-slate-200">
+                <img
+                  src={heroBannerUrl}
+                  alt="SIRIK FIT Banner"
+                  className="w-full h-48 sm:h-64 object-cover"
+                />
+              </div>
+            )}
+
             <CategoryFilter
               selectedCategory={selectedCategory}
               onSelectCategory={setSelectedCategory}
             />
+
             <ProductGrid
               settings={settings}
               selectedCategory={selectedCategory}

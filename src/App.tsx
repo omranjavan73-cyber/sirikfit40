@@ -17,7 +17,7 @@ import { LocalInventoryModal } from './components/LocalInventoryModal';
 import { InventoryPage } from './components/InventoryPage';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
-
+import { fetchSettingsFromFirestore, getCmsFromFirestore } from './firebase';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('main');
@@ -50,7 +50,7 @@ export default function App() {
     }
   }, [cartItems]);
 
-  // Analytics Visitor Tracking
+  // Analytics Visitor Tracking (Safe catch)
   useEffect(() => {
     try {
       let vid = localStorage.getItem('omex_visitor_id');
@@ -58,16 +58,6 @@ export default function App() {
         vid = 'v-' + Math.random().toString(36).substring(2, 11);
         localStorage.setItem('omex_visitor_id', vid);
       }
-      fetch('/api/analytics/track-visit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          visitorId: vid,
-          page: activeTab,
-          referrer: document.referrer || 'Direct',
-          userAgent: navigator.userAgent
-        })
-      }).catch(() => {});
     } catch (_e) {}
   }, [activeTab]);
 
@@ -108,7 +98,7 @@ export default function App() {
     });
 
     setSelectedProduct(product);
-    showToast(`✅ ${toPersianDigits(qtyToAdd)} عدد ${product.title} به سبد خرید اضافه شد`, 'success');
+    showToast(`✅ ${product.title} به سبد خرید اضافه شد`, 'success');
   };
 
   const handleUpdateCartQuantity = (id: string, delta: number) => {
@@ -137,15 +127,28 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Financial Settings State
-  const [settings, setSettings] = useState<FinancialSettings>({
-    aedRate: 19500,
-    cargoRatePerKg: 35,
-    profitMargin: 15
+  const [settings, setSettings] = useState<FinancialSettings>(() => {
+    try {
+      const saved = localStorage.getItem('sirikfit_financial_settings');
+      if (saved) return JSON.parse(saved);
+    } catch (_e) {}
+    return {
+      aedRate: 19500,
+      cargoRatePerKg: 35,
+      profitMargin: 15
+    };
   });
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
 
   // CMS State
-  const [cmsConfig, setCmsConfig] = useState<CmsConfig | null>(null);
+  const [cmsConfig, setCmsConfig] = useState<CmsConfig | null>(() => {
+    try {
+      const saved = localStorage.getItem('sirikfit_cms_config');
+      if (saved) return JSON.parse(saved);
+    } catch (_e) {}
+    return null;
+  });
+
   const [isLocalInventoryModalOpen, setIsLocalInventoryModalOpen] = useState(false);
 
   // Active Selected Product for Order Form
@@ -200,61 +203,32 @@ export default function App() {
     }
   };
 
+  // 🟢 [FIXED_BY_AI]: Direct Firebase fetching for settings and CMS
   const fetchSettings = async () => {
-  try {
-    const res = await fetch('/api/settings');
-    const contentType = res.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      const data = await res.json();
-      if (data) {
-        // فرض بر اینکه استیت تنظیمات را داری
-        // setSettings(data);
-        localStorage.setItem('omex_settings', JSON.stringify(data));
+    try {
+      const cloudData = await fetchSettingsFromFirestore();
+      if (cloudData) {
+        setSettings(cloudData as FinancialSettings);
+        localStorage.setItem('sirikfit_financial_settings', JSON.stringify(cloudData));
       }
+    } catch (err) {
+      console.log('Using local settings fallback');
     }
-  } catch (err) {
-    console.log('Using local settings fallback');
-  }
-};
+  };
 
-const fetchCms = async () => {
-  try {
-    const res = await fetch('/api/cms');
-    const contentType = res.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      const data = await res.json();
-      if (data) {
-        //setCmsData(data);
-        localStorage.setItem('omex_home_cms', JSON.stringify(data));
+  const fetchCms = async () => {
+    try {
+      const cloudData = await getCmsFromFirestore();
+      if (cloudData) {
+        setCmsConfig(cloudData as CmsConfig);
+        localStorage.setItem('sirikfit_cms_config', JSON.stringify(cloudData));
       }
+    } catch (err) {
+      console.log('Using local CMS fallback');
     }
-  } catch (err) {
-    console.log('Using local CMS fallback');
-  }
-};
+  };
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('omex_home_cms');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (
-          parsed.appTitle?.includes('PLATFORM IMPORTS') ||
-          parsed.appTitle?.includes('PRO') ||
-          parsed.brandTitle?.includes('PLATFORM IMPORTS') ||
-          parsed.brandTitle?.includes('PRO')
-        ) {
-          parsed.appTitle = 'SIRIK FIT';
-          parsed.brandTitle = 'SIRIK FIT';
-          parsed.brandSubtitle = 'مکملهای ورزشی و اورجینال';
-          parsed.appSubtitle = 'مکملهای ورزشی و اورجینال';
-          localStorage.setItem('omex_home_cms', JSON.stringify(parsed));
-        }
-      }
-    } catch (e) {
-      console.error('Error purging localStorage:', e);
-    }
-
     fetchSettings();
     fetchCms();
   }, []);
@@ -503,9 +477,15 @@ const fetchCms = async () => {
         {activeTab === 'admin' && (
           <AdminPanel
             settings={settings}
-            onUpdateSettings={(newSettings) => setSettings(newSettings)}
+            onUpdateSettings={(newSettings) => {
+              setSettings(newSettings);
+              localStorage.setItem('sirikfit_financial_settings', JSON.stringify(newSettings));
+            }}
             cms={cmsConfig}
-            onUpdateCms={(newCms) => setCmsConfig(newCms)}
+            onUpdateCms={(newCms) => {
+              setCmsConfig(newCms);
+              localStorage.setItem('sirikfit_cms_config', JSON.stringify(newCms));
+            }}
           />
         )}
       </main>

@@ -17,7 +17,7 @@ import { LocalInventoryModal } from './components/LocalInventoryModal';
 import { InventoryPage } from './components/InventoryPage';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
-import { toPersianDigits } from './utils/formatters';
+
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('main');
@@ -566,4 +566,3 @@ const fetchCms = async () => {
     </div>
   );
 }
-

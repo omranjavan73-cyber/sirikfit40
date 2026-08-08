@@ -71,7 +71,7 @@ import {
   HomeBanner,
   DomainItem
 } from '../types';
-import { formatToman, formatAed, formatPersianDate, toPersianDigits } from '../utils/formatters';
+
 import { getEffectiveGeminiKeysList, setEffectiveGeminiKeysList } from '../utils/geminiKey';
 import { PricingRulesAdmin } from './PricingRulesAdmin';
 
@@ -593,20 +593,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [visitorStatsData, setVisitorStatsData] = useState<any | null>(null);
   const [isLoadingVisitorStats, setIsLoadingVisitorStats] = useState(false);
 
-  const fetchVisitorStats = async () => {
-    setIsLoadingVisitorStats(true);
-    try {
-      const res = await fetch('/api/admin/visitor-stats');
+ const fetchVisitorStats = async () => {
+  setIsLoadingVisitorStats(true);
+  try {
+    const res = await fetch('/api/admin/visitor-stats');
+    const contentType = res.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
       const data = await res.json();
       if (data.success) {
         setVisitorStatsData(data);
       }
-    } catch (err) {
-      console.warn('Error fetching visitor stats:', err);
-    } finally {
-      setIsLoadingVisitorStats(false);
+    } else {
+      setVisitorStatsData({ totalVisits: 0, uniqueVisitors: 0 });
     }
-  };
+  } catch (err) {
+    console.warn('Error fetching visitor stats:', err);
+  } finally {
+    setIsLoadingVisitorStats(false);
+  }
+};
 
   // Copy Product Link Handler
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
@@ -7006,4 +7011,4 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   );
 };
 
-export default AdminPanel;
+

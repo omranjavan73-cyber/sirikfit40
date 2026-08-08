@@ -12,31 +12,41 @@ import {
   query,
   where
 } from 'firebase/firestore';
+import firebaseConfigJson from '../firebase-applet-config.json';
 
-// تنظیمات فایربیس مربوط به پروژه جدید شما (sirikfit40)
+const metaEnv = (import.meta as any).env || {};
+const apiKey = firebaseConfigJson?.apiKey || metaEnv.VITE_FIREBASE_API_KEY || 'AIzaSyDDT03m1Qxzzdk9drEMF-R9L1Y_VzhkyCY';
+const authDomain = firebaseConfigJson?.authDomain || metaEnv.VITE_FIREBASE_AUTH_DOMAIN || 'sirik-fit-db.firebaseapp.com';
+const projectId = firebaseConfigJson?.projectId || metaEnv.VITE_FIREBASE_PROJECT_ID || 'sirik-fit-db';
+const storageBucket = firebaseConfigJson?.storageBucket || metaEnv.VITE_FIREBASE_STORAGE_BUCKET || 'sirik-fit-db.firebasestorage.app';
+const messagingSenderId = firebaseConfigJson?.messagingSenderId || metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '647943404812';
+const appId = firebaseConfigJson?.appId || metaEnv.VITE_FIREBASE_APP_ID || '1:647943404812:web:2aac3fab6cdfab690f1d29';
+const firestoreDatabaseId = firebaseConfigJson?.firestoreDatabaseId;
+
 const firebaseConfig = {
-  apiKey: "AIzaSyBAB1tsbUtWgLcHxFaelMVECS9zqGP7Zk0",
-  authDomain: "sirikfit40.firebaseapp.com",
-  projectId: "sirikfit40",
-  storageBucket: "sirikfit40.firebasestorage.app",
-  messagingSenderId: "532757567852",
-  appId: "1:532757567852:web:01f36071e84c96b4933b49",
-  measurementId: "G-QFR8G0QFNH"
+  apiKey,
+  authDomain,
+  projectId,
+  storageBucket,
+  messagingSenderId,
+  appId,
 };
 
-export const isFirebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
+export const isFirebaseConfigured = Boolean(apiKey && projectId && apiKey !== '');
 
-// مقداردهی اولیه اپلیکیشن
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
 
-// اتصال به دیتابیس Firestore با کش حافظه
 export const db = (() => {
   try {
-    return initializeFirestore(app, { localCache: memoryLocalCache() });
+    return (firestoreDatabaseId && firestoreDatabaseId !== '(default)')
+      ? initializeFirestore(app, { localCache: memoryLocalCache() }, firestoreDatabaseId)
+      : initializeFirestore(app, { localCache: memoryLocalCache() });
   } catch (e) {
-    return getFirestore(app);
+    return (firestoreDatabaseId && firestoreDatabaseId !== '(default)')
+      ? getFirestore(app, firestoreDatabaseId)
+      : getFirestore(app);
   }
 })();
 
@@ -56,22 +66,37 @@ export interface FirestoreErrorInfo {
   authInfo: {
     userId?: string | null;
     email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
   };
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): FirestoreErrorInfo {
-  return {
+  const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: auth?.currentUser?.uid || null,
       email: auth?.currentUser?.email || null,
+      emailVerified: auth?.currentUser?.emailVerified || null,
+      isAnonymous: auth?.currentUser?.isAnonymous || null,
+      tenantId: auth?.currentUser?.tenantId || null,
+      providerInfo: auth?.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
     },
     operationType,
     path
   };
+  return errInfo;
 }
 
-// ذخیره پروفایل کاربر
+// Helper: Save/Update User Profile in Firestore "users" collection
 export async function saveUserProfileToFirestore(userData: {
   id: string;
   name: string;
@@ -100,7 +125,7 @@ export async function saveUserProfileToFirestore(userData: {
   }
 }
 
-// ذخیره سفارش
+// Helper: Save Order in Firestore "orders" collection
 export async function saveOrderToFirestore(orderData: any) {
   if (!db) return;
   const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
@@ -120,7 +145,7 @@ export async function saveOrderToFirestore(orderData: any) {
   }
 }
 
-// دریافت سفارشات کاربر
+// Helper: Fetch User Orders from Firestore
 export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: string) {
   if (!db) return [];
   const path = 'orders';
@@ -145,7 +170,7 @@ export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: s
   }
 }
 
-// ذخیره تنظیمات مالی پنل ادمین
+// 🟢 [FIXED_BY_AI]: Exported helper function for direct Firestore persistence
 export async function saveSettingsToFirestore(settingsData: any): Promise<boolean> {
   if (!db) return false;
   const path = 'settings/app';
@@ -166,7 +191,7 @@ export async function saveSettingsToFirestore(settingsData: any): Promise<boolea
   }
 }
 
-// خواندن تنظیمات مالی پنل ادمین
+// 🟢 [FIXED_BY_AI]: Exported helper function for direct Firestore persistence
 export async function fetchSettingsFromFirestore() {
   if (!db) return null;
   const path = 'settings/app';
@@ -184,24 +209,28 @@ export async function fetchSettingsFromFirestore() {
 
 export const getSettingsFromFirestore = fetchSettingsFromFirestore;
 
-// ذخیره تنظیمات CMS و ظاهر سایت
+// 🟢 [FIXED_BY_AI]: Exported helper function for direct Firestore persistence
 export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
-  if (!db) {
-    console.error("DEBUG: db is null/undefined!");
-    return false;
-  }
+  if (!db) return false;
+  const path = 'cms/app';
   try {
-    console.log("DEBUG: Attempting to save to Firestore...", cmsData);
     const cmsRef = doc(db, 'cms', 'app');
-    await setDoc(cmsRef, { ...cmsData, updatedAt: new Date().toISOString() }, { merge: true });
-    console.log("DEBUG: Save successful!");
+    await setDoc(
+      cmsRef,
+      {
+        ...cmsData,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
     return true;
-  } catch (error) {
-    console.error("DEBUG: Save failed!", error); // این خطا مهم‌ترین چیز است
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
     return false;
   }
 }
-// خواندن تنظیمات CMS از فایربیس
+
+// 🟢 [FIXED_BY_AI]: Exported helper function for direct Firestore persistence
 export async function getCmsFromFirestore() {
   if (!db) return null;
   const path = 'cms/app';
@@ -217,7 +246,42 @@ export async function getCmsFromFirestore() {
   return null;
 }
 
-// بررسی وضعیت اتصال فایربیس
+// Helper: Save Admin Password in Firestore "settings/admin" document
+export async function saveAdminPasswordToFirestore(password: string) {
+  if (!db) return;
+  const path = 'settings/admin';
+  try {
+    const adminRef = doc(db, 'settings', 'admin');
+    await setDoc(
+      adminRef,
+      {
+        password,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+// Helper: Fetch Admin Password from Firestore
+export async function getAdminPasswordFromFirestore() {
+  if (!db) return null;
+  const path = 'settings/admin';
+  try {
+    const adminRef = doc(db, 'settings', 'admin');
+    const docSnap = await getDoc(adminRef);
+    if (docSnap.exists()) {
+      return docSnap.data()?.password || null;
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, path);
+  }
+  return null;
+}
+
+// 🟢 [FIXED_BY_AI]: Exported helper function for direct Firestore persistence
 export async function checkFirestoreConnection(): Promise<{
   connected: boolean;
   dbId?: string;
@@ -229,8 +293,14 @@ export async function checkFirestoreConnection(): Promise<{
   try {
     const settingsRef = doc(db, 'settings', 'app');
     await getDoc(settingsRef);
-    return { connected: true, dbId: 'sirikfit40' };
+    return { connected: true, dbId: firestoreDatabaseId || '(default)' };
   } catch (err: any) {
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        return { connected: true, dbId: firestoreDatabaseId || '(default)' };
+      }
+    } catch (_e) {}
     return { connected: false, error: err?.message || 'Connection failed' };
   }
 }

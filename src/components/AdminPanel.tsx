@@ -2053,9 +2053,11 @@ const handleSaveFinancials = async () => {
       console.error('Error saving CMS:', err);
     } finally {
       setIsSavingCms(false);
-      setTimeout(() => setSaveCmsSuccess(false), 3000);
+     setTimeout(() => setSaveCmsSuccess(false), 3000);
     }
   };
+
+  // Stats for Dashboard
 
     const updatedCms: CmsConfig = {
       heroTitle,

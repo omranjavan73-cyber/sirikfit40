@@ -168,9 +168,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [profitMarginInput, setProfitMarginInput] = useState<string>(String(settings.profitMargin));
   const [minOrderAedInput, setMinOrderAedInput] = useState<string>(String(settings.minOrderAed || 200));
 
-  const [rateTestResult, setRateTestResult] = useState<{ message: string; type: 'success' | 'error' | 'warning'; rate?: number } | null>(null);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
-
   const [heroTitle, setHeroTitle] = useState(cms?.heroTitle || '');
   const [heroSubtitle, setHeroSubtitle] = useState(cms?.heroSubtitle || '');
   const [heroNotice, setHeroNotice] = useState(cms?.heroNotice || '');
@@ -1973,6 +1970,157 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="text-2xl font-black text-blue-600">{shippedOrdersCount}</div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* SUB-TAB: ORDERS */}
+      {activeAdminSubTab === 'orders' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <h3 className="font-extrabold text-sm text-slate-900">مدیریت سفارشات ({orders.length})</h3>
+          {orders.length === 0 ? (
+            <p className="text-xs text-slate-400">هیچ سفارشی یافت نشد.</p>
+          ) : (
+            <div className="space-y-2">
+              {orders.map(o => (
+                <div key={o.id} className="p-3 bg-slate-50 border rounded-xl text-xs flex justify-between items-center">
+                  <div>
+                    <span className="font-bold block">{o.customerName} ({o.phoneNumber})</span>
+                    <span className="text-slate-500">{o.productTitle}</span>
+                  </div>
+                  <span className="font-black text-emerald-700">{formatToman(o.calculatedToman)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SUB-TAB: GENERAL SETTINGS (CMS) */}
+      {activeAdminSubTab === 'cms' && (
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+            <h3 className="font-black text-sm text-slate-900">مدیریت کارت‌های فروشگاه‌ها و لینک‌های سریع</h3>
+            <div className="space-y-4">
+              {storesList.map((store, index) => (
+                <div key={store.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between border-b pb-2">
+                    <span className="font-bold text-xs">فروشگاه #{index + 1}: {store.title}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateStoreField(store.id, 'enabled', store.enabled === false ? true : false)}
+                      className="text-xs font-bold px-2 py-1 bg-white border rounded-lg"
+                    >
+                      {store.enabled !== false ? '✓ فعال' : '✕ غیرفعال'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      value={store.title}
+                      onChange={(e) => handleUpdateStoreField(store.id, 'title', e.target.value)}
+                      className="bg-white border p-2 text-xs rounded-lg"
+                      placeholder="نام فروشگاه"
+                    />
+                    <input
+                      type="text"
+                      value={store.url}
+                      onChange={(e) => handleUpdateStoreField(store.id, 'url', e.target.value)}
+                      className="bg-white border p-2 text-xs rounded-lg dir-ltr"
+                      placeholder="آدرس لینک"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveCms}
+              className="bg-black text-white text-xs font-bold px-6 py-2.5 rounded-xl"
+            >
+              ذخیره تغییرات
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB: DEALS */}
+      {activeAdminSubTab === 'deals' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <h3 className="font-black text-sm text-slate-900">مدیریت پیشنهادهای ویژه</h3>
+          <p className="text-xs text-slate-500">تعداد پیشنهادهای فعال: {dealsList.length}</p>
+        </div>
+      )}
+
+      {/* SUB-TAB: INVENTORY */}
+      {activeAdminSubTab === 'inventory' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <h3 className="font-black text-sm text-slate-900">انبار ایران ({localInventoryList.length})</h3>
+          <p className="text-xs text-slate-500">کالاهای آماده تحویل فوری در ایران</p>
+        </div>
+      )}
+
+      {/* SUB-TAB: HOME CONTENT */}
+      {activeAdminSubTab === 'homeContent' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <h3 className="font-black text-sm text-slate-900">ظاهر و محتوای صفحه اصلی</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-bold block mb-1">عنوان اصلی هدر:</label>
+              <input
+                type="text"
+                value={appTitleText}
+                onChange={(e) => setAppTitleText(e.target.value)}
+                className="w-full border p-2 text-xs rounded-xl"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveHomeContent}
+              className="bg-black text-white text-xs font-bold px-6 py-2.5 rounded-xl"
+            >
+              ذخیره تغییرات محتوا
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB: ACCOUNTING */}
+      {activeAdminSubTab === 'accounting' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <h3 className="font-black text-sm text-slate-900">حسابداری و مالی</h3>
+          <p className="text-xs text-slate-500">گزارشات و دفتر روزنامه مالی</p>
+        </div>
+      )}
+
+      {/* SUB-TAB: GATEWAY */}
+      {activeAdminSubTab === 'gateway' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <h3 className="font-black text-sm text-slate-900">تنظیمات درگاه پرداخت</h3>
+          <p className="text-xs text-slate-500">درگاه فعال فعلی: {activeGateway}</p>
+        </div>
+      )}
+
+      {/* SUB-TAB: API SETTINGS */}
+      {activeAdminSubTab === 'apiSettings' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <h3 className="font-black text-sm text-slate-900">تنظیمات API و کلیدها</h3>
+          <p className="text-xs text-slate-500">کلیدهای فعال سرویس اسکرپر و AI</p>
+        </div>
+      )}
+
+      {/* SUB-TAB: SECURITY */}
+      {activeAdminSubTab === 'security' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <h3 className="font-black text-sm text-slate-900">رمز عبور و امنیت</h3>
+          <p className="text-xs text-slate-500">تنظیمات امنیت ورود به سیستم</p>
+        </div>
+      )}
+
+      {/* SUB-TAB: BACKUP */}
+      {activeAdminSubTab === 'backup' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <h3 className="font-black text-sm text-slate-900">بک‌آپ و پشتیبان‌گیری</h3>
+          <p className="text-xs text-slate-500">ایجاد و بازگردانی نسخه‌های پشتیبان</p>
         </div>
       )}
 

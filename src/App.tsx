@@ -200,38 +200,38 @@ export default function App() {
     }
   };
 
-  // Fetch Settings & CMS Config
   const fetchSettings = async () => {
-    setIsLoadingSettings(true);
-    try {
-      const res = await fetch('/api/settings');
-      if (res.ok) {
-        const data = await res.json();
-        setSettings(data);
+  try {
+    const res = await fetch('/api/settings');
+    const contentType = res.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      const data = await res.json();
+      if (data) {
+        // فرض بر اینکه استیت تنظیمات را داری
+        // setSettings(data);
+        localStorage.setItem('omex_settings', JSON.stringify(data));
       }
-    } catch (err) {
-      console.error('Error loading settings:', err);
-    } finally {
-      setIsLoadingSettings(false);
     }
-  };
+  } catch (err) {
+    console.log('Using local settings fallback');
+  }
+};
 
-  const fetchCms = async () => {
-    try {
-      const res = await fetch('/api/cms');
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.homeContent) {
-          data.homeContent.appTitle = (data.homeContent.appTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
-          data.homeContent.brandTitle = (data.homeContent.brandTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
-          data.homeContent.brandSubtitle = (data.homeContent.brandSubtitle || 'مکملهای ورزشی و اورجینال').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکملهای ورزشی و اورجینال';
-        }
-        setCmsConfig(data);
+const fetchCms = async () => {
+  try {
+    const res = await fetch('/api/cms');
+    const contentType = res.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      const data = await res.json();
+      if (data) {
+        //setCmsData(data);
+        localStorage.setItem('omex_home_cms', JSON.stringify(data));
       }
-    } catch (err) {
-      console.error('Error loading CMS config:', err);
     }
-  };
+  } catch (err) {
+    console.log('Using local CMS fallback');
+  }
+};
 
   useEffect(() => {
     try {
@@ -566,3 +566,4 @@ export default function App() {
     </div>
   );
 }
+

@@ -33,6 +33,7 @@ const handleNumberInputFocus = (e: React.FocusEvent<HTMLInputElement>) => e.targ
 export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
   settings, onUpdateSettings, cms, onUpdateCms, onSavePricingRules
 }) => {
+  // Safe initial config
   const initialConfig = cms?.pricingRules || loadPricingRulesFromStorage() || DEFAULT_PRICING_RULES;
 
   const [aedRateInput, setAedRateInput] = useState<string>(String(settings.aedRate || 53000));
@@ -60,6 +61,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
   const [rateTestResult, setRateTestResult] = useState<any>(null);
   const [isTestingRateApi, setIsTestingRateApi] = useState<boolean>(false);
 
+  // Sync state when CMS props update (Crucial for preventing blank screens)
   useEffect(() => {
     if (cms?.pricingRules) {
       setCommissionRules(cms.pricingRules.commissionRules || DEFAULT_PRICING_RULES.commissionRules);
@@ -125,10 +127,31 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     }
   };
 
-  const handleTestApiRate = async () => { /* API Test logic */ setIsTestingRateApi(true); setTimeout(() => setIsTestingRateApi(false), 1000); };
-  const handleForceManualRate = () => { setAutoUpdateRates(false); setAedRateInput(manualAedRateInput); setSimAedRate(manualAedRateInput); };
-  const handleAddCommissionRule = () => { const newRule: any = { id: 'r-' + Date.now(), minAmountAed: 0, maxAmountAed: 1000, commissionPercent: 10, isEnabled: true }; setCommissionRules([...(commissionRules || []), newRule]); };
-  const handleUpdateCommissionRule = (id: string, field: string, value: any) => setCommissionRules(prev => (prev || []).map(r => r.id === id ? { ...r, [field]: value } : r));
+  const handleTestApiRate = async () => {
+    setIsTestingRateApi(true);
+    try {
+      const res = await fetch(`/api/currency/aed?url=${encodeURIComponent(currencyApiUrl)}&forceApi=true`);
+      const data = await res.json();
+      if (res.ok && data.rate) {
+        setRateTestResult({ message: `نرخ: ${data.rate}`, type: 'success', rate: data.rate });
+        setAedRateInput(String(data.rate));
+        setSimAedRate(String(data.rate));
+      }
+    } catch (e) {
+      setRateTestResult({ message: 'خطا در ارتباط', type: 'error' });
+    } finally {
+      setIsTestingRateApi(false);
+    }
+  };
+
+  const handleForceManualRate = () => {
+    setAutoUpdateRates(false);
+    setAedRateInput(manualAedRateInput);
+    setSimAedRate(manualAedRateInput);
+  };
+
+  const handleAddCommissionRule = () => setCommissionRules([...(commissionRules || []), { id: 'r-' + Date.now(), minAmountAed: 0, maxAmountAed: 1000, commissionPercent: 10, isEnabled: true }]);
+  const handleUpdateCommissionRule = (id: string, field: keyof CommissionRule, value: any) => setCommissionRules(prev => (prev || []).map(r => r.id === id ? { ...r, [field]: value } : r));
   const handleDeleteCommissionRule = (id: string) => setCommissionRules(prev => (prev || []).filter(r => r.id !== id));
   const handleMoveCommissionRule = (idx: number, dir: 'up' | 'down') => {
     const rules = [...(commissionRules || [])];
@@ -137,14 +160,14 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     setCommissionRules(rules);
   };
   const handleAddShippingIncrementRule = () => setShippingIncrementRules([...(shippingIncrementRules || []), { id: 's-' + Date.now(), itemNumber: (shippingIncrementRules || []).length + 2, additionalCostAed: 5, isEnabled: true }]);
-  const handleUpdateShippingIncrementRule = (id: string, field: string, value: any) => setShippingIncrementRules(prev => (prev || []).map(r => r.id === id ? { ...r, [field]: value } : r));
+  const handleUpdateShippingIncrementRule = (id: string, field: keyof ShippingIncrementRule, value: any) => setShippingIncrementRules(prev => (prev || []).map(r => r.id === id ? { ...r, [field]: value } : r));
   const handleDeleteShippingIncrementRule = (id: string) => setShippingIncrementRules(prev => (prev || []).filter(r => r.id !== id));
 
   return (
     <div className="space-y-6 font-['Vazirmatn',sans-serif] animate-fade-in text-slate-800">
       <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-2xs flex items-center justify-between">
         <h2 className="font-extrabold text-lg">پنل تنظیمات قیمت‌گذاری</h2>
-        <button onClick={handleSaveAllRules} disabled={isSaving} className="bg-black text-white px-6 py-3 rounded-2xl font-bold text-xs">
+        <button onClick={handleSaveAllRules} disabled={isSaving} className="bg-black text-white px-6 py-3 rounded-2xl font-bold text-xs cursor-pointer">
           {isSaving ? 'در حال ذخیره...' : 'ذخیره نهایی'}
         </button>
       </div>
@@ -155,11 +178,10 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         <h3 className="font-black text-base">تنظیمات نرخ درهم</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input value={manualAedRateInput} onChange={e => setManualAedRateInput(e.target.value)} className="border p-2 rounded-xl" placeholder="نرخ دستی"/>
-            <button onClick={handleForceManualRate} className="bg-amber-500 text-white p-2 rounded-xl">قفل روی نرخ دستی</button>
+            <button onClick={handleForceManualRate} className="bg-amber-500 text-white p-2 rounded-xl text-xs font-bold">قفل روی نرخ دستی</button>
         </div>
       </div>
       
-      {/* Commission Rules Section */}
       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-2xs space-y-4">
         <div className="flex justify-between items-center">
             <h3 className="font-black">قوانین کارمزد</h3>
@@ -168,7 +190,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         {(commissionRules || []).map((rule, idx) => (
             <div key={rule.id} className="flex gap-2 items-center bg-slate-50 p-3 rounded-xl border border-slate-200">
                 <span className="font-bold text-xs">{idx + 1}</span>
-                <input type="number" value={rule.minAmountAed} onChange={e => handleUpdateCommissionRule(rule.id, 'minAmountAed', parseFloat(e.target.value))} className="w-20 p-1 border rounded" />
+                <input type="number" value={rule.minAmountAed} onChange={e => handleUpdateCommissionRule(rule.minAmountAed.toString(), 'minAmountAed', parseFloat(e.target.value))} className="w-20 p-1 border rounded" />
                 <input type="number" value={rule.commissionPercent} onChange={e => handleUpdateCommissionRule(rule.id, 'commissionPercent', parseFloat(e.target.value))} className="w-20 p-1 border rounded" />
                 <button onClick={() => handleDeleteCommissionRule(rule.id)} className="text-rose-500 text-xs">حذف</button>
             </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Header from './components/Header';
 import { AdminPanel } from './components/AdminPanel';
 import { PaymentModal } from './components/PaymentModal';
 import { AuthModal } from './components/AuthModal';
@@ -18,7 +19,6 @@ export default function App() {
   const [settings, setSettings] = useState<FinancialSettings>(DEFAULT_SETTINGS);
   const [cms, setCms] = useState<CmsConfig | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'admin'>('home');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -44,30 +44,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 font-['Vazirmatn',sans-serif] pb-24 dir-rtl">
-      {/* هدر ساده و سبک */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 px-4 py-3 shadow-xs">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div 
-            className="flex items-center gap-2 cursor-pointer select-none"
-            onClick={() => setActiveTab(activeTab === 'admin' ? 'home' : 'admin')}
-          >
-            <span className="font-black text-xl text-slate-900 tracking-tight">SIRIK FIT</span>
-            <span className="text-[10px] bg-slate-900 text-amber-400 px-2 py-0.5 rounded-full font-bold">PRO</span>
-          </div>
-
-          <div className="flex items-center gap-3 text-xs font-bold">
-            <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-xl border">
-              نرخ درهم: {settings.aedRate.toLocaleString('fa-IR')} تومان
-            </span>
-            <button 
-              onClick={() => setIsAuthOpen(true)}
-              className="bg-slate-900 text-white px-3.5 py-1.5 rounded-xl"
-            >
-              {user ? 'حساب کاربری' : 'ورود / ثبت‌نام'}
-            </button>
-          </div>
-        </div>
-      </header>
+      <Header
+        aedRate={settings.aedRate}
+        cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
+        onOpenCart={() => {}}
+        onOpenAdmin={() => setActiveTab('admin')}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        user={user}
+      />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {activeTab === 'admin' ? (
@@ -79,7 +63,7 @@ export default function App() {
           />
         ) : (
           <div className="space-y-6">
-            {heroBannerUrl && (
+            {heroBannerUrl ? (
               <div className="rounded-3xl overflow-hidden shadow-md border border-slate-200">
                 <img
                   src={heroBannerUrl}
@@ -87,12 +71,17 @@ export default function App() {
                   className="w-full h-48 sm:h-64 object-cover"
                 />
               </div>
+            ) : (
+              <div className="bg-slate-900 text-white rounded-3xl p-8 text-center space-y-3 shadow-lg">
+                <h1 className="text-2xl font-black text-amber-400">فروشگاه تخصصی مکمل‌های ورزشی SIRIK FIT</h1>
+                <p className="text-xs text-slate-300">ارسال مستقیم بهترین برندهای مکمل ورزشی و اورجینال</p>
+              </div>
             )}
 
-            <div className="bg-white border rounded-3xl p-6 text-center space-y-3">
-              <h2 className="text-lg font-black text-slate-900">فروشگاه آنلاین مکمل‌های ورزشی SIRIK FIT</h2>
-              <p className="text-xs text-slate-500 font-medium">
-                جهت دسترسی به پنل مدیریت، روی برند SIRIK FIT در بالابار کلیک کنید.
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm text-center space-y-4">
+              <h2 className="text-base font-extrabold text-slate-900">به سامانه SIRIK FIT خوش آمدید</h2>
+              <p className="text-xs text-slate-500">
+                جهت مدیریت محصولات، نرخ درهم، تنظیمات دیتابیس و پشتیبان‌گیری، روی برند در هدر کلیک کنید.
               </p>
             </div>
           </div>

@@ -173,6 +173,19 @@ export interface WarehouseCategory {
   filterKey: string;
 }
 
+export interface HomeBanner {
+  id: string;
+  imageUrl: string;
+  linkUrl: string;
+  title?: string;
+  enabled?: boolean;
+}
+
+export interface DomainItem {
+  domain: string;
+  enabled: boolean;
+}
+
 export interface CmsConfig {
   heroTitle: string;
   heroSubtitle: string;
@@ -182,6 +195,7 @@ export interface CmsConfig {
   announcementText?: string;
   announcementBadge?: string;
   announcementSlogans?: string[];
+  homeBanners?: HomeBanner[];
   stores: StoreCardItem[];
   deals?: FeaturedDeal[];
   showLocalInventory?: boolean;
@@ -213,6 +227,7 @@ export interface CmsConfig {
     emailjsPublicKey?: string;
     resendApiKey?: string;
     allowedDomains?: string[];
+    domainItems?: DomainItem[];
     enableDomainRestriction?: boolean;
     scraperApiKey?: string;
     enableScraperApi?: boolean;

@@ -18,12 +18,13 @@ import { InventoryPage } from './components/InventoryPage';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
 import { toPersianDigits } from './utils/formatters';
-import { getSettingsFromFirestore, getCmsFromFirestore } from './firebase';
+import { Plane } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('main');
   const [isCalculatorVisible, setIsCalculatorVisible] = useState(true);
 
+  // User Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem('omex_current_user');
@@ -49,6 +50,27 @@ export default function App() {
       console.error('Error saving cart items:', e);
     }
   }, [cartItems]);
+
+  // Analytics Visitor Tracking
+  useEffect(() => {
+    try {
+      let vid = localStorage.getItem('omex_visitor_id');
+      if (!vid) {
+        vid = 'v-' + Math.random().toString(36).substring(2, 11);
+        localStorage.setItem('omex_visitor_id', vid);
+      }
+      fetch('/api/analytics/track-visit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visitorId: vid,
+          page: activeTab,
+          referrer: document.referrer || 'Direct',
+          userAgent: navigator.userAgent
+        })
+      }).catch(() => {});
+    } catch (_e) {}
+  }, [activeTab]);
 
   const handleAddToCart = (product: {
     title: string;
@@ -114,16 +136,19 @@ export default function App() {
   };
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
+  // Financial Settings State
   const [settings, setSettings] = useState<FinancialSettings>({
-    aedRate: 53000,
+    aedRate: 19500,
     cargoRatePerKg: 35,
     profitMargin: 15
   });
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
 
+  // CMS State
   const [cmsConfig, setCmsConfig] = useState<CmsConfig | null>(null);
   const [isLocalInventoryModalOpen, setIsLocalInventoryModalOpen] = useState(false);
 
+  // Active Selected Product for Order Form
   const [selectedProduct, setSelectedProduct] = useState<{
     title: string;
     url: string;
@@ -134,6 +159,7 @@ export default function App() {
     calculatedTomanOverride?: number;
   } | null>(null);
 
+  // Selected Deal for Calculator Population
   const [selectedDealProduct, setSelectedDealProduct] = useState<{
     title: string;
     url: string;
@@ -143,9 +169,11 @@ export default function App() {
     storeName?: string;
   } | null>(null);
 
+  // Active Pending Order for Payment Gateway Modal
   const [pendingOrderForPayment, setPendingOrderForPayment] = useState<Order | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
 
+  // Toast Notification State
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -153,6 +181,7 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   };
 
+  // Sync user with localStorage
   const handleAuthSuccess = (user: User) => {
     setCurrentUser(user);
     try {
@@ -171,15 +200,17 @@ export default function App() {
     }
   };
 
+  // Fetch Settings & CMS Config
   const fetchSettings = async () => {
     setIsLoadingSettings(true);
     try {
-      const data = await getSettingsFromFirestore();
-      if (data) {
-        setSettings((prev) => ({ ...prev, ...data }));
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        setSettings(data);
       }
     } catch (err) {
-      console.error('Error loading settings from Firestore:', err);
+      console.error('Error loading settings:', err);
     } finally {
       setIsLoadingSettings(false);
     }
@@ -187,8 +218,9 @@ export default function App() {
 
   const fetchCms = async () => {
     try {
-      const data = await getCmsFromFirestore();
-      if (data) {
+      const res = await fetch('/api/cms');
+      if (res.ok) {
+        const data = await res.json();
         if (data?.homeContent) {
           data.homeContent.appTitle = (data.homeContent.appTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
           data.homeContent.brandTitle = (data.homeContent.brandTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
@@ -197,11 +229,32 @@ export default function App() {
         setCmsConfig(data);
       }
     } catch (err) {
-      console.error('Error loading CMS config from Firestore:', err);
+      console.error('Error loading CMS config:', err);
     }
   };
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem('omex_home_cms');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (
+          parsed.appTitle?.includes('PLATFORM IMPORTS') ||
+          parsed.appTitle?.includes('PRO') ||
+          parsed.brandTitle?.includes('PLATFORM IMPORTS') ||
+          parsed.brandTitle?.includes('PRO')
+        ) {
+          parsed.appTitle = 'SIRIK FIT';
+          parsed.brandTitle = 'SIRIK FIT';
+          parsed.brandSubtitle = 'مکملهای ورزشی و اورجینال';
+          parsed.appSubtitle = 'مکملهای ورزشی و اورجینال';
+          localStorage.setItem('omex_home_cms', JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {
+      console.error('Error purging localStorage:', e);
+    }
+
     fetchSettings();
     fetchCms();
   }, []);
@@ -226,7 +279,9 @@ export default function App() {
     setIsPaymentModalOpen(true);
   };
 
-  const handlePaymentSuccess = () => {};
+  const handlePaymentSuccess = () => {
+    //
+  };
 
   const handleSelectDeal = (deal: FeaturedDeal) => {
     handleAddToCart({
@@ -281,6 +336,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col font-['Vazirmatn',sans-serif] selection:bg-[#7C3AED] selection:text-white pb-24">
+      {/* Toast Notification Banner */}
       {toast && (
         <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 animate-bounce">
           <div
@@ -295,6 +351,7 @@ export default function App() {
         </div>
       )}
 
+      {/* Top Header */}
       <Header
         settings={settings}
         cms={cmsConfig}
@@ -321,11 +378,18 @@ export default function App() {
         isAdminActive={activeTab === 'admin'}
       />
 
+      {/* Main Container */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-6">
+        {/* PUBLIC PAGE (MAIN / صفحه اصلی - COMPACT PREVIEW & CLEAN HOME SCREEN) */}
         {activeTab === 'main' && (
           <div id="home" className="space-y-4">
+            {/* Dynamic Sports Hero Banner */}
             <HeroBanner cms={cmsConfig} />
+
+            {/* Rotating Slogan Announcement Banner */}
             <AnnouncementBanner cms={cmsConfig} />
+
+            {/* Compact Top Hero Calculator Box */}
             <div id="calculator-section" className="scroll-mt-16">
               <HeroCalculator
                 settings={settings}
@@ -335,6 +399,8 @@ export default function App() {
                 onProceedToOrder={handleAddToCart}
               />
             </div>
+
+            {/* App Grid Dashboard Quick Access */}
             <AppDashboard
               settings={settings}
               cms={cmsConfig}
@@ -357,13 +423,18 @@ export default function App() {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
             />
+
+            {/* Popular Stores Banner */}
             <StoreCards stores={cmsConfig?.stores} cms={cmsConfig} onSelectStoreSample={handleSelectStoreSample} />
+
+            {/* Support & Contact Section */}
             <div id="support-section" className="scroll-mt-16">
               <SupportSection cms={cmsConfig} />
             </div>
           </div>
         )}
 
+        {/* DEDICATED PRODUCT DETAIL & CHECKOUT SCREEN (#detail) */}
         {activeTab === 'detail' && (
           <ProductDetailView
             product={selectedProduct || {
@@ -389,6 +460,7 @@ export default function App() {
           />
         )}
 
+        {/* DEDICATED INVENTORY PAGE (صفحه اختصاصی انبار ایران) */}
         {activeTab === 'inventory' && (
           <InventoryPage
             items={cmsConfig?.localInventory || []}
@@ -407,6 +479,7 @@ export default function App() {
           />
         )}
 
+        {/* DEDICATED SPECIAL OFFERS & FEATURED DEALS TAB (صفحه اختصاصی پیشنهادها) */}
         {activeTab === 'deals' && (
           <div className="space-y-6">
             <FeaturedDeals
@@ -417,10 +490,11 @@ export default function App() {
           </div>
         )}
 
+        {/* CUSTOMER ACCOUNT & ORDER TRACKING TAB (حساب کاربری / پیگیری سفارش) */}
         {activeTab === 'account' && (
           <CustomerAccountView
             currentUser={currentUser}
-            onOpenAuthModal={() => setIsAuthModalOpen(false)}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onLogout={handleLogout}
             onLoginSuccess={(user) => {
               handleAuthSuccess(user);
@@ -434,6 +508,7 @@ export default function App() {
           />
         )}
 
+        {/* EXCLUSIVE ADMIN PANEL TAB (ورود مدیر / مدیریت) */}
         {activeTab === 'admin' && (
           <AdminPanel
             settings={settings}
@@ -444,6 +519,7 @@ export default function App() {
         )}
       </main>
 
+      {/* Auth Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
@@ -454,6 +530,7 @@ export default function App() {
         }}
       />
 
+      {/* Payment Gateway Modal */}
       {pendingOrderForPayment && (
         <PaymentModal
           order={pendingOrderForPayment}
@@ -467,6 +544,7 @@ export default function App() {
         />
       )}
 
+      {/* Iran In-Stock Local Inventory Modal */}
       <LocalInventoryModal
         isOpen={isLocalInventoryModalOpen}
         onClose={() => setIsLocalInventoryModalOpen(false)}
@@ -485,6 +563,7 @@ export default function App() {
         }}
       />
 
+      {/* Public Bottom Navigation Bar */}
       <BottomNav
         activeTab={activeTab}
         showLocalInventory={cmsConfig?.showLocalInventory ?? true}

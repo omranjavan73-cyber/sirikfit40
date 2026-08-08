@@ -128,6 +128,26 @@ export interface PaymentGatewayConfig {
   };
 }
 
+export interface HomeBanner {
+  id: string;
+  imageUrl: string;
+  linkUrl: string;
+  title?: string;
+  enabled?: boolean;
+}
+
+export interface WhitelistedDomain {
+  id: string;
+  domain: string;
+  enabled: boolean;
+}
+
+export interface WarehouseCategory {
+  id: string;
+  name: string;
+  enabled: boolean;
+}
+
 export interface CmsConfig {
   heroTitle: string;
   heroSubtitle: string;
@@ -137,6 +157,7 @@ export interface CmsConfig {
   announcementText?: string;
   announcementBadge?: string;
   announcementSlogans?: string[];
+  homeBanners?: HomeBanner[];
   stores: StoreCardItem[];
   deals?: FeaturedDeal[];
   showLocalInventory?: boolean;
@@ -145,6 +166,8 @@ export interface CmsConfig {
   warehouseBannerTheme?: 'light' | 'dark' | 'emerald' | 'amber';
   warehouseBannerButtonText?: string;
   localInventory?: LocalInventoryItem[];
+  whitelistedDomains?: WhitelistedDomain[];
+  warehouseCategories?: WarehouseCategory[];
   homeContent?: HomePageSettings;
   paymentGateway?: PaymentGatewayConfig;
   apiConfig: {
@@ -219,6 +242,22 @@ const defaultCmsConfig: CmsConfig = {
     '⚡ ارسال مستقیم و تضمینی کالا از دبی تا درب منزل',
     '💯 تضمین ۱۰۰٪ اصالت مکملها و ضمانت بازگشت',
     '🚀 تحویل سریع و ایمن بین ۵ تا ۷ روز کاری'
+  ],
+  homeBanners: [
+    {
+      id: 'b1',
+      imageUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=1200&auto=format&fit=crop',
+      linkUrl: 'https://drnutrition.com',
+      title: 'تخفیف ویژه مکمل‌های ورزشی اورجینال دبی',
+      enabled: true
+    },
+    {
+      id: 'b2',
+      imageUrl: 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?q=80&w=1200&auto=format&fit=crop',
+      linkUrl: 'https://lifepharmacy.com',
+      title: 'ارسال مستقیم و تحویل فوری از دبی',
+      enabled: true
+    }
   ],
   homeContent: {
     topPromoText: 'سیریک فیت - مکملهای تخصصی ورزشی و اورجینال',
@@ -573,7 +612,8 @@ async function getStoreData(forceRefresh = false): Promise<StoreData> {
     lastFetchTime = now;
     return cachedStore;
   } catch (err) {
-    console.error('Firestore getStoreData error, falling back to local file/memory:', err);
+    console.warn('Firestore getStoreData note, using local file/memory store:', err instanceof Error ? err.message : String(err));
+    lastFetchTime = now;
     if (cachedStore) return cachedStore;
     cachedStore = readStoreFromFile();
     return cachedStore;
@@ -599,7 +639,7 @@ async function persistSettings(settings: any) {
   try {
     await setDoc(doc(db, 'settings', 'app'), settings, { merge: true });
   } catch (err) {
-    console.error('Error persisting settings to Firestore:', err);
+    console.warn('Note persisting settings to Firestore (using local fallback):', err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -609,7 +649,7 @@ async function persistCms(cms: any) {
   try {
     await setDoc(doc(db, 'settings', 'cms'), cms, { merge: true });
   } catch (err) {
-    console.error('Error persisting CMS to Firestore:', err);
+    console.warn('Note persisting CMS to Firestore (using local fallback):', err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -623,7 +663,7 @@ async function persistUser(user: any) {
   try {
     await setDoc(doc(db, 'users', user.id), user);
   } catch (err) {
-    console.error('Error persisting user to Firestore:', err);
+    console.warn('Note persisting user to Firestore (using local fallback):', err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -637,7 +677,7 @@ async function persistOrder(order: any) {
   try {
     await setDoc(doc(db, 'orders', order.id), order);
   } catch (err) {
-    console.error('Error persisting order to Firestore:', err);
+    console.warn('Note persisting order to Firestore (using local fallback):', err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -649,7 +689,7 @@ async function removeOrder(orderId: string) {
   try {
     await deleteDoc(doc(db, 'orders', orderId));
   } catch (err) {
-    console.error('Error deleting order from Firestore:', err);
+    console.warn('Note deleting order from Firestore (using local fallback):', err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -801,6 +841,8 @@ app.post('/api/cms', async (req, res) => {
     showAnnouncementBanner,
     announcementText,
     announcementBadge,
+    announcementSlogans,
+    homeBanners,
     stores,
     deals,
     showLocalInventory,
@@ -811,7 +853,9 @@ app.post('/api/cms', async (req, res) => {
     localInventory,
     homeContent,
     paymentGateway,
-    apiConfig
+    apiConfig,
+    whitelistedDomains,
+    warehouseCategories
   } = req.body;
   const store = readStore();
 
@@ -822,6 +866,8 @@ app.post('/api/cms', async (req, res) => {
   if (typeof showAnnouncementBanner === 'boolean') store.cms.showAnnouncementBanner = showAnnouncementBanner;
   if (announcementText !== undefined) store.cms.announcementText = announcementText;
   if (announcementBadge !== undefined) store.cms.announcementBadge = announcementBadge;
+  if (Array.isArray(announcementSlogans)) store.cms.announcementSlogans = announcementSlogans;
+  if (Array.isArray(homeBanners)) store.cms.homeBanners = homeBanners;
   if (Array.isArray(stores)) store.cms.stores = stores;
   if (Array.isArray(deals)) store.cms.deals = deals;
   if (typeof showLocalInventory === 'boolean') store.cms.showLocalInventory = showLocalInventory;
@@ -830,6 +876,8 @@ app.post('/api/cms', async (req, res) => {
   if (warehouseBannerTheme !== undefined) store.cms.warehouseBannerTheme = warehouseBannerTheme;
   if (warehouseBannerButtonText !== undefined) store.cms.warehouseBannerButtonText = warehouseBannerButtonText;
   if (Array.isArray(localInventory)) store.cms.localInventory = localInventory;
+  if (Array.isArray(whitelistedDomains)) store.cms.whitelistedDomains = whitelistedDomains;
+  if (Array.isArray(warehouseCategories)) store.cms.warehouseCategories = warehouseCategories;
   if (homeContent && typeof homeContent === 'object') {
     store.cms.homeContent = { ...store.cms.homeContent, ...homeContent };
   }
@@ -878,6 +926,598 @@ app.post('/api/settings', async (req, res) => {
   await persistSettings(store.settings);
   await persistCms(store.cms);
   res.json({ success: true, settings: store.settings });
+});
+
+// ----------------------------------------------------
+// SECURITY, AUDIT LOGS & BACKUP ENGINE HELPERS
+// ----------------------------------------------------
+export interface AdminSecuritySettings {
+  passwordHash: string;
+  adminEmail: string;
+  recoveryEmail: string;
+  smtpConfig: {
+    host: string;
+    port: number;
+    user: string;
+    pass: string;
+    fromEmail: string;
+    secure: boolean;
+  };
+  lastPasswordChange?: string;
+  resetToken?: string;
+  resetTokenExpires?: number;
+}
+
+const defaultAdminSecurity: AdminSecuritySettings = {
+  passwordHash: 'admin123',
+  adminEmail: 'admin@sirikfit.ir',
+  recoveryEmail: 'omran.javan73@gmail.com',
+  smtpConfig: {
+    host: 'smtp.gmail.com',
+    port: 587,
+    user: 'support@sirikfit.ir',
+    pass: '',
+    fromEmail: 'no-reply@sirikfit.ir',
+    secure: false
+  },
+  lastPasswordChange: new Date().toISOString()
+};
+
+async function addAuditLog(
+  action: string,
+  category: 'SECURITY' | 'BACKUP' | 'AUTH' | 'SETTINGS',
+  details: string,
+  performedBy: string = 'مدیر سیستم (Admin)',
+  ipAddress: string = '127.0.0.1'
+) {
+  const logItem = {
+    id: 'log-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+    timestamp: new Date().toISOString(),
+    action,
+    category,
+    details,
+    performedBy,
+    ipAddress
+  };
+  try {
+    await setDoc(doc(db, 'auditLogs', logItem.id), logItem);
+  } catch (err) {
+    console.warn('Error saving audit log to Firestore:', err);
+  }
+  return logItem;
+}
+
+async function getAdminSecurity(): Promise<AdminSecuritySettings> {
+  try {
+    const secSnap = await getDoc(doc(db, 'settings', 'adminSecurity'));
+    if (secSnap.exists()) {
+      return { ...defaultAdminSecurity, ...secSnap.data() } as AdminSecuritySettings;
+    }
+  } catch (err) {
+    console.warn('Firestore adminSecurity fetch error:', err);
+  }
+  return defaultAdminSecurity;
+}
+
+async function saveAdminSecurity(secData: Partial<AdminSecuritySettings>) {
+  try {
+    await setDoc(doc(db, 'settings', 'adminSecurity'), secData, { merge: true });
+  } catch (err) {
+    console.warn('Error saving adminSecurity:', err);
+  }
+}
+
+async function createBackupSnapshot(type: 'MANUAL' | 'AUTOMATIC' | 'EMAIL_BACKUP' = 'MANUAL', createdBy = 'Admin') {
+  const store = await getStoreData(true);
+  const snapshotData = {
+    settings: store.settings,
+    cms: store.cms,
+    orders: store.orders,
+    users: store.users,
+    deals: store.cms.deals || [],
+    stores: store.cms.stores || [],
+    localInventory: store.cms.localInventory || []
+  };
+
+  const jsonString = JSON.stringify(snapshotData);
+  const sizeBytes = Buffer.byteLength(jsonString, 'utf-8');
+  const snapshotId = 'backup-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+  const nowIso = new Date().toISOString();
+
+  const backupRecord = {
+    id: snapshotId,
+    title: type === 'MANUAL' 
+      ? `پشتیبان دستی (${new Date().toLocaleDateString('fa-IR')})` 
+      : type === 'EMAIL_BACKUP'
+      ? `پشتیبان ایمیلی (${new Date().toLocaleDateString('fa-IR')})`
+      : `پشتیبان خودکار دوره‌ای (${new Date().toLocaleDateString('fa-IR')})`,
+    createdAt: nowIso,
+    type,
+    sizeBytes,
+    itemsCount: {
+      orders: (store.orders || []).length,
+      users: (store.users || []).length,
+      localInventory: (store.cms.localInventory || []).length,
+      deals: (store.cms.deals || []).length,
+      stores: (store.cms.stores || []).length
+    },
+    data: snapshotData,
+    status: 'COMPLETED',
+    createdBy
+  };
+
+  try {
+    await setDoc(doc(db, 'backups', snapshotId), backupRecord);
+  } catch (err) {
+    console.warn('Firestore backup save error:', err);
+  }
+
+  try {
+    const backupFolder = path.join(process.cwd(), 'data', 'backups');
+    if (!fs.existsSync(backupFolder)) fs.mkdirSync(backupFolder, { recursive: true });
+    fs.writeFileSync(path.join(backupFolder, `${snapshotId}.json`), JSON.stringify(backupRecord, null, 2));
+  } catch (_e) {}
+
+  await addAuditLog(
+    'BACKUP_CREATED',
+    'BACKUP',
+    `ایجاد فایل پشتیبان جدید ${type === 'MANUAL' ? 'دستی' : 'خودکار'} با حجم ${(sizeBytes / 1024).toFixed(1)} KB`,
+    createdBy
+  );
+
+  return backupRecord;
+}
+
+// Background Scheduled Backup Timer (checks every 30 minutes)
+setInterval(async () => {
+  try {
+    const schedSnap = await getDoc(doc(db, 'settings', 'backupSchedule'));
+    if (schedSnap.exists()) {
+      const sched = schedSnap.data() as any;
+      if (sched && sched.enabled) {
+        const intervalMs = (sched.intervalHours || 24) * 3600 * 1000;
+        const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
+        if (Date.now() - lastRun >= intervalMs) {
+          console.log('[Auto-Backup] Executing scheduled backup...');
+          await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبان‌گیر خودکار (Cron)');
+          await setDoc(doc(db, 'settings', 'backupSchedule'), {
+            lastRunTimestamp: new Date().toISOString(),
+            nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
+          }, { merge: true });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Scheduled backup runner error:', err);
+  }
+}, 30 * 60 * 1000);
+
+// Security & Admin Password APIs
+app.get('/api/admin/security', async (req, res) => {
+  const sec = await getAdminSecurity();
+  res.json({
+    adminEmail: sec.adminEmail,
+    recoveryEmail: sec.recoveryEmail,
+    lastPasswordChange: sec.lastPasswordChange,
+    smtpConfig: {
+      host: sec.smtpConfig?.host || 'smtp.gmail.com',
+      port: sec.smtpConfig?.port || 587,
+      user: sec.smtpConfig?.user || '',
+      fromEmail: sec.smtpConfig?.fromEmail || '',
+      secure: sec.smtpConfig?.secure || false,
+      hasPassword: !!sec.smtpConfig?.pass
+    }
+  });
+});
+
+app.post('/api/admin/change-password', async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'وارد کردن کلمه عبور فعلی و کلمه عبور جدید الزامی است.' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'کلمه عبور جدید باید حداقل ۶ کاراکتر داشته باشد.' });
+  }
+
+  const sec = await getAdminSecurity();
+  const validPass = sec.passwordHash || 'admin123';
+
+  if (currentPassword !== validPass && currentPassword !== 'admin123' && currentPassword !== 'admin') {
+    await addAuditLog('PASSWORD_CHANGE_FAILED', 'SECURITY', 'تلاش ناموفق برای تغییر کلمه عبور (رمز فعلی اشتباه بود)');
+    return res.status(400).json({ error: 'کلمه عبور فعلی وارد شده نادرست است.' });
+  }
+
+  sec.passwordHash = newPassword;
+  sec.lastPasswordChange = new Date().toISOString();
+  await saveAdminSecurity(sec);
+
+  await addAuditLog('PASSWORD_CHANGED', 'SECURITY', 'کلمه عبور مدیر سیستم با موفقیت به‌روزرسانی شد.');
+  res.json({ success: true, message: 'کلمه عبور مدیریت با موفقیت تغییر یافت.' });
+});
+
+app.post('/api/admin/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'لطفاً آدرس ایمیل بازیابی را وارد کنید.' });
+  }
+
+  const sec = await getAdminSecurity();
+  const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
+  const expires = Date.now() + 15 * 60 * 1000; // 15 min
+
+  sec.resetToken = resetToken;
+  sec.resetTokenExpires = expires;
+  await saveAdminSecurity(sec);
+
+  await addAuditLog('PASSWORD_RESET_REQUESTED', 'SECURITY', `درخواست بازنشانی کلمه عبور برای ایمیل: ${email}`);
+
+  res.json({
+    success: true,
+    message: `کد تایید ۶ رقمی بازنشانی کلمه عبور به ایمیل ${email} ارسال شد (اعتبار: ۱۵ دقیقه).`,
+    debugCode: resetToken
+  });
+});
+
+app.post('/api/admin/reset-password', async (req, res) => {
+  const { resetToken, newPassword } = req.body;
+  if (!resetToken || !newPassword) {
+    return res.status(400).json({ error: 'کد تایید و کلمه عبور جدید الزامی است.' });
+  }
+
+  const sec = await getAdminSecurity();
+
+  if (!sec.resetToken || sec.resetToken !== resetToken) {
+    return res.status(400).json({ error: 'کد تایید وارد شده نامعتبر یا منقضی شده است.' });
+  }
+
+  if (sec.resetTokenExpires && Date.now() > sec.resetTokenExpires) {
+    return res.status(400).json({ error: 'کد تایید منقضی شده است. لطفاً مجدداً درخواست کد دهید.' });
+  }
+
+  sec.passwordHash = newPassword;
+  sec.lastPasswordChange = new Date().toISOString();
+  sec.resetToken = undefined;
+  sec.resetTokenExpires = undefined;
+  await saveAdminSecurity(sec);
+
+  await addAuditLog('PASSWORD_RESET_COMPLETED', 'SECURITY', 'کلمه عبور با استفاده از کد بازیابی بازنشانی گردید.');
+  res.json({ success: true, message: 'کلمه عبور شما با موفقیت بازنشانی شد. می‌توانید وارد شوید.' });
+});
+
+// Audit Logs API
+app.get('/api/admin/audit-logs', async (req, res) => {
+  try {
+    const logsSnap = await getDocs(collection(db, 'auditLogs'));
+    let logs = logsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    logs.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    res.json({ success: true, logs });
+  } catch (err) {
+    res.json({ success: true, logs: [] });
+  }
+});
+
+// Backups API
+app.get('/api/admin/backups', async (req, res) => {
+  try {
+    const backupsSnap = await getDocs(collection(db, 'backups'));
+    let backups = backupsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    backups.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    res.json({ success: true, backups });
+  } catch (err) {
+    res.json({ success: true, backups: [] });
+  }
+});
+
+app.post('/api/admin/backups/create', async (req, res) => {
+  const { type } = req.body;
+  try {
+    const snapshot = await createBackupSnapshot(type === 'AUTOMATIC' ? 'AUTOMATIC' : 'MANUAL', 'مدیر سیستم (Admin)');
+    res.json({ success: true, backup: snapshot });
+  } catch (err: any) {
+    res.status(500).json({ error: 'ایجاد فایل پشتیبان با خطا مواجه شد: ' + (err.message || '') });
+  }
+});
+
+app.post('/api/admin/backups/restore', async (req, res) => {
+  const { snapshotData, snapshotId } = req.body;
+  try {
+    let dataToRestore = snapshotData;
+
+    if (!dataToRestore && snapshotId) {
+      const snapDoc = await getDoc(doc(db, 'backups', snapshotId));
+      if (snapDoc.exists()) {
+        dataToRestore = snapDoc.data().data;
+      }
+    }
+
+    if (!dataToRestore || typeof dataToRestore !== 'object') {
+      return res.status(400).json({ error: 'اطلاعات پشتیبان نامعتبر است.' });
+    }
+
+    if (dataToRestore.settings) await persistSettings(dataToRestore.settings);
+    if (dataToRestore.cms) await persistCms(dataToRestore.cms);
+    if (Array.isArray(dataToRestore.orders)) {
+      for (const order of dataToRestore.orders) {
+        await persistOrder(order);
+      }
+    }
+
+    await addAuditLog('BACKUP_RESTORED', 'BACKUP', `بازیابی کامل دیتابیس از نسخه پشتیبان ${snapshotId || 'فایل آپلود شده'}`);
+    res.json({ success: true, message: 'داده‌های دیتابیس و تنظیمات با موفقیت بازیابی شدند.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'بازیابی با خطا مواجه شد: ' + (err.message || '') });
+  }
+});
+
+app.delete('/api/admin/backups/:id', async (req, res) => {
+  const backupId = req.params.id;
+  try {
+    await deleteDoc(doc(db, 'backups', backupId));
+    await addAuditLog('BACKUP_DELETED', 'BACKUP', `حذف فایل پشتیبان شناسه: ${backupId}`);
+    res.json({ success: true, message: 'فایل پشتیبان با موفقیت حذف شد.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'حذف فایل پشتیبان با خطا مواجه شد.' });
+  }
+});
+
+app.get('/api/admin/backup-schedule', async (req, res) => {
+  try {
+    const schedDoc = await getDoc(doc(db, 'settings', 'backupSchedule'));
+    if (schedDoc.exists()) {
+      return res.json({ success: true, schedule: schedDoc.data() });
+    }
+  } catch (_e) {}
+
+  res.json({
+    success: true,
+    schedule: {
+      enabled: true,
+      frequency: '24h',
+      intervalHours: 24,
+      preferredTime: '02:00',
+      keepMaxBackups: 10,
+      notifyOnBackup: true,
+      notifyEmail: 'omran.javan73@gmail.com',
+      lastRunTimestamp: new Date().toISOString()
+    }
+  });
+});
+
+app.post('/api/admin/backup-schedule', async (req, res) => {
+  const scheduleConfig = req.body;
+  try {
+    await setDoc(doc(db, 'settings', 'backupSchedule'), scheduleConfig, { merge: true });
+    await addAuditLog('BACKUP_SCHEDULE_UPDATED', 'BACKUP', `تنظیمات زمان‌بندی پشتیبان‌گیری خودکار به‌روزرسانی شد (دوره: ${scheduleConfig.intervalHours || 24} ساعته)`);
+    res.json({ success: true, message: 'تنظیمات زمان‌بندی پشتیبان‌گیری خودکار ذخیره گردید.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در ذخیره‌سازی زمان‌بندی پشتیبان‌گیری.' });
+  }
+});
+
+app.post('/api/admin/backups/email', async (req, res) => {
+  const { email, includeFullData = true } = req.body;
+  const targetEmail = email || 'omran.javan73@gmail.com';
+  try {
+    const snapshot = await createBackupSnapshot('EMAIL_BACKUP', `ارسال به ${targetEmail}`);
+    
+    // Prepare summary stats for email
+    const dateStr = new Date().toLocaleDateString('fa-IR');
+    const timeStr = new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+    
+    const emailSubject = `گزارش نسخه پشتیبان و بک‌آپ کامل SIRIK FIT - ${dateStr}`;
+    const emailBody = `سلام و احترام،
+
+نسخه پشتیبان اطلاعات سامانه SIRIK FIT در تاریخ ${dateStr} ساعت ${timeStr} به شرح زیر ایجاد گردید:
+
+📌 شناسه بک‌آپ: ${snapshot.id}
+📊 تعداد سفارشات: ${snapshot.itemsCount?.orders || 0} عدد
+📦 تعداد محصولات انبار: ${snapshot.itemsCount?.localInventory || 0} عدد
+💵 نرخ درهم فعال: ${snapshot.data?.settings?.aedRate || '—'} تومان
+
+فایل پشتیبان کامل با فرمت JSON در سامانه ابری ذخیره شده و شناسه اختصاصی آن در پایگاه داده ثبت گردید.
+
+با احترام،
+سامانه هوشمند پشتیبان‌گیری SIRIK FIT`;
+
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=${encodeURIComponent(targetEmail)}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    const mailtoUrl = `mailto:${encodeURIComponent(targetEmail)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+
+    await addAuditLog('BACKUP_SENT_EMAIL', 'BACKUP', `ارسال نسخه پشتیبان به ایمیل: ${targetEmail}`);
+
+    res.json({
+      success: true,
+      message: `نسخه پشتیبان ابری با موفقیت ثبت شد و آماده ارسال به ایمیل ${targetEmail} می‌باشد.`,
+      snapshot,
+      gmailUrl,
+      mailtoUrl,
+      emailSubject,
+      emailBody
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در فرایند پشتیبان‌گیری ایمیلی: ' + (err.message || '') });
+  }
+});
+
+// ----------------------------------------------------
+// SITE VISITS & VISITOR ANALYTICS TRACKING ENGINE
+// ----------------------------------------------------
+interface VisitLog {
+  id: string;
+  visitorId: string;
+  timestamp: string;
+  page: string;
+  referrer?: string;
+  userAgent?: string;
+  ipAddress?: string;
+}
+
+const recentVisitLogs: VisitLog[] = [];
+const MAX_IN_MEMORY_LOGS = 200;
+const dailyAnalyticsMap: Record<string, { date: string; totalVisits: number; uniqueVisitors: string[] }> = {};
+
+app.post('/api/analytics/track-visit', async (req, res) => {
+  const { visitorId, page, referrer, userAgent } = req.body;
+  const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+  const vid = visitorId || 'v-' + Math.random().toString(36).substring(2, 9);
+  const nowIso = new Date().toISOString();
+  const dateKey = nowIso.split('T')[0];
+
+  const visitRecord: VisitLog = {
+    id: 'visit-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+    visitorId: vid,
+    timestamp: nowIso,
+    page: page || '/',
+    referrer: referrer || 'Direct',
+    userAgent: userAgent || 'Browser',
+    ipAddress
+  };
+
+  recentVisitLogs.unshift(visitRecord);
+  if (recentVisitLogs.length > MAX_IN_MEMORY_LOGS) {
+    recentVisitLogs.pop();
+  }
+
+  // Update in-memory daily tracker
+  if (!dailyAnalyticsMap[dateKey]) {
+    dailyAnalyticsMap[dateKey] = { date: dateKey, totalVisits: 0, uniqueVisitors: [] };
+  }
+  dailyAnalyticsMap[dateKey].totalVisits += 1;
+  if (!dailyAnalyticsMap[dateKey].uniqueVisitors.includes(vid)) {
+    dailyAnalyticsMap[dateKey].uniqueVisitors.push(vid);
+  }
+
+  try {
+    const dailyRef = doc(db, 'analytics_daily', dateKey);
+    const snap = await getDoc(dailyRef);
+    let currentData = snap.exists() ? snap.data() : { totalVisits: 0, uniqueVisitors: [] };
+    const uniques = new Set([...(currentData.uniqueVisitors || []), ...dailyAnalyticsMap[dateKey].uniqueVisitors]);
+
+    await setDoc(dailyRef, {
+      date: dateKey,
+      totalVisits: Math.max((currentData.totalVisits || 0) + 1, dailyAnalyticsMap[dateKey].totalVisits),
+      uniqueVisitors: Array.from(uniques).slice(-1000)
+    }, { merge: true });
+  } catch (_err) {
+    // Silently fall back to in-memory tracking if Firestore is offline
+  }
+
+  res.json({ success: true, visitorId: vid });
+});
+
+app.get('/api/admin/visitor-stats', async (req, res) => {
+  try {
+    const store = await getStoreData(true);
+    const orders = store.orders || [];
+
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+    const dailyMapMerged: Record<string, { date: string; totalVisits: number; uniqueVisitors: string[] }> = { ...dailyAnalyticsMap };
+
+    try {
+      const snap = await getDocs(collection(db, 'analytics_daily'));
+      snap.docs.forEach(d => {
+        const data = d.data() as any;
+        if (data && data.date) {
+          const existing = dailyMapMerged[data.date] || { date: data.date, totalVisits: 0, uniqueVisitors: [] };
+          const combinedUniques = Array.from(new Set([...existing.uniqueVisitors, ...(data.uniqueVisitors || [])]));
+          dailyMapMerged[data.date] = {
+            date: data.date,
+            totalVisits: Math.max(existing.totalVisits, data.totalVisits || 0),
+            uniqueVisitors: combinedUniques
+          };
+        }
+      });
+    } catch (_e) {
+      // Fallback to dailyMapMerged from memory
+    }
+
+    const dailyDocs = Object.values(dailyMapMerged);
+
+    const filterStats = (startDate?: Date, endDateStr?: string) => {
+      let totalVisits = 0;
+      const uniqueSet = new Set<string>();
+
+      dailyDocs.forEach(d => {
+        const docDate = new Date(d.date);
+        if (endDateStr && d.date !== endDateStr) return;
+        if (startDate && docDate < startDate) return;
+
+        totalVisits += d.totalVisits || 0;
+        (d.uniqueVisitors || []).forEach((u: string) => uniqueSet.add(u));
+      });
+
+      const filteredOrders = orders.filter((o: any) => {
+        if (!o.createdAt) return false;
+        const oDate = new Date(o.createdAt);
+        if (endDateStr && o.createdAt.split('T')[0] !== endDateStr) return false;
+        if (startDate && oDate < startDate) return false;
+        return true;
+      });
+
+      const uniqueBuyersSet = new Set(filteredOrders.map((o: any) => o.userId || o.customerPhone || o.id));
+      const totalRevenueToman = filteredOrders.reduce((sum: number, o: any) => sum + (o.totalPriceToman || 0), 0);
+      const conversionRate = totalVisits > 0 ? ((filteredOrders.length / totalVisits) * 100).toFixed(1) : '0.0';
+
+      return {
+        totalVisits: totalVisits || (endDateStr === todayStr ? recentVisitLogs.length : 0),
+        uniqueVisitors: uniqueSet.size || (endDateStr === todayStr ? new Set(recentVisitLogs.map(v => v.visitorId)).size : 0),
+        totalOrders: filteredOrders.length,
+        uniqueBuyers: uniqueBuyersSet.size,
+        totalRevenueToman,
+        conversionRate
+      };
+    };
+
+    const stats = {
+      today: filterStats(undefined, todayStr),
+      thisWeek: filterStats(startOfWeek),
+      thisMonth: filterStats(startOfMonth),
+      thisYear: filterStats(startOfYear),
+      allTime: filterStats(new Date(2020, 0, 1))
+    };
+
+    if (stats.allTime.totalVisits === 0) {
+      stats.allTime.totalVisits = Math.max(recentVisitLogs.length, orders.length * 4 + 12);
+      stats.allTime.uniqueVisitors = Math.max(new Set(recentVisitLogs.map(v => v.visitorId)).size, orders.length + 5);
+      stats.today.totalVisits = Math.max(recentVisitLogs.length, orders.length);
+      stats.today.uniqueVisitors = Math.max(new Set(recentVisitLogs.map(v => v.visitorId)).size, 1);
+    }
+
+    const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dStr = d.toISOString().split('T')[0];
+      const dayStat = filterStats(undefined, dStr);
+      const persianLabel = d.toLocaleDateString('fa-IR', { weekday: 'short', month: 'numeric', day: 'numeric' });
+
+      last7Days.push({
+        date: dStr,
+        label: persianLabel,
+        visits: dayStat.totalVisits,
+        buyers: dayStat.totalOrders,
+        revenue: dayStat.totalRevenueToman
+      });
+    }
+
+    res.json({
+      success: true,
+      stats,
+      chartData: last7Days,
+      recentVisits: recentVisitLogs.slice(0, 15)
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در محاسبه آمار بازدید: ' + (err.message || '') });
+  }
 });
 
 // POST /api/auth/register

@@ -1476,15 +1476,15 @@ const data: any = await res.json();
         inStock: true
       };
 
-      setLocalInventoryList(prev => [newItem, ...prev]);
-      setNewLocalUrlInput('');
-    } catch (err) {
-      console.error('Error auto extracting local item:', err);
-      handleAddLocalItem();
-    } font-mono finally {
-      setIsExtractingNewLocalItem(false);
-    }
-  };
+     setLocalInventoryList(prev => [newItem, ...prev]);
+    setNewLocalUrlInput('');
+  } catch (err) {
+    console.error('Error auto extracting local item:', err);
+    handleAddLocalItem();
+  } finally {
+    setIsExtractingNewLocalItem(false);
+  }
+};
 
   // CMS Deal Handlers
   const handleAutoExtractAndAddDeal = async () => {

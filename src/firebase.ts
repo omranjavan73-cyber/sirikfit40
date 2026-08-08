@@ -24,6 +24,7 @@ export const db = getFirestore(app);
 const SETTINGS_DOC_REF = doc(db, 'site_config', 'global_settings');
 const CMS_DOC_REF = doc(db, 'site_config', 'cms_data');
 
+// ۱. بررسی اتصال
 export const checkFirestoreConnection = async () => {
   try {
     await getDoc(SETTINGS_DOC_REF);
@@ -34,6 +35,7 @@ export const checkFirestoreConnection = async () => {
   }
 };
 
+// ۲. مدیریت تنظیمات مالی
 export const saveSettingsToFirestore = async (settingsData: any) => {
   try {
     await setDoc(SETTINGS_DOC_REF, settingsData, { merge: true });
@@ -48,18 +50,16 @@ export const saveSettingsToFirestore = async (settingsData: any) => {
 export const getSettingsFromFirestore = async () => {
   try {
     const snap = await getDoc(SETTINGS_DOC_REF);
-    if (snap.exists()) {
-      return snap.data();
-    }
+    if (snap.exists()) return snap.data();
   } catch (error) {
     console.warn("Error fetching settings from Firestore:", error);
   }
   const cached = localStorage.getItem('omex_settings_cache');
   return cached ? JSON.parse(cached) : null;
 };
-
 export const fetchSettingsFromFirestore = getSettingsFromFirestore;
 
+// ۳. مدیریت محتوای CMS
 export const saveCmsToFirestore = async (cmsData: any) => {
   try {
     await setDoc(CMS_DOC_REF, cmsData, { merge: true });
@@ -74,27 +74,23 @@ export const saveCmsToFirestore = async (cmsData: any) => {
 export const getCmsFromFirestore = async () => {
   try {
     const snap = await getDoc(CMS_DOC_REF);
-    if (snap.exists()) {
-      return snap.data();
-    }
+    if (snap.exists()) return snap.data();
   } catch (error) {
     console.warn("Error fetching CMS from Firestore:", error);
   }
   const cached = localStorage.getItem('omex_cms_cache');
   return cached ? JSON.parse(cached) : null;
 };
-
 export const fetchCmsFromFirestore = getCmsFromFirestore;
 
+// ۴. همگام‌سازی زنده
 export const subscribeToCmsChanges = (callback: (data: any) => void) => {
   return onSnapshot(CMS_DOC_REF, (docSnap) => {
-    if (docSnap.exists()) {
-      callback(docSnap.data());
-    }
+    if (docSnap.exists()) callback(docSnap.data());
   });
 };
 
-// ثبت سفارشات در دیتابیس Firestore
+// ۵. ثبت سفارش‌ها (نیازمند PaymentModal)
 export const saveOrderToFirestore = async (orderData: any) => {
   try {
     const ordersCol = collection(db, 'orders');
@@ -109,7 +105,7 @@ export const saveOrderToFirestore = async (orderData: any) => {
   }
 };
 
-// ذخیره پروفایل کاربر در Firestore
+// ۶. مدیریت پروفایل کاربران (نیازمند AuthModal)
 export const saveUserProfileToFirestore = async (userId: string, profileData: any) => {
   try {
     const userRef = doc(db, 'users', userId);
@@ -119,4 +115,15 @@ export const saveUserProfileToFirestore = async (userId: string, profileData: an
     console.error("Error saving user profile to Firestore:", error);
     return false;
   }
+};
+
+export const getUserProfileFromFirestore = async (userId: string) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    const snap = await getDoc(userRef);
+    if (snap.exists()) return snap.data();
+  } catch (error) {
+    console.error("Error fetching user profile from Firestore:", error);
+  }
+  return null;
 };

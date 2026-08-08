@@ -140,15 +140,33 @@ export default function App() {
   });
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
 
-  // CMS State
-  const [cmsConfig, setCmsConfig] = useState<CmsConfig | null>(() => {
+ // CMS State with Safe Default Arrays (Prevents .filter crashes)
+  const [cmsConfig, setCmsConfig] = useState<CmsConfig>(() => {
     try {
       const saved = localStorage.getItem('sirikfit_cms_config');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          stores: parsed.stores || [],
+          localInventory: parsed.localInventory || [],
+          deals: parsed.deals || [],
+          warehouseCategories: parsed.warehouseCategories || [],
+          showLocalInventory: parsed.showLocalInventory ?? true,
+          pricingRules: parsed.pricingRules || null,
+          apiConfig: parsed.apiConfig || { currencyApiUrl: '', autoUpdateRates: true, scraperEndpoint: '', geminiApiKey: '' }
+        };
+      }
     } catch (_e) {}
-    return null;
+    return {
+      stores: [],
+      localInventory: [],
+      deals: [],
+      warehouseCategories: [],
+      showLocalInventory: true,
+      pricingRules: null,
+      apiConfig: { currencyApiUrl: '', autoUpdateRates: true, scraperEndpoint: '', geminiApiKey: '' }
+    };
   });
-
   const [isLocalInventoryModalOpen, setIsLocalInventoryModalOpen] = useState(false);
 
   // Active Selected Product for Order Form

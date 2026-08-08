@@ -9,7 +9,6 @@ import {
   addDoc
 } from 'firebase/firestore';
 
-// کلیدهای واقعی و مستقیم فایربیس پروژه sirikfit40 از تصویر
 const firebaseConfig = {
   apiKey: "AIzaSyBAB1TsbUTwgLcHxFAeIMVECS9zqGP7Zk0",
   authDomain: "sirikfit40.firebaseapp.com",
@@ -26,18 +25,6 @@ export const db = getFirestore(app);
 const SETTINGS_DOC_REF = doc(db, 'site_config', 'global_settings');
 const CMS_DOC_REF = doc(db, 'site_config', 'cms_data');
 
-// ۱. بررسی اتصال به Firestore
-export const checkFirestoreConnection = async () => {
-  try {
-    await getDoc(SETTINGS_DOC_REF);
-    return { connected: true, dbId: 'sirikfit40' };
-  } catch (error) {
-    console.error("Firestore connection error:", error);
-    return { connected: false };
-  }
-};
-
-// ۲. مدیریت ذخیره و خواندن تنظیمات مالی
 export const saveSettingsToFirestore = async (settingsData: any) => {
   try {
     await setDoc(SETTINGS_DOC_REF, settingsData, { merge: true });
@@ -54,14 +41,13 @@ export const getSettingsFromFirestore = async () => {
     const snap = await getDoc(SETTINGS_DOC_REF);
     if (snap.exists()) return snap.data();
   } catch (error) {
-    console.warn("Error fetching settings from Firestore:", error);
+    console.warn("Error fetching settings:", error);
   }
   const cached = localStorage.getItem('omex_settings_cache');
   return cached ? JSON.parse(cached) : null;
 };
 export const fetchSettingsFromFirestore = getSettingsFromFirestore;
 
-// ۳. مدیریت محتوای CMS (فروشگاه‌ها، انبار، بنرها)
 export const saveCmsToFirestore = async (cmsData: any) => {
   try {
     await setDoc(CMS_DOC_REF, cmsData, { merge: true });
@@ -78,21 +64,19 @@ export const getCmsFromFirestore = async () => {
     const snap = await getDoc(CMS_DOC_REF);
     if (snap.exists()) return snap.data();
   } catch (error) {
-    console.warn("Error fetching CMS from Firestore:", error);
+    console.warn("Error fetching CMS:", error);
   }
   const cached = localStorage.getItem('omex_cms_cache');
   return cached ? JSON.parse(cached) : null;
 };
 export const fetchCmsFromFirestore = getCmsFromFirestore;
 
-// ۴. شنونده زنده تغییرات
 export const subscribeToCmsChanges = (callback: (data: any) => void) => {
   return onSnapshot(CMS_DOC_REF, (docSnap) => {
     if (docSnap.exists()) callback(docSnap.data());
   });
 };
 
-// ۵. ثبت سفارش‌ها
 export const saveOrderToFirestore = async (orderData: any) => {
   try {
     const ordersCol = collection(db, 'orders');
@@ -102,30 +86,18 @@ export const saveOrderToFirestore = async (orderData: any) => {
     });
     return docRef.id;
   } catch (error) {
-    console.error("Error saving order to Firestore:", error);
+    console.error("Error saving order:", error);
     return null;
   }
 };
 
-// ۶. مدیریت پروفایل کاربر
 export const saveUserProfileToFirestore = async (userId: string, profileData: any) => {
   try {
     const userRef = doc(db, 'users', userId);
     await setDoc(userRef, profileData, { merge: true });
     return true;
   } catch (error) {
-    console.error("Error saving user profile to Firestore:", error);
+    console.error("Error saving user profile:", error);
     return false;
   }
-};
-
-export const getUserProfileFromFirestore = async (userId: string) => {
-  try {
-    const userRef = doc(db, 'users', userId);
-    const snap = await getDoc(userRef);
-    if (snap.exists()) return snap.data();
-  } catch (error) {
-    console.error("Error fetching user profile from Firestore:", error);
-  }
-  return null;
 };

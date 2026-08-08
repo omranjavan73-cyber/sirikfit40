@@ -1445,33 +1445,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   };
 
-  const handleSaveFinancialSettings = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveFinancials = async () => {
     setIsSavingSettings(true);
-    setSaveSettingsSuccess(false);
-
-    const manualAedRate = Math.max(1, parseFloat(manualAedRateInput) || 53000);
-    const aedRate = autoUpdateRates
-      ? (rateTestResult?.rate || Math.max(1, parseFloat(aedRateInput) || manualAedRate))
-      : manualAedRate;
-    const cargoRatePerKg = Math.max(0, parseFloat(cargoRateInput) || 35);
-    const profitMargin = Math.max(0, parseFloat(profitMarginInput) || 15);
-    const minOrderAed = Math.max(0, parseFloat(minOrderAedInput) || 200);
-
-    const allKeys = [geminiApiKey1, geminiApiKey2, geminiApiKey3]
-      .map(k => k ? k.trim() : '')
-      .filter(k => k !== '' && k !== '******');
-    setEffectiveGeminiKeysList(allKeys);
-
     const newSettingsPayload: FinancialSettings = {
-      aedRate,
-      manualAedRate,
-      autoUpdateRates,
-      currencyApiUrl,
-      cargoRatePerKg,
-      profitMargin,
-      minOrderAed
+      ...settings,
+      aedRate: parseFloat(aedRateInput) || 53000,
+      manualAedRate: parseFloat(manualAedRateInput) || 53000,
+      cargoRatePerKg: parseFloat(cargoRateInput) || 30,
+      profitMargin: parseFloat(profitMarginInput) || 15,
+      minOrderAed: parseFloat(minOrderAedInput) || 200
     };
+
+    try {
+      // ۱. به‌روزرسانی استیت برنامه
+      onUpdateSettings(newSettingsPayload);
+
+      // ۲. ذخیره مستقیم در لوکال‌استوریج برای پشتیبان مقطعی
+      localStorage.setItem('sirikfit_financial_settings', JSON.stringify(newSettingsPayload));
+
+      // ۳. ارسال مستقیم به دیتابیس فایربیس (بدون صدا زدن API سرور)
+      const success = await saveSettingsToFirestore(newSettingsPayload);
+      if (success) {
+        setSaveSettingsSuccess(true);
+        alert('تنظیمات مالی با موفقیت در فایربیس ذخیره شد');
+      } else {
+        alert('تنظیمات در مرورگر ذخیره شد، اما ارتباط با فایربیس برقرار نشد.');
+      }
+    } catch (error) {
+      console.error('Error saving financial settings:', error);
+      alert('خطا در فرایند ذخیره‌سازی');
+    } finally {
+      setIsSavingSettings(false);
+      setTimeout(() => setSaveSettingsSuccess(false), 3000);
+    }
+  };
 
     // Layer 1: React Props state update
     onUpdateSettings(newSettingsPayload);
@@ -1989,54 +1996,70 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleSaveCms = async (e?: React.FormEvent | React.MouseEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
+    if (e) e.preventDefault();
     setIsSavingCms(true);
-    setSaveCmsSuccess(false);
-
     try {
-      localStorage.setItem('enable_domain_restriction', JSON.stringify(enableDomainRestriction));
-      localStorage.setItem('is_free_extraction', (!enableDomainRestriction).toString());
-    } catch (_e) {}
+      const updatedCms: CmsConfig = {
+        heroTitle,
+        heroSubtitle,
+        heroNotice,
+        heroImage,
+        showAnnouncementBanner,
+        announcementText,
+        announcementBadge,
+        homeBanners: homeBannersList,
+        stores: storesList,
+        deals: dealsList,
+        showLocalInventory,
+        warehouseBannerTitle,
+        warehouseBannerSubtitle,
+        warehouseBannerTheme,
+        warehouseBannerButtonText,
+        localInventory: localInventoryList,
+        warehouseCategories,
+        apiConfig: {
+          currencyApiUrl,
+          autoUpdateRates,
+          scraperEndpoint,
+          geminiApiKey: geminiApiKey1 || cms?.apiConfig?.geminiApiKey || '******',
+          geminiApiKey1: geminiApiKey1 || '',
+          geminiApiKey2: geminiApiKey2 || '',
+          geminiApiKey3: geminiApiKey3 || '',
+          geminiApiKeys: [geminiApiKey1, geminiApiKey2, geminiApiKey3].filter(k => k && k.trim() !== '' && k !== '******'),
+          telegramBotToken,
+          adminChatId,
+          telegramNotifyEnabled,
+          adminDestinationEmail,
+          emailNotifyEnabled,
+          emailjsServiceId,
+          emailjsTemplateId,
+          emailjsPublicKey,
+          resendApiKey,
+          domainItems: domainItemsList,
+          allowedDomains: domainItemsList.filter(d => d.enabled).map(d => d.domain),
+          enableDomainRestriction,
+          scraperApiKey,
+          enableScraperApi
+        }
+      };
 
-    const currentHomeContent: HomePageSettings = {
-      topPromoText,
-      showTopPromo,
-      appTitle: appTitleText,
-      appSubtitle: appSubtitleText,
-      headerPillSlogan,
-      logoUrl,
-      heroMainHeadline,
-      heroHighlightWord,
-      heroSubtitle: heroBannerSubtitle,
-      heroImageUrl,
-      calcBlackBadge,
-      calcMainHeadline,
-      calcSubtitle,
-      calcScheduleBadge,
-      telegramHandle,
-      telegramLink,
-      whatsappPhone,
-      whatsappLink,
-      showWhatsappCard,
-      officePhone,
-      dubaiPhone,
-      showDubaiPhone,
-      supportHeadline,
-      supportSubtitle,
-      showSupportSection,
-      showTelegramCard,
-      telegramTitle,
-      showEmailCard,
-      emailTitle,
-      showPhoneCard,
-      phoneTitle,
-      trustBadge1,
-      trustBadge2,
-      trustBadge3
-    };
+      onUpdateCms(updatedCms);
+      localStorage.setItem('omex_cms_config', JSON.stringify(updatedCms));
+
+      const successCms = await saveCmsToFirestore(updatedCms);
+      if (successCms) {
+        setSaveCmsSuccess(true);
+        alert('تنظیمات با موفقیت در فایربیس ذخیره شد');
+      } else {
+        alert('تنظیمات به‌صورت محلی ذخیره شد اما اتصال فایربیس ناموفق بود.');
+      }
+    } catch (err) {
+      console.error('Error saving CMS:', err);
+    } finally {
+      setIsSavingCms(false);
+      setTimeout(() => setSaveCmsSuccess(false), 3000);
+    }
+  };
 
     const updatedCms: CmsConfig = {
       heroTitle,

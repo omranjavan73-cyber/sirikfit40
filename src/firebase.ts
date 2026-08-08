@@ -186,25 +186,21 @@ export const getSettingsFromFirestore = fetchSettingsFromFirestore;
 
 // ذخیره تنظیمات CMS و ظاهر سایت
 export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
-  if (!db) return false;
-  const path = 'cms/app';
+  if (!db) {
+    console.error("DEBUG: db is null/undefined!");
+    return false;
+  }
   try {
+    console.log("DEBUG: Attempting to save to Firestore...", cmsData);
     const cmsRef = doc(db, 'cms', 'app');
-    await setDoc(
-      cmsRef,
-      {
-        ...cmsData,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
+    await setDoc(cmsRef, { ...cmsData, updatedAt: new Date().toISOString() }, { merge: true });
+    console.log("DEBUG: Save successful!");
     return true;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+  } catch (error) {
+    console.error("DEBUG: Save failed!", error); // این خطا مهم‌ترین چیز است
     return false;
   }
 }
-
 // خواندن تنظیمات CMS از فایربیس
 export async function getCmsFromFirestore() {
   if (!db) return null;

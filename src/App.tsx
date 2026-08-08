@@ -1,11 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import Header from './components/Header';
-import CategoryFilter from './components/CategoryFilter';
-import ProductGrid from './components/ProductGrid';
-import AdminPanel from './components/AdminPanel';
-import CartDrawer from './components/CartDrawer';
-import PaymentModal from './components/PaymentModal';
-import AuthModal from './components/AuthModal';
+import { AdminPanel } from './components/AdminPanel';
+import { PaymentModal } from './components/PaymentModal';
+import { AuthModal } from './components/AuthModal';
 import { FinancialSettings, CmsConfig, CartItem, Product } from './types';
 import { getSettingsFromFirestore, getCmsFromFirestore } from './firebase';
 
@@ -21,10 +17,9 @@ const DEFAULT_SETTINGS: FinancialSettings = {
 export default function App() {
   const [settings, setSettings] = useState<FinancialSettings>(DEFAULT_SETTINGS);
   const [cms, setCms] = useState<CmsConfig | null>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'deals' | 'inventory' | 'admin'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'admin'>('home');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [isCartOpen, setIsCartOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
@@ -45,32 +40,34 @@ export default function App() {
     loadFirestoreData();
   }, []);
 
-  const handleAddToCart = (product: Product) => {
-    setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
-      if (existing) {
-        return prev.map(item =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        );
-      }
-      return [...prev, { product, quantity: 1 }];
-    });
-  };
-
   const heroBannerUrl = cms?.homeContent?.heroImageUrl || cms?.heroImage;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 font-['Vazirmatn',sans-serif] pb-24 dir-rtl">
-      <Header
-        aedRate={settings.aedRate}
-        cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
-        onOpenCart={() => setIsCartOpen(true)}
-        onOpenAdmin={() => setActiveTab('admin')}
-        onOpenAuth={() => setIsAuthOpen(true)}
-        user={user}
-      />
+      {/* هدر ساده و سبک */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 px-4 py-3 shadow-xs">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div 
+            className="flex items-center gap-2 cursor-pointer select-none"
+            onClick={() => setActiveTab(activeTab === 'admin' ? 'home' : 'admin')}
+          >
+            <span className="font-black text-xl text-slate-900 tracking-tight">SIRIK FIT</span>
+            <span className="text-[10px] bg-slate-900 text-amber-400 px-2 py-0.5 rounded-full font-bold">PRO</span>
+          </div>
+
+          <div className="flex items-center gap-3 text-xs font-bold">
+            <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-xl border">
+              نرخ درهم: {settings.aedRate.toLocaleString('fa-IR')} تومان
+            </span>
+            <button 
+              onClick={() => setIsAuthOpen(true)}
+              className="bg-slate-900 text-white px-3.5 py-1.5 rounded-xl"
+            >
+              {user ? 'حساب کاربری' : 'ورود / ثبت‌نام'}
+            </button>
+          </div>
+        </div>
+      </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {activeTab === 'admin' ? (
@@ -81,10 +78,9 @@ export default function App() {
             onUpdateCms={setCms}
           />
         ) : (
-          <>
-            {/* بنر اصلی هیرو بدون نیاز به فایل مجزای Hero.tsx */}
+          <div className="space-y-6">
             {heroBannerUrl && (
-              <div className="mb-6 rounded-3xl overflow-hidden shadow-md border border-slate-200">
+              <div className="rounded-3xl overflow-hidden shadow-md border border-slate-200">
                 <img
                   src={heroBannerUrl}
                   alt="SIRIK FIT Banner"
@@ -93,31 +89,15 @@ export default function App() {
               </div>
             )}
 
-            <CategoryFilter
-              selectedCategory={selectedCategory}
-              onSelectCategory={setSelectedCategory}
-            />
-
-            <ProductGrid
-              settings={settings}
-              selectedCategory={selectedCategory}
-              onAddToCart={handleAddToCart}
-            />
-          </>
+            <div className="bg-white border rounded-3xl p-6 text-center space-y-3">
+              <h2 className="text-lg font-black text-slate-900">فروشگاه آنلاین مکمل‌های ورزشی SIRIK FIT</h2>
+              <p className="text-xs text-slate-500 font-medium">
+                جهت دسترسی به پنل مدیریت، روی برند SIRIK FIT در بالابار کلیک کنید.
+              </p>
+            </div>
+          </div>
         )}
       </main>
-
-      <CartDrawer
-        isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
-        cart={cart}
-        setCart={setCart}
-        settings={settings}
-        onProceedToCheckout={() => {
-          setIsCartOpen(false);
-          setIsPaymentOpen(true);
-        }}
-      />
 
       {isPaymentOpen && (
         <PaymentModal

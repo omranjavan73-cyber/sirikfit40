@@ -492,7 +492,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [headerPillSlogan, setHeaderPillSlogan] = useState(cms?.homeContent?.headerPillSlogan || 'مکمل‌های ورزشی و اورجینال');
   const [logoUrl, setLogoUrl] = useState(cms?.homeContent?.logoUrl || '');
 
-const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroMainHeadline || 'فقط اورجینال، فقط');
+  const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroMainHeadline || 'فقط اورجینال، فقط');
   const [heroHighlightWord, setHeroHighlightWord] = useState(cms?.homeContent?.heroHighlightWord || 'نتیجه.');
   const [heroBannerSubtitle, setHeroBannerSubtitle] = useState(cms?.homeContent?.heroSubtitle || 'تضمین اصالت کالا، تضمین کیفیت.');
   const [heroImageUrl, setHeroImageUrl] = useState(cms?.homeContent?.heroImageUrl || '');
@@ -531,7 +531,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
   const [trustBadge2, setTrustBadge2] = useState(cms?.homeContent?.trustBadge2 || 'حمل ایمن کارگو');
   const [trustBadge3, setTrustBadge3] = useState(cms?.homeContent?.trustBadge3 || 'تحویل ۵ تا ۷ روزه');
 
-  // Security & Password Management State
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -540,7 +539,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
   const [passMessage, setPassMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isChangingPass, setIsChangingPass] = useState(false);
 
-  // Recovery Email & Forgot Password State
   const [recoveryEmail, setRecoveryEmail] = useState('omran.javan73@gmail.com');
   const [forgotOtpCode, setForgotOtpCode] = useState('');
   const [forgotNewPassword, setForgotNewPassword] = useState('');
@@ -548,12 +546,10 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
   const [forgotMessage, setForgotMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isSendingForgot, setIsSendingForgot] = useState(false);
 
-  // Security Audit Logs State
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [logFilterCategory, setLogFilterCategory] = useState<string>('ALL');
 
-  // Advanced Backup & Schedule State
   const [backupMessage, setBackupMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
   const [backupList, setBackupList] = useState<any[]>([]);
@@ -571,7 +567,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
   const [selectedBackupForRestore, setSelectedBackupForRestore] = useState<any | null>(null);
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
 
-  // Email Backup State
   const [emailBackupTarget, setEmailBackupTarget] = useState('omran.javan73@gmail.com');
   const [isSendingEmailBackup, setIsSendingEmailBackup] = useState(false);
   const [copiedEmailBackupText, setCopiedEmailBackupText] = useState(false);
@@ -582,7 +577,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
     emailBody?: string;
   } | null>(null);
 
-  // Site Visits & Visitor Analytics State
   const [visitorPeriod, setVisitorPeriod] = useState<'today' | 'thisWeek' | 'thisMonth' | 'thisYear' | 'allTime'>('today');
   const [visitorStatsData, setVisitorStatsData] = useState<any | null>(null);
   const [isLoadingVisitorStats, setIsLoadingVisitorStats] = useState(false);
@@ -602,7 +596,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
     }
   };
 
-  // Copy Product Link Handler
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const handleCopyProductUrl = (url: string, orderId: string) => {
     const targetUrl = url || 'https://drnutrition.com';
@@ -615,26 +608,21 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
     }
   };
 
-  // Password & Security API Handlers
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPassMessage(null);
-
     if (!currentPassword || !newPassword || !confirmPassword) {
       setPassMessage({ text: 'لطفاً تمامی فیلدهای کلمه عبور را تکمیل کنید.', type: 'error' });
       return;
     }
-
     if (newPassword !== confirmPassword) {
       setPassMessage({ text: 'کلمه عبور جدید و تکرار آن یکسان نیستند.', type: 'error' });
       return;
     }
-
     if (newPassword.length < 6) {
       setPassMessage({ text: 'کلمه عبور جدید باید حداقل ۶ کاراکتر باشد.', type: 'error' });
       return;
     }
-
     setIsChangingPass(true);
     try {
       const res = await fetch('/api/admin/change-password', {
@@ -646,7 +634,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'خطا در تغییر کلمه عبور');
       }
-
       setPassMessage({ text: data.message || 'کلمه عبور با موفقیت به‌روزرسانی شد.', type: 'success' });
       setCurrentPassword('');
       setNewPassword('');
@@ -662,12 +649,10 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
   const handleRequestForgotCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setForgotMessage(null);
-
     if (!recoveryEmail || !recoveryEmail.includes('@')) {
       setForgotMessage({ text: 'آدرس ایمیل معتبر جهت بازیابی کلمه عبور را وارد کنید.', type: 'error' });
       return;
     }
-
     setIsSendingForgot(true);
     try {
       const res = await fetch('/api/admin/forgot-password', {
@@ -679,7 +664,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'خطا در ارسال کد بازیابی');
       }
-
       setForgotMessage({
         text: `${data.message} ${data.debugCode ? `(کد تایید تستی: ${data.debugCode})` : ''}`,
         type: 'success'
@@ -696,12 +680,10 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
   const handleResetPasswordWithOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setForgotMessage(null);
-
     if (!forgotOtpCode || !forgotNewPassword) {
       setForgotMessage({ text: 'کد تایید ۶ رقمی و کلمه عبور جدید الزامی است.', type: 'error' });
       return;
     }
-
     setIsSendingForgot(true);
     try {
       const res = await fetch('/api/admin/reset-password', {
@@ -713,7 +695,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'کد تایید اشتباه یا منقضی شده است.');
       }
-
       setForgotMessage({ text: 'کلمه عبور شما با موفقیت بازنشانی گردید. اکنون می‌توانید وارد شوید.', type: 'success' });
       setForgotStep('REQUEST');
       setForgotOtpCode('');
@@ -779,7 +760,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'خطا در ایجاد بک‌آپ');
-
       setBackupMessage({ text: 'نسخه پشتیبان ابری جدید با موفقیت ایجاد گردید.', type: 'success' });
       fetchBackupsList();
       fetchAuditLogs();
@@ -816,7 +796,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'خطا در ذخیره زمان‌بندی');
-
       setBackupMessage({ text: 'تنظیمات زمان‌بندی پشتیبان‌گیری خودکار با موفقیت ثبت شد.', type: 'success' });
       fetchAuditLogs();
     } catch (err: any) {
@@ -841,7 +820,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'خطا در ارسال بک‌آپ');
-
       setLastEmailBackupResult({
         gmailUrl: data.gmailUrl,
         mailtoUrl: data.mailtoUrl,
@@ -854,7 +832,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
       });
       fetchBackupsList();
       fetchAuditLogs();
-
       if (openGmailDirectly && data.gmailUrl) {
         window.open(data.gmailUrl, '_blank');
       }
@@ -876,7 +853,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'خطا در بازیابی');
-
       setBackupMessage({ text: 'داده‌های دیتابیس با موفقیت به این نسخه پشتیبان بازگردانی شدند.', type: 'success' });
       setSelectedBackupForRestore(null);
       fetchAuditLogs();
@@ -902,7 +878,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
     fetchVisitorStats();
   }, []);
 
-  // Backup Export and Import Handlers
   const handleExportBackup = () => {
     try {
       const backupData = {
@@ -916,7 +891,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
         deals: dealsList,
         stores: storesList
       };
-
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupData, null, 2));
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute('href', dataStr);
@@ -937,26 +911,21 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
     try {
       const text = await file.text();
       const importedData = JSON.parse(text);
-
       if (!importedData || typeof importedData !== 'object') {
         throw new Error('فرمت فایل انتخاب شده نامعتبر است.');
       }
-
       if (importedData.settings) {
         onUpdateSettings(importedData.settings);
         await saveSettingsToFirestore(importedData.settings);
       }
-
       if (importedData.cms) {
         onUpdateCms(importedData.cms);
         await saveCmsToFirestore(importedData.cms);
       }
-
       if (Array.isArray(importedData.orders)) setOrders(importedData.orders);
       if (Array.isArray(importedData.deals)) setDealsList(importedData.deals);
       if (Array.isArray(importedData.localInventory)) setLocalInventoryList(importedData.localInventory);
       if (Array.isArray(importedData.stores)) setStoresList(importedData.stores);
-
       setBackupMessage({ text: 'اطلاعات فایل پشتیبان با موفقیت بازیابی و همگام‌سازی شد.', type: 'success' });
     } catch (err: any) {
       console.error('Error restoring backup:', err);
@@ -1145,7 +1114,6 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
     e.preventDefault();
     setIsLoggingIn(true);
     setLoginError('');
-
     if (passwordInput === 'omex2025') {
       setIsAuthenticated(true);
       localStorage.setItem('omex_admin_auth', 'true');
@@ -1456,7 +1424,7 @@ const [heroMainHeadline, setHeroMainHeadline] = useState(cms?.homeContent?.heroM
         })
       });
 
-const data: any = await res.json();
+      const data: any = await res.json();
       const priceAed = Number(data?.priceAed || data?.price_aed) || 150;
       const currentAedRate = settings?.aedRate || 19500;
       const calculatedPriceToman = priceAed > 0 ? Math.round(priceAed * currentAedRate) : 3500000;
@@ -1476,17 +1444,16 @@ const data: any = await res.json();
         inStock: true
       };
 
-     setLocalInventoryList(prev => [newItem, ...prev]);
-    setNewLocalUrlInput('');
-  } catch (err) {
-    console.error('Error auto extracting local item:', err);
-    handleAddLocalItem();
-  } finally {
-    setIsExtractingNewLocalItem(false);
-  }
-};
+      setLocalInventoryList(prev => [newItem, ...prev]);
+      setNewLocalUrlInput('');
+    } catch (err) {
+      console.error('Error auto extracting local item:', err);
+      handleAddLocalItem();
+    } finally {
+      setIsExtractingNewLocalItem(false);
+    }
+  };
 
-  // CMS Deal Handlers
   const handleAutoExtractAndAddDeal = async () => {
     if (!newDealUrlInput.trim()) return;
     setIsExtractingNewDeal(true);
@@ -1796,3 +1763,328 @@ const data: any = await res.json();
       setTimeout(() => setSaveCmsSuccess(false), 3000);
     }
   };
+
+  const totalRevenueToman = orders
+    .filter(o => o.paymentStatus === 'PAID')
+    .reduce((sum, o) => sum + o.calculatedToman, 0);
+
+  const paidOrdersCount = orders.filter(o => o.paymentStatus === 'PAID').length;
+  const pendingOrdersCount = orders.filter(o => o.paymentStatus === 'PENDING').length;
+  const shippedOrdersCount = orders.filter(o => o.shippingStatus === 'SHIPPED' || o.shippingStatus === 'DELIVERED').length;
+
+  const filteredOrders = orders.filter(o => {
+    const matchesSearch =
+      o.customerName.includes(orderSearchQuery) ||
+      o.phoneNumber.includes(orderSearchQuery) ||
+      o.trackingCode.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+      o.productTitle.includes(orderSearchQuery);
+
+    if (orderStatusFilter === 'ALL') return matchesSearch;
+    if (orderStatusFilter === 'PAID') return matchesSearch && o.paymentStatus === 'PAID';
+    if (orderStatusFilter === 'PENDING') return matchesSearch && o.paymentStatus === 'PENDING';
+    if (orderStatusFilter === 'SHIPPED') return matchesSearch && (o.shippingStatus === 'SHIPPED' || o.shippingStatus === 'DELIVERED');
+    return matchesSearch;
+  });
+
+  if (!isAuthenticated) {
+    return (
+      <div className="max-w-md mx-auto my-8 bg-white border border-neutral-200 rounded-3xl p-6 shadow-xl text-neutral-800 font-['Vazirmatn',sans-serif]">
+        <div className="text-center space-y-2 mb-6">
+          <div className="w-14 h-14 rounded-2xl bg-black text-white flex items-center justify-center mx-auto shadow-md">
+            <Lock className="w-7 h-7" />
+          </div>
+          <h2 className="text-xl font-black text-neutral-900">ورود به پنل مدیریت SIRIK FIT</h2>
+          <p className="text-xs text-neutral-500 font-medium">برای دسترسی به داشبورد و تنظیمات، رمز عبور را وارد کنید</p>
+        </div>
+
+        {loginError && (
+          <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2 font-semibold">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{loginError}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="text-xs font-bold text-neutral-700 block mb-1.5">رمز عبور مدیر:</label>
+            <input
+              type="password"
+              required
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+              placeholder="رمز عبور را وارد کنید (پیش‌فرض: omex2025)"
+              className="w-full bg-neutral-50 border border-neutral-300 focus:border-black focus:bg-white text-neutral-900 text-sm px-4 py-2.5 rounded-xl focus:outline-none transition font-mono"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoggingIn}
+            className="w-full bg-black hover:bg-neutral-800 text-white font-extrabold text-sm py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
+          >
+            {isLoggingIn ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>در حال بررسی...</span>
+              </>
+            ) : (
+              <span>ورود به سامانه</span>
+            )}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 pb-12 font-['Vazirmatn',sans-serif]">
+      <div className="bg-white border border-slate-200/80 rounded-3xl p-5 shadow-xs flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-500 shrink-0 shadow-2xs">
+            <LayoutDashboard className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="font-extrabold text-base sm:text-lg text-slate-900 tracking-tight">پنل اختصاصی مدیریت SIRIK FIT</h2>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">آمار، سفارشات، نرخ‌ها و محتوا</p>
+          </div>
+        </div>
+
+        <button
+          onClick={handleLogout}
+          className="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer shrink-0"
+        >
+          <LogOut className="w-4 h-4" />
+          <span className="hidden sm:inline">خروج از پنل</span>
+        </button>
+      </div>
+
+      <div className="admin-menu flex flex-wrap items-center gap-2 sm:gap-2.5 p-2 bg-slate-100/80 rounded-3xl border border-slate-200/80">
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('pricingRules')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'pricingRules'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <Calculator className="w-4 h-4 shrink-0 text-indigo-500" />
+          <span>قوانین قیمت‌گذاری</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('orders')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'orders'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <ShoppingBag className="w-4 h-4 shrink-0" />
+          <span>سفارشات</span>
+          <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
+            activeAdminSubTab === 'orders' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'
+          }`}>
+            {toPersianDigits(orders.length)}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('accounting')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'accounting'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4 shrink-0 text-emerald-500" />
+          <span>حسابداری و مالی</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('gateway')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'gateway'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <CreditCard className="w-4 h-4 shrink-0 text-rose-500" />
+          <span>تنظیمات درگاه</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('dashboard')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'dashboard'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <TrendingUp className="w-4 h-4 shrink-0" />
+          <span>آمار و گزارشات</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('homeContent')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'homeContent'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <Home className="w-4 h-4 shrink-0 text-sky-500" />
+          <span>ظاهر و محتوای سایت</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('deals')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'deals'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 shrink-0 text-amber-500" />
+          <span>پیشنهادها</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('inventory')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'inventory'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <PackageCheck className="w-4 h-4 shrink-0 text-amber-600" />
+          <span>انبار ایران</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('cms')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'cms'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <SlidersHorizontal className="w-4 h-4 shrink-0" />
+          <span>تنظیمات عمومی</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('apiSettings')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'apiSettings'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <Key className="w-4 h-4 shrink-0 text-amber-500" />
+          <span>تنظیمات API</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('security')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'security'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <Lock className="w-4 h-4 shrink-0 text-indigo-500" />
+          <span>رمز عبور و امنیت</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminSubTab('backup')}
+          className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 cursor-pointer border shrink-0 whitespace-nowrap ${
+            activeAdminSubTab === 'backup'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-white text-slate-800 border-slate-200/90 hover:border-slate-300 shadow-2xs'
+          }`}
+        >
+          <Database className="w-4 h-4 shrink-0 text-emerald-500" />
+          <span>بک‌آپ و پشتیبان‌گیری</span>
+        </button>
+      </div>
+
+      {activeAdminSubTab === 'dashboard' && (
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 mb-2">
+                <span className="text-xs font-bold">مجموع درآمد موفق</span>
+                <TrendingUp className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-rose-600">
+                {formatToman(totalRevenueToman)}
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 mb-2">
+                <span className="text-xs font-bold">کل سفارشات ثبت شده</span>
+                <ShoppingBag className="w-4 h-4 text-sky-600" />
+              </div>
+              <div className="text-2xl font-black text-slate-900">
+                {orders.length} <span className="text-xs font-normal text-slate-500">سفارش</span>
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 mb-2">
+                <span className="text-xs font-bold">در انتظار پرداخت</span>
+                <Clock className="w-4 h-4 text-amber-600" />
+              </div>
+              <div className="text-2xl font-black text-amber-600">
+                {pendingOrdersCount} <span className="text-xs font-normal text-slate-500">سفارش</span>
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 mb-2">
+                <span className="text-xs font-bold">ارسال شده از دبی</span>
+                <Truck className="w-4 h-4 text-blue-600" />
+              </div>
+              <div className="text-2xl font-black text-blue-600">
+                {shippedOrdersCount} <span className="text-xs font-normal text-slate-500">سفارش</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeAdminSubTab === 'orders' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-4 shadow-2xs">
+          <div className="text-center py-8 text-xs text-slate-500 font-bold">بخش مدیریت سفارشات فعال است.</div>
+        </div>
+      )}
+
+      {activeAdminSubTab === 'pricingRules' && (
+        <PricingRulesAdmin
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+          cms={cms}
+          onUpdateCms={onUpdateCms}
+          onSavePricingRules={(newRules) => {
+            if (cms) {
+              onUpdateCms({ ...cms, pricingRules: newRules });
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+export default AdminPanel;

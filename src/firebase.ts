@@ -130,6 +130,33 @@ export async function deleteOrderFromFirestore(orderId: string) {
         return false;
     }
 }
+// Helper: Save User Profile in Firestore "users" collection
+export async function saveUserProfileToFirestore(userData: {
+  id: string;
+  name: string;
+  phoneNumber: string;
+  email?: string;
+  createdAt?: string;
+}) {
+  if (!db) return;
+  try {
+    const userRef = doc(db, 'users', userData.id);
+    await setDoc(
+      userRef,
+      {
+        uid: userData.id,
+        name: userData.name,
+        phoneNumber: userData.phoneNumber,
+        email: userData.email || '',
+        createdAt: userData.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.error("Error saving user profile to Firestore:", err);
+  }
+}
 // Helper: Save Order in Firestore "orders" collection
 export async function saveOrderToFirestore(orderData: any) {
   if (!db) return;

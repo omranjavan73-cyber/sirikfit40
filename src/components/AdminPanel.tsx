@@ -1333,7 +1333,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     } catch (err) {
       console.error('Error auto extracting local item:', err);
       handleAddLocalItem();
-    } finally {
+    } font-medium: finally {
       setIsExtractingNewLocalItem(false);
     }
   };

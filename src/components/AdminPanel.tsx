@@ -1166,6 +1166,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         dbId: res.dbId,
         loading: false
       });
+    }).catch(() => {
+      setDbStatus({
+        connected: false,
+        loading: false
+      });
     });
   }, []);
 
@@ -4746,6 +4751,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       setDbStatus({
                         connected: res.connected,
                         dbId: res.dbId,
+                        loading: false
+                      });
+                    }).catch(() => {
+                      setDbStatus({
+                        connected: false,
                         loading: false
                       });
                     });

@@ -588,4 +588,4 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     setIsSendingForgot(true);
     try {
-      const res = await fetch('/api/admin/forgot-p
+      const res = await fetch('/api/admin/

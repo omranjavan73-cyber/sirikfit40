@@ -15,12 +15,12 @@ import {
 import firebaseConfigJson from '../firebase-applet-config.json';
 
 const metaEnv = (import.meta as any).env || {};
-const apiKey = firebaseConfigJson?.apiKey || metaEnv.VITE_FIREBASE_API_KEY || 'AIzaSyDDT03m1Qxzzdk9drEMF-R9L1Y_VzhkyCY';
-const authDomain = firebaseConfigJson?.authDomain || metaEnv.VITE_FIREBASE_AUTH_DOMAIN || 'ai-studio-omexdubaiimportp-d094498d-8b4a-4b4b-8b36-0d6a233161cd.firebaseapp.com';
-const projectId = firebaseConfigJson?.projectId || metaEnv.VITE_FIREBASE_PROJECT_ID || 'ai-studio-omexdubaiimportp-d094498d-8b4a-4b4b-8b36-0d6a233161cd';
-const storageBucket = firebaseConfigJson?.storageBucket || metaEnv.VITE_FIREBASE_STORAGE_BUCKET || 'ai-studio-omexdubaiimportp-d094498d-8b4a-4b4b-8b36-0d6a233161cd.firebasestorage.app';
-const messagingSenderId = firebaseConfigJson?.messagingSenderId || metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '647943404812';
-const appId = firebaseConfigJson?.appId || metaEnv.VITE_FIREBASE_APP_ID || '1:647943404812:web:2aac3fab6cdfab690f1d29';
+const apiKey = firebaseConfigJson?.apiKey || metaEnv.VITE_FIREBASE_API_KEY || 'AIzaSyBAB1TsbUTwgLcHxFaeIMVECS9zqGP7Zk0';
+const authDomain = firebaseConfigJson?.authDomain || metaEnv.VITE_FIREBASE_AUTH_DOMAIN || 'sirikfit40.firebaseapp.com';
+const projectId = firebaseConfigJson?.projectId || metaEnv.VITE_FIREBASE_PROJECT_ID || 'sirikfit40';
+const storageBucket = firebaseConfigJson?.storageBucket || metaEnv.VITE_FIREBASE_STORAGE_BUCKET || 'sirikfit40.firebasestorage.app';
+const messagingSenderId = firebaseConfigJson?.messagingSenderId || metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '532757567852';
+const appId = firebaseConfigJson?.appId || metaEnv.VITE_FIREBASE_APP_ID || '1:532757567852:web:01f36071e84c96b4933b49';
 const firestoreDatabaseId = firebaseConfigJson?.firestoreDatabaseId;
 
 const firebaseConfig = {
@@ -193,9 +193,8 @@ export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: s
   }
 }
 
-// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
+// Exported helper function for direct Firestore persistence with local storage fallback
 export async function saveSettingsToFirestore(settingsData: any): Promise<boolean> {
-  // Always update local storage first as instant fallback
   try {
     if (typeof window !== 'undefined') {
       const existing = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
@@ -221,11 +220,11 @@ export async function saveSettingsToFirestore(settingsData: any): Promise<boolea
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
-    return true; // Local storage saved successfully
+    return true;
   }
 }
 
-// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
+// Exported helper function for direct Firestore persistence with local storage fallback
 export async function fetchSettingsFromFirestore() {
   let firestoreData: any = null;
   if (db) {
@@ -256,7 +255,7 @@ export async function fetchSettingsFromFirestore() {
 
 export const getSettingsFromFirestore = fetchSettingsFromFirestore;
 
-// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
+// Exported helper function for direct Firestore persistence with local storage fallback
 export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
   try {
     if (typeof window !== 'undefined') {
@@ -286,7 +285,7 @@ export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
   }
 }
 
-// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
+// Exported helper function for direct Firestore persistence with local storage fallback
 export async function getCmsFromFirestore() {
   let firestoreData: any = null;
   if (db) {
@@ -350,7 +349,6 @@ export async function getAdminPasswordFromFirestore() {
   return null;
 }
 
-// 🟢 [FIXED_BY_AI]: Exported helper function for direct Firestore persistence with local storage fallback
 export async function checkFirestoreConnection(): Promise<{
   connected: boolean;
   dbId?: string;
@@ -364,7 +362,6 @@ export async function checkFirestoreConnection(): Promise<{
     await getDoc(settingsRef);
     return { connected: true, dbId: firestoreDatabaseId || '(default)' };
   } catch (err: any) {
-    // Check if local storage persistence is available as fallback
     const hasLocal = typeof window !== 'undefined' && Boolean(
       localStorage.getItem('sirikfit_financial_settings') ||
       localStorage.getItem('omex_financial_settings') ||

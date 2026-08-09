@@ -697,7 +697,7 @@ export async function parseProductLinkUniversal(params: {
   // 1. Try local/backend /api/parse-link endpoint first if available
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     const res = await fetch('/api/parse-link', {
       method: 'POST',
@@ -719,8 +719,8 @@ export async function parseProductLinkUniversal(params: {
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const data: any = await res.json();
-        const priceAed = Number(data?.priceAed || data?.price_aed) || 0;
-        if (data && data.title && priceAed > 0) {
+        const priceAed = Number(data?.priceAed || data?.price_aed || data?.price) || 0;
+        if (data && (data.success !== false) && data.title && priceAed > 0) {
           const storeName = data.storeName || 'دبی';
           const brandName = data.brand || storeName;
           const formattedTitle = generateBilingualProductTitle(data.title, storeName, brandName);
@@ -732,7 +732,7 @@ export async function parseProductLinkUniversal(params: {
             discountPercent: Number(data.discountPercent) || undefined,
             storeName,
             brand: brandName,
-            category: data.category,
+            category: data.category || '💊 مکمل‌های ورزشی',
             image: data.image || data.image_url || '',
             images: data.images || data.galleryImages || (data.image ? [data.image] : []),
             weightKg: Number(data.weightKg) || 0.8,

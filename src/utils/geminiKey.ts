@@ -45,9 +45,10 @@ export function getEffectiveGeminiKeysList(cmsKeys?: string[] | string): string[
   if (typeof window !== 'undefined' && (import.meta as any)?.env?.VITE_GEMINI_API_KEY) {
     addValidKey((import.meta as any).env.VITE_GEMINI_API_KEY);
   }
-  if (typeof process !== 'undefined' && process?.env?.GEMINI_API_KEY) {
-    addValidKey(process.env.GEMINI_API_KEY);
-  }
+  const processEnvKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+if (processEnvKey) {
+  addValidKey(processEnvKey);
+}
 
   return keysList;
 }

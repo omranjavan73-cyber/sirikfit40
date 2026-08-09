@@ -73,6 +73,7 @@ import {
 } from '../types';
 import { formatToman, formatAed, formatPersianDate, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
 import { getEffectiveGeminiKeysList, setEffectiveGeminiKeysList } from '../utils/geminiKey';
+import { parseProductLinkUniversal } from '../utils/parseLink';
 import { PricingRulesAdmin } from './PricingRulesAdmin';
 
 const DEFAULT_WAREHOUSE_CATEGORIES: WarehouseCategory[] = [
@@ -1591,48 +1592,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsExtractingNewLocalItem(true);
     try {
       const savedKeys = getEffectiveGeminiKeysList(cms?.apiConfig?.geminiApiKeys || cms?.apiConfig?.geminiApiKey);
-      let isRestricted = enableDomainRestriction;
-      try {
-        const savedRestricted = localStorage.getItem('enable_domain_restriction');
-        if (savedRestricted !== null) {
-          isRestricted = JSON.parse(savedRestricted);
-        } else {
-          const savedIsFree = localStorage.getItem('is_free_extraction');
-          if (savedIsFree !== null) isRestricted = savedIsFree !== 'true';
-        }
-      } catch (_e) {}
-
-      const scraperKeyVal = (() => {
-        try { return localStorage.getItem('scraper_api_key') || cms?.apiConfig?.scraperApiKey || ''; } catch (_e) { return cms?.apiConfig?.scraperApiKey || ''; }
-      })();
-
-      const res = await fetch('/api/parse-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: newLocalUrlInput.trim(),
-          apiKey: scraperKeyVal,
-          scraper_api_key: scraperKeyVal,
-          scraperApiKey: scraperKeyVal,
-          enable_scraper_api: true,
-          geminiApiKeys: savedKeys,
-          geminiApiKey: savedKeys[0] || '',
-          is_free_extraction: !isRestricted,
-          enable_domain_restriction: isRestricted
-        })
+      const data = await parseProductLinkUniversal({
+        url: newLocalUrlInput.trim(),
+        geminiKeys: savedKeys,
+        cmsConfig: cms
       });
 
-      const data: any = await res.json();
-      const priceAed = Number(data?.priceAed || data?.price_aed) || 150;
+      const priceAed = Number(data?.priceAed) || 150;
       const currentAedRate = settings?.aedRate || 19500;
       const calculatedPriceToman = priceAed > 0 ? Math.round(priceAed * currentAedRate) : 3500000;
-      const originalPriceAed = Number(data?.originalPriceAed || data?.original_price_aed) || 0;
+      const originalPriceAed = Number(data?.originalPriceAed) || 0;
       const originalPriceToman = originalPriceAed > 0 ? Math.round(originalPriceAed * currentAedRate) : undefined;
 
       const newItem: LocalInventoryItem = {
         id: 'local-' + Date.now(),
         title: data?.title || 'محصول جدید انبار ایران',
-        image: data?.image || data?.image_url || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
+        image: data?.image || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
         priceToman: calculatedPriceToman,
         originalPriceToman: originalPriceToman && originalPriceToman > calculatedPriceToman ? originalPriceToman : undefined,
         stockQuantity: 5,
@@ -1658,39 +1633,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsExtractingNewDeal(true);
     try {
       const savedKeys = getEffectiveGeminiKeysList(cms?.apiConfig?.geminiApiKeys || cms?.apiConfig?.geminiApiKey);
-      let isRestricted = enableDomainRestriction;
-      try {
-        const savedRestricted = localStorage.getItem('enable_domain_restriction');
-        if (savedRestricted !== null) {
-          isRestricted = JSON.parse(savedRestricted);
-        } else {
-          const savedIsFree = localStorage.getItem('is_free_extraction');
-          if (savedIsFree !== null) isRestricted = savedIsFree !== 'true';
-        }
-      } catch (_e) {}
-
-      const scraperKeyVal = (() => {
-        try { return localStorage.getItem('scraper_api_key') || cms?.apiConfig?.scraperApiKey || ''; } catch (_e) { return cms?.apiConfig?.scraperApiKey || ''; }
-      })();
-
-      const res = await fetch('/api/parse-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: newDealUrlInput.trim(),
-          apiKey: scraperKeyVal,
-          scraper_api_key: scraperKeyVal,
-          scraperApiKey: scraperKeyVal,
-          enable_scraper_api: true,
-          geminiApiKeys: savedKeys,
-          geminiApiKey: savedKeys[0] || '',
-          is_free_extraction: !isRestricted,
-          enable_domain_restriction: isRestricted
-        })
+      const data = await parseProductLinkUniversal({
+        url: newDealUrlInput.trim(),
+        geminiKeys: savedKeys,
+        cmsConfig: cms
       });
-      const data: any = await res.json();
-      const priceAed = Number(data?.priceAed || data?.price_aed) || 150;
-      const originalPriceAed = Number(data?.originalPriceAed || data?.original_price_aed) || 0;
+
+      const priceAed = Number(data?.priceAed) || 150;
+      const originalPriceAed = Number(data?.originalPriceAed) || 0;
       let discountPercent = Number(data?.discountPercent) || 0;
       if (!discountPercent && originalPriceAed > priceAed) {
         discountPercent = Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100);
@@ -1706,7 +1656,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         originalPriceAed: originalPriceAed > priceAed ? originalPriceAed : undefined,
         discountPercent: discountPercent > 0 ? discountPercent : undefined,
         weightKg: Number(data?.weightKg) || 0.8,
-        image: data?.image || data?.image_url || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
+        image: data?.image || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
         url: newDealUrlInput.trim(),
         storeName: data?.storeName || 'دبی',
         badge: badgeText,

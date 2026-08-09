@@ -33,36 +33,73 @@ export function cleanHtmlContent(html: string): string {
 }
 
 /**
- * Fetch HTML of target URL via client-side CORS proxies.
- * Tries multiple CORS proxies sequentially with strict timeouts.
+ * Fetch HTML or clean webpage text via 4-stage client-side CORS proxies & scraper tools.
+ * Sequentially tries:
+ * 1) AllOrigins RAW proxy
+ * 2) CorsProxy.io
+ * 3) ThingProxy
+ * 4) Jina AI Reader endpoint (https://r.jina.ai/) which bypasses Cloudflare/403 blocks
  */
 export async function fetchHtmlWithCorsProxy(targetUrl: string): Promise<string | null> {
-  const proxies = [
-    (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    (url: string) => `https://thingproxy.freeboard.io/fetch/${url}`
+  console.log(`[LinkParser] Starting multi-stage client fetch for URL: "${targetUrl}"`);
+
+  const proxies: { name: string; getUrl: (u: string) => string }[] = [
+    {
+      name: 'AllOrigins RAW',
+      getUrl: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
+    },
+    {
+      name: 'CorsProxy.io',
+      getUrl: (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`
+    },
+    {
+      name: 'ThingProxy',
+      getUrl: (u) => `https://thingproxy.freeboard.io/fetch/${u}`
+    },
+    {
+      name: 'Jina AI Reader',
+      getUrl: (u) => `https://r.jina.ai/${u}`
+    }
   ];
 
-  for (const getProxyUrl of proxies) {
+  for (let i = 0; i < proxies.length; i++) {
+    const proxy = proxies[i];
+    const proxyUrl = proxy.getUrl(targetUrl);
+    console.log(`[LinkParser] Stage ${i + 1}/${proxies.length}: Requesting via ${proxy.name}...`);
+
     try {
-      const proxyUrl = getProxyUrl(targetUrl);
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       const res = await fetch(proxyUrl, { signal: controller.signal });
       clearTimeout(timeoutId);
 
       if (res.ok) {
         const text = await res.text();
-        if (text && text.length > 100 && !text.includes('Access Denied') && !text.includes('Just a moment...')) {
-          return text;
+        const trimmed = text ? text.trim() : '';
+
+        const isBlocked =
+          trimmed.includes('Access Denied') ||
+          trimmed.includes('Just a moment...') ||
+          trimmed.includes('403 Forbidden') ||
+          trimmed.includes('enable JavaScript') ||
+          trimmed.includes('Attention Required! | Cloudflare');
+
+        if (trimmed && trimmed.length > 80 && !isBlocked) {
+          console.log(`[LinkParser] Stage ${i + 1} (${proxy.name}) SUCCESS! Fetched ${trimmed.length} characters.`);
+          return trimmed;
+        } else {
+          console.warn(`[LinkParser] Stage ${i + 1} (${proxy.name}) returned blocked or empty content.`);
         }
+      } else {
+        console.warn(`[LinkParser] Stage ${i + 1} (${proxy.name}) HTTP status: ${res.status}`);
       }
     } catch (e) {
-      console.warn('CORS Proxy attempt failed:', e);
+      console.warn(`[LinkParser] Stage ${i + 1} (${proxy.name}) fetch error:`, e);
     }
   }
 
+  console.error('[LinkParser] All 4 CORS/Scraper proxy stages failed to fetch page content.');
   return null;
 }
 
@@ -77,12 +114,14 @@ export async function parseProductLinkWithGemini(
   const effectiveKeys = getEffectiveGeminiKeysList(keys);
   
   // Clean HTML if provided and limit length for token efficiency
-  const cleanedHtml = rawHtml ? cleanHtmlContent(rawHtml).slice(0, 12000) : '';
+  const cleanedHtml = rawHtml ? cleanHtmlContent(rawHtml).slice(0, 15000) : '';
+
+  console.log(`[LinkParser] Sending payload to Gemini API (HTML length: ${cleanedHtml.length} chars, Keys available: ${effectiveKeys.length})`);
 
   const prompt = `You are an expert product detail extractor for an online shopping platform in Dubai, UAE.
 Extract details for the product URL: "${targetUrl}".
 
-${cleanedHtml ? `Webpage HTML Content:\n"""\n${cleanedHtml}\n"""` : ''}
+${cleanedHtml ? `Webpage Content / HTML:\n"""\n${cleanedHtml}\n"""` : ''}
 
 Respond ONLY with a valid JSON object in this exact structure without markdown formatting or code blocks:
 {
@@ -90,7 +129,7 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
   "priceAed": 120.0,
   "originalPriceAed": 150.0,
   "discountPercent": 20,
-  "storeName": "Store Name (e.g., Dr. Nutrition, Noon, Amazon, GNC, Sporter)",
+  "storeName": "Store Name (e.g., Life Pharmacy, Dr. Nutrition, Noon, Amazon, GNC, Sporter)",
   "image": "https://example.com/image.jpg",
   "weightKg": 0.8,
   "brand": "Brand Name",
@@ -105,6 +144,7 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
   });
 
   if (!responseText) {
+    console.warn('[LinkParser] Gemini API returned empty response across all key rotations.');
     return {
       success: false,
       error: 'امکان استخراج اتوماتیک لینک وجود نداشت؛ لطفاً قیمت درهم را به صورت دستی وارد کنید.'
@@ -120,6 +160,7 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
     
     const priceAed = Number(parsed.priceAed || parsed.price_aed) || 0;
     if (parsed && (parsed.title || priceAed > 0)) {
+      console.log('[LinkParser] Successfully parsed JSON from Gemini:', parsed.title, priceAed, 'AED');
       const originalPriceAed = Number(parsed.originalPriceAed || parsed.original_price_aed) || 0;
       let discountPercent = Number(parsed.discountPercent) || 0;
       if (!discountPercent && originalPriceAed > priceAed) {
@@ -143,7 +184,7 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
       };
     }
   } catch (err) {
-    console.warn('Error parsing Gemini response JSON:', err);
+    console.warn('[LinkParser] Error parsing Gemini response JSON:', err, 'Raw response:', responseText);
   }
 
   return {

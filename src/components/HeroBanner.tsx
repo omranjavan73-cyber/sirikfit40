@@ -90,13 +90,13 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ cms }) => {
         href={targetLink}
         target={isExternal ? '_blank' : '_self'}
         rel="noopener noreferrer"
-        className="block w-full h-28 sm:h-36 md:h-40 overflow-hidden cursor-pointer hover:opacity-95 transition-opacity"
+        className="block w-full h-36 sm:h-48 md:h-56 overflow-hidden cursor-pointer hover:opacity-95 transition-opacity"
       >
         <img
           key={currentBanner.id || currentIndex}
           src={currentBanner.imageUrl}
           alt={currentBanner.title || 'Banner'}
-          className="w-full h-full object-cover block transition-all duration-500 ease-in-out"
+          className="w-full h-full object-cover object-center block transition-all duration-500 ease-in-out"
           onError={(e) => {
             (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=1200&auto=format&fit=crop';
           }}

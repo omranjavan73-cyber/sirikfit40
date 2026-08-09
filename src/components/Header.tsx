@@ -140,7 +140,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* LEFT SIDE UTILITY AREA (Shopping Cart physically on LEFT, AED Rate physically on RIGHT) */}
-          <div dir="ltr" className="flex items-center gap-2 shrink-0 [direction:ltr]">
+          <div dir="ltr" className="flex items-center gap-1.5 sm:gap-2 shrink-0 [direction:ltr]">
             
             {/* 1. Shopping Cart Icon Button (Physically on the LEFT) */}
             {onOpenCart && (
@@ -148,15 +148,15 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={onOpenCart}
                 title="سبد خرید"
-                className={`relative w-11 h-11 sm:w-11 sm:h-11 rounded-[22px] border flex items-center justify-center transition cursor-pointer shadow-2xs shrink-0 ${
+                className={`relative w-10 h-10 sm:w-10.5 sm:h-10.5 rounded-2xl border flex items-center justify-center transition cursor-pointer shadow-2xs shrink-0 ${
                   isCartActive
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-[#f5f7fa] hover:bg-slate-100 text-[#1e293b] border-slate-200/90'
                 }`}
               >
-                <ShoppingCart className="w-5 h-5 stroke-[2]" />
+                <ShoppingCart className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[2]" />
                 {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[#e50914] text-white text-[10px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border-2 border-white shadow-xs">
+                  <span className="absolute -top-1 -right-1 bg-[#e50914] text-white text-[9.5px] font-black w-4 h-4 rounded-full flex items-center justify-center border-2 border-white shadow-xs">
                     {toPersianDigits(cartCount)}
                   </span>
                 )}
@@ -167,16 +167,16 @@ export const Header: React.FC<HeaderProps> = ({
             {settings && (
               <div
                 onClick={onRefreshSettings}
-                className="flex flex-col items-center justify-center dir-rtl bg-white border border-slate-200 hover:border-slate-300 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-2xl shadow-2xs cursor-pointer select-none transition min-w-[90px] sm:min-w-[105px]"
+                className="flex flex-col items-center justify-center dir-rtl bg-white border border-slate-200 hover:border-slate-300 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-2xl shadow-2xs cursor-pointer select-none transition min-w-[78px] sm:min-w-[95px] shrink-0"
                 title="به‌روزرسانی نرخ درهم"
               >
                 <div className="flex items-center justify-center gap-1">
-                  <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap leading-none">
+                  <span className="text-[9px] sm:text-[9.5px] font-bold text-slate-400 whitespace-nowrap leading-none">
                     نرخ درهم
                   </span>
                   <RotateCw className={`w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400 ${isLoadingSettings ? 'animate-spin text-amber-500' : ''}`} />
                 </div>
-                <span className="font-extrabold text-slate-900 text-[11px] sm:text-[12.5px] whitespace-nowrap leading-tight mt-0.5">
+                <span className="font-extrabold text-slate-900 text-[9.5px] sm:text-[11px] whitespace-nowrap leading-tight mt-0.5">
                   {toPersianDigits(formatToman(settings.aedRate))} تومان
                 </span>
               </div>

@@ -20,6 +20,7 @@ export interface StoreCardItem {
   id: string;
   title: string;
   shortTitle?: string;
+  subtitle?: string;
   description: string;
   url: string;
   image: string;
@@ -192,6 +193,7 @@ export interface CmsConfig {
   heroNotice: string;
   heroImage: string;
   showAnnouncementBanner?: boolean;
+  showPriceBreakdown?: boolean;
   announcementText?: string;
   announcementBadge?: string;
   announcementSlogans?: string[];

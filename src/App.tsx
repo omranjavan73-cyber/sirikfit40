@@ -6,6 +6,7 @@ import { HeroCalculator } from './components/HeroCalculator';
 import { HeroBanner } from './components/HeroBanner';
 import { FeaturedDeals } from './components/FeaturedDeals';
 import { StoreCards } from './components/StoreCards';
+import { OrderForm } from './components/OrderForm';
 import { ProductDetailView } from './components/ProductDetailView';
 import { PaymentModal } from './components/PaymentModal';
 import { CustomerAccountView } from './components/CustomerAccountView';
@@ -16,83 +17,14 @@ import { LocalInventoryModal } from './components/LocalInventoryModal';
 import { InventoryPage } from './components/InventoryPage';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
-import { toPersianDigits } from './utils/formatters';
-import { DEFAULT_PRICING_RULES } from './utils/pricingEngine';
-
-// Safe Default CMS Config (Guarantees no undefined arrays across any tab)
-const SAFE_DEFAULT_CMS: CmsConfig = {
-  heroTitle: 'واردات مستقیم مکمل از دبی',
-  heroSubtitle: 'تضمین ۱۰۰٪ اصالت کالا و تحویل سریع',
-  heroNotice: '',
-  heroImage: '',
-  showAnnouncementBanner: true,
-  announcementText: 'ارسال مستقیم و تضمینی کالا از دبی تا درب منزل',
-  announcementBadge: 'تحویل ۵ الی ۷ روز کاری',
-  announcementSlogans: [
-    '⚡ ارسال مستقیم و تضمینی کالا از دبی تا درب منزل',
-    '💯 تضمین ۱۰۰٪ اصالت مکملها و ضمانت بازگشت',
-    '🚀 تحویل سریع و ایمن بین ۵ تا ۷ روز کاری'
-  ],
-  homeBanners: [],
-  stores: [],
-  deals: [],
-  showLocalInventory: true,
-  warehouseBannerTitle: 'کالاهای موجود در انبار ایران (ارسال فوری)',
-  warehouseBannerSubtitle: 'تحویل ۱ تا ۲ روزه در سراسر کشور • کالاها پلمپ و اورجینال',
-  warehouseBannerTheme: 'light',
-  warehouseBannerButtonText: 'جستجو و مشاهده همه',
-  localInventory: [],
-  warehouseCategories: [],
-  pricingRules: DEFAULT_PRICING_RULES,
-  homeContent: {
-    topPromoText: 'سیریک فیت - مکمل‌های تخصصی ورزشی و اورجینال',
-    showTopPromo: false,
-    appTitle: 'SIRIK FIT',
-    appSubtitle: 'مکمل‌های ورزشی و اورجینال',
-    brandTitle: 'SIRIK FIT',
-    brandSubtitle: 'مکمل‌های ورزشی و اورجینال',
-    headerPillSlogan: 'مکمل‌های ورزشی و اورجینال',
-    logoUrl: '',
-    heroMainHeadline: 'فقط اورجینال، فقط',
-    heroHighlightWord: 'نتیجه.',
-    heroSubtitle: 'تضمین اصالت کالا، تضمین کیفیت.',
-    heroImageUrl: '',
-    calcBlackBadge: '✦ خرید مستقیم از دبی',
-    calcMainHeadline: 'برآورد قیمت و ثبت سفارش',
-    calcSubtitle: 'لینک محصول را وارد کنید تا قیمت تحویل در ایران فوری محاسبه شود.',
-    calcScheduleBadge: '📅 ارسال هر دوشنبه و پنجشنبه',
-    telegramHandle: '@SIRIK_FIT_Support',
-    telegramLink: 'https://t.me/SIRIK_FIT_Support',
-    whatsappPhone: 'پاسخگویی سریع ۲۴ ساعته',
-    whatsappLink: 'https://wa.me/989120000000',
-    showWhatsappCard: true,
-    officePhone: '021-91000000',
-    dubaiPhone: '+971-500000000',
-    showDubaiPhone: true,
-    supportHeadline: 'پشتیبانی و مشاوره تخصصی واردات دبی',
-    supportSubtitle: 'پاسخگویی ۲۴ ساعته توسط کارشناسان تغذیه و لاجستیک',
-    showSupportSection: true,
-    showTelegramCard: true,
-    telegramTitle: 'ارتباط با پشتیبانی در تلگرام',
-    showEmailCard: true,
-    emailTitle: 'ارتباط از طریق ایمیل پشتیبانی',
-    showPhoneCard: true,
-    phoneTitle: 'تلفن پشتیبانی',
-    trustBadge1: 'اصالت ۱۰۰٪ کالا',
-    trustBadge2: 'حمل ایمن کارگو',
-    trustBadge3: 'تحویل ۵ تا ۷ روزه'
-  },
-  apiConfig: {
-    currencyApiUrl: '',
-    autoUpdateRates: true,
-    scraperEndpoint: '',
-    geminiApiKey: ''
-  }
-};
+import { toPersianDigits, getEffectiveAedRate } from './utils/formatters';
+import { fetchSettingsFromFirestore, getCmsFromFirestore } from './firebase';
+import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
+import { Plane } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('main');
-  const [isCalculatorVisible] = useState(true);
+  const [isCalculatorVisible, setIsCalculatorVisible] = useState(true);
 
   // User Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -120,6 +52,27 @@ export default function App() {
       console.error('Error saving cart items:', e);
     }
   }, [cartItems]);
+
+  // Analytics Visitor Tracking
+  useEffect(() => {
+    try {
+      let vid = localStorage.getItem('omex_visitor_id');
+      if (!vid) {
+        vid = 'v-' + Math.random().toString(36).substring(2, 11);
+        localStorage.setItem('omex_visitor_id', vid);
+      }
+      fetch('/api/analytics/track-visit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visitorId: vid,
+          page: activeTab,
+          referrer: document.referrer || 'Direct',
+          userAgent: navigator.userAgent
+        })
+      }).catch(() => {});
+    } catch (_e) {}
+  }, [activeTab]);
 
   const handleAddToCart = (product: {
     title: string;
@@ -183,50 +136,25 @@ export default function App() {
   const handleClearCart = () => {
     setCartItems([]);
   };
-
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // Central Financial Settings State (Heart of the app with strict fallback)
+  // Financial Settings State
   const [settings, setSettings] = useState<FinancialSettings>(() => {
-    try {
-      const saved = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
-      if (saved) return JSON.parse(saved);
-    } catch (_e) {}
+    const rate = getEffectiveAedRate(null);
     return {
-      aedRate: 19500,
-      manualAedRate: 19500,
-      autoUpdateRates: true,
+      aedRate: rate,
+      manualAedRate: rate,
       cargoRatePerKg: 35,
-      profitMargin: 15,
-      minOrderAed: 200
+      profitMargin: 15
     };
   });
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
 
-  // Safe CMS State Initialization (Never Null)
-  const [cmsConfig, setCmsConfig] = useState<CmsConfig>(() => {
-    try {
-      const saved = localStorage.getItem('sirikfit_cms_config') || localStorage.getItem('omex_home_cms');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return {
-          ...SAFE_DEFAULT_CMS,
-          ...parsed,
-          stores: parsed.stores || [],
-          deals: parsed.deals || [],
-          localInventory: parsed.localInventory || [],
-          warehouseCategories: parsed.warehouseCategories || [],
-          pricingRules: parsed.pricingRules || DEFAULT_PRICING_RULES,
-          homeContent: { ...SAFE_DEFAULT_CMS.homeContent, ...(parsed.homeContent || {}) },
-          apiConfig: { ...SAFE_DEFAULT_CMS.apiConfig, ...(parsed.apiConfig || {}) }
-        };
-      }
-    } catch (_e) {}
-    return SAFE_DEFAULT_CMS;
-  });
-
+  // CMS State
+  const [cmsConfig, setCmsConfig] = useState<CmsConfig | null>(null);
   const [isLocalInventoryModalOpen, setIsLocalInventoryModalOpen] = useState(false);
 
+  // Active Selected Product for Order Form
   const [selectedProduct, setSelectedProduct] = useState<{
     title: string;
     url: string;
@@ -237,7 +165,8 @@ export default function App() {
     calculatedTomanOverride?: number;
   } | null>(null);
 
-  const [selectedDealProduct] = useState<{
+  // Selected Deal for Calculator Population
+  const [selectedDealProduct, setSelectedDealProduct] = useState<{
     title: string;
     url: string;
     priceAed: number;
@@ -246,8 +175,11 @@ export default function App() {
     storeName?: string;
   } | null>(null);
 
+  // Active Pending Order for Payment Gateway Modal
   const [pendingOrderForPayment, setPendingOrderForPayment] = useState<Order | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+
+  // Toast Notification State
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -255,6 +187,7 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   };
 
+  // Sync user with localStorage
   const handleAuthSuccess = (user: User) => {
     setCurrentUser(user);
     try {
@@ -273,18 +206,22 @@ export default function App() {
     }
   };
 
- const fetchSettings = async () => {
+  // Fetch Settings & CMS Config directly via Firestore SDK with LocalStorage Fallback
+  const fetchSettings = async () => {
     setIsLoadingSettings(true);
     try {
-      const res = await fetch('/api/settings');
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.aedRate) {
-          setSettings(prev => ({ ...prev, ...data }));
+      const fsSettings = await fetchSettingsFromFirestore();
+      if (fsSettings) {
+        setSettings(prev => ({ ...prev, ...fsSettings }));
+      } else {
+        const saved = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed) setSettings(prev => ({ ...prev, ...parsed }));
         }
       }
     } catch (err) {
-      console.error('Error loading settings:', err);
+      console.warn('Error loading settings:', err);
     } finally {
       setIsLoadingSettings(false);
     }
@@ -292,28 +229,60 @@ export default function App() {
 
   const fetchCms = async () => {
     try {
-      const res = await fetch('/api/cms');
-      if (res.ok) {
-        const data = await res.json();
-        if (data) {
-          setCmsConfig(prev => ({
-            ...SAFE_DEFAULT_CMS,
-            ...prev,
-            ...data,
-            stores: data.stores || prev.stores || [],
-            deals: data.deals || prev.deals || [],
-            localInventory: data.localInventory || prev.localInventory || [],
-            warehouseCategories: data.warehouseCategories || prev.warehouseCategories || [],
-            pricingRules: data.pricingRules || prev.pricingRules || DEFAULT_PRICING_RULES
-          }));
+      const fsCms = await getCmsFromFirestore();
+      if (fsCms) {
+        if (fsCms.homeContent) {
+          fsCms.homeContent.appTitle = (fsCms.homeContent.appTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
+          fsCms.homeContent.brandTitle = (fsCms.homeContent.brandTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
+          fsCms.homeContent.brandSubtitle = (fsCms.homeContent.brandSubtitle || 'مکملهای ورزشی و اورجینال').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکملهای ورزشی و اورجینال';
+        }
+        setCmsConfig(fsCms);
+
+        // Re-hydrate Gemini API keys in localStorage automatically upon page refresh/re-load
+        const loadedKeys = getEffectiveGeminiKeysList(fsCms?.apiConfig?.geminiApiKeys || fsCms?.apiConfig?.geminiApiKey);
+        if (loadedKeys.length > 0) {
+          setEffectiveGeminiKeysList(loadedKeys);
+        }
+      } else {
+        const raw = localStorage.getItem('sirikfit_cms_config') || localStorage.getItem('omex_home_cms');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed) {
+            setCmsConfig(parsed);
+            const loadedKeys = getEffectiveGeminiKeysList(parsed?.apiConfig?.geminiApiKeys || parsed?.apiConfig?.geminiApiKey);
+            if (loadedKeys.length > 0) {
+              setEffectiveGeminiKeysList(loadedKeys);
+            }
+          }
         }
       }
     } catch (err) {
-      console.error('Error loading CMS config:', err);
+      console.warn('Error loading CMS config:', err);
     }
   };
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem('omex_home_cms');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (
+          parsed.appTitle?.includes('PLATFORM IMPORTS') ||
+          parsed.appTitle?.includes('PRO') ||
+          parsed.brandTitle?.includes('PLATFORM IMPORTS') ||
+          parsed.brandTitle?.includes('PRO')
+        ) {
+          parsed.appTitle = 'SIRIK FIT';
+          parsed.brandTitle = 'SIRIK FIT';
+          parsed.brandSubtitle = 'مکملهای ورزشی و اورجینال';
+          parsed.appSubtitle = 'مکملهای ورزشی و اورجینال';
+          localStorage.setItem('omex_home_cms', JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {
+      console.error('Error purging localStorage:', e);
+    }
+
     fetchSettings();
     fetchCms();
   }, []);
@@ -336,6 +305,10 @@ export default function App() {
     setSelectedProduct(null);
     setPendingOrderForPayment(newOrder);
     setIsPaymentModalOpen(true);
+  };
+
+  const handlePaymentSuccess = () => {
+    //
   };
 
   const handleSelectDeal = (deal: FeaturedDeal) => {
@@ -391,6 +364,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col font-['Vazirmatn',sans-serif] selection:bg-[#7C3AED] selection:text-white pb-24">
+      {/* Toast Notification Banner */}
       {toast && (
         <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 animate-bounce">
           <div
@@ -405,6 +379,7 @@ export default function App() {
         </div>
       )}
 
+      {/* Top Header */}
       <Header
         settings={settings}
         cms={cmsConfig}
@@ -431,11 +406,18 @@ export default function App() {
         isAdminActive={activeTab === 'admin'}
       />
 
+      {/* Main Container */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-6">
+        {/* PUBLIC PAGE (MAIN / صفحه اصلی - COMPACT PREVIEW & CLEAN HOME SCREEN) */}
         {activeTab === 'main' && (
           <div id="home" className="space-y-4">
+            {/* Dynamic Sports Hero Banner */}
             <HeroBanner cms={cmsConfig} />
+
+            {/* Rotating Slogan Announcement Banner */}
             <AnnouncementBanner cms={cmsConfig} />
+
+            {/* Compact Top Hero Calculator Box */}
             <div id="calculator-section" className="scroll-mt-16">
               <HeroCalculator
                 settings={settings}
@@ -445,6 +427,8 @@ export default function App() {
                 onProceedToOrder={handleAddToCart}
               />
             </div>
+
+            {/* App Grid Dashboard Quick Access */}
             <AppDashboard
               settings={settings}
               cms={cmsConfig}
@@ -454,7 +438,7 @@ export default function App() {
                 const el = document.getElementById('calculator-section');
                 if (el) el.scrollIntoView({ behavior: 'smooth' });
               }}
-              onSelectCategory={() => {
+              onSelectCategory={(category) => {
                 setActiveTab('deals');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
@@ -467,13 +451,18 @@ export default function App() {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
             />
-            <StoreCards stores={cmsConfig?.stores || []} cms={cmsConfig} onSelectStoreSample={handleSelectStoreSample} />
+
+            {/* Popular Stores Banner */}
+            <StoreCards stores={cmsConfig?.stores} cms={cmsConfig} onSelectStoreSample={handleSelectStoreSample} />
+
+            {/* Support & Contact Section */}
             <div id="support-section" className="scroll-mt-16">
               <SupportSection cms={cmsConfig} />
             </div>
           </div>
         )}
 
+        {/* DEDICATED PRODUCT DETAIL & CHECKOUT SCREEN (#detail) */}
         {activeTab === 'detail' && (
           <ProductDetailView
             product={selectedProduct || {
@@ -499,15 +488,16 @@ export default function App() {
           />
         )}
 
+        {/* DEDICATED INVENTORY PAGE (صفحه اختصاصی انبار ایران) */}
         {activeTab === 'inventory' && (
           <InventoryPage
             items={cmsConfig?.localInventory || []}
-            categories={cmsConfig?.warehouseCategories || []}
+            categories={cmsConfig?.warehouseCategories}
             onSelectLocalProduct={(item) => {
               handleAddToCart({
                 title: `${item.title} (موجودی انبار ایران)`,
                 url: 'https://omex.ir/stock/' + item.id,
-                priceAed: Math.round(item.priceToman / (settings.aedRate || 19500)),
+                priceAed: Math.round(item.priceToman / getEffectiveAedRate(settings)),
                 weightKg: 0.5,
                 image: item.image,
                 storeName: 'انبار ایران (تحویل فوری)',
@@ -517,16 +507,18 @@ export default function App() {
           />
         )}
 
+        {/* DEDICATED SPECIAL OFFERS & FEATURED DEALS TAB (صفحه اختصاصی پیشنهادها) */}
         {activeTab === 'deals' && (
           <div className="space-y-6">
             <FeaturedDeals
-              deals={cmsConfig?.deals || []}
+              deals={cmsConfig?.deals}
               settings={settings}
               onSelectDeal={handleSelectDeal}
             />
           </div>
         )}
 
+        {/* CUSTOMER ACCOUNT & ORDER TRACKING TAB (حساب کاربری / پیگیری سفارش) */}
         {activeTab === 'account' && (
           <CustomerAccountView
             currentUser={currentUser}
@@ -544,6 +536,7 @@ export default function App() {
           />
         )}
 
+        {/* EXCLUSIVE ADMIN PANEL TAB (ورود مدیر / مدیریت) */}
         {activeTab === 'admin' && (
           <AdminPanel
             settings={settings}
@@ -554,6 +547,7 @@ export default function App() {
         )}
       </main>
 
+      {/* Auth Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
@@ -564,6 +558,7 @@ export default function App() {
         }}
       />
 
+      {/* Payment Gateway Modal */}
       {pendingOrderForPayment && (
         <PaymentModal
           order={pendingOrderForPayment}
@@ -573,10 +568,11 @@ export default function App() {
             setPendingOrderForPayment(null);
             setActiveTab('account');
           }}
-          onPaymentSuccess={() => {}}
+          onPaymentSuccess={handlePaymentSuccess}
         />
       )}
 
+      {/* Iran In-Stock Local Inventory Modal */}
       <LocalInventoryModal
         isOpen={isLocalInventoryModalOpen}
         onClose={() => setIsLocalInventoryModalOpen(false)}
@@ -586,7 +582,7 @@ export default function App() {
           handleProceedToOrder({
             title: `${item.title} (موجودی انبار ایران)`,
             url: 'https://omex.ir/stock/' + item.id,
-            priceAed: Math.round(item.priceToman / (settings.aedRate || 19500)),
+            priceAed: Math.round(item.priceToman / getEffectiveAedRate(settings)),
             weightKg: 0.5,
             image: item.image,
             storeName: 'انبار ایران (تحویل فوری)',
@@ -595,6 +591,7 @@ export default function App() {
         }}
       />
 
+      {/* Public Bottom Navigation Bar */}
       <BottomNav
         activeTab={activeTab}
         showLocalInventory={cmsConfig?.showLocalInventory ?? true}

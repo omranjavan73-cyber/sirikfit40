@@ -2705,6 +2705,91 @@ app.post('/api/parse-link', async (req, res) => {
       .trim();
   }
 
+  // E. AI EXTRACTION FALLBACK WITH GEMINI MULTI-KEY ROTATION IF REGEX/SCRAPER MISSED TITLE OR PRICE
+  if (!htmlTitle || htmlPrice === 0) {
+    const serverGeminiKeys: string[] = [];
+    const addKey = (k?: any) => {
+      if (k && typeof k === 'string' && k.trim() !== '' && k !== '******') {
+        if (!serverGeminiKeys.includes(k.trim())) serverGeminiKeys.push(k.trim());
+      }
+    };
+
+    if (Array.isArray(req.body?.geminiApiKeys)) {
+      req.body.geminiApiKeys.forEach((k: string) => addKey(k));
+    }
+    addKey(req.body?.geminiApiKey);
+    addKey(req.body?.geminiApiKey1);
+    addKey(req.body?.geminiApiKey2);
+    addKey(req.body?.geminiApiKey3);
+
+    if (cmsConfig?.apiConfig?.geminiApiKeys) {
+      if (Array.isArray(cmsConfig.apiConfig.geminiApiKeys)) {
+        cmsConfig.apiConfig.geminiApiKeys.forEach((k: string) => addKey(k));
+      }
+    }
+    addKey(cmsConfig?.apiConfig?.geminiApiKey);
+    addKey(cmsConfig?.apiConfig?.geminiApiKey1);
+    addKey(cmsConfig?.apiConfig?.geminiApiKey2);
+    addKey(cmsConfig?.apiConfig?.geminiApiKey3);
+    addKey(process.env.GEMINI_API_KEY);
+
+    if (serverGeminiKeys.length > 0) {
+      for (const apiKey of serverGeminiKeys) {
+        let aiSuccess = false;
+        for (const modelName of ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']) {
+          try {
+            const aiPrompt = `You are an automated product detail extractor.
+URL: "${cleanUrl}"
+
+Extract product title, price in AED, original price in AED, image URL, and short description.
+Respond ONLY with a valid JSON object without markdown formatting:
+{
+  "title": "Full product title",
+  "priceAed": 120,
+  "originalPriceAed": 150,
+  "image": "https://...",
+  "storeName": "${storeName}",
+  "description": "short Persian description"
+}`;
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
+            const aiRes = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: aiPrompt }] }]
+              })
+            });
+
+            if (aiRes.ok) {
+              const aiData = await aiRes.json();
+              const text = aiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text) {
+                const cleanJson = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+                const parsed = JSON.parse(cleanJson);
+                if (parsed && (parsed.title || parsed.priceAed > 0)) {
+                  if (!htmlTitle && parsed.title) htmlTitle = String(parsed.title).trim();
+                  if (htmlPrice === 0 && Number(parsed.priceAed) > 0) htmlPrice = Number(parsed.priceAed);
+                  if (parsed.originalPriceAed && Number(parsed.originalPriceAed) > htmlPrice) {
+                    htmlOriginalPrice = Number(parsed.originalPriceAed);
+                  }
+                  if (!htmlImage && parsed.image) htmlImage = String(parsed.image);
+                  if (!htmlDescription && parsed.description) htmlDescription = String(parsed.description);
+                  aiSuccess = true;
+                  break;
+                }
+              }
+            } else if (aiRes.status === 429) {
+              console.warn(`Server Gemini Rotation: Key ${apiKey.slice(0, 6)}... hit 429 rate limit on ${modelName}. Trying next key/model.`);
+            }
+          } catch (aiErr) {
+            console.warn(`Server Gemini Rotation Error on ${modelName}:`, aiErr);
+          }
+        }
+        if (aiSuccess) break;
+      }
+    }
+  }
+
   // SUCCESSFUL EXTRACTION
   if (htmlTitle && htmlPrice > 0) {
     if (htmlImage) {

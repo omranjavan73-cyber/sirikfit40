@@ -3,7 +3,7 @@ import { Link2, Sparkles, ArrowLeft, Weight, Coins, PackageCheck, AlertCircle, R
 import { FinancialSettings, ParsedProduct, CmsConfig } from '../types';
 import { formatToman, formatAed, toPersianDigits, extractCleanUrl } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
-import { getEffectiveGeminiKeysList } from '../utils/geminiKey';
+import { getEffectiveGeminiKeysList, extractProductWithGeminiAI } from '../utils/geminiKey';
 import { SpeedboatLoader } from './SpeedboatLoader';
 
 interface HeroCalculatorProps {
@@ -273,13 +273,68 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
           resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }, 100);
       } else {
-        setShowResult(false);
-        setErrorMessage(data?.error || 'امکان استخراج اطلاعات از این لینک وجود نداشت. لطفاً صحت لینک را بررسی کنید.');
+        // Client-side AI fallback rotation if backend parser fails or is blocked
+        const aiData = await extractProductWithGeminiAI(targetUrl, undefined, savedKeys);
+        if (aiData && aiData.title && aiData.priceAed > 0) {
+          setProductTitle(aiData.title);
+          setUrlInput(targetUrl);
+          setPriceAed(aiData.priceAed);
+          setOriginalPriceAed(aiData.originalPriceAed);
+          setPriceInput(String(aiData.priceAed));
+          setWeightKg(aiData.weightKg || 0.8);
+          setWeightInput(String(aiData.weightKg || 0.8));
+          const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
+          const mainImg = aiData.image || cms?.heroImage || fallbackImage;
+          setProductImage(mainImg);
+          setProductGallery([mainImg]);
+          if (aiData.storeName) setStoreName(aiData.storeName);
+          if (aiData.description) setProductDescription(aiData.description);
+          setQuantity(1);
+          setShowResult(true);
+          setErrorMessage('');
+          setSuccessMessage(`اطلاعات محصول با موفقیت توسط هوش مصنوعی استخراج شد (${aiData.priceAed} درهم)`);
+          setTimeout(() => {
+            resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }, 100);
+        } else {
+          setShowResult(false);
+          setErrorMessage(data?.error || 'امکان استخراج اطلاعات از این لینک وجود نداشت. لطفاً صحت لینک را بررسی کنید.');
+        }
       }
     } catch (err) {
       console.error('Error parsing link:', err);
-      setShowResult(false);
-      setErrorMessage('امکان استخراج اطلاعات از این لینک وجود نداشت. لطفاً صحت لینک را بررسی کنید.');
+      // Attempt client-side AI fallback on exception
+      try {
+        const aiData = await extractProductWithGeminiAI(targetUrl, undefined, savedKeys);
+        if (aiData && aiData.title && aiData.priceAed > 0) {
+          setProductTitle(aiData.title);
+          setUrlInput(targetUrl);
+          setPriceAed(aiData.priceAed);
+          setOriginalPriceAed(aiData.originalPriceAed);
+          setPriceInput(String(aiData.priceAed));
+          setWeightKg(aiData.weightKg || 0.8);
+          setWeightInput(String(aiData.weightKg || 0.8));
+          const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
+          const mainImg = aiData.image || cms?.heroImage || fallbackImage;
+          setProductImage(mainImg);
+          setProductGallery([mainImg]);
+          if (aiData.storeName) setStoreName(aiData.storeName);
+          if (aiData.description) setProductDescription(aiData.description);
+          setQuantity(1);
+          setShowResult(true);
+          setErrorMessage('');
+          setSuccessMessage(`اطلاعات محصول با موفقیت توسط هوش مصنوعی استخراج شد (${aiData.priceAed} درهم)`);
+          setTimeout(() => {
+            resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }, 100);
+        } else {
+          setShowResult(false);
+          setErrorMessage('امکان استخراج اطلاعات از این لینک وجود نداشت. لطفاً صحت لینک را بررسی کنید.');
+        }
+      } catch (_e) {
+        setShowResult(false);
+        setErrorMessage('امکان استخراج اطلاعات از این لینک وجود نداشت. لطفاً صحت لینک را بررسی کنید.');
+      }
     } finally {
       setIsParsing(false);
     }
@@ -704,48 +759,48 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
             </div>
 
             {/* Price Breakdown Toggle */}
-            <div className="border-t border-slate-200 pt-3">
-              <button
-                type="button"
-                onClick={() => setShowBreakdown(!showBreakdown)}
-                className="flex items-center justify-between w-full text-xs font-black text-slate-700 hover:text-black transition cursor-pointer"
-              >
-                <div className="flex items-center gap-1.5">
-                  <Coins className="w-4 h-4 text-amber-600" />
-                  <span>مشاهده ریز محاسبات قیمت بر اساس قوانین سیستم (Price Breakdown)</span>
-                </div>
-                {showBreakdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </button>
+            {cms?.showPriceBreakdown !== false && (
+              <div className="border-t border-slate-200 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowBreakdown(!showBreakdown)}
+                  className="flex items-center justify-between w-full text-xs font-black text-slate-700 hover:text-black transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Coins className="w-4 h-4 text-amber-600" />
+                    <span>مشاهده ریز قیمت</span>
+                  </div>
+                  {showBreakdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
 
-              {showBreakdown && (
-                <div className="mt-3 bg-white p-3.5 rounded-xl border border-slate-200 text-xs space-y-2 animate-fadeIn">
-                  <div className="flex justify-between items-center text-slate-600">
-                    <span>قیمت پایه کالا در دبی:</span>
-                    <span className="font-bold dir-ltr">{formatAed(totalAed)} ({formatToman(totalAed * settings.aedRate)})</span>
+                {showBreakdown && (
+                  <div className="mt-3 bg-white p-3.5 rounded-xl border border-slate-200 text-xs space-y-2 animate-fadeIn">
+                    <div className="flex justify-between items-center text-slate-600">
+                      <span>قیمت پایه کالا در دبی:</span>
+                      <span className="font-bold dir-ltr">{formatAed(totalAed)} ({formatToman(totalAed * settings.aedRate)})</span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-600">
+                      <span>نرخ تبدیل درهم روز:</span>
+                      <span className="font-bold">{formatToman(settings.aedRate)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-600">
+                      <span>کارمزد سفارش:</span>
+                      <span className="font-bold text-amber-700">{toPersianDigits(pricingResult.commissionPercent)}% ({formatToman(pricingResult.commissionAmountAed * settings.aedRate)})</span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-600">
+                      <span>هزینه ارسال دبی به ایران ({toPersianDigits(totalWeightKg)} کیلوگرم):</span>
+                      <span className="font-bold dir-ltr">
+                        {formatAed(pricingResult.shippingCostAed)} ({formatToman(pricingResult.shippingCostAed * settings.aedRate)})
+                      </span>
+                    </div>
+                    <div className="border-t border-slate-100 pt-2 flex justify-between items-center font-black text-slate-900 text-sm">
+                      <span>مبلغ قابل پرداخت نهایی:</span>
+                      <span className="text-[#E11D48]">{formatToman(finalToman)}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center text-slate-600">
-                    <span>نرخ تبدیل درهم روز:</span>
-                    <span className="font-bold">{formatToman(settings.aedRate)}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-slate-600">
-                    <span>کارمزد سفارش (کمیسیون پله‌ای):</span>
-                    <span className="font-bold text-amber-700">{toPersianDigits(pricingResult.commissionPercent)}% ({formatToman(pricingResult.commissionAmountAed * settings.aedRate)})</span>
-                  </div>
-                  <div className="flex justify-between items-center text-slate-600">
-                    <span>هزینه شیپینگ دبی به ایران ({toPersianDigits(totalWeightKg)} کیلوگرم):</span>
-                    <span className="font-bold dir-ltr">
-                      {formatAed(pricingResult.shippingCostAed)} ({formatToman(pricingResult.shippingCostAed * settings.aedRate)})
-                      {pricingResult.isMinShippingApplied && <span className="text-[10px] text-amber-700 mr-1 font-normal">(اعمال حداقل کف)</span>}
-                      {pricingResult.isMaxShippingApplied && <span className="text-[10px] text-amber-700 mr-1 font-normal">(اعمال حداکثر سقف)</span>}
-                    </span>
-                  </div>
-                  <div className="border-t border-slate-100 pt-2 flex justify-between items-center font-black text-slate-900 text-sm">
-                    <span>مبلغ قابل پرداخت نهایی:</span>
-                    <span className="text-[#E11D48]">{formatToman(finalToman)}</span>
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
           </div>
         </div>

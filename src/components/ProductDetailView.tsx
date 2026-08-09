@@ -418,58 +418,62 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
           {/* CART TOTAL SUMMARY BOX - DETAILED FINANCIAL BREAKDOWN */}
           <div className="bg-white border border-slate-200/90 rounded-[24px] p-4.5 shadow-2xs space-y-3 font-['Vazirmatn',sans-serif]">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <h3 className="font-extrabold text-xs md:text-sm text-slate-900">
-                فاکتور و جزئیات محاسبات مالی سبد خرید
-              </h3>
-              <span className="text-[10px] bg-slate-100 text-slate-700 font-extrabold px-2.5 py-0.5 rounded-full">
-                {pricingResult.ruleDescription}
-              </span>
-            </div>
+            {cms?.showPriceBreakdown !== false && (
+              <>
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                  <h3 className="font-extrabold text-xs md:text-sm text-slate-900">
+                    مشاهده ریز قیمت
+                  </h3>
+                  <span className="text-[10px] bg-slate-100 text-slate-700 font-extrabold px-2.5 py-0.5 rounded-full">
+                    {pricingResult.ruleDescription}
+                  </span>
+                </div>
 
-            {/* 1. مجموع قیمت پایه کالاها (درهم / تومان) */}
-            <div className="flex justify-between items-center text-xs text-slate-600">
-              <span>مجموع قیمت پایه کالاها (دبی):</span>
-              <span className="font-bold text-slate-900 dir-ltr">
-                {toPersianDigits(cartTotalAed)} درهم ({formatToman(baseGoodsToman)})
-              </span>
-            </div>
+                {/* 1. مجموع قیمت پایه کالاها (درهم / تومان) */}
+                <div className="flex justify-between items-center text-xs text-slate-600">
+                  <span>مجموع قیمت پایه کالاها (دبی):</span>
+                  <span className="font-bold text-slate-900 dir-ltr">
+                    {toPersianDigits(cartTotalAed)} درهم ({formatToman(baseGoodsToman)})
+                  </span>
+                </div>
 
-            {/* 2. کرایه کارگو ترکیبی */}
-            <div className="flex justify-between items-center text-xs text-slate-600">
-              <span>کرایه کارگو ترکیبی ({toPersianDigits(cartTotalWeightKg)} کیلوگرم):</span>
-              <span className="font-bold text-slate-900 dir-ltr">
-                {toPersianDigits(pricingResult.shippingCostAed)} درهم ({formatToman(cargoShippingToman)})
-              </span>
-            </div>
+                {/* 2. کرایه کارگو ترکیبی */}
+                <div className="flex justify-between items-center text-xs text-slate-600">
+                  <span>کرایه کارگو ترکیبی ({toPersianDigits(cartTotalWeightKg)} کیلوگرم):</span>
+                  <span className="font-bold text-slate-900 dir-ltr">
+                    {toPersianDigits(pricingResult.shippingCostAed)} درهم ({formatToman(cargoShippingToman)})
+                  </span>
+                </div>
 
-            {/* 3. کارمزد اعمال‌شده با نمایش درصد فعلی */}
-            <div className="flex justify-between items-center text-xs text-slate-600">
-              <span>کارمزد سیستم ({toPersianDigits(pricingResult.commissionPercent)}٪):</span>
-              <span className="font-bold text-slate-900 dir-ltr">
-                {toPersianDigits(Math.round(pricingResult.commissionAmountAed * 10) / 10)} درهم ({formatToman(commissionToman)})
-              </span>
-            </div>
+                {/* 3. کارمزد اعمال‌شده با نمایش درصد فعلی */}
+                <div className="flex justify-between items-center text-xs text-slate-600">
+                  <span>کارمزد سیستم ({toPersianDigits(pricingResult.commissionPercent)}٪):</span>
+                  <span className="font-bold text-slate-900 dir-ltr">
+                    {toPersianDigits(Math.round(pricingResult.commissionAmountAed * 10) / 10)} درهم ({formatToman(commissionToman)})
+                  </span>
+                </div>
 
-            {/* 4. 🔥 میزان تخفیف سود شما */}
-            {savingsToman > 0 ? (
-              <div className="flex justify-between items-center text-xs bg-emerald-50 border border-emerald-200/80 p-2.5 rounded-xl text-emerald-900">
-                <span className="font-black flex items-center gap-1">
-                  <span>🔥</span>
-                  <span>میزان تخفیف سود شما (تخفیف پله‌ای):</span>
-                </span>
-                <span className="font-black text-emerald-700 dir-ltr">
-                  {formatToman(savingsToman)} ({toPersianDigits(20 - pricingResult.commissionPercent)}٪ کارمزد کمتر)
-                </span>
-              </div>
-            ) : (
-              <div className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg font-medium text-right">
-                💡 با افزایش مبلغ سفارش به بالای ۵۰۰ درهم یا اضافه کردن کالاهای بیشتر، کارمزد سفارش از ۲۰٪ به ۱۸٪ و ۱۶٪ کاهش می‌یابد.
-              </div>
+                {/* 4. 🔥 میزان تخفیف سود شما */}
+                {savingsToman > 0 ? (
+                  <div className="flex justify-between items-center text-xs bg-emerald-50 border border-emerald-200/80 p-2.5 rounded-xl text-emerald-900">
+                    <span className="font-black flex items-center gap-1">
+                      <span>🔥</span>
+                      <span>میزان تخفیف سود شما (تخفیف پله‌ای):</span>
+                    </span>
+                    <span className="font-black text-emerald-700 dir-ltr">
+                      {formatToman(savingsToman)} ({toPersianDigits(20 - pricingResult.commissionPercent)}٪ کارمزد کمتر)
+                    </span>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg font-medium text-right">
+                    💡 با افزایش مبلغ سفارش به بالای ۵۰۰ درهم یا اضافه کردن کالاهای بیشتر، کارمزد سفارش از ۲۰٪ به ۱۸٪ و ۱۶٪ کاهش می‌یابد.
+                  </div>
+                )}
+              </>
             )}
 
             {/* 5. مبلغ کل قابل پرداخت (تومان) */}
-            <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
+            <div className={`pt-2 flex items-center justify-between ${cms?.showPriceBreakdown !== false ? 'border-t border-slate-100' : ''}`}>
               <div>
                 <span className="text-xs font-black text-slate-900 block">مبلغ کل قابل پرداخت تحویل در ایران:</span>
                 <span className="text-[10px] text-slate-400 font-medium block">شامل کالا + کارمزد {toPersianDigits(pricingResult.commissionPercent)}٪ + ارسال هوایی</span>

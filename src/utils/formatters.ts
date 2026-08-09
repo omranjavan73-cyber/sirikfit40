@@ -67,3 +67,63 @@ export function extractCleanUrl(input: string): string {
   const match = fromHttp.match(/^(https?:\/\/[^\s]+)/i);
   return match ? match[1] : fromHttp;
 }
+
+/**
+ * Admin Rate History Fallback Architecture for AED Exchange Rate:
+ * Priority 1: Current manual rate input from admin in settings (settings.manualAedRate or settings.aedRate)
+ * Priority 2: Last saved rate from admin in localStorage (sirikfit_financial_settings, omex_financial_settings, or sirikfit_aed_rate)
+ * Priority 3: Last saved rate in cmsConfig or Firestore
+ * Warning: If no admin rate has ever been set, logs warning "لطفاً نرخ درهم را وارد کنید" and returns safe fallback to prevent crashes.
+ */
+export function getEffectiveAedRate(
+  settings?: { aedRate?: number; manualAedRate?: number } | null,
+  cms?: any
+): number {
+  // Priority 1: Current admin rate input from settings
+  if (settings) {
+    if (typeof settings.manualAedRate === 'number' && !isNaN(settings.manualAedRate) && settings.manualAedRate > 0) {
+      return settings.manualAedRate;
+    }
+    if (typeof settings.aedRate === 'number' && !isNaN(settings.aedRate) && settings.aedRate > 0) {
+      return settings.aedRate;
+    }
+  }
+
+  // Priority 2: Stored in localStorage from previous admin saves
+  try {
+    if (typeof window !== 'undefined') {
+      const savedFinancials = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
+      if (savedFinancials) {
+        const parsed = JSON.parse(savedFinancials);
+        if (parsed) {
+          if (typeof parsed.manualAedRate === 'number' && !isNaN(parsed.manualAedRate) && parsed.manualAedRate > 0) return parsed.manualAedRate;
+          if (typeof parsed.aedRate === 'number' && !isNaN(parsed.aedRate) && parsed.aedRate > 0) return parsed.aedRate;
+          const pRate = parseFloat(parsed.manualAedRate || parsed.aedRate);
+          if (!isNaN(pRate) && pRate > 0) return pRate;
+        }
+      }
+      const directLocal = localStorage.getItem('sirikfit_aed_rate');
+      if (directLocal) {
+        const num = parseFloat(directLocal);
+        if (!isNaN(num) && num > 0) return num;
+      }
+    }
+  } catch (_e) {}
+
+  // Priority 3: Last saved rate in cmsConfig
+  if (cms) {
+    const cmsRate = cms?.pricingRules?.manualAedRate || cms?.pricingRules?.aedRate || cms?.apiConfig?.manualAedRate || cms?.apiConfig?.aedRate;
+    if (typeof cmsRate === 'number' && !isNaN(cmsRate) && cmsRate > 0) {
+      return cmsRate;
+    }
+    const parsedCmsRate = parseFloat(cmsRate);
+    if (!isNaN(parsedCmsRate) && parsedCmsRate > 0) {
+      return parsedCmsRate;
+    }
+  }
+
+  // Fallback if no rate recorded in history: Log warning "لطفاً نرخ درهم را وارد کنید"
+  console.warn('⚠️ [SirikFit Admin Warning]: لطفاً نرخ درهم را وارد کنید! (هیچ نرخ واقعی در تاریخچه ثبت نشده است)');
+  return 53000;
+}
+

@@ -4,6 +4,7 @@ import { FinancialSettings, ParsedProduct, CmsConfig } from '../types';
 import { formatToman, formatAed, toPersianDigits, extractCleanUrl } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { getEffectiveGeminiKeysList, extractProductWithGeminiAI } from '../utils/geminiKey';
+import { parseProductLinkUniversal } from '../utils/parseLink';
 import { SpeedboatLoader } from './SpeedboatLoader';
 
 interface HeroCalculatorProps {
@@ -208,59 +209,42 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
     setIsParsing(true);
 
     const savedKeys = getEffectiveGeminiKeysList(cms?.apiConfig?.geminiApiKeys || cms?.apiConfig?.geminiApiKey);
-    const scraperKeyVal = (() => {
-      try { return localStorage.getItem('scraper_api_key') || cms?.apiConfig?.scraperApiKey || ''; } catch (_e) { return cms?.apiConfig?.scraperApiKey || ''; }
-    })();
 
     try {
-      const res = await fetch('/api/parse-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: targetUrl,
-          apiKey: scraperKeyVal,
-          scraper_api_key: scraperKeyVal,
-          scraperApiKey: scraperKeyVal,
-          enable_scraper_api: true,
-          geminiApiKeys: savedKeys,
-          geminiApiKey: savedKeys[0] || '',
-          is_free_extraction: !isRestricted,
-          enable_domain_restriction: isRestricted
-        })
+      const result = await parseProductLinkUniversal({
+        url: targetUrl,
+        geminiKeys: savedKeys,
+        cmsConfig: cms
       });
 
-      const data: any = await res.json();
-      const extractedPrice = Number(data?.priceAed || data?.price_aed) || 0;
-      const extractedImage = data?.image || data?.image_url || '';
-
-      if (res.ok && data?.title && extractedPrice > 0) {
-        setProductTitle(data.title);
+      if (result.success && result.priceAed && result.priceAed > 0) {
+        setProductTitle(result.title || 'محصول استخراج شده');
         setUrlInput(targetUrl);
-        setPriceAed(extractedPrice);
-        setOriginalPriceAed(data.originalPriceAed);
-        setPriceInput(String(extractedPrice));
-        setWeightKg(data.weightKg || 0.8);
-        setWeightInput(String(data.weightKg || 0.8));
+        setPriceAed(result.priceAed);
+        setOriginalPriceAed(result.originalPriceAed);
+        setPriceInput(String(result.priceAed));
+        setWeightKg(result.weightKg || 0.8);
+        setWeightInput(String(result.weightKg || 0.8));
         const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
-        const mainImg = extractedImage || cms?.heroImage || fallbackImage;
+        const mainImg = result.image || cms?.heroImage || fallbackImage;
         setProductImage(mainImg);
-        const galleryList = (data.images || data.galleryImages || [mainImg]).filter(Boolean);
-        setProductGallery(galleryList.length > 0 ? galleryList : [mainImg]);
-        if (data.storeName) setStoreName(data.storeName);
-        if (data.brand) setBrandName(data.brand);
-        if (data.category) setCategoryName(data.category);
+        const galleryList = (result.images && result.images.length > 0) ? result.images : [mainImg];
+        setProductGallery(galleryList);
+        if (result.storeName) setStoreName(result.storeName);
+        if (result.brand) setBrandName(result.brand);
+        if (result.category) setCategoryName(result.category);
 
-        if (data.options && Array.isArray(data.options) && data.options.length > 0) {
-          setProductOptions(data.options);
-          setSelectedOption(data.options[0]);
+        if (result.options && Array.isArray(result.options) && result.options.length > 0) {
+          setProductOptions(result.options);
+          setSelectedOption(result.options[0]);
         } else {
-          const defaults = ["NEPOLITAN ICE CREAM", "TIRAMISU CAKE", "BLUEBERRY MUFFIN", "DOUBLE RICH CHOCOLATE"];
+          const defaults = ["پیش‌فرض / استاندارد"];
           setProductOptions(defaults);
           setSelectedOption(defaults[0]);
         }
 
-        if (data.description) {
-          setProductDescription(data.description);
+        if (result.description) {
+          setProductDescription(result.description);
         } else {
           setProductDescription("محصول اورجینال سفارش داده شده مستقیماً از نمایندگی‌های معتبر دبی. دارای بالاترین استانداردهای کیفیت، سلامت و بسته‌بندی ایمن کارگو.");
         }
@@ -268,73 +252,18 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         setQuantity(1);
         setShowResult(true);
         setErrorMessage('');
-        setSuccessMessage(`اطلاعات محصول با موفقیت استخراج شد (${extractedPrice} درهم)`);
+        setSuccessMessage(`اطلاعات محصول با موفقیت استخراج شد (${result.priceAed} درهم)`);
         setTimeout(() => {
           resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }, 100);
       } else {
-        // Client-side AI fallback rotation if backend parser fails or is blocked
-        const aiData = await extractProductWithGeminiAI(targetUrl, undefined, savedKeys);
-        if (aiData && aiData.title && aiData.priceAed > 0) {
-          setProductTitle(aiData.title);
-          setUrlInput(targetUrl);
-          setPriceAed(aiData.priceAed);
-          setOriginalPriceAed(aiData.originalPriceAed);
-          setPriceInput(String(aiData.priceAed));
-          setWeightKg(aiData.weightKg || 0.8);
-          setWeightInput(String(aiData.weightKg || 0.8));
-          const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
-          const mainImg = aiData.image || cms?.heroImage || fallbackImage;
-          setProductImage(mainImg);
-          setProductGallery([mainImg]);
-          if (aiData.storeName) setStoreName(aiData.storeName);
-          if (aiData.description) setProductDescription(aiData.description);
-          setQuantity(1);
-          setShowResult(true);
-          setErrorMessage('');
-          setSuccessMessage(`اطلاعات محصول با موفقیت توسط هوش مصنوعی استخراج شد (${aiData.priceAed} درهم)`);
-          setTimeout(() => {
-            resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          }, 100);
-        } else {
-          setShowResult(false);
-          setErrorMessage(data?.error || 'امکان استخراج اطلاعات از این لینک وجود نداشت. لطفاً صحت لینک را بررسی کنید.');
-        }
+        setShowResult(false);
+        setErrorMessage(result.error || 'امکان استخراج اتوماتیک لینک وجود نداشت؛ لطفاً قیمت درهم را به صورت دستی وارد کنید.');
       }
     } catch (err) {
       console.error('Error parsing link:', err);
-      // Attempt client-side AI fallback on exception
-      try {
-        const aiData = await extractProductWithGeminiAI(targetUrl, undefined, savedKeys);
-        if (aiData && aiData.title && aiData.priceAed > 0) {
-          setProductTitle(aiData.title);
-          setUrlInput(targetUrl);
-          setPriceAed(aiData.priceAed);
-          setOriginalPriceAed(aiData.originalPriceAed);
-          setPriceInput(String(aiData.priceAed));
-          setWeightKg(aiData.weightKg || 0.8);
-          setWeightInput(String(aiData.weightKg || 0.8));
-          const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
-          const mainImg = aiData.image || cms?.heroImage || fallbackImage;
-          setProductImage(mainImg);
-          setProductGallery([mainImg]);
-          if (aiData.storeName) setStoreName(aiData.storeName);
-          if (aiData.description) setProductDescription(aiData.description);
-          setQuantity(1);
-          setShowResult(true);
-          setErrorMessage('');
-          setSuccessMessage(`اطلاعات محصول با موفقیت توسط هوش مصنوعی استخراج شد (${aiData.priceAed} درهم)`);
-          setTimeout(() => {
-            resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          }, 100);
-        } else {
-          setShowResult(false);
-          setErrorMessage('امکان استخراج اطلاعات از این لینک وجود نداشت. لطفاً صحت لینک را بررسی کنید.');
-        }
-      } catch (_e) {
-        setShowResult(false);
-        setErrorMessage('امکان استخراج اطلاعات از این لینک وجود نداشت. لطفاً صحت لینک را بررسی کنید.');
-      }
+      setShowResult(false);
+      setErrorMessage('امکان استخراج اتوماتیک لینک وجود نداشت؛ لطفاً قیمت درهم را به صورت دستی وارد کنید.');
     } finally {
       setIsParsing(false);
     }

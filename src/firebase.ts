@@ -112,6 +112,73 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   return errInfo;
 }
 
+export async function saveUserProfileToFirestore(userData: {
+  id: string;
+  name: string;
+  phoneNumber: string;
+  email?: string;
+  createdAt?: string;
+}) {
+  if (!db) return;
+  const path = `users/${userData.id}`;
+  try {
+    const userRef = doc(db, 'users', userData.id);
+    await setDoc(userRef, {
+      uid: userData.id,
+      name: userData.name,
+      phoneNumber: userData.phoneNumber,
+      email: userData.email || '',
+      createdAt: userData.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+export async function saveOrderToFirestore(orderData: any) {
+  if (!db) return;
+  const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
+  const path = `orders/${orderId}`;
+  try {
+    const orderRef = doc(db, 'orders', orderId);
+    const dataToSave = {
+      ...orderData,
+      orderId,
+      createdAt: orderData.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(orderRef, dataToSave, { merge: true });
+    return orderId;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: string) {
+  if (!db) return [];
+  const path = 'orders';
+  try {
+    const ordersRef = collection(db, 'orders');
+    let q = query(ordersRef, where('userId', '==', userId));
+    let snapshot = await getDocs(q);
+
+    if (snapshot.empty && userPhone) {
+      q = query(ordersRef, where('userPhone', '==', userPhone));
+      snapshot = await getDocs(q);
+    }
+
+    const orders: any[] = [];
+    snapshot.forEach((docSnap) => {
+      orders.push({ id: docSnap.id, ...docSnap.data() });
+    });
+    return orders;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, path);
+    return [];
+  }
+}
+
 export async function saveSettingsToFirestore(settingsData: any): Promise<boolean> {
   if (!db) return true;
   try {

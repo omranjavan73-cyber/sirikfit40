@@ -21,7 +21,12 @@ export const PricingRulesAdmin: React.FC<any> = ({ settings, onUpdateSettings, c
   const [manualAedRateInput, setManualAedRateInput] = useState<string>('53000');
   const [autoUpdateRates, setAutoUpdateRates] = useState<boolean>(true);
   const [currencyApiUrl, setCurrencyApiUrl] = useState<string>('');
-  const [commissionRules, setCommissionRules] = useState<CommissionRule[]>([]);
+  const [commissionRules, setCommissionRules] = useState(() => 
+  Array.isArray(cms?.pricingRules?.commissionRules) ? cms.pricingRules.commissionRules : []
+);
+const [shippingIncrementRules, setShippingIncrementRules] = useState(() => 
+  Array.isArray(cms?.pricingRules?.shippingIncrementRules) ? cms.pricingRules.shippingIncrementRules : []
+);
   const [shippingIncrementRules, setShippingIncrementRules] = useState<ShippingIncrementRule[]>([]);
   
   // لود اولیه دیتای ایمن

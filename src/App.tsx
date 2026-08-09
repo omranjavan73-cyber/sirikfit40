@@ -273,7 +273,7 @@ export default function App() {
     }
   };
 
-  const fetchSettings = async () => {
+ const fetchSettings = async () => {
     setIsLoadingSettings(true);
     try {
       const res = await fetch('/api/settings');
@@ -285,7 +285,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('Error loading settings:', err);
-    } font-medium: finally {
+    } finally {
       setIsLoadingSettings(false);
     }
   };

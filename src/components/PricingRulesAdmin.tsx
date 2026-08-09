@@ -24,10 +24,9 @@ export const PricingRulesAdmin: React.FC<any> = ({ settings, onUpdateSettings, c
   const [commissionRules, setCommissionRules] = useState(() => 
   Array.isArray(cms?.pricingRules?.commissionRules) ? cms.pricingRules.commissionRules : []
 );
-const [shippingIncrementRules, setShippingIncrementRules] = useState(() => 
-  Array.isArray(cms?.pricingRules?.shippingIncrementRules) ? cms.pricingRules.shippingIncrementRules : []
-);
-  const [shippingIncrementRules, setShippingIncrementRules] = useState<ShippingIncrementRule[]>([]);
+const [shippingIncrementRules, setShippingIncrementRules] = useState<ShippingIncrementRule[]>(() => 
+    Array.isArray(cms?.pricingRules?.shippingIncrementRules) ? cms.pricingRules.shippingIncrementRules : []
+  );
   
   // لود اولیه دیتای ایمن
   useEffect(() => {

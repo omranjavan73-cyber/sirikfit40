@@ -1,3 +1,132 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+html, body, #root, #app {
+  max-width: 100vw;
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+@layer base {
+  body {
+    font-family: 'Vazirmatn', system-ui, -apple-system, sans-serif;
+    background-color: #FFFFFF;
+    color: #111111;
+  }
+}
+
+/* Custom scrollbar for light theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F5F5F5;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D4D4D4;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #111111;
+}
+
+/* Brand gradient and soft glow - END Nutrition Black x White x Rose Red Theme */
+.purple-gradient,
+.orange-gradient,
+.black-gradient {
+  background: linear-gradient(135deg, #111111 0%, #000000 100%);
+}
+
+.rose-gradient {
+  background: linear-gradient(135deg, #E11D48 0%, #BE123C 100%);
+}
+
+.purple-glow,
+.orange-glow,
+.black-glow {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25);
+}
+
+.rose-glow {
+  box-shadow: 0 10px 25px -5px rgba(225, 29, 72, 0.3);
+}
+
+.purple-glow-sm,
+.orange-glow-sm,
+.black-glow-sm {
+  box-shadow: 0 4px 14px 0 rgba(0, 0, 0, 0.15);
+}
+
+/* ==========================================================================
+   GLOBAL PRODUCT IMAGE RESPONSIVENESS AND CONTAINER CLIPPING STYLES
+   ========================================================================== */
+
+/* 1. Product Card Container */
+.product-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  border-radius: 22px;
+}
+
+/* 2. Image Container (.img-wrap / product image parent) */
+.img-wrap,
+.product-img-wrap {
+  position: relative;
+  width: 100%;
+  height: 130px;
+  overflow: hidden !important;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 3. Image Tag (img inside .img-wrap, .product-img-wrap, .product-card) */
+.img-wrap img,
+.product-img-wrap img,
+.product-card img,
+.product-preview img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center !important;
+  display: block;
+}
+
+/* 4. Badges & Floating Elements Anchoring & z-index */
+.img-wrap .badge,
+.img-wrap .discount-badge,
+.img-wrap .brand-badge,
+.product-card .discount-badge,
+.product-card .brand-badge,
+.product-img-wrap .badge {
+  position: absolute;
+  z-index: 20;
+}

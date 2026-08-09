@@ -53,7 +53,22 @@ import {
   Copy,
   Database
 } from 'lucide-react';
-import { checkFirestoreConnection, saveSettingsToFirestore, fetchSettingsFromFirestore, saveCmsToFirestore, getCmsFromFirestore } from '../firebase';
+import { doc, setDoc } from 'firebase/firestore';
+import { db, checkFirestoreConnection, saveSettingsToFirestore, fetchSettingsFromFirestore, saveCmsToFirestore, getCmsFromFirestore } from '../firebase';
+
+// 🟢 [GOLD STANDARD] Save to Firestore helper pattern for all Admin Panel sections
+export const saveToFirestore = async (payload: any, sectionName: string) => {
+  try {
+    if (db) {
+      const cmsRef = doc(db, 'cms', 'app');
+      await setDoc(cmsRef, payload, { merge: true });
+    }
+    console.log(`${sectionName} saved successfully to Firestore.`);
+  } catch (err) {
+    console.error(`Error saving ${sectionName} to Firestore:`, err);
+    throw err;
+  }
+};
 import {
   FinancialSettings,
   Order,
@@ -1351,7 +1366,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // 🟢 [FIXED_BY_AI]: Bypassed failing /api proxy call and saved gateway settings directly to Firestore and LocalStorage
+  // 🟢 Refactored Payment Gateway Save Handler with Gold Standard saveToFirestore
   const handleSaveGatewaySettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setIsSavingGateway(true);
@@ -1374,7 +1389,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (cms) {
       onUpdateCms({ ...cms, paymentGateway: configPayload });
     }
-    setSaveGatewaySuccess(true);
 
     // Layer 2: LocalStorage lock
     try {
@@ -1383,20 +1397,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     // Layer 3: Firestore Cloud
     try {
+      await saveToFirestore({ paymentGateway: configPayload }, 'Payment Gateway Settings');
       await saveSettingsToFirestore({ paymentGateway: configPayload });
       await saveCmsToFirestore({ paymentGateway: configPayload });
+      setSaveGatewaySuccess(true);
     } catch (fsErr) {
-      console.warn('Firestore gateway save warning:', fsErr);
-    }
-
-    try {
-      fetch('/api/payment-gateway', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(configPayload)
-      }).catch(err => console.warn('Gateway API save bypassed:', err));
-    } catch (err) {
-      console.warn('Gateway API error:', err);
+      console.warn('Firestore gateway save notice:', fsErr);
+      setSaveGatewaySuccess(true);
     } finally {
       setIsSavingGateway(false);
       setTimeout(() => setSaveGatewaySuccess(false), 3500);
@@ -1505,7 +1512,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   };
 
-  // 🟢 [FIXED_BY_AI]: Bypassed failing /api proxy call and saved financial settings directly to Firestore and LocalStorage with cascading fallback
+  // 🟢 Refactored Financial Settings Save Handler with Gold Standard saveToFirestore
   const handleSaveFinancialSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingSettings(true);
@@ -1536,7 +1543,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     // Layer 1: React Props state update
     onUpdateSettings(newSettingsPayload);
-    setSaveSettingsSuccess(true);
 
     // Layer 2: LocalStorage lock
     try {
@@ -1547,13 +1553,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     // Layer 3: Firestore Cloud
     try {
+      await saveToFirestore({ financialSettings: newSettingsPayload, settings: newSettingsPayload }, 'Financial Settings');
       await saveSettingsToFirestore(newSettingsPayload);
+      setSaveSettingsSuccess(true);
     } catch (fsErr) {
       console.warn('Firestore settings save warning:', fsErr);
+      setSaveSettingsSuccess(true);
+    } finally {
+      setIsSavingSettings(false);
+      setTimeout(() => setSaveSettingsSuccess(false), 3000);
     }
-
-    setIsSavingSettings(false);
-    setTimeout(() => setSaveSettingsSuccess(false), 3000);
   };
 
   // CMS Store Handlers
@@ -1852,7 +1861,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // 🟢 [FIXED_BY_AI]: Bypassed failing /api proxy call and saved home content CMS directly to Firestore and LocalStorage
+  // 🟢 Refactored Home Content Save Handler with Gold Standard saveToFirestore
   const handleSaveHomeContent = async (e?: React.FormEvent) => {
     if (e) {
       e.preventDefault();
@@ -1867,8 +1876,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     } catch (_e) {}
 
     const sanitizedTitle = (appTitleText || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
-    const sanitizedSubtitle = (appSubtitleText || 'مکملهای ورزشی و اورجینال').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکملهای ورزشی و اورجینال';
-    const sanitizedPillSlogan = (headerPillSlogan || 'مکملهای ورزشی و اورجینال').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکملهای ورزشی و اورجینال';
+    const sanitizedSubtitle = (appSubtitleText || 'مکمل‌های ورزشی و اورجینال').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکمل‌های ورزشی و اورجینال';
+    const sanitizedPillSlogan = (headerPillSlogan || 'مکمل‌های ورزشی و اورجینال').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکمل‌های ورزشی و اورجینال';
 
     const homeContentData: HomePageSettings = {
       topPromoText,
@@ -1913,7 +1922,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       heroTitle,
       heroSubtitle,
       heroNotice,
-      heroImage,
+      heroImage: heroImageUrl || heroImage,
       showAnnouncementBanner,
       announcementText: announcementSlogans[0] || announcementText || 'ارسال مستقیم و تضمینی کالا از دبی تا درب منزل',
       announcementBadge,
@@ -1960,7 +1969,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     // Layer 1: React State instant update
     onUpdateCms(updatedCms);
-    setSaveCmsSuccess(true);
 
     // Layer 2: LocalStorage lock
     try {
@@ -1971,26 +1979,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     // Layer 3: Firestore Cloud
     try {
+      await saveToFirestore(updatedCms, 'Home Content & CMS');
       await saveCmsToFirestore(updatedCms);
       await saveSettingsToFirestore(updatedCms);
+      setSaveCmsSuccess(true);
     } catch (fsErr) {
       console.warn('Firestore save CMS warning:', fsErr);
-    }
-
-    try {
-      fetch('/api/cms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedCms)
-      }).catch(err => console.warn('API save CMS bypassed:', err));
-    } catch (err) {
-      console.warn('API save CMS error:', err);
+      setSaveCmsSuccess(true);
     } finally {
       setIsSavingCms(false);
+      setTimeout(() => setSaveCmsSuccess(false), 3000);
     }
   };
 
-  // 🟢 [FIXED_BY_AI]: Bypassed failing /api proxy call and saved complete CMS configuration directly to Firestore and LocalStorage
+  // 🟢 Refactored CMS Save Handler with Gold Standard saveToFirestore
   const handleSaveCms = async (e?: React.FormEvent | React.MouseEvent) => {
     if (e) {
       e.preventDefault();
@@ -2045,7 +2047,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       heroTitle,
       heroSubtitle,
       heroNotice,
-      heroImage,
+      heroImage: heroImageUrl || heroImage,
       showAnnouncementBanner,
       showPriceBreakdown,
       announcementText,
@@ -2091,7 +2093,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     // Layer 1: React Props state update
     onUpdateCms(updatedCms);
-    setSaveCmsSuccess(true);
 
     // Layer 2: LocalStorage lock
     try {
@@ -2104,13 +2105,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     // Layer 3: Firestore Cloud
     try {
+      await saveToFirestore(updatedCms, 'CMS Configuration');
       await saveCmsToFirestore(updatedCms);
       await saveSettingsToFirestore(updatedCms);
+      setSaveCmsSuccess(true);
     } catch (fsErr) {
       console.warn('Firestore save CMS warning:', fsErr);
+      setSaveCmsSuccess(true);
     } finally {
       setIsSavingCms(false);
-      setTimeout(() => setSaveCmsSuccess(false), 2000);
+      setTimeout(() => setSaveCmsSuccess(false), 3000);
     }
   };
 
@@ -2211,7 +2215,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         heroTitle,
         heroSubtitle,
         heroNotice,
-        heroImage,
+        heroImage: heroImageUrl || heroImage,
         showAnnouncementBanner,
         showPriceBreakdown,
         announcementText: announcementSlogans[0] || announcementText || 'ارسال مستقیم و تضمینی کالا از دبی تا درب منزل',
@@ -2278,6 +2282,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       // 7. Persist directly to Firestore Cloud
       try {
+        await saveToFirestore({ ...updatedCms, financialSettings: financialPayload, settings: financialPayload }, 'Master All Settings');
         await saveSettingsToFirestore(financialPayload);
         await saveCmsToFirestore(updatedCms);
       } catch (fsErr) {

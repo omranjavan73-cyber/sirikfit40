@@ -181,23 +181,80 @@ export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: s
 
 export async function saveSettingsToFirestore(settingsData: any): Promise<boolean> {
   if (!db) return true;
+  const path = 'settings/app';
   try {
     const settingsRef = doc(db, 'settings', 'app');
     await setDoc(settingsRef, { ...settingsData, updatedAt: new Date().toISOString() }, { merge: true });
     return true;
   } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
     return true;
   }
 }
 
+export async function fetchSettingsFromFirestore() {
+  let firestoreData: any = null;
+  if (db) {
+    const path = 'settings/app';
+    try {
+      const settingsRef = doc(db, 'settings', 'app');
+      const docSnap = await getDoc(settingsRef);
+      if (docSnap.exists()) {
+        firestoreData = docSnap.data();
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, path);
+    }
+  }
+  return firestoreData;
+}
+
+export const getSettingsFromFirestore = fetchSettingsFromFirestore;
+
 export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
   if (!db) return true;
+  const path = 'cms/app';
   try {
     const cmsRef = doc(db, 'cms', 'app');
     await setDoc(cmsRef, { ...cmsData, updatedAt: new Date().toISOString() }, { merge: true });
     return true;
   } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
     return true;
+  }
+}
+
+export async function getCmsFromFirestore() {
+  let firestoreData: any = null;
+  if (db) {
+    const path = 'cms/app';
+    try {
+      const cmsRef = doc(db, 'cms', 'app');
+      const docSnap = await getDoc(cmsRef);
+      if (docSnap.exists()) {
+        firestoreData = docSnap.data();
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, path);
+    }
+  }
+  return firestoreData;
+}
+
+export async function checkFirestoreConnection(): Promise<{
+  connected: boolean;
+  dbId?: string;
+  error?: string;
+}> {
+  if (!isFirebaseConfigured || !db) {
+    return { connected: false, error: 'Firebase configuration missing' };
+  }
+  try {
+    const settingsRef = doc(db, 'settings', 'app');
+    await getDoc(settingsRef);
+    return { connected: true, dbId: firestoreDatabaseId || '(default)' };
+  } catch (err: any) {
+    return { connected: false, error: err?.message || 'Permission or Connection Issue' };
   }
 }
 

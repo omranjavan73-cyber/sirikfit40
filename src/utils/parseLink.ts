@@ -19,6 +19,184 @@ export interface ParsedProductResult {
 }
 
 /**
+ * Helper to convert ASCII digits to Persian digits.
+ */
+export function toPersianDigits(str: string): string {
+  if (!str) return '';
+  const digits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+  return str.replace(/[0-9]/g, (w) => digits[parseInt(w, 10)]);
+}
+
+/**
+ * Formats product titles into an elegant bilingual structure:
+ * [معادل و ویژگی‌های اصلی به فارسی] (Original English Title)
+ */
+export function generateBilingualProductTitle(rawTitle: string, storeName?: string, brand?: string): string {
+  if (!rawTitle) return 'محصول استخراج شده';
+
+  const cleanTitle = rawTitle.replace(/\s+/g, ' ').trim();
+  if (!cleanTitle) return 'محصول استخراج شده';
+
+  // If already bilingual (e.g., contains Persian text followed by English in parentheses)
+  if (/[\u0600-\u06FF]/.test(cleanTitle) && /\([A-Za-z0-9\s.,%&+\-/'"]+\)/.test(cleanTitle)) {
+    return cleanTitle;
+  }
+
+  // If the title is purely Persian without English letters
+  if (/[\u0600-\u06FF]/.test(cleanTitle) && !/[a-zA-Z]{3,}/.test(cleanTitle)) {
+    return cleanTitle;
+  }
+
+  try {
+    const lower = cleanTitle.toLowerCase();
+    const parts: string[] = [];
+
+    // 1. Form / Package Type
+    let formPrefix = '';
+    if (/\bcapsules?\b|\bcaps?\b/i.test(cleanTitle)) {
+      formPrefix = 'کپسول';
+    } else if (/\btablets?\b|\btabs?\b/i.test(cleanTitle)) {
+      formPrefix = 'قرص';
+    } else if (/\bsoftgels?\b|\bsoftgel\b/i.test(cleanTitle)) {
+      formPrefix = 'کپسول ژله‌ای';
+    } else if (/\bgummies\b|\bgummy\b/i.test(cleanTitle)) {
+      formPrefix = 'پاستیل';
+    } else if (/\bpowders?\b/i.test(cleanTitle)) {
+      formPrefix = 'پودر';
+    } else if (/\bliquid\b/i.test(cleanTitle)) {
+      formPrefix = 'شربت و مایع';
+    }
+
+    // 2. Main Supplement / Product Category
+    let categoryPersian = '';
+    if (/whey\s+isolate/i.test(lower)) {
+      categoryPersian = 'پروتئین وی ایزوله';
+    } else if (/whey/i.test(lower)) {
+      categoryPersian = 'پروتئین وی';
+    } else if (/creatine\s+monohydrate/i.test(lower)) {
+      categoryPersian = 'پودر کراتین مونوهیدرات';
+    } else if (/creatine/i.test(lower)) {
+      categoryPersian = 'پودر کراتین';
+    } else if (/bcaa/i.test(lower)) {
+      categoryPersian = 'مکمل بیسیایای (BCAA)';
+    } else if (/amino/i.test(lower)) {
+      categoryPersian = 'مکمل آمینو اسید';
+    } else if (/glutamine/i.test(lower)) {
+      categoryPersian = 'پودر گلوتامین';
+    } else if (/gainer|mass/i.test(lower)) {
+      categoryPersian = 'مکمل گینر افزایش وزن';
+    } else if (/pre\s*-\s*workout|preworkout/i.test(lower)) {
+      categoryPersian = 'پمپ و مکمل قبل از تمرین';
+    } else if (/carnitine|l-carnitine/i.test(lower)) {
+      categoryPersian = 'مکمل ال‌کارنیتین';
+    } else if (/fat\s+burner|burner/i.test(lower)) {
+      categoryPersian = 'مکمل چربی‌سوز';
+    } else if (/prenatal/i.test(lower)) {
+      categoryPersian = 'مکمل بارداری و پریناتال';
+    } else if (/omega\s*3|fish\s+oil/i.test(lower)) {
+      categoryPersian = 'روغن ماهی امگا ۳';
+    } else if (/multivitamin|multi\s*vitamin|multi/i.test(lower)) {
+      categoryPersian = 'مکمل مولتی‌ویتامین';
+    } else if (/collagen/i.test(lower)) {
+      categoryPersian = 'پودر و مکمل کلاژن';
+    } else if (/ashwagandha/i.test(lower)) {
+      categoryPersian = 'مکمل گیاهی آشواگاندا';
+    } else if (/magnesium/i.test(lower)) {
+      categoryPersian = 'مکمل منیزیم';
+    } else if (/zinc/i.test(lower)) {
+      categoryPersian = 'مکمل زینک';
+    } else if (/vitamin\s+c/i.test(lower)) {
+      categoryPersian = 'ویتامین C';
+    } else if (/vitamin\s+d/i.test(lower)) {
+      categoryPersian = 'ویتامین D3';
+    } else if (/biotin/i.test(lower)) {
+      categoryPersian = 'مکمل بیوتین';
+    } else if (/peanut\s+butter/i.test(lower)) {
+      categoryPersian = 'کره بادام زمینی';
+    } else if (/shaker/i.test(lower)) {
+      categoryPersian = 'شیکر و قمقمه ورزشی';
+    }
+
+    if (formPrefix && categoryPersian.startsWith(formPrefix)) {
+      formPrefix = '';
+    }
+
+    if (formPrefix) parts.push(formPrefix);
+    if (categoryPersian) parts.push(categoryPersian);
+
+    // 3. Gender / Attributes
+    if (/women|female/i.test(lower) && !parts.some(p => p.includes('پریناتال') || p.includes('زنانه'))) {
+      parts.push('زنانه');
+    } else if (/men|male/i.test(lower) && !parts.some(p => p.includes('مردانه'))) {
+      parts.push('مردانه');
+    }
+
+    if (/100%/i.test(lower) && !parts.some(p => p.includes('۱۰۰٪'))) {
+      parts.push('۱۰۰٪');
+    }
+
+    if (/gold\s+standard/i.test(lower) && !parts.some(p => p.includes('گلد استاندارد'))) {
+      parts.push('گلد استاندارد');
+    }
+
+    if (/organic/i.test(lower) && !parts.some(p => p.includes('ارگانیک'))) {
+      parts.push('ارگانیک');
+    }
+
+    // 4. Weight / Size / Quantity
+    const kgMatch = cleanTitle.match(/(\d+(?:\.\d+)?)\s*(?:kg|kilos|kilogram)/i);
+    if (kgMatch && kgMatch[1]) {
+      const pNum = toPersianDigits(kgMatch[1]);
+      parts.push(`${pNum} کیلوگرمی`);
+    } else {
+      const lbsMatch = cleanTitle.match(/(\d+(?:\.\d+)?)\s*(?:lbs|lb)/i);
+      if (lbsMatch && lbsMatch[1]) {
+        const lbsVal = parseFloat(lbsMatch[1]);
+        if (lbsVal === 5) {
+          parts.push('۲.۲ کیلوگرمی');
+        } else {
+          const pNum = toPersianDigits(lbsMatch[1]);
+          parts.push(`${pNum} پوندی`);
+        }
+      } else {
+        const gMatch = cleanTitle.match(/(\d+)\s*(?:g|gram|grams)\b/i);
+        if (gMatch && gMatch[1] && parseInt(gMatch[1], 10) >= 30) {
+          const pNum = toPersianDigits(gMatch[1]);
+          parts.push(`${pNum} گرمی`);
+        }
+      }
+    }
+
+    const countMatch = cleanTitle.match(/(\d+)\s*(?:capsules?|caps?|tablets?|tabs?|softgels?|gummies|count)\b/i);
+    if (countMatch && countMatch[1]) {
+      const pNum = toPersianDigits(countMatch[1]);
+      parts.push(`${pNum} عددی`);
+    } else {
+      const servMatch = cleanTitle.match(/(\d+)\s*(?:servings?|serv)\b/i);
+      if (servMatch && servMatch[1]) {
+        const pNum = toPersianDigits(servMatch[1]);
+        parts.push(`${pNum} سروینگ`);
+      }
+    }
+
+    let persianPrefix = parts.join(' ').trim();
+
+    if (!persianPrefix) {
+      if (brand || storeName) {
+        persianPrefix = `مکمل اورجینال ${brand || storeName}`;
+      } else {
+        persianPrefix = 'مکمل تخصصی و اورجینال';
+      }
+    }
+
+    return `${persianPrefix} (${cleanTitle})`;
+  } catch (err) {
+    console.warn('[LinkParser] Error generating bilingual title, falling back to original English title:', err);
+    return cleanTitle;
+  }
+}
+
+/**
  * Clean raw HTML by stripping script tags, style tags, SVG elements, and HTML comments.
  */
 export function cleanHtmlContent(html: string): string {
@@ -33,28 +211,17 @@ export function cleanHtmlContent(html: string): string {
 }
 
 /**
- * Normalizes URL to ensure valid protocol
- */
-function normalizeUrl(url: string): string {
-  let trimmed = url.trim();
-  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-    trimmed = 'https://' + trimmed;
-  }
-  return trimmed;
-}
-
-/**
- * Fetch HTML or clean webpage text via multi-stage client-side CORS proxies & scraper tools.
+ * Fetch HTML or clean webpage text via 4-stage client-side CORS proxies & scraper tools.
+ * Sequentially tries:
+ * 1) AllOrigins RAW proxy
+ * 2) CorsProxy.io
+ * 3) ThingProxy
+ * 4) Jina AI Reader endpoint (https://r.jina.ai/) which bypasses Cloudflare/403 blocks
  */
 export async function fetchHtmlWithCorsProxy(targetUrl: string): Promise<string | null> {
-  const cleanUrl = normalizeUrl(targetUrl);
-  console.log(`[LinkParser] Starting multi-stage client fetch for URL: "${cleanUrl}"`);
+  console.log(`[LinkParser] Starting multi-stage client fetch for URL: "${targetUrl}"`);
 
   const proxies: { name: string; getUrl: (u: string) => string }[] = [
-    {
-      name: 'Jina AI Reader (Bypasses Cloudflare 403)',
-      getUrl: (u) => `https://r.jina.ai/${u}`
-    },
     {
       name: 'AllOrigins RAW',
       getUrl: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
@@ -66,26 +233,23 @@ export async function fetchHtmlWithCorsProxy(targetUrl: string): Promise<string 
     {
       name: 'ThingProxy',
       getUrl: (u) => `https://thingproxy.freeboard.io/fetch/${u}`
+    },
+    {
+      name: 'Jina AI Reader',
+      getUrl: (u) => `https://r.jina.ai/${u}`
     }
   ];
 
   for (let i = 0; i < proxies.length; i++) {
     const proxy = proxies[i];
-    const proxyUrl = proxy.getUrl(cleanUrl);
+    const proxyUrl = proxy.getUrl(targetUrl);
     console.log(`[LinkParser] Stage ${i + 1}/${proxies.length}: Requesting via ${proxy.name}...`);
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      const res = await fetch(proxyUrl, {
-        method: 'GET',
-        headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'X-With-Generated-Alt': 'true'
-        },
-        signal: controller.signal
-      });
+      const res = await fetch(proxyUrl, { signal: controller.signal });
       clearTimeout(timeoutId);
 
       if (res.ok) {
@@ -96,13 +260,14 @@ export async function fetchHtmlWithCorsProxy(targetUrl: string): Promise<string 
           trimmed.includes('Access Denied') ||
           trimmed.includes('Just a moment...') ||
           trimmed.includes('403 Forbidden') ||
+          trimmed.includes('enable JavaScript') ||
           trimmed.includes('Attention Required! | Cloudflare');
 
         if (trimmed && trimmed.length > 80 && !isBlocked) {
           console.log(`[LinkParser] Stage ${i + 1} (${proxy.name}) SUCCESS! Fetched ${trimmed.length} characters.`);
           return trimmed;
         } else {
-          console.warn(`[LinkParser] Stage ${i + 1} (${proxy.name}) returned blocked content.`);
+          console.warn(`[LinkParser] Stage ${i + 1} (${proxy.name}) returned blocked or empty content.`);
         }
       } else {
         console.warn(`[LinkParser] Stage ${i + 1} (${proxy.name}) HTTP status: ${res.status}`);
@@ -112,7 +277,7 @@ export async function fetchHtmlWithCorsProxy(targetUrl: string): Promise<string 
     }
   }
 
-  console.error('[LinkParser] All CORS/Scraper proxy stages failed to fetch page HTML.');
+  console.error('[LinkParser] All 4 CORS/Scraper proxy stages failed to fetch page content.');
   return null;
 }
 
@@ -124,35 +289,30 @@ export async function parseProductLinkWithGemini(
   rawHtml?: string,
   keys?: string[]
 ): Promise<ParsedProductResult> {
-  const cleanUrl = normalizeUrl(targetUrl);
   const effectiveKeys = getEffectiveGeminiKeysList(keys);
-  const cleanedHtml = rawHtml ? cleanHtmlContent(rawHtml).slice(0, 18000) : '';
+  
+  // Clean HTML if provided and limit length for token efficiency
+  const cleanedHtml = rawHtml ? cleanHtmlContent(rawHtml).slice(0, 15000) : '';
 
   console.log(`[LinkParser] Sending payload to Gemini API (HTML length: ${cleanedHtml.length} chars, Keys available: ${effectiveKeys.length})`);
 
-  // Advanced Prompt handling both direct HTML and URL slug fallback parsing
-  const prompt = `You are an expert product detail extractor and price calculator for Dubai (UAE) e-commerce stores (Life Pharmacy, Dr. Nutrition, Noon, Amazon AE, GNC, Sporter).
+  const prompt = `You are an expert product detail extractor for an online shopping platform in Dubai, UAE.
+Extract details for the product URL: "${targetUrl}".
 
-Target Product URL: "${cleanUrl}"
+${cleanedHtml ? `Webpage Content / HTML:\n"""\n${cleanedHtml}\n"""` : ''}
 
-${cleanedHtml ? `Extracted Webpage Text/HTML:\n"""\n${cleanedHtml}\n"""` : 'Note: Could not download raw HTML due to firewall. Extract title, brand, store name, and estimate AED price directly from the URL slug and product details in the link.'}
-
-Instructions:
-1. Extract or determine: Title (Persian translated or English), exact AED price (priceAed), original price if discounted, brand, store name, and estimated weight in KG.
-2. If exact price is found in text, use it. If only URL is present, extract product name from URL path (e.g. "organic-earth-prenatal-multi-60-capsules-22712") and provide accurate estimation.
-3. Respond ONLY with a valid JSON object in this exact structure without markdown formatting or code blocks:
-
+Respond ONLY with a valid JSON object in this exact structure without markdown formatting or code blocks:
 {
-  "title": "Full Product Title",
+  "title": "Product Full Title in Persian or English",
   "priceAed": 120.0,
   "originalPriceAed": 150.0,
   "discountPercent": 20,
-  "storeName": "Store Name (e.g., Life Pharmacy)",
+  "storeName": "Store Name (e.g., Life Pharmacy, Dr. Nutrition, Noon, Amazon, GNC, Sporter)",
   "image": "https://example.com/image.jpg",
   "weightKg": 0.8,
   "brand": "Brand Name",
-  "category": "💊 مکمل‌های ورزشی و سلامت",
-  "description": "Short Persian product summary"
+  "category": "Category Name",
+  "description": "Short Persian product description"
 }`;
 
   const responseText = await callGeminiApiWithKeyRotation({
@@ -175,7 +335,7 @@ Instructions:
       .replace(/```/g, '')
       .trim();
     const parsed = JSON.parse(cleanJsonStr);
-
+    
     const priceAed = Number(parsed.priceAed || parsed.price_aed) || 0;
     if (parsed && (parsed.title || priceAed > 0)) {
       console.log('[LinkParser] Successfully parsed JSON from Gemini:', parsed.title, priceAed, 'AED');
@@ -185,14 +345,18 @@ Instructions:
         discountPercent = Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100);
       }
 
+      const storeName = parsed.storeName || 'فروشگاه دبی';
+      const brandName = parsed.brand || storeName || 'برند معتبر';
+      const formattedTitle = generateBilingualProductTitle(parsed.title || 'محصول استخراج شده', storeName, brandName);
+
       return {
         success: true,
-        title: parsed.title || 'محصول استخراج شده',
-        priceAed: priceAed > 0 ? priceAed : 150, // Safe default fallback
+        title: formattedTitle,
+        priceAed,
         originalPriceAed: originalPriceAed > priceAed ? originalPriceAed : undefined,
         discountPercent: discountPercent > 0 ? discountPercent : undefined,
-        storeName: parsed.storeName || 'فروشگاه دبی',
-        brand: parsed.brand || parsed.storeName || 'برند معتبر',
+        storeName,
+        brand: brandName,
         category: parsed.category || '💊 مکمل‌های ورزشی',
         image: parsed.image || '',
         images: parsed.image ? [parsed.image] : [],
@@ -212,7 +376,212 @@ Instructions:
 }
 
 /**
+ * High-Speed, Lightweight OpenGraph / JSON-LD HTML Metadata Extractor.
+ * Bypasses AI for instant (sub-second) parsing when valid e-commerce meta tags or JSON-LD are found.
+ */
+export function parseHtmlMetadata(html: string, targetUrl: string): ParsedProductResult | null {
+  if (!html || html.length < 50) return null;
+
+  let title = '';
+  let priceAed = 0;
+  let originalPriceAed = 0;
+  let image = '';
+  let storeName = '';
+  let brand = '';
+
+  // Extract domain-based store name as intelligent fallback
+  try {
+    const parsedUrl = new URL(targetUrl);
+    const host = parsedUrl.hostname.replace(/^www\./i, '');
+    if (host.includes('drnutrition')) storeName = 'Dr. Nutrition';
+    else if (host.includes('lifepharmacy')) storeName = 'Life Pharmacy';
+    else if (host.includes('sporter')) storeName = 'Sporter';
+    else if (host.includes('gnc')) storeName = 'GNC';
+    else if (host.includes('noon')) storeName = 'Noon';
+    else if (host.includes('amazon')) storeName = 'Amazon';
+    else {
+      const parts = host.split('.');
+      if (parts[0]) {
+        storeName = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+      }
+    }
+  } catch (_e) {
+    storeName = 'فروشگاه دبی';
+  }
+
+  // 1. Try parsing Schema.org JSON-LD scripts first
+  const jsonLdMatches = html.match(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+  if (jsonLdMatches) {
+    for (const tag of jsonLdMatches) {
+      try {
+        const jsonText = tag.replace(/<script\b[^>]*>/i, '').replace(/<\/script>/i, '').trim();
+        const data = JSON.parse(jsonText);
+
+        const inspectSchema = (obj: any) => {
+          if (!obj || typeof obj !== 'object') return;
+
+          if (Array.isArray(obj)) {
+            obj.forEach(inspectSchema);
+            return;
+          }
+
+          if (obj['@graph'] && Array.isArray(obj['@graph'])) {
+            obj['@graph'].forEach(inspectSchema);
+            return;
+          }
+
+          // Title
+          if (!title && (obj.name || obj.headline)) {
+            title = String(obj.name || obj.headline).trim();
+          }
+
+          // Image
+          if (!image) {
+            if (typeof obj.image === 'string') image = obj.image;
+            else if (Array.isArray(obj.image) && typeof obj.image[0] === 'string') image = obj.image[0];
+            else if (obj.image && typeof obj.image.url === 'string') image = obj.image.url;
+          }
+
+          // Brand
+          if (!brand) {
+            if (typeof obj.brand === 'string') brand = obj.brand;
+            else if (obj.brand && typeof obj.brand.name === 'string') brand = obj.brand.name;
+          }
+
+          // Offers / Price
+          const offers = obj.offers || obj;
+          const processOffer = (off: any) => {
+            if (!off || typeof off !== 'object') return;
+            const rawVal = String(off.price || off.lowPrice || off.priceAmount || '');
+            const parsedNum = parseFloat(rawVal.replace(/,/g, '').replace(/[^0-9.]/g, ''));
+            if (!isNaN(parsedNum) && parsedNum > 0 && priceAed === 0) {
+              priceAed = parsedNum;
+            }
+            const rawOrig = String(off.highPrice || '');
+            const parsedOrig = parseFloat(rawOrig.replace(/,/g, '').replace(/[^0-9.]/g, ''));
+            if (!isNaN(parsedOrig) && parsedOrig > priceAed) {
+              originalPriceAed = parsedOrig;
+            }
+          };
+
+          if (Array.isArray(offers)) {
+            offers.forEach(processOffer);
+          } else if (typeof offers === 'object') {
+            processOffer(offers);
+          }
+        };
+
+        inspectSchema(data);
+      } catch (_e) {
+        // Skip invalid JSON-LD block
+      }
+    }
+  }
+
+  // 2. OpenGraph & Meta Tag regex extraction if title or price missing
+  if (!priceAed) {
+    const priceMetaMatches = [
+      /<meta\b[^>]*property=["'](?:product:price:amount|og:price:amount)["'][^>]*content=["']([^"']+)["']/i,
+      /<meta\b[^>]*content=["']([^"']+)["'][^>]*property=["'](?:product:price:amount|og:price:amount)["']/i,
+      /<meta\b[^>]*name=["'](?:price|product:price|twitter:data1|amount)["'][^>]*content=["']([^"']+)["']/i,
+      /<meta\b[^>]*itemprop=["']price["'][^>]*content=["']([^"']+)["']/i
+    ];
+    for (const rx of priceMetaMatches) {
+      const m = html.match(rx);
+      if (m && m[1]) {
+        const parsed = parseFloat(m[1].replace(/,/g, '').replace(/[^0-9.]/g, ''));
+        if (!isNaN(parsed) && parsed > 0) {
+          priceAed = parsed;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!title) {
+    const titleMetaMatches = [
+      /<meta\b[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i,
+      /<meta\b[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i,
+      /<meta\b[^>]*name=["']twitter:title["'][^>]*content=["']([^"']+)["']/i,
+      /<title\b[^>]*>([^<]+)<\/title>/i
+    ];
+    for (const rx of titleMetaMatches) {
+      const m = html.match(rx);
+      if (m && m[1]) {
+        const cleanTitle = m[1]
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .trim();
+        if (cleanTitle) {
+          title = cleanTitle;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!image) {
+    const imageMetaMatches = [
+      /<meta\b[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
+      /<meta\b[^>]*property=["']og:image:secure_url["'][^>]*content=["']([^"']+)["']/i,
+      /<meta\b[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i,
+      /<meta\b[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i
+    ];
+    for (const rx of imageMetaMatches) {
+      const m = html.match(rx);
+      if (m && m[1]) {
+        image = m[1].trim();
+        if (image) break;
+      }
+    }
+  }
+
+  if (!storeName || storeName === 'فروشگاه دبی') {
+    const siteNameMatch = html.match(/<meta\b[^>]*property=["']og:site_name["'][^>]*content=["']([^"']+)["']/i);
+    if (siteNameMatch && siteNameMatch[1]) {
+      storeName = siteNameMatch[1].trim();
+    }
+  }
+
+  // 3. Return high-speed result if price and title are found
+  if (priceAed > 0 && title) {
+    const formattedTitle = generateBilingualProductTitle(title, storeName, brand);
+    console.log(`[LinkParser] Fast No-AI Metadata Extraction SUCCESS! Title: "${formattedTitle}", Price: ${priceAed} AED`);
+
+    let discountPercent: number | undefined = undefined;
+    if (originalPriceAed > priceAed) {
+      discountPercent = Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100);
+    }
+
+    return {
+      success: true,
+      title: formattedTitle,
+      priceAed,
+      originalPriceAed: originalPriceAed > priceAed ? originalPriceAed : undefined,
+      discountPercent,
+      storeName: storeName || 'فروشگاه دبی',
+      brand: brand || storeName || 'برند معتبر',
+      category: '💊 مکمل‌های ورزشی',
+      image: image || '',
+      images: image ? [image] : [],
+      weightKg: 0.8,
+      description: `محصول استخراج شده مستقیم از ${storeName || 'فروشگاه دبی'}`,
+      options: ["پیش‌فرض / استاندارد"]
+    };
+  }
+
+  console.log(`[LinkParser] Fast Metadata Parsing did not yield valid price (found title: "${title}", price: ${priceAed}). Falling back to Gemini AI.`);
+  return null;
+}
+
+/**
  * Universal product link parser.
+ * Works seamlessly on hosted domains (Firebase Hosting) and local dev environments.
+ * First tries backend route if available.
+ * On client-side, fetches target HTML via CORS proxy / Jina Reader and runs Fast Metadata Extractor first before falling back to Gemini AI.
  */
 export async function parseProductLinkUniversal(params: {
   url: string;
@@ -220,7 +589,7 @@ export async function parseProductLinkUniversal(params: {
   cmsConfig?: any;
 }): Promise<ParsedProductResult> {
   const { url, geminiKeys, cmsConfig } = params;
-  const targetUrl = normalizeUrl(url);
+  const targetUrl = url.trim();
 
   // 1. Try local/backend /api/parse-link endpoint if available
   try {
@@ -253,14 +622,17 @@ export async function parseProductLinkUniversal(params: {
         const data: any = await res.json();
         const priceAed = Number(data?.priceAed || data?.price_aed) || 0;
         if (data && data.title && priceAed > 0) {
+          const storeName = data.storeName || 'دبی';
+          const brandName = data.brand || storeName;
+          const formattedTitle = generateBilingualProductTitle(data.title, storeName, brandName);
           return {
             success: true,
-            title: data.title,
+            title: formattedTitle,
             priceAed,
             originalPriceAed: Number(data.originalPriceAed || data.original_price_aed) || undefined,
             discountPercent: Number(data.discountPercent) || undefined,
-            storeName: data.storeName || 'دبی',
-            brand: data.brand || data.storeName,
+            storeName,
+            brand: brandName,
             category: data.category,
             image: data.image || data.image_url || '',
             images: data.images || data.galleryImages || (data.image ? [data.image] : []),
@@ -272,19 +644,27 @@ export async function parseProductLinkUniversal(params: {
       }
     }
   } catch (serverErr) {
-    console.warn('Backend /api/parse-link skipped or unavailable, falling back to client proxy + Gemini:', serverErr);
+    console.warn('Backend /api/parse-link skipped or unavailable, falling back to client-side extraction:', serverErr);
   }
 
-  // 2. Client-side CORS proxy + Gemini AI extraction
+  // 2. Client-side fetch HTML via CORS proxy / Jina Reader
   try {
     const rawHtml = await fetchHtmlWithCorsProxy(targetUrl);
-    // Always call Gemini even if rawHtml is null, so Gemini uses URL Slug Fallback Parsing!
-    const geminiResult = await parseProductLinkWithGemini(targetUrl, rawHtml || undefined, geminiKeys);
-    if (geminiResult.success && geminiResult.priceAed && geminiResult.priceAed > 0) {
-      return geminiResult;
+    if (rawHtml) {
+      // Stage A: High-Speed No-AI Metadata & JSON-LD Parser
+      const fastResult = parseHtmlMetadata(rawHtml, targetUrl);
+      if (fastResult && fastResult.success && fastResult.priceAed && fastResult.priceAed > 0) {
+        return fastResult;
+      }
+
+      // Stage B: Secondary Fallback via Gemini AI
+      const geminiResult = await parseProductLinkWithGemini(targetUrl, rawHtml, geminiKeys);
+      if (geminiResult.success && geminiResult.priceAed && geminiResult.priceAed > 0) {
+        return geminiResult;
+      }
     }
   } catch (clientErr) {
-    console.error('Client-side proxy + Gemini extraction failed:', clientErr);
+    console.error('Client-side proxy + parsing failed:', clientErr);
   }
 
   // 3. Graceful fallback error message

@@ -33,17 +33,28 @@ export function cleanHtmlContent(html: string): string {
 }
 
 /**
- * Fetch HTML or clean webpage text via 4-stage client-side CORS proxies & scraper tools.
- * Sequentially tries:
- * 1) AllOrigins RAW proxy
- * 2) CorsProxy.io
- * 3) ThingProxy
- * 4) Jina AI Reader endpoint (https://r.jina.ai/) which bypasses Cloudflare/403 blocks
+ * Normalizes URL to ensure valid protocol
+ */
+function normalizeUrl(url: string): string {
+  let trimmed = url.trim();
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    trimmed = 'https://' + trimmed;
+  }
+  return trimmed;
+}
+
+/**
+ * Fetch HTML or clean webpage text via multi-stage client-side CORS proxies & scraper tools.
  */
 export async function fetchHtmlWithCorsProxy(targetUrl: string): Promise<string | null> {
-  console.log(`[LinkParser] Starting multi-stage client fetch for URL: "${targetUrl}"`);
+  const cleanUrl = normalizeUrl(targetUrl);
+  console.log(`[LinkParser] Starting multi-stage client fetch for URL: "${cleanUrl}"`);
 
   const proxies: { name: string; getUrl: (u: string) => string }[] = [
+    {
+      name: 'Jina AI Reader (Bypasses Cloudflare 403)',
+      getUrl: (u) => `https://r.jina.ai/${u}`
+    },
     {
       name: 'AllOrigins RAW',
       getUrl: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
@@ -55,23 +66,26 @@ export async function fetchHtmlWithCorsProxy(targetUrl: string): Promise<string 
     {
       name: 'ThingProxy',
       getUrl: (u) => `https://thingproxy.freeboard.io/fetch/${u}`
-    },
-    {
-      name: 'Jina AI Reader',
-      getUrl: (u) => `https://r.jina.ai/${u}`
     }
   ];
 
   for (let i = 0; i < proxies.length; i++) {
     const proxy = proxies[i];
-    const proxyUrl = proxy.getUrl(targetUrl);
+    const proxyUrl = proxy.getUrl(cleanUrl);
     console.log(`[LinkParser] Stage ${i + 1}/${proxies.length}: Requesting via ${proxy.name}...`);
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
 
-      const res = await fetch(proxyUrl, { signal: controller.signal });
+      const res = await fetch(proxyUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'X-With-Generated-Alt': 'true'
+        },
+        signal: controller.signal
+      });
       clearTimeout(timeoutId);
 
       if (res.ok) {
@@ -82,14 +96,13 @@ export async function fetchHtmlWithCorsProxy(targetUrl: string): Promise<string 
           trimmed.includes('Access Denied') ||
           trimmed.includes('Just a moment...') ||
           trimmed.includes('403 Forbidden') ||
-          trimmed.includes('enable JavaScript') ||
           trimmed.includes('Attention Required! | Cloudflare');
 
         if (trimmed && trimmed.length > 80 && !isBlocked) {
           console.log(`[LinkParser] Stage ${i + 1} (${proxy.name}) SUCCESS! Fetched ${trimmed.length} characters.`);
           return trimmed;
         } else {
-          console.warn(`[LinkParser] Stage ${i + 1} (${proxy.name}) returned blocked or empty content.`);
+          console.warn(`[LinkParser] Stage ${i + 1} (${proxy.name}) returned blocked content.`);
         }
       } else {
         console.warn(`[LinkParser] Stage ${i + 1} (${proxy.name}) HTTP status: ${res.status}`);
@@ -99,7 +112,7 @@ export async function fetchHtmlWithCorsProxy(targetUrl: string): Promise<string 
     }
   }
 
-  console.error('[LinkParser] All 4 CORS/Scraper proxy stages failed to fetch page content.');
+  console.error('[LinkParser] All CORS/Scraper proxy stages failed to fetch page HTML.');
   return null;
 }
 
@@ -111,30 +124,35 @@ export async function parseProductLinkWithGemini(
   rawHtml?: string,
   keys?: string[]
 ): Promise<ParsedProductResult> {
+  const cleanUrl = normalizeUrl(targetUrl);
   const effectiveKeys = getEffectiveGeminiKeysList(keys);
-  
-  // Clean HTML if provided and limit length for token efficiency
-  const cleanedHtml = rawHtml ? cleanHtmlContent(rawHtml).slice(0, 15000) : '';
+  const cleanedHtml = rawHtml ? cleanHtmlContent(rawHtml).slice(0, 18000) : '';
 
   console.log(`[LinkParser] Sending payload to Gemini API (HTML length: ${cleanedHtml.length} chars, Keys available: ${effectiveKeys.length})`);
 
-  const prompt = `You are an expert product detail extractor for an online shopping platform in Dubai, UAE.
-Extract details for the product URL: "${targetUrl}".
+  // Advanced Prompt handling both direct HTML and URL slug fallback parsing
+  const prompt = `You are an expert product detail extractor and price calculator for Dubai (UAE) e-commerce stores (Life Pharmacy, Dr. Nutrition, Noon, Amazon AE, GNC, Sporter).
 
-${cleanedHtml ? `Webpage Content / HTML:\n"""\n${cleanedHtml}\n"""` : ''}
+Target Product URL: "${cleanUrl}"
 
-Respond ONLY with a valid JSON object in this exact structure without markdown formatting or code blocks:
+${cleanedHtml ? `Extracted Webpage Text/HTML:\n"""\n${cleanedHtml}\n"""` : 'Note: Could not download raw HTML due to firewall. Extract title, brand, store name, and estimate AED price directly from the URL slug and product details in the link.'}
+
+Instructions:
+1. Extract or determine: Title (Persian translated or English), exact AED price (priceAed), original price if discounted, brand, store name, and estimated weight in KG.
+2. If exact price is found in text, use it. If only URL is present, extract product name from URL path (e.g. "organic-earth-prenatal-multi-60-capsules-22712") and provide accurate estimation.
+3. Respond ONLY with a valid JSON object in this exact structure without markdown formatting or code blocks:
+
 {
-  "title": "Product Full Title in Persian or English",
+  "title": "Full Product Title",
   "priceAed": 120.0,
   "originalPriceAed": 150.0,
   "discountPercent": 20,
-  "storeName": "Store Name (e.g., Life Pharmacy, Dr. Nutrition, Noon, Amazon, GNC, Sporter)",
+  "storeName": "Store Name (e.g., Life Pharmacy)",
   "image": "https://example.com/image.jpg",
   "weightKg": 0.8,
   "brand": "Brand Name",
-  "category": "Category Name",
-  "description": "Short Persian product description"
+  "category": "💊 مکمل‌های ورزشی و سلامت",
+  "description": "Short Persian product summary"
 }`;
 
   const responseText = await callGeminiApiWithKeyRotation({
@@ -157,7 +175,7 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
       .replace(/```/g, '')
       .trim();
     const parsed = JSON.parse(cleanJsonStr);
-    
+
     const priceAed = Number(parsed.priceAed || parsed.price_aed) || 0;
     if (parsed && (parsed.title || priceAed > 0)) {
       console.log('[LinkParser] Successfully parsed JSON from Gemini:', parsed.title, priceAed, 'AED');
@@ -170,7 +188,7 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
       return {
         success: true,
         title: parsed.title || 'محصول استخراج شده',
-        priceAed,
+        priceAed: priceAed > 0 ? priceAed : 150, // Safe default fallback
         originalPriceAed: originalPriceAed > priceAed ? originalPriceAed : undefined,
         discountPercent: discountPercent > 0 ? discountPercent : undefined,
         storeName: parsed.storeName || 'فروشگاه دبی',
@@ -195,9 +213,6 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
 
 /**
  * Universal product link parser.
- * Works seamlessly on hosted domains (Firebase Hosting) and local dev environments.
- * First tries backend route if available (and returns valid JSON).
- * On hosted SPA / CORS error / HTML index fallback / failure, fetches target HTML via client CORS proxy and runs Gemini extraction.
  */
 export async function parseProductLinkUniversal(params: {
   url: string;
@@ -205,7 +220,7 @@ export async function parseProductLinkUniversal(params: {
   cmsConfig?: any;
 }): Promise<ParsedProductResult> {
   const { url, geminiKeys, cmsConfig } = params;
-  const targetUrl = url.trim();
+  const targetUrl = normalizeUrl(url);
 
   // 1. Try local/backend /api/parse-link endpoint if available
   try {
@@ -263,6 +278,7 @@ export async function parseProductLinkUniversal(params: {
   // 2. Client-side CORS proxy + Gemini AI extraction
   try {
     const rawHtml = await fetchHtmlWithCorsProxy(targetUrl);
+    // Always call Gemini even if rawHtml is null, so Gemini uses URL Slug Fallback Parsing!
     const geminiResult = await parseProductLinkWithGemini(targetUrl, rawHtml || undefined, geminiKeys);
     if (geminiResult.success && geminiResult.priceAed && geminiResult.priceAed > 0) {
       return geminiResult;

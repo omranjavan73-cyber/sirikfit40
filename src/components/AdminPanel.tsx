@@ -55,6 +55,7 @@ import {
 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db, checkFirestoreConnection, saveSettingsToFirestore, fetchSettingsFromFirestore, saveCmsToFirestore, getCmsFromFirestore } from '../firebase';
+import StickyBottomSaveBar from './StickyBottomSaveBar';
 
 // 🟢 [GOLD STANDARD] Save to Firestore helper pattern for all Admin Panel sections
 export const saveToFirestore = async (payload: any, sectionName: string) => {
@@ -2303,6 +2304,59 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  // 🟢 Helper for Sticky Bottom Save Bar
+  const getActiveTabLabel = (tab: string) => {
+    switch (tab) {
+      case 'pricingRules':
+        return 'قوانین قیمت‌گذاری و نرخ‌ها';
+      case 'orders':
+        return 'سفارشات مشتریان';
+      case 'accounting':
+        return 'حسابداری و تراکنش‌ها';
+      case 'gateway':
+        return 'تنظیمات درگاه پرداخت';
+      case 'dashboard':
+        return 'آمار، گزارشات و تنظیمات مالی';
+      case 'homeContent':
+        return 'ظاهر و محتوای اصلی سایت';
+      case 'deals':
+        return 'پیشنهادهای ویژه و تخفیف‌ها';
+      case 'inventory':
+        return 'انبار و کالاهای ایران';
+      case 'cms':
+        return 'تنظیمات عمومی و بنرها';
+      case 'apiSettings':
+        return 'کلیدهای API و تنظیمات هوش مصنوعی';
+      case 'security':
+        return 'رمز عبور و مدیریت امنیت';
+      case 'backup':
+        return 'بک‌آپ و پشتیبان‌گیری داده‌ها';
+      default:
+        return 'مدیریت و تنظیمات سیستم';
+    }
+  };
+
+  const handleStickySave = async () => {
+    if (activeAdminSubTab === 'security') {
+      await handleChangePassword(new Event('submit') as any);
+    } else if (activeAdminSubTab === 'backup') {
+      await handleSaveBackupSchedule(new Event('submit') as any);
+    } else if (activeAdminSubTab === 'gateway') {
+      await handleSaveGatewaySettings();
+    } else if (activeAdminSubTab === 'homeContent') {
+      await handleSaveHomeContent();
+    } else if (activeAdminSubTab === 'cms' || activeAdminSubTab === 'apiSettings') {
+      await handleSaveCms();
+    } else if (activeAdminSubTab === 'accounting' || activeAdminSubTab === 'dashboard') {
+      await handleSaveFinancialSettings(new Event('submit') as any);
+    } else {
+      await handleMasterSaveAllAdminSettings();
+    }
+  };
+
+  const isAnySaving = isMasterSaving || isSavingCms || isSavingSettings || isSavingGateway || isSavingSchedule || isChangingPass;
+  const isAnySuccess = masterSaveSuccess || saveCmsSuccess || saveSettingsSuccess || saveGatewaySuccess || (passMessage?.type === 'success');
+
   // Stats for Dashboard
   const totalRevenueToman = (orders || [])
     .filter(o => o.paymentStatus === 'PAID')
@@ -2378,7 +2432,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }
 
   return (
-    <div className="space-y-6 pb-12 font-['Vazirmatn',sans-serif]">
+    <div className="space-y-6 pb-32 sm:pb-36 font-['Vazirmatn',sans-serif]">
       {/* Top Admin Header Bar - Matching Screenshot Design */}
       <div className="bg-white border border-slate-200/80 rounded-3xl p-5 shadow-xs flex items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
@@ -6916,6 +6970,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         </div>
       )}
+
+      {/* 🟢 Persistent Sticky Bottom Save Bar across all Management Tabs */}
+      <StickyBottomSaveBar
+        onSave={handleStickySave}
+        isSaving={isAnySaving}
+        saveSuccess={isAnySuccess}
+        label="ذخیره تنظیمات مدیریت"
+        subLabel="همگام‌سازی لحظه‌ای با Firestore و ذخیره پایدار"
+        activeTabLabel={getActiveTabLabel(activeAdminSubTab)}
+      />
     </div>
   );
 };

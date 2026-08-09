@@ -18,6 +18,34 @@
     ],
     "rewrites": [
       {
+        "source": "/saveFinancialSettings",
+        "function": "saveFinancialSettings"
+      },
+      {
+        "source": "/syncPricingRules",
+        "function": "syncPricingRules"
+      },
+      {
+        "source": "/saveCmsSettings",
+        "function": "saveCmsSettings"
+      },
+      {
+        "source": "/saveSettings",
+        "function": "saveSettings"
+      },
+      {
+        "source": "/getVisitorStats",
+        "function": "getVisitorStats"
+      },
+      {
+        "source": "/getAdminOrders",
+        "function": "getAdminOrders"
+      },
+      {
+        "source": "/parseLink",
+        "function": "parseLink"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

@@ -1994,11 +1994,45 @@ app.post('/api/payment/simulate', async (req, res) => {
   }
 });
 
-// Multi-Proxy Waterfall Helper with Dedicated Render Puppeteer Scraper
+// Multi-Proxy Waterfall Helper with Direct Fetch & Dedicated Scraper
 async function fetchWithProxies(
   targetUrl: string
 ): Promise<{ ok: boolean; status: number; text: string }> {
-  // 1. Primary: Dedicated Render Puppeteer Scraper Endpoint
+  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+  const desktopHeaders = {
+    'User-Agent': userAgent,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1'
+  };
+
+  // 0. Primary Direct Server-Side Fetch using realistic browser headers
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const directRes = await fetch(targetUrl, { headers: desktopHeaders, signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (directRes.ok) {
+      const text = await directRes.text();
+      if (text && text.length > 200 && !text.includes('Just a moment...') && !text.includes('Attention Required! | Cloudflare')) {
+        return { ok: true, status: directRes.status, text };
+      }
+    }
+  } catch (_e) {
+    // Direct fetch failed, fallback to scrapers & proxies
+  }
+
+  // 1. Dedicated Render Puppeteer Scraper Endpoint
   try {
     const targetEndpoint = 'https://my-scraper-ycsp.onrender.com/scrape?url=' + encodeURIComponent(targetUrl);
     const controller = new AbortController();
@@ -2029,7 +2063,6 @@ async function fetchWithProxies(
   }
 
   // 2. Secondary: Multi-Proxy Waterfall Fallback
-  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
   const headers = {
     'User-Agent': userAgent,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,application/json,*/*;q=0.8',

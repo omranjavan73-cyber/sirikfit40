@@ -15,10 +15,12 @@ import {
   PackageCheck,
   Calendar,
   Phone,
-  Mail
+  Mail,
+  LifeBuoy
 } from 'lucide-react';
 import type { Order, User } from '../types';
 import { formatToman, formatPersianDate } from '../utils/formatters';
+import { UserSupportTickets } from './UserSupportTickets';
 
 interface CustomerAccountViewProps {
   currentUser: User | null;
@@ -41,6 +43,7 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [accountTab, setAccountTab] = useState<'orders' | 'tickets'>('orders');
 
   // Inline Auth form state for unauthenticated users
   const [name, setName] = useState('');
@@ -376,8 +379,44 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
         </div>
       </div>
 
-      {/* Orders Section Header & Local Search */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">
+      {/* Account Dashboard Tabs Navigation */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          type="button"
+          onClick={() => setAccountTab('orders')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-black text-xs md:text-sm transition cursor-pointer ${
+            accountTab === 'orders'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+          }`}
+        >
+          <ShoppingBag className="w-4 h-4" />
+          <span>سفارشات من</span>
+          <span className="bg-slate-800 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
+            {orders.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAccountTab('tickets')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-black text-xs md:text-sm transition cursor-pointer ${
+            accountTab === 'tickets'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+          }`}
+        >
+          <LifeBuoy className="w-4 h-4 text-emerald-400" />
+          <span>تیکت‌های پشتیبانی</span>
+        </button>
+      </div>
+
+      {accountTab === 'tickets' ? (
+        <UserSupportTickets currentUser={currentUser} showToast={showToast} />
+      ) : (
+        <>
+          {/* Orders Section Header & Local Search */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
             <ShoppingBag className="w-5 h-5 text-black" />
@@ -621,6 +660,8 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

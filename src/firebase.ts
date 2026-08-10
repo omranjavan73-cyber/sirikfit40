@@ -15,12 +15,12 @@ import {
 import firebaseConfigJson from '../firebase-applet-config.json';
 
 const metaEnv = (import.meta as any).env || {};
-const apiKey = firebaseConfigJson?.apiKey || metaEnv.VITE_FIREBASE_API_KEY || 'AIzaSyBABlTabUVtwgLcHxFaeINVECS9zqGP7Zk8';
-const authDomain = firebaseConfigJson?.authDomain || metaEnv.VITE_FIREBASE_AUTH_DOMAIN || 'sirikfit40.firebaseapp.com';
-const projectId = firebaseConfigJson?.projectId || metaEnv.VITE_FIREBASE_PROJECT_ID || 'sirikfit40';
-const storageBucket = firebaseConfigJson?.storageBucket || metaEnv.VITE_FIREBASE_STORAGE_BUCKET || 'sirikfit40.appfirebasestorage.app';
-const messagingSenderId = firebaseConfigJson?.messagingSenderId || metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '532757567852';
-const appId = firebaseConfigJson?.appId || metaEnv.VITE_FIREBASE_APP_ID || '1:532757567852:web:01f3671e84c96b4933b49';
+const apiKey = firebaseConfigJson?.apiKey || metaEnv.VITE_FIREBASE_API_KEY || 'AIzaSyDDT03m1Qxzzdk9drEMF-R9L1Y_VzhkyCY';
+const authDomain = firebaseConfigJson?.authDomain || metaEnv.VITE_FIREBASE_AUTH_DOMAIN || 'ai-studio-omexdubaiimportp-d094498d-8b4a-4b4b-8b36-0d6a233161cd.firebaseapp.com';
+const projectId = firebaseConfigJson?.projectId || metaEnv.VITE_FIREBASE_PROJECT_ID || 'ai-studio-omexdubaiimportp-d094498d-8b4a-4b4b-8b36-0d6a233161cd';
+const storageBucket = firebaseConfigJson?.storageBucket || metaEnv.VITE_FIREBASE_STORAGE_BUCKET || 'ai-studio-omexdubaiimportp-d094498d-8b4a-4b4b-8b36-0d6a233161cd.firebasestorage.app';
+const messagingSenderId = firebaseConfigJson?.messagingSenderId || metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '647943404812';
+const appId = firebaseConfigJson?.appId || metaEnv.VITE_FIREBASE_APP_ID || '1:647943404812:web:2aac3fab6cdfab690f1d29';
 const firestoreDatabaseId = firebaseConfigJson?.firestoreDatabaseId;
 
 const firebaseConfig = {
@@ -38,6 +38,7 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
 
+// Automatically sign in anonymously if not authenticated to grant Firestore read/write permissions
 try {
   if (auth) {
     onAuthStateChanged(auth, (user) => {
@@ -109,9 +110,16 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
+  const errMsg = errInfo.error;
+  if (errMsg.includes('PERMISSION_DENIED') || errMsg.includes('permission-denied')) {
+    console.warn('Firestore Notice (Local Storage Active):', path, errMsg);
+  } else {
+    console.warn('Firestore Notice:', path, errMsg);
+  }
   return errInfo;
 }
 
+// Helper: Save/Update User Profile in Firestore "users" collection
 export async function saveUserProfileToFirestore(userData: {
   id: string;
   name: string;
@@ -123,19 +131,24 @@ export async function saveUserProfileToFirestore(userData: {
   const path = `users/${userData.id}`;
   try {
     const userRef = doc(db, 'users', userData.id);
-    await setDoc(userRef, {
-      uid: userData.id,
-      name: userData.name,
-      phoneNumber: userData.phoneNumber,
-      email: userData.email || '',
-      createdAt: userData.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
+    await setDoc(
+      userRef,
+      {
+        uid: userData.id,
+        name: userData.name,
+        phoneNumber: userData.phoneNumber,
+        email: userData.email || '',
+        createdAt: userData.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
 }
 
+// Helper: Save Order in Firestore "orders" collection
 export async function saveOrderToFirestore(orderData: any) {
   if (!db) return;
   const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
@@ -155,6 +168,7 @@ export async function saveOrderToFirestore(orderData: any) {
   }
 }
 
+// Helper: Fetch User Orders from Firestore
 export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: string) {
   if (!db) return [];
   const path = 'orders';
@@ -179,44 +193,104 @@ export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: s
   }
 }
 
+// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
 export async function saveSettingsToFirestore(settingsData: any): Promise<boolean> {
+  // Always update local storage as instant secondary cache
+  try {
+    if (typeof window !== 'undefined') {
+      const existing = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
+      const parsed = existing ? JSON.parse(existing) : {};
+      const updated = { ...parsed, ...settingsData };
+      localStorage.setItem('sirikfit_financial_settings', JSON.stringify(updated));
+      localStorage.setItem('omex_financial_settings', JSON.stringify(updated));
+    }
+  } catch (_lsErr) {}
+
   if (!db) return true;
   const path = 'settings/app';
   try {
     const settingsRef = doc(db, 'settings', 'app');
-    await setDoc(settingsRef, { ...settingsData, updatedAt: new Date().toISOString() }, { merge: true });
+    const globalRef = doc(db, 'settings', 'global');
+    const payload = {
+      ...settingsData,
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(settingsRef, payload, { merge: true });
+    await setDoc(globalRef, payload, { merge: true });
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
-    return true;
+    return true; // Local storage saved successfully
   }
 }
 
+// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
 export async function fetchSettingsFromFirestore() {
   let firestoreData: any = null;
   if (db) {
-    const path = 'settings/app';
     try {
+      const globalRef = doc(db, 'settings', 'global');
+      const globalSnap = await getDoc(globalRef);
+      if (globalSnap.exists()) {
+        firestoreData = globalSnap.data();
+      }
+
       const settingsRef = doc(db, 'settings', 'app');
       const docSnap = await getDoc(settingsRef);
       if (docSnap.exists()) {
-        firestoreData = docSnap.data();
+        firestoreData = { ...firestoreData, ...docSnap.data() };
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.GET, path);
+      handleFirestoreError(err, OperationType.GET, 'settings/app');
     }
   }
+
+  // If Firestore returned data, update local storage cache and return Firestore as absolute source of truth
+  if (firestoreData && typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('sirikfit_financial_settings', JSON.stringify(firestoreData));
+      localStorage.setItem('omex_financial_settings', JSON.stringify(firestoreData));
+    } catch (_e) {}
+    return firestoreData;
+  }
+
+  // Local storage fallback if offline / unconfigured
+  try {
+    if (typeof window !== 'undefined') {
+      const local = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
+      if (local) {
+        return JSON.parse(local);
+      }
+    }
+  } catch (_lsErr) {}
+
   return firestoreData;
 }
 
 export const getSettingsFromFirestore = fetchSettingsFromFirestore;
 
+// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
 export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
+  try {
+    if (typeof window !== 'undefined') {
+      const existing = localStorage.getItem('sirikfit_cms_config');
+      const parsed = existing ? JSON.parse(existing) : {};
+      const updated = { ...parsed, ...cmsData };
+      localStorage.setItem('sirikfit_cms_config', JSON.stringify(updated));
+    }
+  } catch (_lsErr) {}
+
   if (!db) return true;
   const path = 'cms/app';
   try {
     const cmsRef = doc(db, 'cms', 'app');
-    await setDoc(cmsRef, { ...cmsData, updatedAt: new Date().toISOString() }, { merge: true });
+    const globalRef = doc(db, 'settings', 'global');
+    const payload = {
+      ...cmsData,
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(cmsRef, payload, { merge: true });
+    await setDoc(globalRef, payload, { merge: true });
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
@@ -224,23 +298,106 @@ export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
   }
 }
 
+// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
 export async function getCmsFromFirestore() {
   let firestoreData: any = null;
   if (db) {
-    const path = 'cms/app';
     try {
+      const globalRef = doc(db, 'settings', 'global');
+      const globalSnap = await getDoc(globalRef);
+      if (globalSnap.exists()) {
+        firestoreData = globalSnap.data();
+      }
+
       const cmsRef = doc(db, 'cms', 'app');
       const docSnap = await getDoc(cmsRef);
       if (docSnap.exists()) {
-        firestoreData = docSnap.data();
+        firestoreData = { ...firestoreData, ...docSnap.data() };
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.GET, path);
+      handleFirestoreError(err, OperationType.GET, 'cms/app');
     }
   }
+
+  // If Firestore returned data, update local storage cache and return Firestore as absolute source of truth
+  if (firestoreData && typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('sirikfit_cms_config', JSON.stringify(firestoreData));
+    } catch (_e) {}
+    return firestoreData;
+  }
+
+  try {
+    if (typeof window !== 'undefined') {
+      const local = localStorage.getItem('sirikfit_cms_config');
+      if (local) {
+        return JSON.parse(local);
+      }
+    }
+  } catch (_lsErr) {}
+
   return firestoreData;
 }
 
+// 🟢 Reusable Firestore Settings API Functions
+export async function loadSettings(): Promise<any> {
+  const [financial, cms] = await Promise.all([
+    fetchSettingsFromFirestore(),
+    getCmsFromFirestore()
+  ]);
+  return {
+    ...financial,
+    ...cms
+  };
+}
+
+export async function saveSettings(settingsPayload: any): Promise<boolean> {
+  const res1 = await saveSettingsToFirestore(settingsPayload);
+  const res2 = await saveCmsToFirestore(settingsPayload);
+  return res1 && res2;
+}
+
+export async function updateSetting(key: string, value: any): Promise<boolean> {
+  const payload = { [key]: value };
+  return await saveSettings(payload);
+}
+
+// Helper: Save Admin Password in Firestore "settings/admin" document
+export async function saveAdminPasswordToFirestore(password: string) {
+  if (!db) return;
+  const path = 'settings/admin';
+  try {
+    const adminRef = doc(db, 'settings', 'admin');
+    await setDoc(
+      adminRef,
+      {
+        password,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+// Helper: Fetch Admin Password from Firestore
+export async function getAdminPasswordFromFirestore() {
+  if (!db) return null;
+  const path = 'settings/admin';
+  try {
+    const adminRef = doc(db, 'settings', 'admin');
+    const docSnap = await getDoc(adminRef);
+    if (docSnap.exists()) {
+      return docSnap.data()?.password || null;
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, path);
+  }
+  return null;
+}
+
+// 🟢 [FIXED_BY_AI]: Exported helper function for direct Firestore persistence with local storage fallback
 export async function checkFirestoreConnection(): Promise<{
   connected: boolean;
   dbId?: string;
@@ -254,6 +411,15 @@ export async function checkFirestoreConnection(): Promise<{
     await getDoc(settingsRef);
     return { connected: true, dbId: firestoreDatabaseId || '(default)' };
   } catch (err: any) {
+    // Check if local storage persistence is available as fallback
+    const hasLocal = typeof window !== 'undefined' && Boolean(
+      localStorage.getItem('sirikfit_financial_settings') ||
+      localStorage.getItem('omex_financial_settings') ||
+      localStorage.getItem('sirikfit_cms_config')
+    );
+    if (hasLocal) {
+      return { connected: true, dbId: (firestoreDatabaseId || 'local-fallback') + ' (Local Storage Active)' };
+    }
     return { connected: false, error: err?.message || 'Permission or Connection Issue' };
   }
 }

@@ -194,6 +194,7 @@ export interface CmsConfig {
   heroImage: string;
   showAnnouncementBanner?: boolean;
   showPriceBreakdown?: boolean;
+  showReviewsSection?: boolean;
   announcementText?: string;
   announcementBadge?: string;
   announcementSlogans?: string[];
@@ -309,3 +310,28 @@ export interface CartItem {
 }
 
 export type TabType = 'main' | 'inventory' | 'deals' | 'account' | 'admin' | 'detail' | 'cart';
+
+export interface TicketMessage {
+  id: string;
+  senderRole: 'user' | 'admin';
+  senderName: string;
+  message: string;
+  createdAt: string;
+  timestamp: number;
+}
+
+export interface SupportTicket {
+  id: string;
+  ticketNumber: string;
+  userId: string;
+  userName: string;
+  userPhone: string;
+  userEmail?: string;
+  subject: string;
+  category: string;
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  status: 'PENDING' | 'REPLIED' | 'CLOSED';
+  createdAt: string;
+  updatedAt: string;
+  messages: TicketMessage[];
+}

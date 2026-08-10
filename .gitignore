@@ -1,10 +1,8 @@
-# Compiled JavaScript files
-lib/**/*.js
-lib/**/*.js.map
-
-# TypeScript v1 declaration files
-typings/
-
-# Node.js dependency directory
 node_modules/
-*.local
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example

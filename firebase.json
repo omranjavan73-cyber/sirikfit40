@@ -1,14 +1,4 @@
 {
-  "functions": {
-    "source": "functions",
-    "codebase": "default",
-    "ignore": [
-      "node_modules",
-      ".git",
-      "firebase-debug.log",
-      "firebase-debug.*.log"
-    ]
-  },
   "hosting": {
     "public": "dist",
     "ignore": [
@@ -18,37 +8,34 @@
     ],
     "rewrites": [
       {
-        "source": "/saveFinancialSettings",
-        "function": "saveFinancialSettings"
+        "source": "/api/parse-link/**",
+        "function": "api"
       },
       {
-        "source": "/syncPricingRules",
-        "function": "syncPricingRules"
+        "source": "/api/parse-link",
+        "function": "api"
       },
       {
-        "source": "/saveCmsSettings",
-        "function": "saveCmsSettings"
-      },
-      {
-        "source": "/saveSettings",
-        "function": "saveSettings"
-      },
-      {
-        "source": "/getVisitorStats",
-        "function": "getVisitorStats"
-      },
-      {
-        "source": "/getAdminOrders",
-        "function": "getAdminOrders"
-      },
-      {
-        "source": "/parseLink",
-        "function": "parseLink"
+        "source": "/api/**",
+        "function": "api"
       },
       {
         "source": "**",
         "destination": "/index.html"
       }
+    ]
+  },
+  "functions": {
+    "source": ".",
+    "codebase": "default",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log"
+    ],
+    "predeploy": [
+      "npm run build"
     ]
   }
 }

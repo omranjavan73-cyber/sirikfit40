@@ -369,29 +369,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             </p>
           </div>
         </div>
-
-        <button
-          onClick={handleSaveAllRules}
-          disabled={isSaving}
-          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-80 text-white font-extrabold text-xs px-5 py-3 rounded-2xl transition shadow-sm flex items-center gap-2 cursor-pointer shrink-0 w-full sm:w-auto justify-center"
-        >
-          {isSaving ? (
-            <>
-              <RefreshCw className="w-4 h-4 animate-spin text-white" />
-              <span>در حال ذخیره...</span>
-            </>
-          ) : saveSuccess ? (
-            <>
-              <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-              <span>ذخیره شد!</span>
-            </>
-          ) : (
-            <>
-              <Save className="w-4 h-4 text-emerald-200" />
-              <span>ذخیره قوانین قیمت‌گذاری</span>
-            </>
-          )}
-        </button>
       </div>
 
       {/* Success Toast / Notification */}

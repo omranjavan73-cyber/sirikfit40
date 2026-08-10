@@ -16,6 +16,7 @@ import { AuthModal } from './components/AuthModal';
 import { LocalInventoryModal } from './components/LocalInventoryModal';
 import { InventoryPage } from './components/InventoryPage';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
+import { ReviewsSection } from './components/ReviewsSection';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
 import { toPersianDigits, getEffectiveAedRate } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore } from './firebase';
@@ -455,6 +456,9 @@ export default function App() {
             {/* Popular Stores Banner */}
             <StoreCards stores={cmsConfig?.stores} cms={cmsConfig} onSelectStoreSample={handleSelectStoreSample} />
 
+            {/* Reviews & Suggestions Section (Global visibility controlled via Admin Panel -> General Settings) */}
+            <ReviewsSection showReviewsSection={cmsConfig?.showReviewsSection !== false} />
+
             {/* Support & Contact Section */}
             <div id="support-section" className="scroll-mt-16">
               <SupportSection cms={cmsConfig} />
@@ -543,6 +547,7 @@ export default function App() {
             onUpdateSettings={(newSettings) => setSettings(newSettings)}
             cms={cmsConfig}
             onUpdateCms={(newCms) => setCmsConfig(newCms)}
+            showToast={showToast}
           />
         )}
       </main>

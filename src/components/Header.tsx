@@ -177,7 +177,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <RotateCw className={`w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400 ${isLoadingSettings ? 'animate-spin text-amber-500' : ''}`} />
                 </div>
                 <span className="font-extrabold text-slate-900 text-[9.5px] sm:text-[11px] whitespace-nowrap leading-tight mt-0.5">
-                  {toPersianDigits(formatToman(settings.aedRate))} تومان
+                  {toPersianDigits(formatToman(settings.aedRate))}
                 </span>
               </div>
             )}

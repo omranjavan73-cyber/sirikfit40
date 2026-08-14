@@ -53,6 +53,122 @@
         "comment": { "type": "string" },
         "createdAt": { "type": "string" }
       }
+    },
+    "tickets": {
+      "title": "Support Tickets",
+      "description": "Customer support requests and inquiries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "subject": { "type": "string" },
+        "status": { "type": "string" },
+        "messages": { "type": "array" }
+      }
+    },
+    "scraped_products_cache": {
+      "title": "Scraped Products Cache",
+      "description": "Cache for scraped external store product details",
+      "type": "object",
+      "properties": {
+        "urlHash": { "type": "string" },
+        "originalUrl": { "type": "string" },
+        "title": { "type": "string" },
+        "price": { "type": "number" },
+        "currency": { "type": "string" },
+        "image": { "type": "string" },
+        "storeName": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "expiresAt": { "type": "number" }
+      }
+    },
+    "faqs": {
+      "title": "FAQs",
+      "description": "Frequently asked questions and answers",
+      "type": "object",
+      "properties": {
+        "question": { "type": "string" },
+        "answer": { "type": "string" },
+        "category": { "type": "string" }
+      }
+    },
+    "financial_expenses": {
+      "title": "Financial Expenses",
+      "description": "Expense records for accounting",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "date": { "type": "string" }
+      }
+    },
+    "discount_codes": {
+      "title": "Discount Codes",
+      "description": "Promotional discount codes",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "percentage": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "user_inquiries": {
+      "title": "User Inquiries",
+      "description": "User questions submitted from FAQ section",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "question": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/settings/{settingId}": {
+      "schema": "settings",
+      "description": "Application settings and configurations"
+    },
+    "/cms/{docId}": {
+      "schema": "settings",
+      "description": "CMS page content and layouts"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "reviews",
+      "description": "Customer reviews and ratings"
+    },
+    "/orders/{orderId}": {
+      "schema": "orders",
+      "description": "Store customer orders"
+    },
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User profile records"
+    },
+    "/tickets/{ticketId}": {
+      "schema": "tickets",
+      "description": "Customer support tickets"
+    },
+    "/scraped_products_cache/{urlHash}": {
+      "schema": "scraped_products_cache",
+      "description": "Scraped product caches"
+    },
+    "/faqs/{faqId}": {
+      "schema": "faqs",
+      "description": "Frequently asked questions"
+    },
+    "/user_inquiries/{inquiryId}": {
+      "schema": "user_inquiries",
+      "description": "Customer inquiries and questions"
+    },
+    "/financial_expenses/{expenseId}": {
+      "schema": "financial_expenses",
+      "description": "Business expense records"
+    },
+    "/discount_codes/{codeId}": {
+      "schema": "discount_codes",
+      "description": "Discount codes"
     }
   }
 }

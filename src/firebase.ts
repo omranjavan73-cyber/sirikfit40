@@ -16,6 +16,7 @@ import {
   limit
 } from 'firebase/firestore';
 import { safeFetchJson } from './utils/apiHelper';
+import { dispatchOrderToGoogleSheets } from './utils/googleSheetsSync';
 
 const firebaseConfig = {
   apiKey: "AIzaSyD38wxpvo9EcqM5LzCQGTGVfdY8PXizlRo",
@@ -239,6 +240,9 @@ export async function saveOrderToFirestore(orderData: any) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     }).catch(() => {});
+
+    // 4. Background non-blocking sync to Google Sheets Webhook
+    dispatchOrderToGoogleSheets(payload).catch(() => {});
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `orders/${orderId}`);
   }

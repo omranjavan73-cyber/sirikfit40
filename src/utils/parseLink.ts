@@ -1,19 +1,29 @@
 import { getEffectiveGeminiKeysList, callGeminiApiWithKeyRotation } from './geminiKey';
+import type { ProductVariantGroup, ProductVariantOption } from '../types';
 
 export interface ParsedProductResult {
   success: boolean;
   requireManualEntry?: boolean;
+  id?: string;
   title?: string;
   priceAed?: number;
+  basePriceAED?: number;
   originalPriceAed?: number;
   discountPercent?: number;
   image?: string;
+  mainImage?: string;
   images?: string[];
+  galleryImages?: string[];
   weightKg?: number;
   storeName?: string;
+  sourceStore?: string;
+  sourceUrl?: string;
   brand?: string;
   category?: string;
   description?: string;
+  inStock?: boolean;
+  variants?: any[];
+  variantGroups?: ProductVariantGroup[];
   options?: string[];
   flavors?: string[];
   sizes?: string[];
@@ -579,7 +589,7 @@ export function parseHtmlMetadata(html: string, targetUrl: string): ParsedProduc
 
 /**
  * Extract product details using text/HTML + Gemini API with Key Rotation.
- * Gemini strictly returns JSON structure: { title, priceAed, originalPriceAed, discountPercent, storeName, image, weightKg, brand, category, description }.
+ * Gemini strictly returns JSON structure: { title, priceAed, originalPriceAed, discountPercent, storeName, image, galleryImages, variantGroups, weightKg, brand, category, description }.
  */
 export async function parseProductLinkWithGemini(
   targetUrl: string,
@@ -605,11 +615,36 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
   "originalPriceAed": 150.0,
   "discountPercent": 20,
   "storeName": "Store Name (e.g., Life Pharmacy, Dr. Nutrition, Noon, Amazon, GNC, Sporter)",
-  "image": "https://example.com/image.jpg",
+  "image": "https://example.com/main-image.jpg",
+  "galleryImages": [
+    "https://example.com/image1.jpg",
+    "https://example.com/image2.jpg",
+    "https://example.com/image3.jpg"
+  ],
   "weightKg": 0.8,
   "brand": "Brand Name",
   "category": "Category Name",
-  "description": "Short Persian product description"
+  "description": "Short Persian product description",
+  "variantGroups": [
+    {
+      "id": "flavors",
+      "name": "طعم (Flavor)",
+      "type": "flavor",
+      "options": [
+        { "id": "f1", "name": "وانیل (Vanilla)", "priceAed": 120.0 },
+        { "id": "f2", "name": "شکلات (Chocolate)", "priceAed": 120.0 }
+      ]
+    },
+    {
+      "id": "sizes",
+      "name": "وزن / سایز (Size)",
+      "type": "size",
+      "options": [
+        { "id": "s1", "name": "۲.۲۷ کیلوگرم (5 lbs)", "priceAed": 280.0 },
+        { "id": "s2", "name": "۹۰۷ گرم (2 lbs)", "priceAed": 130.0 }
+      ]
+    }
+  ]
 }`;
 
   const responseText = await callGeminiApiWithKeyRotation({
@@ -646,6 +681,41 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
       const brandName = parsed.brand || storeName || 'برند معتبر';
       const formattedTitle = generateBilingualProductTitle(parsed.title || 'محصول استخراج شده', storeName, brandName);
 
+      const mainImg = parsed.image || '';
+      const rawGallery = Array.isArray(parsed.galleryImages)
+        ? parsed.galleryImages.filter((g: any) => typeof g === 'string' && g.trim() !== '')
+        : (Array.isArray(parsed.images) ? parsed.images : []);
+      
+      const galleryImages = Array.from(new Set([mainImg, ...rawGallery].filter(Boolean)));
+
+      // Process variant groups
+      let variantGroups: ProductVariantGroup[] = [];
+      if (Array.isArray(parsed.variantGroups) && parsed.variantGroups.length > 0) {
+        variantGroups = parsed.variantGroups.map((vg: any, gIdx: number) => ({
+          id: vg.id || `group-${gIdx}`,
+          name: vg.name || (vg.type === 'size' ? 'وزن / سایز (Size)' : 'طعم (Flavor)'),
+          type: vg.type || (vg.name?.includes('وزن') || vg.name?.includes('سایز') || vg.name?.includes('Size') ? 'size' : 'flavor'),
+          options: (Array.isArray(vg.options) ? vg.options : []).map((opt: any, oIdx: number) => ({
+            id: opt.id || `opt-${gIdx}-${oIdx}`,
+            name: typeof opt === 'string' ? opt : (opt.name || opt.title || `گزینه ${oIdx + 1}`),
+            priceAed: Number(opt.priceAed || opt.price || priceAed) || priceAed,
+            originalPriceAed: Number(opt.originalPriceAed || opt.originalPrice || 0) || undefined,
+            image: opt.image || undefined,
+            inStock: opt.inStock !== false
+          }))
+        }));
+      }
+
+      const extractedFlavors: string[] = [];
+      const extractedSizes: string[] = [];
+      variantGroups.forEach(vg => {
+        if (vg.type === 'size') {
+          vg.options.forEach(opt => extractedSizes.push(opt.name));
+        } else {
+          vg.options.forEach(opt => extractedFlavors.push(opt.name));
+        }
+      });
+
       return {
         success: true,
         title: formattedTitle,
@@ -655,11 +725,15 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
         storeName,
         brand: brandName,
         category: parsed.category || '💊 مکمل‌های ورزشی',
-        image: parsed.image || '',
-        images: parsed.image ? [parsed.image] : [],
+        image: mainImg,
+        images: galleryImages,
+        galleryImages,
         weightKg: Number(parsed.weightKg) || 0.8,
         description: parsed.description || 'توضیحات استخراج شده توسط هوش مصنوعی',
-        options: parsed.options || ["پیش‌فرض / استاندارد"]
+        variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
+        flavors: extractedFlavors.length > 0 ? extractedFlavors : (parsed.flavors || []),
+        sizes: extractedSizes.length > 0 ? extractedSizes : (parsed.sizes || []),
+        options: parsed.options || [...extractedFlavors, ...extractedSizes]
       };
     }
   } catch (err) {
@@ -721,24 +795,74 @@ export async function parseProductLinkUniversal(params: {
     const data: any = await res.json();
     const priceAed = Number(data?.priceAed || data?.price_aed || data?.price) || 0;
 
-    if (data && data.success === true && data.title && priceAed > 0) {
+    if (data && (data.success === true || data.ok === true) && data.title && priceAed > 0) {
       const storeName = data.storeName || data.brand || 'دبی';
       const brandName = data.brand || storeName;
       const formattedTitle = generateBilingualProductTitle(data.title, storeName, brandName);
 
+      const mainImg = data.image || data.mainImage || data.image_url || '';
+      const rawGallery = Array.isArray(data.galleryImages) 
+        ? data.galleryImages 
+        : (Array.isArray(data.images) ? data.images : []);
+      const galleryImages = Array.from(new Set([mainImg, ...rawGallery].filter(Boolean)));
+
+      // Process variant groups
+      let variantGroups: ProductVariantGroup[] = [];
+      if (Array.isArray(data.variantGroups) && data.variantGroups.length > 0) {
+        variantGroups = data.variantGroups;
+      } else {
+        const flavors = Array.isArray(data.flavors) ? data.flavors : [];
+        const sizes = Array.isArray(data.sizes) ? data.sizes : [];
+        if (flavors.length > 0) {
+          variantGroups.push({
+            id: 'group-flavors',
+            name: 'طعم (Flavor)',
+            type: 'flavor',
+            options: flavors.map((f: string, idx: number) => ({
+              id: `flv-${idx}`,
+              name: f,
+              priceAed: priceAed,
+              inStock: true
+            }))
+          });
+        }
+        if (sizes.length > 0) {
+          variantGroups.push({
+            id: 'group-sizes',
+            name: 'وزن / سایز (Size)',
+            type: 'size',
+            options: sizes.map((s: string, idx: number) => ({
+              id: `sz-${idx}`,
+              name: s,
+              priceAed: priceAed,
+              inStock: true
+            }))
+          });
+        }
+      }
+
       return {
         success: true,
+        id: data.id || `scraped-${Date.now()}`,
         title: formattedTitle,
         priceAed,
+        basePriceAED: priceAed,
         originalPriceAed: Number(data.originalPriceAed || data.original_price_aed) || undefined,
         discountPercent: Number(data.discountPercent) || undefined,
         storeName,
+        sourceStore: storeName,
+        sourceUrl: targetUrl,
         brand: brandName,
         category: data.category || '💊 مکمل‌های ورزشی',
-        image: data.image || data.mainImage || data.image_url || '',
-        images: data.images || data.galleryImages || (data.image ? [data.image] : []),
+        image: mainImg,
+        mainImage: mainImg,
+        images: galleryImages,
+        galleryImages,
         weightKg: Number(data.weightKg) || 0.8,
         description: data.description,
+        inStock: data.inStock !== false,
+        variants: data.variants || [],
+        variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
         options: data.options,
         flavors: data.flavors || [],
         sizes: data.sizes || []

@@ -1,4 +1,4 @@
-import { db, saveSettingsToFirestore, saveCmsToFirestore } from '../firebase';
+import { db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
 export interface AdminSaveResult {
@@ -8,14 +8,32 @@ export interface AdminSaveResult {
 }
 
 /**
+ * Safely parses any value (string, number, undefined) to a clean numeric float.
+ * Handles Persian/Arabic digits, commas, currency symbols, etc.
+ */
+export function safeParseNumeric(val: any, fallback = 0): number {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === 'number') {
+    return isNaN(val) ? fallback : val;
+  }
+  const str = String(val)
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/,/g, '')
+    .replace(/[^0-9.-]/g, '')
+    .trim();
+  const parsed = parseFloat(str);
+  return isNaN(parsed) ? fallback : parsed;
+}
+
+/**
  * Single source of truth for saving all admin panel configuration updates:
  * Financial Settings, AED Rate, CMS Configs, and Feature Toggles.
  *
- * Direct Firestore Client SDK Pipeline:
- * 1. Safely parses all string numeric inputs to clean numbers.
- * 2. Writes synchronously to LocalStorage across all standard keys.
- * 3. Writes directly to Firestore using setDoc(doc(db, 'settings', 'app'), ..., { merge: true }).
- * 4. Dispatches custom window events ('settingsUpdated' and 'storage') for real-time React reactivity.
+ * Strict 3-Step Execution Sequence:
+ * 1. Synchronous write to LocalStorage (Immediate UI Source of Truth).
+ * 2. Synchronous window CustomEvent 'settingsUpdated' dispatch (Instant React Reactivity).
+ * 3. Asynchronous Firestore SDK setDoc + Non-blocking REST API calls.
  */
 export async function saveAdminSettingsPayload(
   financialSettings?: Record<string, any> | null,
@@ -25,92 +43,107 @@ export async function saveAdminSettingsPayload(
     let extractedAedRate: number | null = null;
 
     if (financialSettings) {
-      const aedVal = Number(financialSettings.aedRate);
-      const exVal = Number(financialSettings.exchangeRate);
-      const manualVal = Number(financialSettings.manualAedRate);
+      const aedVal = safeParseNumeric(financialSettings.aedRate);
+      const exVal = safeParseNumeric(financialSettings.exchangeRate);
+      const manualVal = safeParseNumeric(financialSettings.manualAedRate);
 
-      if (!isNaN(aedVal) && aedVal > 0) {
+      if (aedVal > 0) {
         extractedAedRate = aedVal;
-      } else if (!isNaN(exVal) && exVal > 0) {
+      } else if (exVal > 0) {
         extractedAedRate = exVal;
-      } else if (!isNaN(manualVal) && manualVal > 0) {
+      } else if (manualVal > 0) {
         extractedAedRate = manualVal;
       }
     }
 
     if (!extractedAedRate && cmsConfig) {
-      const cmsRate = cmsConfig?.pricingRules?.manualAedRate || cmsConfig?.pricingRules?.aedRate || cmsConfig?.apiConfig?.manualAedRate || cmsConfig?.apiConfig?.aedRate;
-      if (cmsRate && !isNaN(Number(cmsRate)) && Number(cmsRate) > 0) {
-        extractedAedRate = Number(cmsRate);
+      const cmsRate = safeParseNumeric(
+        cmsConfig?.pricingRules?.manualAedRate ||
+        cmsConfig?.pricingRules?.aedRate ||
+        cmsConfig?.apiConfig?.manualAedRate ||
+        cmsConfig?.apiConfig?.aedRate
+      );
+      if (cmsRate > 0) {
+        extractedAedRate = cmsRate;
       }
     }
 
-    let featureConfig: Record<string, boolean> | null = null;
+    // Clean, number-sanitized financial object
+    let cleanFinancial: Record<string, any> | null = null;
+    if (financialSettings) {
+      cleanFinancial = {
+        ...financialSettings,
+        aedRate: extractedAedRate || safeParseNumeric(financialSettings.aedRate) || 0,
+        manualAedRate: extractedAedRate || safeParseNumeric(financialSettings.manualAedRate) || 0,
+        cargoRatePerKg: safeParseNumeric(financialSettings.cargoRatePerKg, 35),
+        profitMargin: safeParseNumeric(financialSettings.profitMargin, 15),
+        minOrderAed: safeParseNumeric(financialSettings.minOrderAed, 200),
+        updatedAt: Date.now()
+      };
+    }
 
+    // Standardized Feature Config
+    let featureConfig: Record<string, boolean> | null = null;
+    if (cmsConfig || financialSettings) {
+      const explicitReviews = cmsConfig?.showReviewsSection ?? cmsConfig?.showReviews ?? cmsConfig?.showComments ?? cmsConfig?.features?.showReviews ?? cmsConfig?.features?.showComments;
+      const explicitStores = cmsConfig?.showStores ?? cmsConfig?.features?.showStores;
+      const explicitBreakdown = cmsConfig?.showPriceBreakdown ?? cmsConfig?.showBreakdown ?? cmsConfig?.features?.showBreakdown;
+      const explicitInventory = cmsConfig?.showLocalInventory ?? cmsConfig?.features?.showLocalInventory;
+      const explicitBanner = cmsConfig?.showAnnouncementBanner ?? cmsConfig?.features?.showAnnouncementBanner;
+      const explicitSupport = cmsConfig?.showSupportSection ?? cmsConfig?.homeContent?.showSupportSection ?? cmsConfig?.features?.showSupportSection;
+      const explicitPromo = cmsConfig?.showTopPromo ?? cmsConfig?.homeContent?.showTopPromo ?? cmsConfig?.features?.showTopPromo;
+
+      featureConfig = {
+        showReviews: explicitReviews !== undefined ? Boolean(explicitReviews) : true,
+        showComments: explicitReviews !== undefined ? Boolean(explicitReviews) : true,
+        showStores: explicitStores !== undefined ? Boolean(explicitStores) : true,
+        showBreakdown: explicitBreakdown !== undefined ? Boolean(explicitBreakdown) : true,
+        showLocalInventory: explicitInventory !== undefined ? Boolean(explicitInventory) : true,
+        showAnnouncementBanner: explicitBanner !== undefined ? Boolean(explicitBanner) : true,
+        showSupportSection: explicitSupport !== undefined ? Boolean(explicitSupport) : true,
+        showTopPromo: explicitPromo !== undefined ? Boolean(explicitPromo) : true,
+        ...(cmsConfig?.features || {}),
+        ...(financialSettings?.features || {})
+      };
+
+      if (cmsConfig) {
+        const revBool = Boolean(featureConfig.showReviews);
+        cmsConfig.features = { ...(cmsConfig.features || {}), ...featureConfig, showReviews: revBool, showComments: revBool };
+        cmsConfig.showReviewsSection = revBool;
+        cmsConfig.showReviews = revBool;
+        cmsConfig.showComments = revBool;
+        cmsConfig.showStores = Boolean(featureConfig.showStores);
+        cmsConfig.showPriceBreakdown = Boolean(featureConfig.showBreakdown);
+        cmsConfig.showBreakdown = Boolean(featureConfig.showBreakdown);
+        cmsConfig.showLocalInventory = Boolean(featureConfig.showLocalInventory);
+        cmsConfig.showAnnouncementBanner = Boolean(featureConfig.showAnnouncementBanner);
+        cmsConfig.showSupportSection = Boolean(featureConfig.showSupportSection);
+        cmsConfig.showTopPromo = Boolean(featureConfig.showTopPromo);
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // STEP 1: SYNCHRONOUS LOCALSTORAGE PERSISTENCE (Source of Truth)
+    // ---------------------------------------------------------------
     if (typeof window !== 'undefined') {
-      // 1. Write synchronously to standard LocalStorage keys
-      if (financialSettings) {
-        const cleanFin = {
-          ...financialSettings,
-          aedRate: extractedAedRate || Number(financialSettings.aedRate) || 0,
-          manualAedRate: extractedAedRate || Number(financialSettings.manualAedRate) || 0,
-          cargoRatePerKg: Number(financialSettings.cargoRatePerKg) || 35,
-          profitMargin: Number(financialSettings.profitMargin) || 15
-        };
-        localStorage.setItem('sirikfit_financial_settings', JSON.stringify(cleanFin));
-        localStorage.setItem('omex_financial_settings', JSON.stringify(cleanFin));
+      if (cleanFinancial) {
+        localStorage.setItem('sirikfit_financial_settings', JSON.stringify(cleanFinancial));
+        localStorage.setItem('omex_financial_settings', JSON.stringify(cleanFinancial));
       }
 
       if (extractedAedRate && extractedAedRate > 0) {
         localStorage.setItem('sirikfit_aed_rate', String(extractedAedRate));
       }
 
-      // Feature Toggles Standardization & Clean State Persistence
-      if (cmsConfig || financialSettings) {
-        const explicitReviews = cmsConfig?.showReviewsSection ?? cmsConfig?.showReviews ?? cmsConfig?.showComments ?? cmsConfig?.features?.showReviews ?? cmsConfig?.features?.showComments;
-        const explicitStores = cmsConfig?.showStores ?? cmsConfig?.features?.showStores;
-        const explicitBreakdown = cmsConfig?.showPriceBreakdown ?? cmsConfig?.showBreakdown ?? cmsConfig?.features?.showBreakdown;
-        const explicitInventory = cmsConfig?.showLocalInventory ?? cmsConfig?.features?.showLocalInventory;
-        const explicitBanner = cmsConfig?.showAnnouncementBanner ?? cmsConfig?.features?.showAnnouncementBanner;
-        const explicitSupport = cmsConfig?.showSupportSection ?? cmsConfig?.homeContent?.showSupportSection ?? cmsConfig?.features?.showSupportSection;
-        const explicitPromo = cmsConfig?.showTopPromo ?? cmsConfig?.homeContent?.showTopPromo ?? cmsConfig?.features?.showTopPromo;
-
-        featureConfig = {
-          showReviews: explicitReviews !== undefined ? Boolean(explicitReviews) : true,
-          showComments: explicitReviews !== undefined ? Boolean(explicitReviews) : true,
-          showStores: explicitStores !== undefined ? Boolean(explicitStores) : true,
-          showBreakdown: explicitBreakdown !== undefined ? Boolean(explicitBreakdown) : true,
-          showLocalInventory: explicitInventory !== undefined ? Boolean(explicitInventory) : true,
-          showAnnouncementBanner: explicitBanner !== undefined ? Boolean(explicitBanner) : true,
-          showSupportSection: explicitSupport !== undefined ? Boolean(explicitSupport) : true,
-          showTopPromo: explicitPromo !== undefined ? Boolean(explicitPromo) : true,
-          ...(cmsConfig?.features || {}),
-          ...(financialSettings?.features || {})
-        };
-
-        if (cmsConfig) {
-          const revBool = Boolean(featureConfig.showReviews);
-          cmsConfig.features = { ...(cmsConfig.features || {}), ...featureConfig, showReviews: revBool, showComments: revBool };
-          cmsConfig.showReviewsSection = revBool;
-          cmsConfig.showReviews = revBool;
-          cmsConfig.showComments = revBool;
-          cmsConfig.showStores = Boolean(featureConfig.showStores);
-          cmsConfig.showPriceBreakdown = Boolean(featureConfig.showBreakdown);
-          cmsConfig.showBreakdown = Boolean(featureConfig.showBreakdown);
-          cmsConfig.showLocalInventory = Boolean(featureConfig.showLocalInventory);
-          cmsConfig.showAnnouncementBanner = Boolean(featureConfig.showAnnouncementBanner);
-          cmsConfig.showSupportSection = Boolean(featureConfig.showSupportSection);
-          cmsConfig.showTopPromo = Boolean(featureConfig.showTopPromo);
-        }
-
+      if (featureConfig) {
         localStorage.setItem('sirikfit_features_config', JSON.stringify(featureConfig));
       }
 
       if (cmsConfig) {
         localStorage.setItem('sirikfit_cms_config', JSON.stringify(cmsConfig));
+        localStorage.setItem('omex_home_cms', JSON.stringify(cmsConfig));
       }
 
-      // Auxiliary keys
       if (cmsConfig?.banners) {
         localStorage.setItem('sirikfit_home_banners', JSON.stringify(cmsConfig.banners));
       }
@@ -118,26 +151,30 @@ export async function saveAdminSettingsPayload(
         localStorage.setItem('sirikfit_gateway_config', JSON.stringify(financialSettings.gateway));
       }
 
-      // Dispatch custom window events for instant real-time synchronization across all UI components
-      const payload = {
-        financialSettings,
+      // ---------------------------------------------------------------
+      // STEP 2: DISPATCH SYNCHRONOUS EVENT (Instant UI / Header Reactivity)
+      // ---------------------------------------------------------------
+      const eventPayload = {
+        financialSettings: cleanFinancial,
         cmsConfig,
         aedRate: extractedAedRate,
         features: featureConfig
       };
 
       try {
-        window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: payload }));
+        window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: eventPayload }));
         window.dispatchEvent(new Event('storage'));
       } catch (evErr) {
-        console.warn('Event dispatch notice:', evErr);
+        console.warn('Settings event dispatch notice:', evErr);
       }
     }
 
-    // 2. Direct Firestore SDK setDoc writes (Guaranteed to work on production domain sirikfit.ir and AI Studio preview)
+    // ---------------------------------------------------------------
+    // STEP 3: ASYNCHRONOUS FIRESTORE & REST PERSISTENCE
+    // ---------------------------------------------------------------
     const firestoreAppPayload: Record<string, any> = {};
-    if (financialSettings) {
-      Object.assign(firestoreAppPayload, financialSettings);
+    if (cleanFinancial) {
+      Object.assign(firestoreAppPayload, cleanFinancial);
     }
     if (extractedAedRate && extractedAedRate > 0) {
       firestoreAppPayload.aedRate = extractedAedRate;
@@ -147,7 +184,9 @@ export async function saveAdminSettingsPayload(
       firestoreAppPayload.features = featureConfig;
     }
     if (cmsConfig) {
-      const revVal = cmsConfig.showReviewsSection !== undefined ? Boolean(cmsConfig.showReviewsSection) : (cmsConfig.showComments !== undefined ? Boolean(cmsConfig.showComments) : true);
+      const revVal = cmsConfig.showReviewsSection !== undefined
+        ? Boolean(cmsConfig.showReviewsSection)
+        : (cmsConfig.showComments !== undefined ? Boolean(cmsConfig.showComments) : true);
       firestoreAppPayload.showReviewsSection = revVal;
       firestoreAppPayload.showReviews = revVal;
       firestoreAppPayload.showComments = revVal;
@@ -166,6 +205,7 @@ export async function saveAdminSettingsPayload(
           : (cmsConfig?.showReviewsSection !== undefined
             ? Boolean(cmsConfig?.showReviewsSection)
             : (cmsConfig?.showComments !== undefined ? Boolean(cmsConfig?.showComments) : true)));
+
       const generalPayload = {
         showReviewsSection: revVal,
         showReviews: revVal,
@@ -181,6 +221,7 @@ export async function saveAdminSettingsPayload(
         aedRate: extractedAedRate || undefined,
         updatedAt: new Date().toISOString()
       };
+
       firestorePromises.push(
         setDoc(doc(db, 'settings', 'general'), generalPayload, { merge: true })
       );
@@ -201,11 +242,11 @@ export async function saveAdminSettingsPayload(
 
     await Promise.all(firestorePromises);
 
-    // 3. Optional Non-Blocking REST API background call (never blocks or throws error if server route is unavailable)
+    // Non-blocking REST API background sync
     try {
       const restPayload = {
         aedRate: extractedAedRate,
-        financialSettings,
+        financialSettings: cleanFinancial,
         cms: cmsConfig,
         updatedAt: new Date().toISOString()
       };
@@ -218,14 +259,13 @@ export async function saveAdminSettingsPayload(
 
     return {
       success: true,
-      message: 'تنظیمات با موفقیت در دیتابیس فایربیس و مرورگر ذخیره گردید.'
+      message: 'تنظیمات با موفقیت در دیتابیس و حافظه محلی ذخیره گردید.'
     };
   } catch (err: any) {
-    console.error('Error saving admin settings payload directly to Firestore:', err);
+    console.error('Error saving admin settings payload:', err);
     return {
       success: false,
       error: err?.message || 'خطا در ذخیره‌سازی اطلاعات در دیتابیس فایربیس'
     };
   }
 }
-

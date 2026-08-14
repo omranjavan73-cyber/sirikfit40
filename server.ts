@@ -6,16 +6,98 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import { onRequest } from 'firebase-functions/v2/https';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, getDocs, collection, deleteDoc } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  setLogLevel,
+  doc,
+  getDoc,
+  setDoc,
+  getDocs,
+  collection,
+  deleteDoc
+} from 'firebase/firestore';
 import firebaseConfigJson from './firebase-applet-config.json';
 
+// Suppress internal gRPC stream disconnect debug/info messages
+try {
+  setLogLevel('silent');
+} catch (_e) {}
+
+const isFirestoreGrpcNoise = (arg: any): boolean => {
+  if (!arg) return false;
+  let str = '';
+  try {
+    if (typeof arg === 'string') {
+      str = arg;
+    } else if (arg instanceof Error) {
+      str = `${arg.message || ''} ${arg.stack || ''} ${String((arg as any).code || '')}`;
+    } else if (typeof arg === 'object') {
+      str = `${JSON.stringify(arg)} ${String(arg.message || '')} ${String(arg.reason || '')} ${String(arg.code || '')}`;
+    } else {
+      str = String(arg);
+    }
+  } catch (_e) {
+    str = String(arg);
+  }
+
+  return (
+    str.includes('Disconnecting idle stream') ||
+    str.includes('Timed out waiting for new targets') ||
+    str.includes('GrpcConnection') ||
+    str.includes('RPC \'Listen\' stream') ||
+    str.includes('Listen\' stream') ||
+    str.includes('Listen stream') ||
+    (str.includes('CANCELLED') && (str.includes('stream') || str.includes('Listen') || str.includes('targets'))) ||
+    (str.includes('Code: 1') && str.includes('CANCELLED'))
+  );
+};
+
+const checkArgsNoise = (args: any[]): boolean => {
+  if (args.some(isFirestoreGrpcNoise)) return true;
+  try {
+    const combined = args.map(a => {
+      if (typeof a === 'string') return a;
+      if (a instanceof Error) return `${a.message || ''} ${a.stack || ''}`;
+      try { return JSON.stringify(a); } catch (_e) { return String(a); }
+    }).join(' ');
+    if (isFirestoreGrpcNoise(combined)) return true;
+  } catch (_e) {}
+  return false;
+};
+
+const origConsoleError = console.error;
+console.error = (...args: any[]) => {
+  if (checkArgsNoise(args)) return;
+  origConsoleError.apply(console, args);
+};
+
+const origConsoleWarn = console.warn;
+console.warn = (...args: any[]) => {
+  if (checkArgsNoise(args)) return;
+  origConsoleWarn.apply(console, args);
+};
+
+process.on('unhandledRejection', (reason) => {
+  if (isFirestoreGrpcNoise(reason)) return;
+  console.error('Unhandled Rejection:', reason);
+});
+
 const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfigJson) : getApp();
-const db = (firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== '(default)')
-  ? getFirestore(firebaseApp, firebaseConfigJson.firestoreDatabaseId)
-  : getFirestore(firebaseApp);
+let firestoreDbInstance;
+try {
+  firestoreDbInstance = initializeFirestore(firebaseApp, {
+    experimentalForceLongPolling: true,
+  }, (firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== '(default)') ? firebaseConfigJson.firestoreDatabaseId : undefined);
+} catch (_e) {
+  firestoreDbInstance = (firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== '(default)')
+    ? getFirestore(firebaseApp, firebaseConfigJson.firestoreDatabaseId)
+    : getFirestore(firebaseApp);
+}
+const db = firestoreDbInstance;
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 8080);
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -792,7 +874,7 @@ if (process.env.GEMINI_API_KEY) {
 
 // GET /api/currency/aed - Return pure manual exchange rate
 app.get('/api/currency/aed', async (req, res) => {
-  const store = readStore();
+  const store = await getStoreData();
   const manualRate = store.settings.manualAedRate || store.settings.aedRate || 0;
 
   return res.json({
@@ -804,14 +886,14 @@ app.get('/api/currency/aed', async (req, res) => {
 });
 
 // GET /api/settings
-app.get('/api/settings', (req, res) => {
-  const store = readStore();
+app.get('/api/settings', async (req, res) => {
+  const store = await getStoreData();
   res.json(store.settings);
 });
 
 // GET /api/cms
-app.get('/api/cms', (req, res) => {
-  const store = readStore();
+app.get('/api/cms', async (req, res) => {
+  const store = await getStoreData();
   res.json(store.cms);
 });
 
@@ -1704,6 +1786,9 @@ app.post('/api/orders', async (req, res) => {
 
   await persistOrder(newOrder);
 
+  // Trigger Google Sheet Webhook Sync in Background
+  sendGoogleSheetWebhook(formatOrderSheetPayload(newOrder)).catch(() => {});
+
   res.json({ success: true, order: newOrder });
 });
 
@@ -1724,6 +1809,10 @@ app.patch('/api/orders/:id', async (req, res) => {
   if (paymentRefId) store.orders[index].paymentRefId = paymentRefId;
 
   await persistOrder(store.orders[index]);
+
+  // Trigger Google Sheet Webhook Sync on Status Update
+  sendGoogleSheetWebhook(formatOrderSheetPayload(store.orders[index])).catch(() => {});
+
   res.json({ success: true, order: store.orders[index] });
 });
 
@@ -1756,6 +1845,195 @@ app.post('/api/payment-gateway', async (req, res) => {
   store.cms.paymentGateway = paymentConfig;
   await persistCms(store.cms);
   res.json({ success: true, paymentGateway: store.cms.paymentGateway });
+});
+
+// Default Google Sheets AppScript Webhook URL for SirikFit
+const DEFAULT_GOOGLE_SHEETS_WEBHOOK_URL =
+  'https://script.google.com/macros/s/AKfycbxkoFYmKpjiQzMDDineiDQqeENjNqcKOuUVae7xHGCEYhWHdyqUHHj-_Wk-b6dwBlQz/exec';
+
+function formatPersianDateHelper(isoDateOrTimestamp?: any): string {
+  try {
+    const d = isoDateOrTimestamp ? new Date(isoDateOrTimestamp) : new Date();
+    return new Intl.DateTimeFormat('fa-IR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(d);
+  } catch {
+    return String(isoDateOrTimestamp || '');
+  }
+}
+
+function formatOrderSheetPayload(order: any) {
+  const isoDate =
+    order.createdAtISO ||
+    (order.createdAt
+      ? typeof order.createdAt === 'number'
+        ? new Date(order.createdAt).toISOString()
+        : String(order.createdAt)
+      : new Date().toISOString());
+
+  const persianDate =
+    order.persianDate ||
+    formatPersianDateHelper(isoDate) ||
+    new Date().toLocaleDateString('fa-IR');
+
+  const flavor = order.flavor || order.selectedFlavor || '';
+  const size = order.size || order.selectedSize || '';
+  const variantCombined = flavor && size ? `${flavor} - ${size}` : `${flavor} ${size}`.trim();
+  const variant =
+    order.variantDetails ||
+    variantCombined ||
+    order.selectedOption ||
+    order.variant ||
+    '-';
+
+  const finalPrice =
+    order.finalPrice ??
+    order.finalPriceToman ??
+    order.calculatedToman ??
+    order.totalPrice ??
+    order.priceToman ??
+    0;
+
+  const basePriceAED =
+    order.basePriceAED ??
+    order.priceAed ??
+    order.amountAED ??
+    0;
+
+  let statusStr = order.status;
+  if (!statusStr) {
+    if (order.shippingStatus && order.paymentStatus) {
+      statusStr = `${order.shippingStatus} (${order.paymentStatus})`;
+    } else {
+      statusStr = order.shippingStatus || order.paymentStatus || 'PENDING';
+    }
+  }
+
+  const city =
+    order.city ||
+    order.customerCity ||
+    order.province ||
+    (order.deliveryAddress ? order.deliveryAddress.split('،')[0].split('-')[0].trim() : '-');
+
+  return {
+    targetTab: 'Orders_Log',
+    orderId: String(order.id || order.orderNumber || order.orderId || order.trackingCode || `ord-${Date.now()}`),
+    persianDate: persianDate,
+    customerName: order.customerName || order.userName || 'کاربر مهمان',
+    customerPhone: order.customerPhone || order.phoneNumber || order.userPhone || '',
+    customerCity: city || '-',
+    sourceStore: order.sourceStore || order.storeName || 'دبی',
+    productTitle: order.productTitle || order.title || 'محصول سفارشی',
+    variantDetails: variant,
+    variant: variant,
+    sourceUrl: order.sourceUrl || order.productUrl || '',
+    totalPriceToman: Number(finalPrice) || 0,
+    basePriceAED: Number(basePriceAED) || 0,
+    status: String(statusStr),
+    timestamp: isoDate
+  };
+}
+
+const SERVER_EXPENSE_CATEGORY_MAP: Record<string, string> = {
+  CARGO_MONTHLY: 'تسویه کارگو',
+  PACKAGING_SUPPLIES: 'بسته‌بندی',
+  SUPPLIER_PAYMENT: 'تامین کالا',
+  DISCOUNT_REBATE: 'تخفیف و بستانکاری',
+  OPERATIONAL_MISC: 'هزینه اداری و متفرقه'
+};
+
+function formatExpenseSheetPayload(expense: any) {
+  const rawCat = expense.category || 'OPERATIONAL_MISC';
+  const categoryLabel = SERVER_EXPENSE_CATEGORY_MAP[rawCat] || rawCat;
+  const dateStr =
+    expense.date ||
+    (expense.createdAt
+      ? String(expense.createdAt).split('T')[0]
+      : new Date().toISOString().split('T')[0]);
+
+  const invoiceNo =
+    expense.invoiceNo ||
+    expense.referenceNumber ||
+    expense.refNumber ||
+    expense.id ||
+    '-';
+
+  return {
+    targetTab: 'Expenses_Ledger',
+    date: dateStr,
+    category: categoryLabel,
+    vendor: expense.vendor || expense.vendorName || 'طرف‌حساب نامشخص',
+    amountAED: Number(expense.amountAED ?? expense.amountAed ?? (expense.currency === 'AED' ? expense.amount : 0)),
+    amountToman: Number(expense.amountToman ?? (expense.currency === 'TOMAN' ? expense.amount : 0)),
+    invoiceNo: String(invoiceNo || '-'),
+    description: expense.description || expense.notes || expense.title || '-',
+    expenseId: expense.id || expense.expenseId || `exp-${Date.now()}`
+  };
+}
+
+async function sendGoogleSheetWebhook(payload: any, customWebhookUrl?: string) {
+  const store = readStore();
+  const targetUrl =
+    customWebhookUrl ||
+    (store.cms?.apiConfig as any)?.googleSheetWebhookUrl ||
+    (store.cms?.apiConfig as any)?.webhookUrl ||
+    DEFAULT_GOOGLE_SHEETS_WEBHOOK_URL;
+
+  if (!targetUrl || !targetUrl.trim().startsWith('http')) {
+    console.log('[Google Sheets Webhook] Skipped: No valid URL configured.');
+    return { success: false, reason: 'invalid_url' };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(targetUrl.trim(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    console.log(`[Google Sheets Webhook] Dispatched ${payload.targetTab || 'Payload'} -> Status: ${res.status}`);
+    return { success: res.ok, status: res.status };
+  } catch (err: any) {
+    console.warn(`[Google Sheets Webhook Warning] Could not dispatch to webhook (${targetUrl}):`, err.message || err);
+    return { success: false, error: err.message };
+  }
+}
+
+// POST /api/sync-order-sheet
+app.post('/api/sync-order-sheet', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const store = readStore();
+    const webhookUrl =
+      body.webhookUrl ||
+      (store.cms?.apiConfig as any)?.googleSheetWebhookUrl ||
+      (store.cms?.apiConfig as any)?.webhookUrl ||
+      DEFAULT_GOOGLE_SHEETS_WEBHOOK_URL;
+
+    let payload: any;
+    if (body.targetTab === 'Expenses_Ledger') {
+      payload = formatExpenseSheetPayload(body);
+    } else if (body.targetTab === 'Orders_Log') {
+      payload = formatOrderSheetPayload(body);
+    } else if (body.amountToman !== undefined || body.category !== undefined) {
+      payload = formatExpenseSheetPayload(body);
+    } else {
+      payload = formatOrderSheetPayload(body);
+    }
+
+    const syncResult = await sendGoogleSheetWebhook(payload, webhookUrl);
+    res.json({ success: true, payload, syncResult });
+  } catch (err: any) {
+    console.error('Error in /api/sync-order-sheet:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Helper function to send instant Telegram alert to admin bot
@@ -1984,9 +2262,10 @@ app.post('/api/payment/simulate', async (req, res) => {
 
     await persistOrder(store.orders[orderIndex]);
 
-    // Trigger instant Telegram and Email Admin Alerts in background
+    // Trigger instant Telegram, Email Admin Alerts and Google Sheets Sync in background
     sendTelegramAdminNotification(store.orders[orderIndex], store.cms);
     sendEmailAdminNotification(store.orders[orderIndex], store.cms);
+    sendGoogleSheetWebhook(formatOrderSheetPayload(store.orders[orderIndex])).catch(() => {});
 
     return res.json({
       success: true,
@@ -2122,12 +2401,19 @@ async function fetchWithProxies(
 function extractCleanUrl(input: string): string {
   if (!input || typeof input !== 'string') return '';
   const trimmed = input.trim();
+  if (trimmed.includes('|')) {
+    return trimmed
+      .split('|')
+      .map(part => extractCleanUrl(part.trim()))
+      .filter(Boolean)
+      .join(' | ');
+  }
   const httpIndex = trimmed.search(/https?:\/\//i);
   if (httpIndex === -1) {
     return trimmed;
   }
   const fromHttp = trimmed.slice(httpIndex);
-  const match = fromHttp.match(/^(https?:\/\/[^\s]+)/i);
+  const match = fromHttp.match(/^(https?:\/\/[^\s|]+)/i);
   return match ? match[1] : fromHttp;
 }
 
@@ -2164,22 +2450,36 @@ function normalizeTargetUrl(rawUrl: string): string {
   }
 }
 
+// In-memory high-speed cache layer for scraped products
+const localMemoryScrapeCache = new Map<string, { data: any; expiresAt: number }>();
+
 function computeUrlHash(urlStr: string): string {
   return crypto.createHash('md5').update(urlStr.toLowerCase().trim()).digest('hex');
 }
 
 async function getCachedScrapedProduct(urlHash: string) {
+  // 1. Check in-memory cache first
+  const memCached = localMemoryScrapeCache.get(urlHash);
+  if (memCached && memCached.expiresAt > Date.now()) {
+    return memCached.data;
+  }
+
+  // 2. Check Firestore cache
   try {
     const docRef = doc(db, 'scraped_products_cache', urlHash);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
       const data = snap.data();
       if (data && data.expiresAt && data.expiresAt > Date.now()) {
+        localMemoryScrapeCache.set(urlHash, { data, expiresAt: data.expiresAt });
         return data;
       }
     }
   } catch (err) {
-    console.warn('[Firestore Cache] Read warning:', err);
+    // Non-fatal cache read issue, continue with live scraping
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Cache] Firestore cache miss or read bypass');
+    }
   }
   return null;
 }
@@ -2187,26 +2487,50 @@ async function getCachedScrapedProduct(urlHash: string) {
 async function saveScrapedProductToCache(
   urlHash: string,
   originalUrl: string,
-  data: { title: string; price: number; currency?: string; image?: string; storeName?: string }
+  data: { title: string; price: number; currency?: string; image?: string; storeName?: string; galleryImages?: string[]; variantGroups?: any[] }
 ) {
+  const now = Date.now();
+  const expiresAt = now + (24 * 60 * 60 * 1000); // 24 Hours TTL
+  const cacheObj = {
+    urlHash,
+    originalUrl,
+    title: data.title || '',
+    price: data.price,
+    currency: data.currency || 'AED',
+    image: data.image || '',
+    galleryImages: data.galleryImages || [],
+    variantGroups: data.variantGroups || [],
+    storeName: data.storeName || '',
+    createdAt: now,
+    expiresAt
+  };
+
+  // 1. Store in memory
+  localMemoryScrapeCache.set(urlHash, { data: cacheObj, expiresAt });
+
+  // 2. Persist to Firestore
   try {
     const docRef = doc(db, 'scraped_products_cache', urlHash);
-    const now = Date.now();
-    await setDoc(docRef, {
-      urlHash,
-      originalUrl,
-      title: data.title || '',
-      price: data.price,
-      currency: data.currency || 'AED',
-      image: data.image || '',
-      storeName: data.storeName || '',
-      createdAt: now,
-      expiresAt: now + (24 * 60 * 60 * 1000) // 24 Hours TTL
-    });
+    await setDoc(docRef, cacheObj);
   } catch (err) {
-    console.warn('[Firestore Cache] Write warning:', err);
+    // Non-fatal cache write issue
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Cache] Firestore cache write notice');
+    }
   }
 }
+
+const cleanHighResImageUrl = (url: string): string => {
+  if (!url) return '';
+  let cleaned = url;
+  if (cleaned.includes('cdn.shopify.com') || cleaned.includes('shopify.com')) {
+    cleaned = cleaned.replace(/_(?:pico|icon|thumb|small|compact|medium|large|grande|100x100|160x160|240x240|480x480|570x380|600x600|720x720|1024x1024|2048x2048|master|(\d+)x(\d+)?|x(\d+))(?=\.(?:jpe?g|png|gif|webp))/gi, '');
+  }
+  if (cleaned.includes('drnutrition.com')) {
+    cleaned = cleaned.replace(/_(?:[0-9]+x[0-9]+)(?=\.(?:jpe?g|png|gif|webp))/gi, '');
+  }
+  return cleaned;
+};
 
 const sanitizeImageUrl = (rawImg: string, cleanUrl: string = '') => {
   if (!rawImg) return '';
@@ -2224,8 +2548,38 @@ const sanitizeImageUrl = (rawImg: string, cleanUrl: string = '') => {
     str = str.replace('http://', 'https://');
   }
   str = str.split('"')[0].split("'")[0].split('\\')[0].trim();
-  return str;
+  return cleanHighResImageUrl(str);
 };
+
+function isElementUnavailable(attributes: string, innerText: string): boolean {
+  const attrLower = (attributes || '').toLowerCase();
+  const textLower = (innerText || '').toLowerCase();
+
+  if (attrLower.includes('disabled') || attrLower.includes('is-disabled')) return true;
+  if (/data-available\s*=\s*["']false["']/i.test(attrLower)) return true;
+  if (attrLower.includes('sold-out') || attrLower.includes('soldout')) return true;
+  if (attrLower.includes('out-of-stock') || attrLower.includes('outofstock')) return true;
+  if (/aria-disabled\s*=\s*["']true["']/i.test(attrLower)) return true;
+
+  if (attrLower.includes('line-through') || 
+      attrLower.includes('dimmed') || 
+      attrLower.includes('strikethrough') || 
+      /opacity\s*[:\-][\s\d\.]+/.test(attrLower) || 
+      /color\s*:\s*#(?:ccc|999|888|ddd)/.test(attrLower)) {
+    return true;
+  }
+
+  if (textLower.includes('sold out') || 
+      textLower.includes('out of stock') || 
+      textLower.includes('ناموجود') || 
+      textLower.includes('تمام شده') || 
+      textLower.includes('not available') || 
+      textLower.includes('unavailable')) {
+    return true;
+  }
+
+  return false;
+}
 
 const cleanTitleStr = (raw: string) => {
   if (!raw) return '';
@@ -2271,13 +2625,46 @@ const getStandardScraperHeaders = (targetUrl?: string) => {
   };
 };
 
-function parseHtmlEngine(rawHtmlText: string) {
+export interface ParseAdapterResult {
+  ok: boolean;
+  requireManualEntry?: boolean;
+  message?: string;
+  title?: string;
+  price?: number | null;
+  currency?: string;
+  image?: string;
+  galleryImages?: string[];
+  images?: string[];
+  storeName?: string;
+  originalPriceAed?: number;
+  discountPercent?: number;
+  description?: string;
+  variantGroups?: any[];
+  options?: string[];
+  flavors?: string[];
+  sizes?: string[];
+}
+
+function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
   let extractedTitle = '';
   let extractedPrice = 0;
   let extractedImage = '';
   let extractedDesc = '';
+  const extractedGallery: string[] = [];
 
-  if (!rawHtmlText) return { title: '', price: 0, image: '', description: '' };
+  if (!rawHtmlText) {
+    return {
+      title: '',
+      price: 0,
+      image: '',
+      galleryImages: [],
+      description: '',
+      variantGroups: [],
+      options: [],
+      flavors: [],
+      sizes: []
+    };
+  }
 
   // 1. Parse JSON-LD scripts (<script type="application/ld+json">)
   const ldMatches = Array.from(rawHtmlText.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi));
@@ -2296,12 +2683,17 @@ function parseHtmlEngine(rawHtmlText: string) {
           if (!extractedDesc && item.description) {
             extractedDesc = String(item.description).replace(/<[^>]+>/g, '').trim();
           }
-          if (!extractedImage && item.image) {
-            if (typeof item.image === 'string') extractedImage = item.image;
-            else if (Array.isArray(item.image) && item.image[0]) {
-              extractedImage = typeof item.image[0] === 'string' ? item.image[0] : (item.image[0]?.url || item.image[0]?.src || '');
-            } else if (typeof item.image === 'object') {
-              extractedImage = item.image.url || item.image.src || '';
+          if (item.image) {
+            const rawImages = Array.isArray(item.image) ? item.image : [item.image];
+            rawImages.forEach((imgObj: any) => {
+              const url = typeof imgObj === 'string' ? imgObj : (imgObj?.url || imgObj?.src || imgObj?.contentUrl || '');
+              if (url && typeof url === 'string') {
+                const s = sanitizeImageUrl(url, targetUrl);
+                if (s && !extractedGallery.includes(s)) extractedGallery.push(s);
+              }
+            });
+            if (!extractedImage && extractedGallery.length > 0) {
+              extractedImage = extractedGallery[0];
             }
           }
           if (extractedPrice === 0 && item.offers) {
@@ -2353,14 +2745,87 @@ function parseHtmlEngine(rawHtmlText: string) {
     }
   }
 
-  // 4. Meta Tag Image Fallback
-  if (!extractedImage) {
+  // 4. Meta Tag & HTML Multi-Image Extraction
+  const isInvalidImage = (u: string) => /icon|logo|flag|arrow|loader|spinner|spacer|trust|payment|badge|social/i.test(u);
+
+  const metaImgMatches = Array.from(rawHtmlText.matchAll(/<meta[^>]*property=["'](?:og:image|og:image:secure_url)["'][^>]*content=["']([^"']+)["']/gi));
+  for (const m of metaImgMatches) {
+    if (m[1]) {
+      const s = sanitizeImageUrl(m[1], targetUrl);
+      if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) extractedGallery.push(s);
+    }
+  }
+
+  const twitterImgs = Array.from(rawHtmlText.matchAll(/<meta[^>]*name=["']twitter:image(?::src)?["'][^>]*content=["']([^"']+)["']/gi));
+  for (const m of twitterImgs) {
+    if (m[1]) {
+      const s = sanitizeImageUrl(m[1], targetUrl);
+      if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) extractedGallery.push(s);
+    }
+  }
+
+  // Amazon Dynamic Image JSON Matrix
+  const amazonDynamicImgMatch = rawHtmlText.match(/data-a-dynamic-image=["']({[^"']+})["']/i);
+  if (amazonDynamicImgMatch && amazonDynamicImgMatch[1]) {
+    try {
+      const unescaped = amazonDynamicImgMatch[1].replace(/&quot;/g, '"');
+      const parsedObj = JSON.parse(unescaped);
+      Object.keys(parsedObj).forEach(imgUrl => {
+        const s = sanitizeImageUrl(imgUrl, targetUrl);
+        if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) extractedGallery.push(s);
+      });
+    } catch (_e) {}
+  }
+
+  // Amazon hi-res colorImages / imageGalleryData
+  const amazonColorImages = rawHtmlText.match(/'colorImages':\s*({[\s\S]*?}),\s*'colorToAsin'/i) ||
+                           rawHtmlText.match(/data-old-hires=["']([^"']+)["']/gi);
+  if (Array.isArray(amazonColorImages)) {
+    amazonColorImages.forEach(matchStr => {
+      const u = matchStr.replace(/data-old-hires=["']/i, '').replace(/["']$/i, '');
+      if (u && u.startsWith('http')) {
+        const s = sanitizeImageUrl(u, targetUrl);
+        if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) extractedGallery.push(s);
+      }
+    });
+  }
+
+  // Additional HTML Product Gallery Images (zoom/hi-res attributes)
+  const hiResImgTags = Array.from(rawHtmlText.matchAll(/<img[^>]*(?:data-zoom-image|data-large_image|data-full-image|data-src|data-zoom)=["']([^"']+)["'][^>]*>/gi));
+  for (const m of hiResImgTags) {
+    if (m[1]) {
+      const s = sanitizeImageUrl(m[1], targetUrl);
+      if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) {
+        extractedGallery.push(s);
+      }
+    }
+  }
+
+  // DOM Carousel / Swiper slide scanning
+  const swiperImgTags = Array.from(rawHtmlText.matchAll(/<img[^>]*(?:class|id|data-gallery|data-swiper-slide)=["']([^"']*(?:swiper|carousel|slide|gallery|thumb|preview|zoom)[^"']*)["'][^>]*src=["']([^"']+)["']/gi)) || [];
+  for (const m of swiperImgTags) {
+    if (m[2]) {
+      const s = sanitizeImageUrl(m[2], targetUrl);
+      if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) {
+        extractedGallery.push(s);
+      }
+    }
+  }
+
+  if (!extractedImage && extractedGallery.length > 0) {
+    extractedImage = extractedGallery[0];
+  } else if (!extractedImage) {
     const ogImg = rawHtmlText.match(/<meta[^>]*property=["'](?:og:image|og:image:secure_url)["'][^>]*content=["']([^"']+)["']/i) ||
                   rawHtmlText.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["'](?:og:image|og:image:secure_url)["']/i) ||
                   rawHtmlText.match(/<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i) ||
                   rawHtmlText.match(/itemprop=["']image["'][^>]*content=["']([^"']+)["']/i) ||
                   rawHtmlText.match(/<link[^>]*rel=["']image_src["'][^>]*href=["']([^"']+)["']/i);
-    if (ogImg && ogImg[1]) extractedImage = ogImg[1];
+    if (ogImg && ogImg[1]) {
+      extractedImage = sanitizeImageUrl(ogImg[1], targetUrl);
+      if (extractedImage && !isInvalidImage(extractedImage) && !extractedGallery.includes(extractedImage)) {
+        extractedGallery.push(extractedImage);
+      }
+    }
   }
 
   // 5. Meta Tag & HTML Container Description Extraction
@@ -2406,18 +2871,19 @@ function parseHtmlEngine(rawHtmlText: string) {
     }
   }
 
-  // 7. Advanced Variant & E-Commerce Options Extraction
+  // 7. Advanced Variant & E-Commerce Options Matrix Extraction
   let flavors: string[] = [];
   let sizes: string[] = [];
+  const variantMatrixOptions: { name: string; type: 'flavor' | 'size'; priceAed?: number; image?: string }[] = [];
 
-   const isDummyOption = (val: string) => {
+  const isDummyOption = (val: string) => {
     if (!val || typeof val !== 'string') return true;
     const lower = val.trim().toLowerCase();
     return [
       'default title', 'default', 'standard', 'normal', 'پیش‌فرض', 'پیش‌فرض / استاندارد', 'استاندارد', 
       'select option', 'choose', 'پیشفرض', 'undefined', 'null', 'select', 'menu', 'options', 'view larger image',
       'close', 'submit', 'cart', 'buy', 'add', 'description', 'reviews', 'details'
-    ].includes(lower) || lower.length < 2 || lower.length > 50;
+    ].includes(lower) || lower.length < 2 || lower.length > 60;
   };
 
   // Inspect Shopify / E-Commerce JSON structures
@@ -2447,7 +2913,27 @@ function parseHtmlEngine(rawHtmlText: string) {
                 const parsed = JSON.parse(arrayContent);
                 if (Array.isArray(parsed)) {
                   parsed.forEach((item: any) => {
+                    if (item && typeof item === 'object') {
+                      const isAvail = item.available !== false && item.inStock !== false && 
+                                      (item.inventory_quantity === undefined || item.inventory_quantity > 0);
+                      if (!isAvail) {
+                        return; // Exclude out-of-stock variants
+                      }
+                    }
                     const candidateStrings: string[] = [];
+                    let varPrice = extractedPrice;
+                    let varImage = '';
+                    if (item && typeof item === 'object') {
+                      if (item.price) {
+                        let parsedVarPrice = parseFloat(String(item.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                        if (parsedVarPrice > 2000) parsedVarPrice = parsedVarPrice / 100;
+                        if (!isNaN(parsedVarPrice) && parsedVarPrice > 0) varPrice = parsedVarPrice;
+                      }
+                      if (item.featured_image?.src) {
+                        varImage = sanitizeImageUrl(item.featured_image.src, targetUrl);
+                      }
+                    }
+
                     if (typeof item === 'string') {
                       candidateStrings.push(item);
                     } else if (typeof item === 'object' && item !== null) {
@@ -2463,14 +2949,18 @@ function parseHtmlEngine(rawHtmlText: string) {
                         });
                       }
                     }
+
                     candidateStrings.forEach(name => {
                       if (name && typeof name === 'string' && !isDummyOption(name)) {
                         const cleanName = name.trim();
                         const lowerName = cleanName.toLowerCase();
-                        if (lowerName.includes('serving') || lowerName.includes('serving') || lowerName.includes('kg') || lowerName.includes('g') || lowerName.includes('lb') || lowerName.includes('oz') || lowerName.includes('عددی') || lowerName.includes('سروینگ')) {
+                        const isSize = lowerName.includes('serving') || lowerName.includes('kg') || lowerName.includes('g') || lowerName.includes('lb') || lowerName.includes('oz') || lowerName.includes('عددی') || lowerName.includes('سروینگ');
+                        if (isSize) {
                           sizes.push(cleanName);
+                          variantMatrixOptions.push({ name: cleanName, type: 'size', priceAed: varPrice, image: varImage });
                         } else {
                           flavors.push(cleanName);
+                          variantMatrixOptions.push({ name: cleanName, type: 'flavor', priceAed: varPrice, image: varImage });
                         }
                       }
                     });
@@ -2486,9 +2976,13 @@ function parseHtmlEngine(rawHtmlText: string) {
   }
 
   // Strategy B: Aggressive option tags scanning
-  const allOptionTags = Array.from(rawHtmlText.matchAll(/<option[^>]*>([\s\S]*?)<\/option>/gi));
+  const allOptionTags = Array.from(rawHtmlText.matchAll(/<option([^>]*)>([\s\S]*?)<\/option>/gi));
   for (const opt of allOptionTags) {
-    const text = opt[1].replace(/<[^>]+>/g, '').trim();
+    const attr = opt[1];
+    const text = opt[2].replace(/<[^>]+>/g, '').trim();
+    if (isElementUnavailable(attr, text)) {
+      continue; // Exclude out of stock
+    }
     if (text && !isDummyOption(text) && text.length > 1 && text.length < 50) {
       const lowerText = text.toLowerCase();
       if (!lowerText.includes('select') && !lowerText.includes('choose')) {
@@ -2503,9 +2997,16 @@ function parseHtmlEngine(rawHtmlText: string) {
   }
 
   // Strategy C: radio button inputs / swatch labels
-  const allInputs = Array.from(rawHtmlText.matchAll(/<input[^>]*(?:value|data-value)=["']([^"']+)["'][^>]*>/gi));
+  const allInputs = Array.from(rawHtmlText.matchAll(/<input([^>]*)(?:value|data-value)=["']([^"']+)["']([^>]*)/gi));
   for (const match of allInputs) {
-    const text = match[1].trim();
+    const beforeVal = match[1];
+    const val = match[2];
+    const afterVal = match[3];
+    const attr = beforeVal + ' ' + afterVal;
+    if (isElementUnavailable(attr, val)) {
+      continue; // Exclude out of stock
+    }
+    const text = val.trim();
     if (text && !isDummyOption(text) && text.length > 1 && text.length < 40) {
       const lower = text.toLowerCase();
       if (lower.includes('serving') || lower.includes('kg') || lower.includes('g') || lower.includes('lb') || lower.includes('oz') || lower.includes('عددی')) {
@@ -2517,9 +3018,16 @@ function parseHtmlEngine(rawHtmlText: string) {
   }
 
   // Strategy D: general classes swatch/variant/flavor elements
-  const swatchMatches = Array.from(rawHtmlText.matchAll(/<(?:option|label|span|div|button)[^>]*class=["'][^"']*(?:swatch|flavor|size|variant|option-item|product-form__input|value|title|btn)[^"']*["'][^>]*>([\s\S]*?)<\/(?:option|label|span|div|button)>/gi));
+  const swatchMatches = Array.from(rawHtmlText.matchAll(/<(option|label|span|div|button)([^>]*)class=["'][^"']*(?:swatch|flavor|size|variant|option-item|product-form__input|value|title|btn)[^"']*["']([^>]*)>([\s\S]*?)<\/\1>/gi));
   for (const match of swatchMatches) {
-    const text = match[1].replace(/<[^>]+>/g, '').trim();
+    const tagName = match[1];
+    const beforeClass = match[2];
+    const afterClass = match[3];
+    const text = match[4].replace(/<[^>]+>/g, '').trim();
+    const attr = `tagName="${tagName}" class="..." ${beforeClass} ${afterClass}`;
+    if (isElementUnavailable(attr, text)) {
+      continue; // Exclude out of stock
+    }
     if (text && !isDummyOption(text) && text.length > 1 && text.length < 35) {
       const lowerText = text.toLowerCase();
       if (!lowerText.includes('select') && !lowerText.includes('choose') && !lowerText.includes('/') && !lowerText.includes('http') && isNaN(Number(text))) {
@@ -2536,32 +3044,57 @@ function parseHtmlEngine(rawHtmlText: string) {
   flavors = [...new Set(flavors)].filter(f => f && !isDummyOption(f) && f.length > 2);
   sizes = [...new Set(sizes)].filter(s => s && !isDummyOption(s) && s.length > 1);
 
+  // Group structured variants into variantGroups
+  const variantGroups: any[] = [];
+  if (flavors.length > 0) {
+    variantGroups.push({
+      id: 'flavors',
+      name: 'طعم (Flavor)',
+      type: 'flavor',
+      options: flavors.map((f, idx) => {
+        const matched = variantMatrixOptions.find(o => o.name === f && o.type === 'flavor');
+        return {
+          id: `flv-${idx}`,
+          name: f,
+          priceAed: (matched?.priceAed && matched.priceAed > 0) ? matched.priceAed : extractedPrice,
+          image: matched?.image || undefined,
+          inStock: true
+        };
+      })
+    });
+  }
+
+  if (sizes.length > 0) {
+    variantGroups.push({
+      id: 'sizes',
+      name: 'وزن / سایز (Size)',
+      type: 'size',
+      options: sizes.map((s, idx) => {
+        const matched = variantMatrixOptions.find(o => o.name === s && o.type === 'size');
+        return {
+          id: `sz-${idx}`,
+          name: s,
+          priceAed: (matched?.priceAed && matched.priceAed > 0) ? matched.priceAed : extractedPrice,
+          image: matched?.image || undefined,
+          inStock: true
+        };
+      })
+    });
+  }
+
+  const finalGallery = Array.from(new Set([extractedImage, ...extractedGallery].filter(Boolean)));
+
   return {
     title: extractedTitle,
     price: extractedPrice,
     image: extractedImage,
+    galleryImages: finalGallery,
     description: extractedDesc,
+    variantGroups,
     options: [...new Set([...flavors, ...sizes])],
-    flavors: flavors,
-    sizes: sizes
+    flavors,
+    sizes
   };
-}
-
-export interface ParseAdapterResult {
-  ok: boolean;
-  requireManualEntry?: boolean;
-  message?: string;
-  title?: string;
-  price?: number | null;
-  currency?: string;
-  image?: string;
-  storeName?: string;
-  originalPriceAed?: number;
-  discountPercent?: number;
-  description?: string;
-  options?: string[];
-  flavors?: string[];
-  sizes?: string[];
 }
 
 // -------------------------------------------------------------------
@@ -2616,8 +3149,71 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
                 p = p / 100;
               }
               const finalPrice = Math.round(p * 100) / 100;
-              let rawImg = pObj?.featured_image || (Array.isArray(pObj?.images) && pObj.images[0] ? (typeof pObj.images[0] === 'string' ? pObj.images[0] : pObj.images[0]?.src) : pObj?.image?.src);
+              
+              // Extract all images from Shopify product
+              const galleryImages: string[] = [];
+              if (Array.isArray(pObj?.images)) {
+                pObj.images.forEach((img: any) => {
+                  const src = typeof img === 'string' ? img : (img?.src || img?.url);
+                  if (src) {
+                    const s = sanitizeImageUrl(src, drUrl);
+                    if (s && !galleryImages.includes(s)) galleryImages.push(s);
+                  }
+                });
+              }
+
+              let rawImg = pObj?.featured_image || (galleryImages.length > 0 ? galleryImages[0] : pObj?.image?.src);
               if (typeof rawImg === 'object' && rawImg?.src) rawImg = rawImg.src;
+              const mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), drUrl);
+              if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+
+              // Extract variants & options
+              const flavors: string[] = [];
+              const sizes: string[] = [];
+              const variantGroups: any[] = [];
+              const rawVariants = Array.isArray(pObj?.variants) ? pObj.variants : [];
+              
+              if (rawVariants.length > 0) {
+                const flavorOptions: any[] = [];
+                const sizeOptions: any[] = [];
+
+                rawVariants.forEach((v: any, vIdx: number) => {
+                  const isAvailable = v.available === true && (v.inventory_quantity === undefined || v.inventory_quantity > 0);
+                  if (!isAvailable) {
+                    return; // Exclude out of stock
+                  }
+                  let vPrice = finalPrice;
+                  if (v.price) {
+                    let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                    if (vp > 1000 || (!String(v.price).includes('.') && vp >= 1000)) vp = vp / 100;
+                    if (!isNaN(vp) && vp > 0) vPrice = Math.round(vp * 100) / 100;
+                  }
+                  let vImg = v.featured_image?.src ? sanitizeImageUrl(v.featured_image.src, drUrl) : undefined;
+                  const vTitle = String(v.title || v.option1 || '').trim();
+
+                  if (vTitle && !['default title', 'default', '1'].includes(vTitle.toLowerCase())) {
+                    const isSize = vTitle.toLowerCase().includes('kg') || vTitle.toLowerCase().includes('g') || vTitle.toLowerCase().includes('lb') || vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('عددی') || vTitle.toLowerCase().includes('سروینگ');
+                    if (isSize) {
+                      if (!sizes.includes(vTitle)) {
+                        sizes.push(vTitle);
+                        sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, priceAed: vPrice, image: vImg, inStock: true });
+                      }
+                    } else {
+                      if (!flavors.includes(vTitle)) {
+                        flavors.push(vTitle);
+                        flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, priceAed: vPrice, image: vImg, inStock: true });
+                      }
+                    }
+                  }
+                });
+
+                if (flavorOptions.length > 0) {
+                  variantGroups.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorOptions });
+                }
+                if (sizeOptions.length > 0) {
+                  variantGroups.push({ id: 'sizes', name: 'وزن / سایز (Size)', type: 'size', options: sizeOptions });
+                }
+              }
 
               if (t && finalPrice > 0) {
                 return {
@@ -2625,7 +3221,14 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
                   title: cleanTitleStr(t),
                   price: finalPrice,
                   currency: "AED",
-                  image: sanitizeImageUrl(String(rawImg || ''), drUrl),
+                  image: mainImg,
+                  galleryImages,
+                  images: galleryImages,
+                  variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
+                  flavors,
+                  sizes,
+                  options: [...flavors, ...sizes],
+                  description: pObj.body_html ? String(pObj.body_html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000) : undefined,
                   storeName
                 };
               }
@@ -2648,7 +3251,7 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
 
     if (directRes.ok) {
       const html = await directRes.text();
-      const parsed = parseHtmlEngine(html);
+      const parsed = parseHtmlEngine(html, drUrl);
       if (parsed.title && parsed.price > 0) {
         return {
           ok: true,
@@ -2656,6 +3259,12 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
           price: parsed.price,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, drUrl),
+          galleryImages: parsed.galleryImages,
+          images: parsed.galleryImages,
+          variantGroups: parsed.variantGroups,
+          flavors: parsed.flavors,
+          sizes: parsed.sizes,
+          options: parsed.options,
           storeName,
           description: parsed.description
         };
@@ -2676,7 +3285,7 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
       if (scraperRes.ok) {
         const scraperHtml = await scraperRes.text();
         if (scraperHtml && scraperHtml.length > 100) {
-          const parsed = parseHtmlEngine(scraperHtml);
+          const parsed = parseHtmlEngine(scraperHtml, drUrl);
           if (parsed.title && parsed.price > 0) {
             return {
               ok: true,
@@ -2684,6 +3293,12 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
               price: parsed.price,
               currency: "AED",
               image: sanitizeImageUrl(parsed.image, drUrl),
+              galleryImages: parsed.galleryImages,
+              images: parsed.galleryImages,
+              variantGroups: parsed.variantGroups,
+              flavors: parsed.flavors,
+              sizes: parsed.sizes,
+              options: parsed.options,
               storeName,
               description: parsed.description
             };
@@ -2710,7 +3325,7 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
 
     if (jinaRes.ok) {
       const jinaText = await jinaRes.text();
-      const parsed = parseHtmlEngine(jinaText);
+      const parsed = parseHtmlEngine(jinaText, drUrl);
       if (parsed.title && parsed.price > 0) {
         return {
           ok: true,
@@ -2718,6 +3333,12 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
           price: parsed.price,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, drUrl),
+          galleryImages: parsed.galleryImages,
+          images: parsed.galleryImages,
+          variantGroups: parsed.variantGroups,
+          flavors: parsed.flavors,
+          sizes: parsed.sizes,
+          options: parsed.options,
           storeName
         };
       }
@@ -2759,13 +3380,76 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
         let p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
         if (p > 2000) p = p / 100;
         if (!isNaN(p) && p > 0) {
-          const img = pObj.image?.src || (Array.isArray(pObj.images) && pObj.images[0] ? (typeof pObj.images[0] === 'string' ? pObj.images[0] : pObj.images[0]?.src) : pObj.featured_image);
+          const galleryImages: string[] = [];
+          if (Array.isArray(pObj.images)) {
+            pObj.images.forEach((img: any) => {
+              const src = typeof img === 'string' ? img : (img?.src || img?.url);
+              if (src) {
+                const s = sanitizeImageUrl(src, targetUrl);
+                if (s && !galleryImages.includes(s)) galleryImages.push(s);
+              }
+            });
+          }
+          const img = pObj.image?.src || (galleryImages.length > 0 ? galleryImages[0] : pObj.featured_image);
+          const mainImg = sanitizeImageUrl(String(img || ''), targetUrl);
+          if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+
+          const flavors: string[] = [];
+          const sizes: string[] = [];
+          const variantGroups: any[] = [];
+          const rawVariants = Array.isArray(pObj?.variants) ? pObj.variants : [];
+
+          if (rawVariants.length > 0) {
+            const flavorOptions: any[] = [];
+            const sizeOptions: any[] = [];
+            rawVariants.forEach((v: any, vIdx: number) => {
+              const isAvailable = v.available === true && (v.inventory_quantity === undefined || v.inventory_quantity > 0);
+              if (!isAvailable) {
+                return; // Exclude out of stock
+              }
+              let vPrice = Math.round(p * 100) / 100;
+              if (v.price) {
+                let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                if (vp > 2000) vp = vp / 100;
+                if (!isNaN(vp) && vp > 0) vPrice = Math.round(vp * 100) / 100;
+              }
+              const vTitle = String(v.title || v.option1 || '').trim();
+              if (vTitle && !['default title', 'default', '1'].includes(vTitle.toLowerCase())) {
+                const isSize = vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('count') || vTitle.toLowerCase().includes('عددی') || vTitle.toLowerCase().includes('سروینگ');
+                if (isSize) {
+                  if (!sizes.includes(vTitle)) {
+                    sizes.push(vTitle);
+                    sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: true });
+                  }
+                } else {
+                  if (!flavors.includes(vTitle)) {
+                    flavors.push(vTitle);
+                    flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: true });
+                  }
+                }
+              }
+            });
+
+            if (flavorOptions.length > 0) {
+              variantGroups.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorOptions });
+            }
+            if (sizeOptions.length > 0) {
+              variantGroups.push({ id: 'sizes', name: 'تعداد / بسته‌بندی (Size)', type: 'size', options: sizeOptions });
+            }
+          }
+
           return {
             ok: true,
             title: cleanTitleStr(t),
             price: Math.round(p * 100) / 100,
             currency: "AED",
-            image: sanitizeImageUrl(String(img || ''), targetUrl),
+            image: mainImg,
+            galleryImages,
+            images: galleryImages,
+            variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
+            flavors,
+            sizes,
+            options: [...flavors, ...sizes],
             storeName
           };
         }
@@ -2785,7 +3469,7 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
 
     if (directRes.ok) {
       const html = await directRes.text();
-      const parsed = parseHtmlEngine(html);
+      const parsed = parseHtmlEngine(html, targetUrl);
       if (parsed.title && parsed.price > 0) {
         return {
           ok: true,
@@ -2793,6 +3477,12 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
           price: parsed.price,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, targetUrl),
+          galleryImages: parsed.galleryImages,
+          images: parsed.galleryImages,
+          variantGroups: parsed.variantGroups,
+          flavors: parsed.flavors,
+          sizes: parsed.sizes,
+          options: parsed.options,
           storeName,
           description: parsed.description
         };
@@ -2813,7 +3503,7 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
       if (scraperRes.ok) {
         const scraperHtml = await scraperRes.text();
         if (scraperHtml && scraperHtml.length > 100) {
-          const parsed = parseHtmlEngine(scraperHtml);
+          const parsed = parseHtmlEngine(scraperHtml, targetUrl);
           if (parsed.title && parsed.price > 0) {
             return {
               ok: true,
@@ -2821,6 +3511,12 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
               price: parsed.price,
               currency: "AED",
               image: sanitizeImageUrl(parsed.image, targetUrl),
+              galleryImages: parsed.galleryImages,
+              images: parsed.galleryImages,
+              variantGroups: parsed.variantGroups,
+              flavors: parsed.flavors,
+              sizes: parsed.sizes,
+              options: parsed.options,
               storeName,
               description: parsed.description
             };
@@ -2847,7 +3543,7 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
 
     if (jinaRes.ok) {
       const jinaText = await jinaRes.text();
-      const parsed = parseHtmlEngine(jinaText);
+      const parsed = parseHtmlEngine(jinaText, targetUrl);
       if (parsed.title && parsed.price > 0) {
         return {
           ok: true,
@@ -2855,6 +3551,12 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
           price: parsed.price,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, targetUrl),
+          galleryImages: parsed.galleryImages,
+          images: parsed.galleryImages,
+          variantGroups: parsed.variantGroups,
+          flavors: parsed.flavors,
+          sizes: parsed.sizes,
+          options: parsed.options,
           storeName
         };
       }
@@ -2897,7 +3599,21 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
           if (pObj) {
             const t = pObj.title || pObj.name;
             const rawP = pObj.price || pObj.sale_price || pObj.offer_price;
-            const img = pObj.featured_image || pObj.image || (Array.isArray(pObj.images) ? pObj.images[0] : '');
+            
+            const galleryImages: string[] = [];
+            if (Array.isArray(pObj.images)) {
+              pObj.images.forEach((img: any) => {
+                const src = typeof img === 'string' ? img : (img?.src || img?.url || img?.original_url);
+                if (src) {
+                  const s = sanitizeImageUrl(src, targetUrl);
+                  if (s && !galleryImages.includes(s)) galleryImages.push(s);
+                }
+              });
+            }
+            const img = pObj.featured_image || pObj.image || (galleryImages.length > 0 ? galleryImages[0] : '');
+            const mainImg = sanitizeImageUrl(String(img || ''), targetUrl);
+            if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+
             if (t && rawP) {
               const p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
               if (!isNaN(p) && p > 0) {
@@ -2906,7 +3622,9 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
                   title: cleanTitleStr(t),
                   price: Math.round(p * 100) / 100,
                   currency: "AED",
-                  image: sanitizeImageUrl(String(img || ''), targetUrl),
+                  image: mainImg,
+                  galleryImages,
+                  images: galleryImages,
                   storeName
                 };
               }
@@ -2915,7 +3633,7 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
         } catch (_e) {}
       }
 
-      const parsed = parseHtmlEngine(html);
+      const parsed = parseHtmlEngine(html, targetUrl);
       if (parsed.title && parsed.price > 0) {
         return {
           ok: true,
@@ -2923,6 +3641,12 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
           price: parsed.price,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, targetUrl),
+          galleryImages: parsed.galleryImages,
+          images: parsed.galleryImages,
+          variantGroups: parsed.variantGroups,
+          flavors: parsed.flavors,
+          sizes: parsed.sizes,
+          options: parsed.options,
           storeName,
           description: parsed.description
         };
@@ -2943,7 +3667,7 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
       if (scraperRes.ok) {
         const scraperHtml = await scraperRes.text();
         if (scraperHtml && scraperHtml.length > 100) {
-          const parsed = parseHtmlEngine(scraperHtml);
+          const parsed = parseHtmlEngine(scraperHtml, targetUrl);
           if (parsed.title && parsed.price > 0) {
             return {
               ok: true,
@@ -2951,6 +3675,12 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
               price: parsed.price,
               currency: "AED",
               image: sanitizeImageUrl(parsed.image, targetUrl),
+              galleryImages: parsed.galleryImages,
+              images: parsed.galleryImages,
+              variantGroups: parsed.variantGroups,
+              flavors: parsed.flavors,
+              sizes: parsed.sizes,
+              options: parsed.options,
               storeName,
               description: parsed.description
             };
@@ -3004,17 +3734,28 @@ async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: an
           if (pObj) {
             const t = pObj.name || pObj.title || pObj.en_name;
             const rawP = pObj.sale_price ?? pObj.price ?? pObj.offer_price;
-            const imgKey = pObj.image_key || (Array.isArray(pObj.image_keys) ? pObj.image_keys[0] : null);
+            
+            const galleryImages: string[] = [];
+            if (Array.isArray(pObj.image_keys)) {
+              pObj.image_keys.forEach((k: string) => {
+                if (k) galleryImages.push(`https://f.nooncdn.com/products/tr:n-t_400/${k}.jpg`);
+              });
+            }
+            const imgKey = pObj.image_key || (galleryImages.length > 0 ? null : null);
+            let img = imgKey ? `https://f.nooncdn.com/products/tr:n-t_400/${imgKey}.jpg` : (galleryImages[0] || '');
+            if (img && !galleryImages.includes(img)) galleryImages.unshift(img);
+
             if (t && rawP) {
               const p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
               if (!isNaN(p) && p > 0) {
-                let img = imgKey ? `https://f.nooncdn.com/products/tr:n-t_400/${imgKey}.jpg` : '';
                 return {
                   ok: true,
                   title: cleanTitleStr(String(t)),
                   price: Math.round(p * 100) / 100,
                   currency: "AED",
                   image: img,
+                  galleryImages,
+                  images: galleryImages,
                   storeName
                 };
               }
@@ -3038,7 +3779,7 @@ async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: an
     if (directRes.ok) {
       const html = await directRes.text();
       htmlSnippetForAi = html.slice(0, 16000);
-      const parsed = parseHtmlEngine(html);
+      const parsed = parseHtmlEngine(html, targetUrl);
       if (parsed.title && parsed.price > 0) {
         return {
           ok: true,
@@ -3046,6 +3787,12 @@ async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: an
           price: parsed.price,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, targetUrl),
+          galleryImages: parsed.galleryImages,
+          images: parsed.galleryImages,
+          variantGroups: parsed.variantGroups,
+          flavors: parsed.flavors,
+          sizes: parsed.sizes,
+          options: parsed.options,
           storeName,
           description: parsed.description
         };
@@ -3067,7 +3814,7 @@ async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: an
         const scraperHtml = await scraperRes.text();
         if (scraperHtml && scraperHtml.length > 100) {
           htmlSnippetForAi = scraperHtml.slice(0, 16000);
-          const parsed = parseHtmlEngine(scraperHtml);
+          const parsed = parseHtmlEngine(scraperHtml, targetUrl);
           if (parsed.title && parsed.price > 0) {
             return {
               ok: true,
@@ -3075,6 +3822,12 @@ async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: an
               price: parsed.price,
               currency: "AED",
               image: sanitizeImageUrl(parsed.image, targetUrl),
+              galleryImages: parsed.galleryImages,
+              images: parsed.galleryImages,
+              variantGroups: parsed.variantGroups,
+              flavors: parsed.flavors,
+              sizes: parsed.sizes,
+              options: parsed.options,
               storeName,
               description: parsed.description
             };
@@ -3103,7 +3856,7 @@ async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: an
       const jinaText = await jinaRes.text();
       if (jinaText && jinaText.length > 50) {
         htmlSnippetForAi = jinaText.slice(0, 16000);
-        const parsed = parseHtmlEngine(jinaText);
+        const parsed = parseHtmlEngine(jinaText, targetUrl);
         if (parsed.title && parsed.price > 0) {
           return {
             ok: true,
@@ -3111,6 +3864,12 @@ async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: an
             price: parsed.price,
             currency: "AED",
             image: sanitizeImageUrl(parsed.image, targetUrl),
+            galleryImages: parsed.galleryImages,
+            images: parsed.galleryImages,
+            variantGroups: parsed.variantGroups,
+            flavors: parsed.flavors,
+            sizes: parsed.sizes,
+            options: parsed.options,
             storeName
           };
         }
@@ -3144,13 +3903,27 @@ async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: an
         .replace(/\s+/g, ' ')
         .slice(0, 8000);
 
-      const aiPrompt = `Extract product title, main image URL, and numeric AED price.
+      const aiPrompt = `Extract product title, main image URL, gallery images array, variants, and numeric AED price.
 URL: "${targetUrl}"
 Content snippet:
 "${cleanSnippet}"
 
 Return strictly valid JSON:
-{ "title": string, "price": number, "image": string, "currency": "AED" }`;
+{
+  "title": string,
+  "price": number,
+  "image": string,
+  "galleryImages": string[],
+  "currency": "AED",
+  "variantGroups": [
+    {
+      "id": "flavors",
+      "name": "طعم (Flavor)",
+      "type": "flavor",
+      "options": [{ "id": "f1", "name": "Vanilla", "priceAed": 120.0 }]
+    }
+  ]
+}`;
 
       for (const apiKey of serverGeminiKeys) {
         for (const modelName of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
@@ -3175,12 +3948,21 @@ Return strictly valid JSON:
                 if (parsed && (parsed.title || parsed.price > 0)) {
                   const p = Number(parsed.price);
                   if (p > 0) {
+                    const mainImg = sanitizeImageUrl(parsed.image || '', targetUrl);
+                    const gallery = Array.isArray(parsed.galleryImages)
+                      ? parsed.galleryImages.map((g: string) => sanitizeImageUrl(g, targetUrl)).filter(Boolean)
+                      : (mainImg ? [mainImg] : []);
+                    if (mainImg && !gallery.includes(mainImg)) gallery.unshift(mainImg);
+
                     return {
                       ok: true,
                       title: cleanTitleStr(parsed.title || ''),
                       price: p,
                       currency: "AED",
-                      image: sanitizeImageUrl(parsed.image || '', targetUrl),
+                      image: mainImg,
+                      galleryImages: gallery,
+                      images: gallery,
+                      variantGroups: Array.isArray(parsed.variantGroups) ? parsed.variantGroups : undefined,
                       storeName
                     };
                   }
@@ -3201,9 +3983,9 @@ Return strictly valid JSON:
 }
 
 // -------------------------------------------------------------------
-// MAIN API ROUTER FOR /api/parse-link (POST / GET)
+// MAIN API ROUTER FOR /api/parse-link & /api/scrape-product (POST / GET)
 // -------------------------------------------------------------------
-app.all('/api/parse-link', async (req, res) => {
+const handleParseLinkRoute = async (req: express.Request, res: express.Response) => {
   try {
     if (req.method !== 'POST' && req.method !== 'GET') {
       return res.status(405).json({
@@ -3300,22 +4082,32 @@ app.all('/api/parse-link', async (req, res) => {
     }
 
     if (cached && cached.price) {
+      const cachedGallery = Array.isArray(cached.galleryImages) && cached.galleryImages.length > 0
+        ? cached.galleryImages
+        : (cached.image ? [cached.image] : []);
       return res.status(200).json({
         ok: true,
         success: true,
         cached: true,
+        id: `cached-${urlHash || Date.now()}`,
         title: cached.title,
+        brand: cached.storeName || 'فروشگاه آنلاین دبی',
+        sourceStore: cached.storeName || 'فروشگاه آنلاین دبی',
+        sourceUrl: cleanUrl,
+        mainImage: cached.image || (cachedGallery[0] || ''),
+        galleryImages: cachedGallery,
+        basePriceAED: cached.price,
+        inStock: true,
         price: cached.price,
         currency: cached.currency || 'AED',
         priceAed: cached.price,
         price_aed: cached.price,
         image: cached.image,
-        mainImage: cached.image,
         image_url: cached.image,
-        images: cached.image ? [cached.image] : [],
+        images: cachedGallery,
         storeName: cached.storeName || 'فروشگاه آنلاین دبی',
-        brand: cached.storeName || 'فروشگاه آنلاین دبی',
         url: cleanUrl,
+        variants: [],
         description: `محصول استخراج شده (از کش)`
       });
     }
@@ -3360,6 +4152,8 @@ app.all('/api/parse-link', async (req, res) => {
               price: result.price,
               currency: result.currency || 'AED',
               image: result.image || '',
+              galleryImages: result.galleryImages || [],
+              variantGroups: result.variantGroups || [],
               storeName: result.storeName || ''
             });
           }
@@ -3378,11 +4172,79 @@ app.all('/api/parse-link', async (req, res) => {
       const flavors = [...new Set(result.flavors || [])].filter(f => f && f !== 'پیشفرض' && f !== 'Default' && f !== 'پیش‌فرض / استاندارد' && f.length > 2);
       const sizes = [...new Set(result.sizes || [])].filter(s => s && s !== 'پیشفرض' && s !== 'Default' && s !== 'پیش‌فرض / استاندارد' && s.length > 1);
 
+      const rawGallery = Array.isArray(result.galleryImages) && result.galleryImages.length > 0
+        ? result.galleryImages
+        : (Array.isArray(result.images) && result.images.length > 0 ? result.images : (mainImg ? [mainImg] : []));
+      
+      const gallery: string[] = Array.from(new Set(rawGallery.map(g => sanitizeImageUrl(g, normalizedUrl)).filter(Boolean)));
+      if (mainImg && !gallery.includes(mainImg)) {
+        gallery.unshift(mainImg);
+      }
+
+      // Build unified variants array
+      const flatVariants: { id?: string; name: string; inStock: boolean; priceAED?: number; imageThumbnail?: string }[] = [];
+      const seenVariantNames = new Set<string>();
+
+      if (Array.isArray(result.variantGroups)) {
+        result.variantGroups.forEach((vg: any) => {
+          (vg.options || []).forEach((opt: any, optIdx: number) => {
+            const optName = typeof opt === 'string' ? opt : (opt.name || opt.nameFa || '');
+            if (optName && !seenVariantNames.has(optName.trim().toLowerCase())) {
+              const isAvail = opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut;
+              if (!isAvail) {
+                return; // Exclude out of stock variants
+              }
+              seenVariantNames.add(optName.trim().toLowerCase());
+              flatVariants.push({
+                id: opt.id || `opt-${optIdx}`,
+                name: optName,
+                inStock: true,
+                priceAED: opt.priceAed !== undefined ? Number(opt.priceAed) : p,
+                imageThumbnail: opt.image ? sanitizeImageUrl(opt.image, normalizedUrl) : undefined
+              });
+            }
+          });
+        });
+      }
+
+      flavors.forEach((flv, idx) => {
+        if (!seenVariantNames.has(flv.trim().toLowerCase())) {
+          seenVariantNames.add(flv.trim().toLowerCase());
+          flatVariants.push({
+            id: `flv-${idx}`,
+            name: flv,
+            inStock: true,
+            priceAED: p
+          });
+        }
+      });
+
+      sizes.forEach((sz, idx) => {
+        if (!seenVariantNames.has(sz.trim().toLowerCase())) {
+          seenVariantNames.add(sz.trim().toLowerCase());
+          flatVariants.push({
+            id: `sz-${idx}`,
+            name: sz,
+            inStock: true,
+            priceAED: p
+          });
+        }
+      });
+
       return res.status(200).json({
         ok: true,
         success: true,
         cached: false,
+        id: `scraped-${Date.now()}`,
         title: result.title || 'محصول استخراج شده',
+        brand: result.storeName || 'فروشگاه آنلاین دبی',
+        sourceStore: result.storeName || 'فروشگاه آنلاین دبی',
+        sourceUrl: cleanUrl,
+        mainImage: mainImg || gallery[0] || '',
+        galleryImages: gallery,
+        basePriceAED: p,
+        inStock: true,
+        variants: flatVariants,
         price: p,
         currency: result.currency || 'AED',
         priceAed: p,
@@ -3390,13 +4252,12 @@ app.all('/api/parse-link', async (req, res) => {
         originalPriceAed: result.originalPriceAed,
         discountPercent: result.discountPercent,
         weightKg: 0.8,
-        brand: result.storeName || 'فروشگاه آنلاین دبی',
         storeName: result.storeName || 'فروشگاه آنلاین دبی',
         url: cleanUrl,
-        image: mainImg,
-        mainImage: mainImg,
-        image_url: mainImg,
-        images: mainImg ? [mainImg] : [],
+        image: mainImg || gallery[0] || '',
+        image_url: mainImg || gallery[0] || '',
+        images: gallery,
+        variantGroups: result.variantGroups || [],
         description: result.description,
         options: (result.options || []).filter(opt => opt && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(opt.trim().toLowerCase())),
         flavors: flavors,
@@ -3427,7 +4288,10 @@ app.all('/api/parse-link', async (req, res) => {
       image: ""
     });
   }
-});
+};
+
+app.all('/api/parse-link', handleParseLinkRoute);
+app.all('/api/scrape-product', handleParseLinkRoute);
 
 // Catch-all handler for unhandled /api/* endpoints - ALWAYS return JSON!
 app.use('/api/*', (req, res) => {
@@ -3477,17 +4341,22 @@ async function startServer() {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      const targetPath = path.join(__dirname, 'dist', 'index.html');
+      if (fs.existsSync(targetPath)) {
+        res.sendFile(targetPath);
+      } else {
+        res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
+      }
     });
   }
 
   if (!process.env.FUNCTION_TARGET && !process.env.FUNCTIONS_EMULATOR && process.env.IS_FIREBASE_FUNCTION !== 'true') {
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`OMEX Dubai Import Platform server listening on http://localhost:${PORT}`);
+      console.log(`OMEX Dubai Import Platform server listening on http://0.0.0.0:${PORT}`);
     });
   }
 }
 
-if (!process.env.FUNCTION_TARGET && !process.env.FUNCTIONS_EMULATOR && process.env.IS_FIREBASE_FUNCTION !== 'true' && typeof require !== 'undefined' && require.main === module) {
+if (!process.env.FUNCTION_TARGET && !process.env.FUNCTIONS_EMULATOR && process.env.IS_FIREBASE_FUNCTION !== 'true') {
   startServer();
 }

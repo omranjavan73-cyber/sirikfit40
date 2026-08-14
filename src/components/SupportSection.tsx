@@ -1,9 +1,10 @@
 import React from 'react';
-import { Headphones, PhoneCall, ShieldCheck, Truck, Clock } from 'lucide-react';
+import { Headphones, PhoneCall, ShieldCheck, Truck, Clock, HelpCircle, ArrowLeft } from 'lucide-react';
 import type { CmsConfig } from '../types';
 
 interface SupportSectionProps {
   cms?: CmsConfig | null;
+  onOpenFAQ?: () => void;
 }
 
 const TelegramIcon = () => (
@@ -20,7 +21,7 @@ const formatTelegramUrl = (rawLink?: string, handle?: string) => {
   return `https://t.me/${clean}`;
 };
 
-export const SupportSection: React.FC<SupportSectionProps> = ({ cms }) => {
+export const SupportSection: React.FC<SupportSectionProps> = ({ cms, onOpenFAQ }) => {
   const home = cms?.homeContent;
   const showSupport = cms?.features?.showSupportSection ?? home?.showSupportSection ?? cms?.showSupportSection ?? true;
 
@@ -40,6 +41,8 @@ export const SupportSection: React.FC<SupportSectionProps> = ({ cms }) => {
   const showPhoneCard = home?.showPhoneCard ?? true;
   const phoneTitle = home?.phoneTitle || 'تلفن پشتیبانی';
   const officePhone = home?.officePhone || '021-91000000';
+
+  const showFaqSection = (cms?.features?.showFaqSection ?? cms?.showFaqSection) !== false;
 
   const trustBadge1 = home?.trustBadge1 || 'اصالت ۱۰۰٪ کالا';
   const trustBadge2 = home?.trustBadge2 || 'حمل ایمن کارگو';
@@ -122,6 +125,45 @@ export const SupportSection: React.FC<SupportSectionProps> = ({ cms }) => {
         </div>
       )}
 
+      {/* 🟢 FAQ TRIGGER CARD (Redesigned to match Support Cards) */}
+      {showFaqSection && (
+        <div>
+          <button
+            type="button"
+            id="faq-navigation-button"
+            onClick={() => {
+              if (onOpenFAQ) {
+                onOpenFAQ();
+              }
+            }}
+            className="w-full group bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/80 border border-slate-200/90 dark:border-slate-800 hover:border-slate-800 dark:hover:border-slate-600 rounded-[18px] p-4 transition-all duration-200 flex items-center justify-between gap-3 cursor-pointer shadow-2xs hover:shadow-md active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-3 text-right flex-1 min-w-0">
+              <div className="w-11 h-11 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-500 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform duration-200">
+                <HelpCircle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-black text-xs md:text-sm text-slate-800 dark:text-white">
+                    سوالات متداول و راهنمای خرید (FAQ)
+                  </h4>
+                  <span className="text-[10px] font-bold bg-orange-500/10 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded-full border border-orange-500/20 hidden sm:inline-block">
+                    راهنمای کامل
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5 truncate">
+                  پاسخ به سوالات پرتکرار اصالت کالا، نحوه ارسال و سفارش از دبی
+                </p>
+              </div>
+            </div>
+
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200 group-hover:-translate-x-0.5 transition-all shrink-0">
+              <ArrowLeft className="w-4 h-4" />
+            </div>
+          </button>
+        </div>
+      )}
+
       {/* Trust Badges - Light Outer Border #E5E5E5 & Rounded 16px */}
       <div className="grid grid-cols-3 gap-2.5 pt-1">
         <div className="bg-[#F8FAFC] border border-slate-200/80 rounded-[16px] p-3 text-center">
@@ -148,4 +190,5 @@ export const SupportSection: React.FC<SupportSectionProps> = ({ cms }) => {
     </div>
   );
 };
+
 

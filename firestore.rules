@@ -24,16 +24,14 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // Settings collection (app, cms, financial, pricing_rules, security)
+    // Settings collection (app, cms, financial, general, pricing_rules, security, backupSchedule, adminSecurity)
     match /settings/{settingId} {
-      allow read: if true;
-      allow write: if true; // Allows settings save from web client and Cloud Functions
+      allow read, write: if true;
     }
 
     // Orders collection
     match /orders/{orderId} {
-      allow read, create: if true;
-      allow update, delete: if true;
+      allow read, write: if true;
     }
 
     // Users collection
@@ -43,11 +41,15 @@ service cloud.firestore {
 
     // Support Tickets collection
     match /tickets/{ticketId} {
-      allow read, create, update, delete: if true;
+      allow read, write: if true;
     }
 
-    // Visitor Stats & Analytics collection
+    // Visitor Stats & Analytics collections
     match /analytics/{docId} {
+      allow read, write: if true;
+    }
+
+    match /analytics_daily/{docId} {
       allow read, write: if true;
     }
 
@@ -55,8 +57,12 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // Audit logs collection
+    // Audit logs collections
     match /audit_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    match /auditLogs/{logId} {
       allow read, write: if true;
     }
 
@@ -67,6 +73,31 @@ service cloud.firestore {
 
     // Admins collection
     match /admins/{adminId} {
+      allow read, write: if true;
+    }
+
+    // Scraped Products Cache collection
+    match /scraped_products_cache/{urlHash} {
+      allow read, write: if true;
+    }
+
+    // FAQs collection
+    match /faqs/{faqId} {
+      allow read, write: if true;
+    }
+
+    // User Inquiries collection
+    match /user_inquiries/{inquiryId} {
+      allow read, write: if true;
+    }
+
+    // Financial Expenses collection
+    match /financial_expenses/{expenseId} {
+      allow read, write: if true;
+    }
+
+    // Discount Codes collection
+    match /discount_codes/{codeId} {
       allow read, write: if true;
     }
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link2, Sparkles, ArrowLeft, Weight, Coins, PackageCheck, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Info, ShieldCheck, Plane, ShoppingCart, CheckCircle2, Trash2, X } from 'lucide-react';
+import { Link2, Sparkles, ArrowLeft, Weight, Coins, PackageCheck, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Info, ShieldCheck, ShoppingCart, CheckCircle2, Trash2, X } from 'lucide-react';
 import { FinancialSettings, ParsedProduct, CmsConfig } from '../types';
 import { formatToman, formatAed, toPersianDigits, extractCleanUrl, getEffectiveAedRate } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
@@ -90,6 +90,9 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
     cms?.heroImage || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600'
   );
   const [productGallery, setProductGallery] = useState<string[]>([]);
+  const [productVariantGroups, setProductVariantGroups] = useState<any[]>([]);
+  const [productFlavors, setProductFlavors] = useState<string[]>([]);
+  const [productSizes, setProductSizes] = useState<string[]>([]);
   const [storeName, setStoreName] = useState<string>('Dr. Nutrition');
   const [isAdded, setIsAdded] = useState(false);
 
@@ -221,6 +224,18 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         if (result.brand) setBrandName(result.brand);
         if (result.category) setCategoryName(result.category);
 
+        if (Array.isArray(result.variantGroups)) {
+          setProductVariantGroups(result.variantGroups);
+        } else {
+          setProductVariantGroups([]);
+        }
+        if (Array.isArray(result.flavors)) {
+          setProductFlavors(result.flavors);
+        }
+        if (Array.isArray(result.sizes)) {
+          setProductSizes(result.sizes);
+        }
+
         const validExtractedOptions = (result.options || []).filter(
           (opt) => opt && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(opt.trim().toLowerCase())
         );
@@ -291,38 +306,32 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
   };
 
   const handleAddToCartClick = () => {
+    const productPayload = {
+      title: productTitle,
+      url: urlInput || 'https://www.drnutrition.com',
+      priceAed,
+      originalPriceAed,
+      weightKg,
+      image: productImage,
+      images: productGallery.length > 0 ? productGallery : [productImage],
+      galleryImages: productGallery.length > 0 ? productGallery : [productImage],
+      storeName,
+      calculatedToman: Math.round(finalToman / quantity),
+      quantity: quantity,
+      selectedOption: selectedOption || undefined,
+      options: productOptions,
+      variantGroups: productVariantGroups.length > 0 ? productVariantGroups : undefined,
+      flavors: productFlavors.length > 0 ? productFlavors : undefined,
+      sizes: productSizes.length > 0 ? productSizes : undefined,
+      description: productDescription
+    };
+
     if (onAddToCart) {
-      onAddToCart({
-        title: productTitle,
-        url: urlInput || 'https://www.drnutrition.com',
-        priceAed,
-        originalPriceAed,
-        weightKg,
-        image: productImage,
-        storeName,
-        calculatedToman: Math.round(finalToman / quantity),
-        quantity: quantity,
-        selectedOption: selectedOption || undefined,
-        options: productOptions,
-        description: productDescription
-      }, selectedOption || undefined, undefined);
+      onAddToCart(productPayload, selectedOption || undefined, undefined);
       setIsAdded(true);
       setTimeout(() => setIsAdded(false), 1500);
     } else if (onProceedToOrder) {
-      onProceedToOrder({
-        title: productTitle,
-        url: urlInput || 'https://www.drnutrition.com',
-        priceAed,
-        originalPriceAed,
-        weightKg,
-        image: productImage,
-        storeName,
-        calculatedToman: Math.round(finalToman / quantity),
-        quantity: quantity,
-        selectedOption: selectedOption || undefined,
-        options: productOptions,
-        description: productDescription
-      });
+      onProceedToOrder(productPayload);
     }
   };
 
@@ -471,12 +480,8 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
 
               <div className="flex-1 space-y-2 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] bg-slate-200 text-slate-800 font-extrabold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                  <span className="text-[10px] bg-slate-200 text-slate-800 font-extrabold px-2.5 py-1 rounded-md uppercase tracking-wider">
                     {storeName}
-                  </span>
-                  <span className="text-[10px] bg-sky-100 text-sky-800 font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
-                    <Plane className="w-3 h-3" />
-                    تحویل ۷ الی ۱۴ روز کاری
                   </span>
                   {/* Conditional Discount Badge ONLY when original price exists */}
                   {originalPriceAed && originalPriceAed > priceAed && (

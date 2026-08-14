@@ -1,115 +1,83 @@
-# SIRIKFIT Architectural Architecture & Synchronization Guide
+# SIRIKFIT Architectural & State Synchronization Guide
 
-## Executive Overview
-SIRIKFIT utilizes a high-resiliency **3-Step Local-First State Pipeline** designed specifically for serverless deployments (Firebase Cloud Functions / Cloud Run) and web applications.
-
-This architecture solves cold-start latency, cloud function timeouts, read-only file system restrictions, and race conditions by maintaining a single, immutable hierarchy for application settings, AED exchange rates, and CMS configurations.
-
----
-
-## 1. Core Data Flow & Persistence Pipeline
+## 1. Overview & Core Architecture
+SIRIKFIT operates on a resilient **Offline-First & LocalStorage-Primary** state management model paired with **Realtime Firebase Firestore SDK Synchronization** and a **Serverless/Cloud Function-Safe Express Backend**.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    ADMIN UI / INPUT FORM                    │
+│                      ADMIN PANEL / UI                       │
 └──────────────────────────────┬──────────────────────────────┘
                                │
-            Step 1: Synchronous Local Storage Write
+               1. Save to LocalStorage (Instant)
                                │
-                               ▼
-     ┌───────────────────────────────────────────────────┐
-     │  localStorage.setItem('sirikfit_aed_rate', ...)   │
-     │  localStorage.setItem('sirikfit_cms_config',...)  │
-     └─────────────────────────┬─────────────────────────┘
+               2. window.dispatchEvent('settingsUpdated')
                                │
-            Step 2: Instant Custom Event Dispatch
-                               │
-                               ▼
-     ┌───────────────────────────────────────────────────┐
-     │ window.dispatchEvent(new CustomEvent(             │
-     │   'settingsUpdated', { detail: payload }          │
-     │ ));                                               │
-     └─────────────────────────┬─────────────────────────┘
-                               │
-            Step 3: Direct Asynchronous Cloud Persistence
-                               │
-                               ▼
-     ┌───────────────────────────────────────────────────┐
-     │ Firestore setDoc(doc(db, 'settings', 'app'), ...) │
-     │ Firestore setDoc(doc(db, 'settings', 'cms'), ...) │
-     └───────────────────────────────────────────────────┘
+            ┌──────────────────┴──────────────────┐
+            ▼                                     ▼
+┌───────────────────────┐             ┌───────────────────────┐
+│     Global State      │             │     Async Network     │
+│   (React / Header)    │             │ (Firestore & Backend) │
+└───────────────────────┘             └───────────────────────┘
 ```
 
-### Step 1: Immediate Synchronous Local Persistence
-- Whenever settings or AED exchange rates are modified in `AdminPanel.tsx` or `PricingRulesAdmin.tsx`, all numbers are safely sanitized using `parseFloat()` / `Number()`.
-- Inputs are immediately saved to `localStorage` under standard keys:
-  - `sirikfit_aed_rate`
-  - `sirikfit_financial_settings`
-  - `sirikfit_cms_config`
-  - `sirikfit_features_config`
+---
 
-### Step 2: Instant Global Component Notification
-- After updating `localStorage`, the save helper fires a custom window event:
-  `window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: payload }))`
-- React components (such as `App.tsx`, `Header.tsx`, `HeroCalculator.tsx`, and `PricingRulesAdmin.tsx`) listen to this event and update their local React state synchronously without needing a page refresh or API call.
+## 2. The 3-Step Save Sequence (Bulletproof Pattern)
+Whenever settings, AED exchange rates, pricing rules, or CMS items are saved in the Admin Panel (`adminSaveHelper.ts` / `PricingRulesAdmin.tsx` / `AdminPanel.tsx`), the application strictly executes in this order:
 
-### Step 3: Direct Firestore Cloud Sync
-- The application bypasses local file system writes (`fs.writeFileSync`) in cloud environments (`process.env.K_SERVICE` / Firebase Cloud Functions) because Cloud Functions containers have a read-only filesystem (except `/tmp`).
-- Writes are executed directly via the Firebase Web SDK (`setDoc(doc(db, 'settings', 'app'), ...)`), ensuring multi-device synchronization and production domain compatibility (`sirikfit.ir`).
+1. **Step 1: Synchronous LocalStorage Persistence (Immediate Source of Truth)**
+   - All string numeric values are sanitized using `safeParseNumeric(val)` to prevent `NaN` or type comparison bugs.
+   - Values are immediately stored in keys:
+     - `sirikfit_aed_rate`
+     - `sirikfit_financial_settings`
+     - `sirikfit_app_settings`
+     - `sirikfit_cms_config`
+     - `omex_pricing_rules`
+2. **Step 2: Synchronous Event Dispatch (Zero UI Lag)**
+   - Dispatches `window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: payload }))` and `window.dispatchEvent(new Event('storage'))`.
+   - `App.tsx` and all consumers instantly re-render with new values without waiting for network requests.
+3. **Step 3: Asynchronous Firebase Firestore & Non-Blocking REST Sync**
+   - Calls Firestore SDK `setDoc(doc(db, 'settings', 'app'), ...)` and `setDoc(doc(db, 'settings', 'general'), ...)`.
+   - Fires a non-blocking background fetch to `/api/settings`.
 
 ---
 
-## 2. Page Initialization & Hydration Protocol
-
-When a user opens the application or refreshes the browser, `App.tsx` follows this strict priority order:
-
-1. **Local State Hydration (Source of Truth)**:
-   - `settings` state in `App.tsx` reads `sirikfit_aed_rate` and `sirikfit_financial_settings` from `localStorage` **first**.
-   - UI elements (including the Header exchange rate badge and Calculator) render instantly with saved rates, preventing UI flickering or resetting to default hardcoded fallback values.
-
-2. **Real-time Firestore Listener (`onSnapshot`)**:
-   - `App.tsx` subscribes to real-time updates on `settings/app`, `settings/cms`, and `settings/general`.
-   - When updates are received, `App.tsx` merges the remote changes while preserving local non-zero rates.
-
-3. **Resilient Backend Fallback**:
-   - If Cloud Functions timing out or network failure occurs, the app gracefully operates using `localStorage` cache without throwing errors or breaking UI state.
+## 3. Application Initialization (`src/App.tsx`)
+On initial page load or hard refresh:
+1. `useState` initializers read from `localStorage` **FIRST**.
+2. If `localStorage` contains an AED rate or financial configuration, it is used immediately.
+3. Hardcoded defaults (e.g., `55,000` Tomans) are ONLY used if `localStorage` and Firestore are completely empty.
+4. Active Firestore `onSnapshot` listeners update the state if remote database changes occur.
 
 ---
 
-## 3. Serverless Backend (`server.ts`) Design Rules
-
-1. **Read-Only File System Guard**:
-   - In cloud environments (`process.env.K_SERVICE` or Firebase Cloud Functions), `server.ts` uses `defaultData` in-memory fallback and never attempts `fs.writeFileSync` or `fs.mkdirSync` on the container filesystem outside `/tmp`.
-2. **Analytics Tracking (`/api/analytics/track-visit`)**:
-   - The analytics tracking endpoint records visit logs in memory and updates Firestore `analytics_daily` collections asynchronously.
-   - It returns a clean `200 OK` response without touching local disk.
+## 4. Serverless & Cloud Function Safety (`server.ts`)
+Firebase Cloud Functions and Cloud Run run in a **Read-Only** environment:
+- `server.ts` checks `isCloudEnv` (`process.env.K_SERVICE || process.env.FUNCTION_TARGET`).
+- In Cloud environments, write operations do NOT write to `./data` (which throws `EROFS` 500 errors).
+- All analytics tracking (`/api/analytics/track-visit`) writes in-memory or directly to Firestore with silent fallbacks, ensuring 200 OK responses.
 
 ---
 
-## 4. Troubleshooting & Maintenance Checklist
+## 5. Troubleshooting & Debugging Guide
 
-If AED rate or CMS settings ever fail to update in the future, follow this step-by-step diagnostic checklist:
+### Issue: "AED rate or settings did not update on the homepage after saving in Admin"
+**Checks:**
+1. Open Chrome DevTools > Application > Local Storage > inspect `sirikfit_aed_rate` and `sirikfit_financial_settings`.
+2. Verify that the rate in LocalStorage is a valid positive number.
+3. In Console, test event dispatch manually:
+   ```javascript
+   window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { aedRate: 54000 } }));
+   ```
+4. Verify Firestore document: Check the collection `settings` > doc `app` or `general` in Firebase Console.
 
-### Issue A: AED Rate Resets to Default or Doesn't Save
-1. **Check LocalStorage in Browser DevTools**:
-   - Open Console -> Application -> Local Storage.
-   - Verify if `sirikfit_aed_rate` contains the numeric value (e.g. `53000`).
-2. **Check String-to-Number Parsing**:
-   - Verify that inputs in admin panels convert Persian/Arabic digits to English digits using `normalizeToEnglishDigits()` before running `parseFloat()`.
-3. **Verify Event Listener Registration**:
-   - Ensure `App.tsx` has attached the `settingsUpdated` listener on mount (`window.addEventListener('settingsUpdated', ...)`).
+### Issue: "500 Internal Server Error on API requests in Cloud Functions"
+**Checks:**
+1. Ensure the function does not attempt disk writes to relative paths like `./data`. Use `/tmp` or Firestore.
+2. Check Cloud Function logs in Google Cloud Console / Firebase Console for `EROFS: read-only file system`.
 
-### Issue B: Backend 500 Internal Server Errors in Firebase Logs
-1. **Check Filesystem Operations**:
-   - Ensure no new endpoint in `server.ts` uses `fs.writeFileSync()` on relative root paths (`./data`). All cloud filesystem operations must target `/tmp` or check `isCloudEnv`.
-2. **Check Firestore Rules & Config**:
-   - Verify `firebase-applet-config.json` is deployed and Firestore database permissions allow read/write access to the `settings` collection.
-
----
-
-## 5. Key Architecture Files
-- `src/App.tsx`: Central state brain, local-first initialization & real-time Firestore listeners.
-- `src/utils/adminSaveHelper.ts`: Unified 3-step save executor (`saveAdminSettingsPayload`).
-- `src/components/AdminPanel.tsx`: Products & CMS management panel.
-- `src/components/PricingRulesAdmin.tsx`: AED rate, commission rules, and shipping configuration panel.
-- `server.ts`: Serverless Express API & Firebase Cloud Function entrypoint.
+### Issue: "FAQ or user inquiry not appearing in Firestore"
+**Checks:**
+1. Check `faqs` and `user_inquiries` collections in Firestore.
+2. Verify `firestore.rules` allows read/write access for `faqs` and `user_inquiries`.
+3. Check browser network tab for any blocked Firestore gRPC requests.

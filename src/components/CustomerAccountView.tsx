@@ -192,23 +192,27 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
 
   const paidOrdersCount = (orders || []).filter((o) => o && o.paymentStatus === 'PAID').length;
 
-  const getTrackingStepIndex = (status: string) => {
-    switch (status) {
-      case 'COMPLETED':
-      case 'DELIVERED':
-        return 5;
-      case 'SHIPPED_IRAN':
-      case 'SHIPPED':
-        return 4;
-      case 'DUBAI_WAREHOUSE':
-        return 3;
-      case 'PURCHASED':
-      case 'PROCESSING':
-        return 2;
-      case 'PENDING_BUY':
-      default:
-        return 1;
+  const getTrackingStepIndex = (shippingStatus?: string, paymentStatus?: string) => {
+    const s = (shippingStatus || '').toUpperCase();
+    const p = (paymentStatus || '').toUpperCase();
+
+    // Stage 4: تحویل به مشتری
+    if (s === 'COMPLETED' || s === 'DELIVERED' || s === 'DELIVERED_CUSTOMER') {
+      return 4;
     }
+    // Stage 3: ارسال شده
+    if (s === 'SHIPPED_IRAN' || s === 'SHIPPED' || s === 'IN_TRANSIT') {
+      return 3;
+    }
+    // Stage 2: تایید سفارش / در حال پردازش و تهیه
+    if (s === 'CONFIRMED' || s === 'PROCESSING' || s === 'PURCHASED' || s === 'DUBAI_WAREHOUSE' || s === 'PENDING_BUY') {
+      return 2;
+    }
+    // Stage 1: پرداخت موفق
+    if (p === 'PAID' || s === 'PAID') {
+      return 1;
+    }
+    return 1;
   };
 
   // ----------------------------------------------------
@@ -521,7 +525,7 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                       className="bg-black hover:bg-neutral-800 text-white text-xs font-extrabold px-3 py-2 rounded-xl transition flex items-center justify-center gap-1 cursor-pointer w-full sm:w-auto"
                     >
                       <Truck className="w-3.5 h-3.5" />
-                      <span>رهگیری لایو وضعیت</span>
+                      <span>رهگیری ۴ مرحله‌ای</span>
                     </button>
 
                     {order.paymentStatus !== 'PAID' && onPayPendingOrder && (
@@ -536,6 +540,51 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* 4-Stage Stepper Bar on each order card */}
+              {(() => {
+                const activeStage = getTrackingStepIndex(order.shippingStatus, order.paymentStatus);
+                const stages = [
+                  { step: 1, label: 'پرداخت موفق' },
+                  { step: 2, label: 'تایید سفارش' },
+                  { step: 3, label: 'ارسال شده' },
+                  { step: 4, label: 'تحویل به مشتری' }
+                ];
+
+                return (
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 mt-2">
+                    <div className="grid grid-cols-4 gap-1 sm:gap-2">
+                      {stages.map((st) => {
+                        const isDone = st.step <= activeStage;
+                        const isCurrent = st.step === activeStage;
+
+                        return (
+                          <div key={st.step} className="flex flex-col items-center text-center relative">
+                            <div
+                              className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[11px] sm:text-xs font-black transition mb-1 ${
+                                isDone
+                                  ? isCurrent
+                                    ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-200 animate-pulse'
+                                    : 'bg-slate-900 text-white'
+                                  : 'bg-white border border-slate-300 text-slate-400'
+                              }`}
+                            >
+                              {isDone && !isCurrent ? '✓' : st.step}
+                            </div>
+                            <span
+                              className={`text-[10px] sm:text-[11px] font-bold truncate max-w-full ${
+                                isDone ? (isCurrent ? 'text-emerald-700 font-black' : 'text-slate-900') : 'text-slate-400'
+                              }`}
+                            >
+                              {st.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           ))}
         </div>
@@ -548,7 +597,7 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <span className="bg-[#111111] text-white text-[10px] font-black px-2.5 py-0.5 rounded-full inline-block mb-1 border border-[#D31027]/40">
-                  سامانه رهگیری کارگو SIRIK FIT
+                  سامانه رهگیری ۴ مرحله‌ای SIRIK FIT
                 </span>
                 <h3 className="font-black text-base text-slate-900">
                   رهگیری مرسوله: <span className="font-mono dir-ltr">{selectedTrackingOrder.trackingCode}</span>
@@ -575,18 +624,17 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
               </div>
             </div>
 
-            {/* Visual Timeline Steps */}
+            {/* 4-Stage Visual Timeline Steps */}
             <div className="space-y-4 py-2 relative">
               <div className="absolute right-4 top-4 bottom-4 w-0.5 bg-slate-200 z-0"></div>
 
               {[
-                { step: 1, title: 'ثبت سفارش و تأیید اولیه', desc: 'سفارش در سامانه ثبت و پردازش مالی انجام گردید.' },
-                { step: 2, title: 'خرید مستقیم از فروشگاه دبی', desc: 'کالا از نمایندگی رسمی دبی خریداری شده و پلمپ شد.' },
-                { step: 3, title: 'بارگیری و پرواز کارگو هوایی دبی ✈️', desc: 'بسته در پرواز کارگو هوایی مستقیم دبی به ایران قرار گرفت.' },
-                { step: 4, title: 'تحویل به انبار مرکزی تهران 📦', desc: 'مرسوله به انبار تهران رسیده و کد بسته‌بندی صادر شد.' },
-                { step: 5, title: 'تحویل نهایی به خریدار 🚚', desc: 'بسته توسط پیک یا پست به آدرس شما تحویل داده شد.' }
+                { step: 1, title: 'مرحله ۱: پرداخت موفق (Payment Successful)', desc: 'تراکنش با موفقیت انجام شد و سفارش در سیستم ثبت گردید.' },
+                { step: 2, title: 'مرحله ۲: تایید سفارش (Order Confirmed / Processing)', desc: 'سفارش توسط پشتیبانی تایید شد و فرآیند آماده‌سازی و بسته‌بندی در جریان است.' },
+                { step: 3, title: 'مرحله ۳: ارسال شده (Shipped / In Transit)', desc: 'مرسوله بارگیری شده و در مسیر حمل کارگو / پست به سمت مقصد قرار گرفت.' },
+                { step: 4, title: 'مرحله ۴: تحویل به مشتری (Delivered to Customer)', desc: 'بسته با موفقیت به مشتری گرامی تحویل داده شد.' }
               ].map((item) => {
-                const activeIndex = getTrackingStepIndex(selectedTrackingOrder.shippingStatus);
+                const activeIndex = getTrackingStepIndex(selectedTrackingOrder.shippingStatus, selectedTrackingOrder.paymentStatus);
                 const isPassed = item.step <= activeIndex;
                 const isCurrent = item.step === activeIndex;
 
@@ -608,7 +656,7 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                         {item.title}
                         {isCurrent && (
                           <span className="mr-2 text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-bold">
-                            در حال انجام
+                            وضعیت کنونی
                           </span>
                         )}
                       </div>

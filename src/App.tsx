@@ -20,6 +20,7 @@ import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { PopularProductsCarousel, PopularProductItem } from './components/PopularProductsCarousel';
 import { CircularCategoryRow } from './components/CircularCategoryRow';
 import { ReviewsSection } from './components/ReviewsSection';
+import { FAQView } from './components/FAQView';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
 import { toPersianDigits, getEffectiveAedRate } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
@@ -82,7 +83,7 @@ function MainApp() {
   // Browser & Mobile Back Button Navigation (Prevents website exit on Cart/Detail view)
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-      if (activeTab === 'cart' || activeTab === 'detail' || activeTab === 'inventory' || activeTab === 'deals') {
+      if (activeTab === 'cart' || activeTab === 'detail' || activeTab === 'inventory' || activeTab === 'deals' || activeTab === 'faq') {
         setActiveTab('main');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
@@ -206,10 +207,29 @@ function MainApp() {
   };
 
   const addToCart = (product: any, selectedFlavor?: string, selectedSize?: string) => {
-    const flavorStr = selectedFlavor || '';
-    const sizeStr = selectedSize || '';
+    const flavorStr = (selectedFlavor || '').trim();
+    const sizeStr = (selectedSize || '').trim();
     const id = product.id || product.title || 'item';
     const cartItemId = `${id}-${flavorStr}-${sizeStr}`;
+
+    const variantName = [flavorStr, sizeStr].filter(Boolean).join(' - ');
+    let finalPriceAed = Number(product.priceAed || product.price || 0);
+
+    if (variantName && Array.isArray(product.variants)) {
+      const matchedVar = product.variants.find((v: any) => {
+        const vName = String(v.name || v.title || '').trim().toLowerCase();
+        return vName === variantName.toLowerCase() || 
+               vName === flavorStr.toLowerCase() || 
+               vName === sizeStr.toLowerCase();
+      });
+      if (matchedVar) {
+        if (matchedVar.priceAED !== undefined && matchedVar.priceAED !== null) {
+          finalPriceAed = Number(matchedVar.priceAED);
+        } else if (matchedVar.priceAed !== undefined && matchedVar.priceAed !== null) {
+          finalPriceAed = Number(matchedVar.priceAed);
+        }
+      }
+    }
 
     setCartItems((prevCart: any[]) => {
       const existingItemIndex = prevCart.findIndex(
@@ -221,15 +241,25 @@ function MainApp() {
         updatedCart = [...prevCart];
         updatedCart[existingItemIndex].quantity += 1;
       } else {
-        const newItem = {
-          ...product,
+        const newItem: any = {
           id: product.id || id,
           cartItemId,
-          product,
-          selectedFlavor,
-          selectedSize,
+          title: product.title,
+          url: product.url,
+          priceAed: finalPriceAed,
+          weightKg: Number(product.weightKg) || 0.8,
+          image: product.image || product.mainImage || '',
+          storeName: product.storeName || '',
           quantity: 1
         };
+
+        if (variantName) {
+          newItem.selectedVariantName = variantName;
+          newItem.selectedFlavor = flavorStr;
+          newItem.selectedSize = sizeStr;
+          newItem.selectedOption = variantName;
+        }
+
         updatedCart = [...prevCart, newItem];
       }
 
@@ -430,39 +460,44 @@ function MainApp() {
   const fetchSettings = async () => {
     setIsLoadingSettings(true);
     try {
-      const fsSettings = await fetchSettingsFromFirestore();
-      
       let localRate: number | null = null;
+      let localSettings: any = null;
+
       if (typeof window !== 'undefined') {
         const direct = localStorage.getItem('sirikfit_aed_rate');
         if (direct && !isNaN(Number(direct)) && Number(direct) > 0) {
           localRate = Number(direct);
         }
+        const saved = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
+        if (saved) {
+          try {
+            localSettings = JSON.parse(saved);
+          } catch (_e) {}
+        }
       }
+
+      const fsSettings = await fetchSettingsFromFirestore();
 
       if (fsSettings) {
         setSettings(prev => {
-          const effectiveRate = localRate || fsSettings.aedRate || fsSettings.manualAedRate || prev.aedRate;
+          const fsRate = Number(fsSettings.aedRate || fsSettings.manualAedRate || 0);
+          const effectiveRate = (localRate && localRate > 0) ? localRate : (fsRate > 0 ? fsRate : prev.aedRate);
           return {
             ...prev,
             ...fsSettings,
             aedRate: effectiveRate,
-            manualAedRate: effectiveRate
+            manualAedRate: effectiveRate,
+            cargoRatePerKg: typeof fsSettings.cargoRatePerKg === 'number' ? fsSettings.cargoRatePerKg : prev.cargoRatePerKg,
+            profitMargin: typeof fsSettings.profitMargin === 'number' ? fsSettings.profitMargin : prev.profitMargin
           };
         });
-      } else {
-        const saved = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed) {
-            setSettings(prev => ({
-              ...prev,
-              ...parsed,
-              aedRate: localRate || parsed.aedRate || prev.aedRate,
-              manualAedRate: localRate || parsed.manualAedRate || prev.manualAedRate
-            }));
-          }
-        }
+      } else if (localSettings) {
+        setSettings(prev => ({
+          ...prev,
+          ...localSettings,
+          aedRate: localRate || Number(localSettings.aedRate || localSettings.manualAedRate) || prev.aedRate,
+          manualAedRate: localRate || Number(localSettings.manualAedRate || localSettings.aedRate) || prev.manualAedRate
+        }));
       }
     } catch (err) {
       console.warn('Error loading settings:', err);
@@ -868,7 +903,13 @@ function MainApp() {
 
             {/* Support & Contact Section */}
             <div id="support-section" className="scroll-mt-16">
-              <SupportSection cms={cmsConfig} />
+              <SupportSection
+                cms={cmsConfig}
+                onOpenFAQ={() => {
+                  setActiveTab('faq');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              />
             </div>
 
             {/* Trust Badges Section (eNamad & Samandehi) */}
@@ -946,6 +987,17 @@ function MainApp() {
               onAddToCart={addToCart}
             />
           </div>
+        )}
+
+        {/* DEDICATED FAQ PAGE (صفحه اختصاصی سوالات متداول و راهنمای خرید) */}
+        {activeTab === 'faq' && (
+          <FAQView
+            onBack={() => {
+              setActiveTab('main');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            showToast={showToast}
+          />
         )}
 
         {/* CUSTOMER ACCOUNT & ORDER TRACKING TAB (حساب کاربری / پیگیری سفارش) */}

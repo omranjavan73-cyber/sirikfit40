@@ -48,6 +48,9 @@ export interface FeaturedDeal {
   isFeaturedInCalculator?: boolean;
   isPopularSample?: boolean;
   isActive: boolean;
+  description?: string;
+  flavors?: string[];
+  sizes?: string[];
 }
 
 export interface LocalInventoryItem {
@@ -101,6 +104,7 @@ export interface HomePageSettings {
   supportHeadline: string;
   supportSubtitle: string;
   showSupportSection: boolean;
+  showFaqSection?: boolean;
   showTelegramCard?: boolean;
   telegramTitle?: string;
   showEmailCard?: boolean;
@@ -211,6 +215,7 @@ export interface FeatureToggles {
   showSupportSection: boolean;
   showTopPromo: boolean;
   showTrustBadges?: boolean;
+  showFaqSection?: boolean;
 }
 
 export interface CmsConfig {
@@ -227,6 +232,7 @@ export interface CmsConfig {
   showComments?: boolean;
   showStores?: boolean;
   showSupportSection?: boolean;
+  showFaqSection?: boolean;
   showTopPromo?: boolean;
   showTrustBadges?: boolean;
   enamadHtml?: string;
@@ -330,11 +336,122 @@ export interface Order {
   discountAmountToman?: number;
 }
 
+export interface ProductVariantItem {
+  id?: string;
+  name: string; // e.g. "Strawberry", "Chocolate", "5 LBS", "60 Servings"
+  inStock: boolean;
+  priceAED?: number;
+  imageThumbnail?: string;
+}
+
+export interface ScrapedProductResult {
+  id: string;
+  title: string;
+  brand?: string;
+  sourceStore: string;
+  sourceUrl: string;
+  mainImage: string;
+  galleryImages: string[]; // Array of full-res and secondary photo URLs
+  basePriceAED: number;
+  calculatedPriceToman: number;
+  inStock: boolean;
+  variants: ProductVariantItem[];
+  description?: string;
+}
+
+export interface VariantOption {
+  id: string;
+  name: string;
+  nameFa?: string;
+  priceAed?: number;
+  originalPriceAed?: number;
+  image?: string;
+  inStock?: boolean;
+  sku?: string;
+}
+
+export interface VariantDimension {
+  id: string;
+  name: string;
+  type: 'flavor' | 'size' | 'color' | 'style' | 'generic';
+  options: VariantOption[];
+}
+
+export interface UniversalProduct {
+  title: string;
+  titleFa?: string;
+  titleEn?: string;
+  url: string;
+  priceAed: number;
+  originalPriceAed?: number;
+  discountPercent?: number;
+  weightKg: number;
+  image: string;
+  images: string[];
+  galleryImages: string[];
+  storeName: string;
+  storeOrigin?: string;
+  brand?: string;
+  category?: string;
+  description?: string;
+  descriptionFa?: string;
+  dimensions?: VariantDimension[];
+  variantGroups?: ProductVariantGroup[];
+  variants?: ProductVariant[];
+  options?: string[];
+  flavors?: string[];
+  sizes?: string[];
+  inStock?: boolean;
+  selectedVariants?: Record<string, VariantOption>;
+  rawSpecs?: Record<string, string>;
+}
+
+export interface ProductVariantOption {
+  id: string;
+  name: string;        // e.g. "وانیل / Vanilla", "2.27 kg (5 lbs)"
+  nameFa?: string;     // Persian translated or cleaned name
+  priceAed?: number;   // Specific price if variant has a different price
+  originalPriceAed?: number;
+  image?: string;      // Image specific to this variant/flavor
+  inStock?: boolean;
+  sku?: string;
+}
+
+export interface ProductVariantGroup {
+  id: string;
+  name: string;        // e.g. "طعم (Flavor)", "وزن / سایز (Size / Weight)", "رنگ (Color)"
+  type: 'flavor' | 'size' | 'color' | 'style' | 'generic';
+  options: ProductVariantOption[];
+}
+
+export interface ScrapedProduct {
+  title: string;
+  url: string;
+  priceAed: number;
+  originalPriceAed?: number;
+  discountPercent?: number;
+  weightKg: number;
+  image?: string;
+  galleryImages?: string[];
+  storeName: string;
+  brand?: string;
+  category?: string;
+  description?: string;
+  variantGroups?: ProductVariantGroup[];
+  variants?: ProductVariant[];
+  options?: string[];
+  flavors?: string[];
+  sizes?: string[];
+  inStock?: boolean;
+  selectedVariants?: Record<string, ProductVariantOption>;
+}
+
 export interface ParsedProduct {
   title: string;
   url: string;
   priceAed: number;
   originalPriceAed?: number;
+  discountPercent?: number;
   weightKg: number;
   image?: string;
   galleryImages?: string[];
@@ -342,9 +459,12 @@ export interface ParsedProduct {
   category?: string;
   brand?: string;
   options?: string[];
+  flavors?: string[];
+  sizes?: string[];
   description?: string;
   aiExtracted?: boolean;
   fallback?: boolean;
+  variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
 }
 
@@ -352,9 +472,11 @@ export interface ProductVariant {
   id: string;
   flavor?: string; // e.g., "Green Apple", "Blue Raspberry", "Chocolate"
   size?: string;   // e.g., "50 Servings", "1 kg", "2.3 kg"
+  name?: string;
   priceAed?: number;
   priceToman?: number;
   inStock?: boolean;
+  image?: string;
 }
 
 export interface CartItem {
@@ -365,8 +487,10 @@ export interface CartItem {
   url: string;
   priceAed: number;
   originalPriceAed?: number;
+  discountPercent?: number;
   weightKg: number;
   image?: string;
+  galleryImages?: string[];
   storeName?: string;
   calculatedToman?: number;
   quantity: number;
@@ -376,16 +500,18 @@ export interface CartItem {
   selectedFlavor?: string;
   selectedSize?: string;
   selectedVariant?: ProductVariant;
+  selectedVariants?: Record<string, ProductVariantOption>;
   options?: string[];
   flavors?: string[];
   sizes?: string[];
+  variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
   description?: string;
   isLocalInventory?: boolean;
   isDeal?: boolean;
 }
 
-export type TabType = 'main' | 'inventory' | 'deals' | 'account' | 'admin' | 'detail' | 'cart';
+export type TabType = 'main' | 'inventory' | 'deals' | 'account' | 'admin' | 'detail' | 'cart' | 'faq';
 
 export interface TicketMessage {
   id: string;
@@ -410,4 +536,28 @@ export interface SupportTicket {
   createdAt: string;
   updatedAt: string;
   messages: TicketMessage[];
+}
+
+export type ExpenseCategory =
+  | 'CARGO_MONTHLY'
+  | 'PACKAGING_SUPPLIES'
+  | 'SUPPLIER_PAYMENT'
+  | 'DISCOUNT_REBATE'
+  | 'OPERATIONAL_MISC';
+
+export interface FinancialExpense {
+  id: string;
+  category: ExpenseCategory;
+  title: string;
+  amount: number;
+  currency: 'TOMAN' | 'AED';
+  amountToman: number;
+  amountAed?: number;
+  date: string;
+  timestamp: number;
+  vendorName: string;
+  referenceNumber?: string;
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
 }

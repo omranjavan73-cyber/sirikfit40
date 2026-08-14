@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, ShoppingBag, CreditCard, Coins, Weight, AlertCircle, CheckCircle2, ChevronRight, ArrowLeft, Trash2, Plus, Minus, ShoppingCart, Plane, Tag, X } from 'lucide-react';
-import type { FinancialSettings, Order, User, CartItem, CmsConfig } from '../types';
+import { ArrowRight, ShoppingBag, CreditCard, Coins, Weight, AlertCircle, CheckCircle2, ChevronRight, ArrowLeft, Trash2, Plus, Minus, ShoppingCart, Tag, X, Info, Sparkles, Building2, Layers, Check } from 'lucide-react';
+import type { FinancialSettings, Order, User, CartItem, CmsConfig, UniversalProduct, VariantDimension, VariantOption } from '../types';
 import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
@@ -12,7 +12,10 @@ interface ProductDetailViewProps {
     priceAed: number;
     weightKg: number;
     image?: string;
+    images?: string[];
+    galleryImages?: string[];
     storeName?: string;
+    storeOrigin?: string;
     calculatedTomanOverride?: number;
     brand?: string;
     discountPercent?: number;
@@ -21,7 +24,12 @@ interface ProductDetailViewProps {
     origin?: string;
     selectedOption?: string;
     options?: string[];
+    flavors?: string[];
+    sizes?: string[];
+    dimensions?: VariantDimension[];
+    variantGroups?: any[];
     description?: string;
+    descriptionFa?: string;
   };
   cartItems?: CartItem[];
   onUpdateCartQuantity?: (id: string, delta: number) => void;
@@ -50,6 +58,158 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const [step, setStep] = useState<1 | 2>(1);
   const [qty, setQty] = useState<number>(1);
 
+  // Gallery state
+  const rawGalleryList = Array.isArray(product.galleryImages) && product.galleryImages.length > 0
+    ? product.galleryImages
+    : (Array.isArray(product.images) && product.images.length > 0
+      ? product.images
+      : (product.image ? [product.image] : []));
+  const galleryList = Array.from(new Set(rawGalleryList.filter(Boolean)));
+
+  const [activeImage, setActiveImage] = useState<string>(galleryList[0] || product.image || '');
+
+  useEffect(() => {
+    if (galleryList.length > 0 && !activeImage) {
+      setActiveImage(galleryList[0]);
+    }
+  }, [product.image, galleryList]);
+
+  // Variant selector states
+  const [selectedVariants, setSelectedVariants] = useState<Record<string, VariantOption>>({});
+  const [selectedOptionFallback, setSelectedOptionFallback] = useState<string>(product.selectedOption || product.options?.[0] || '');
+
+  // Extract dimensions or fallback to flavors/sizes
+  const dimensions: VariantDimension[] = React.useMemo(() => {
+    if (Array.isArray(product.dimensions) && product.dimensions.length > 0) {
+      return product.dimensions;
+    }
+    if (Array.isArray(product.variantGroups) && product.variantGroups.length > 0) {
+      return product.variantGroups.map((vg: any) => ({
+        id: vg.id || 'group',
+        name: vg.name || 'انتخاب گزینه',
+        type: vg.type || 'generic',
+        options: (vg.options || []).map((opt: any, idx: number) => ({
+          id: opt.id || `opt-${idx}`,
+          name: opt.name || String(opt),
+          nameFa: opt.nameFa,
+          priceAed: opt.priceAed !== undefined ? Number(opt.priceAed) : product.priceAed,
+          image: opt.image,
+          inStock: opt.inStock !== false
+        }))
+      }));
+    }
+
+    const dims: VariantDimension[] = [];
+    if (Array.isArray(product.flavors) && product.flavors.length > 0) {
+      dims.push({
+        id: 'flavors',
+        name: 'طعم (Flavor)',
+        type: 'flavor',
+        options: product.flavors.map((f, idx) => ({
+          id: `flv-${idx}`,
+          name: f,
+          priceAed: product.priceAed,
+          inStock: true
+        }))
+      });
+    }
+    if (Array.isArray(product.sizes) && product.sizes.length > 0) {
+      dims.push({
+        id: 'sizes',
+        name: 'وزن / سایز (Size)',
+        type: 'size',
+        options: product.sizes.map((s, idx) => ({
+          id: `sz-${idx}`,
+          name: s,
+          priceAed: product.priceAed,
+          inStock: true
+        }))
+      });
+    }
+    if (dims.length === 0 && Array.isArray(product.variants) && product.variants.length > 0) {
+      const flavorItems: VariantOption[] = [];
+      const sizeItems: VariantOption[] = [];
+      const genericItems: VariantOption[] = [];
+
+      product.variants.forEach((v: any, idx: number) => {
+        const vName = typeof v === 'string' ? v : (v.name || '');
+        if (!vName) return;
+        const vPrice = v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : product.priceAed);
+        const vOpt: VariantOption = {
+          id: v.id || `var-${idx}`,
+          name: vName,
+          priceAed: vPrice,
+          image: v.imageThumbnail || v.image,
+          inStock: v.inStock !== false
+        };
+
+        const lower = vName.toLowerCase();
+        if (lower.includes('kg') || lower.includes('lb') || lower.includes('gram') || lower.includes('oz') || lower.includes('serving') || lower.includes('سروینگ') || lower.includes('عددی') || lower.includes('کپسول') || lower.includes('قرص')) {
+          sizeItems.push(vOpt);
+        } else if (lower.includes('flavor') || lower.includes('chocolate') || lower.includes('vanilla') || lower.includes('strawberry') || lower.includes('طعم') || lower.includes('شکلات') || lower.includes('توت') || lower.includes('موز') || lower.includes('کوکی')) {
+          flavorItems.push(vOpt);
+        } else {
+          genericItems.push(vOpt);
+        }
+      });
+
+      if (flavorItems.length > 0) {
+        dims.push({ id: 'flavor', name: 'طعم (Flavor)', type: 'flavor', options: flavorItems });
+      }
+      if (sizeItems.length > 0) {
+        dims.push({ id: 'size', name: 'وزن / سایز (Size)', type: 'size', options: sizeItems });
+      }
+      if (genericItems.length > 0) {
+        dims.push({ id: 'variants', name: 'انتخاب نوع کالا', type: 'generic', options: genericItems });
+      }
+    }
+
+    if (dims.length === 0 && Array.isArray(product.options) && product.options.length > 0) {
+      const validOpts = product.options.filter(o => o && !['default', 'standard', 'پیش‌فرض'].includes(o.toLowerCase()));
+      if (validOpts.length > 0) {
+        dims.push({
+          id: 'options',
+          name: 'گزینه‌های کالا',
+          type: 'generic',
+          options: validOpts.map((o, idx) => ({
+            id: `opt-${idx}`,
+            name: o,
+            priceAed: product.priceAed,
+            inStock: true
+          }))
+        });
+      }
+    }
+    return dims;
+  }, [product]);
+
+  // Initialize selected variants
+  useEffect(() => {
+    if (dimensions.length > 0) {
+      const initial: Record<string, VariantOption> = {};
+      dimensions.forEach(dim => {
+        if (dim.options.length > 0 && !selectedVariants[dim.id]) {
+          const firstAvailable = dim.options.find(o => o.inStock !== false) || dim.options[0];
+          initial[dim.id] = firstAvailable;
+        }
+      });
+      if (Object.keys(initial).length > 0) {
+        setSelectedVariants(prev => ({ ...initial, ...prev }));
+      }
+    }
+  }, [dimensions]);
+
+  // Dynamically calculate effective Price AED based on selected variant
+  const selectedVariantPriceAed = React.useMemo(() => {
+    let p = product.priceAed || 280;
+    Object.values(selectedVariants).forEach((v: VariantOption) => {
+      if (v?.priceAed && v.priceAed > 0) {
+        p = v.priceAed;
+      }
+    });
+    return p;
+  }, [product.priceAed, selectedVariants]);
+
   // Recipient Form States
   const [customerName, setCustomerName] = useState<string>(currentUser?.name || '');
   const [phoneNumber, setPhoneNumber] = useState<string>(currentUser?.phoneNumber || '');
@@ -75,7 +235,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const hasCart = Array.isArray(cartItems) && cartItems.length > 0;
 
   // Single Product Calculations
-  const priceAed = product.priceAed || 280;
+  const priceAed = selectedVariantPriceAed || product.priceAed || 280;
   const originalPriceAed = product.originalPriceAed;
   const weightKg = product.weightKg || 0.5;
 
@@ -208,9 +368,17 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       const orderProductImage = hasCart ? cartItems[0]?.image || product.image : product.image;
       const orderStoreName = hasCart ? cartItems[0]?.storeName || product.storeName : product.storeName;
 
+      const activeVariantSummary = Object.entries(selectedVariants)
+        .map(([_, v]) => {
+          const opt = v as VariantOption;
+          return opt?.nameFa || opt?.name || '';
+        })
+        .filter(Boolean)
+        .join(' - ');
+
       const orderSelectedOption = hasCart
         ? cartItems.map((i) => i.selectedOption ? `${i.title} (${i.selectedOption})` : null).filter(Boolean).join(' | ')
-        : product.selectedOption;
+        : (activeVariantSummary || product.selectedOption);
 
       const res = await fetch('/api/orders', {
         method: 'POST',
@@ -400,15 +568,31 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               })}
             </div>
           ) : (
-            /* SINGLE PRODUCT VIEW FALLBACK */
+            /* SINGLE PRODUCT VIEW WITH UNIVERSAL STORE PILL, GALLERY & VARIANT SELECTORS */
             <div className="bg-white border border-slate-200/90 rounded-[24px] p-5 shadow-2xs space-y-4">
-              <div className="flex justify-center pt-2">
-                <div className="img-wrap relative w-36 h-36 bg-[#FEF6E4] rounded-[22px] flex items-center justify-center overflow-hidden p-0 shadow-2xs">
-                  {product.image ? (
+              
+              {/* Store Origin Pill (نشانگر مبدا فروشگاه) */}
+              <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
+                <div className="inline-flex items-center gap-1.5 bg-slate-900 text-white text-[11px] font-black px-3 py-1 rounded-full shadow-2xs">
+                  <span>🇦🇪</span>
+                  <span>مبدا سفارش:</span>
+                  <span className="text-amber-400 font-extrabold">{product.storeName || 'انبار دبی'}</span>
+                </div>
+
+                <div className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span>موجود در انبار امارات</span>
+                </div>
+              </div>
+
+              {/* Main Image Stage */}
+              <div className="flex flex-col items-center justify-center pt-1">
+                <div className="detail-img-wrap relative w-48 h-48 sm:w-56 sm:h-56 bg-slate-50 border border-slate-100 rounded-[24px] flex items-center justify-center overflow-hidden p-2 shadow-2xs">
+                  {activeImage ? (
                     <img
-                      src={product.image}
+                      src={activeImage}
                       alt={product.title}
-                      className="w-full h-full object-cover object-center block rounded-[22px]"
+                      className="w-full h-full object-contain object-center block rounded-[20px] transition-all duration-300"
                       onError={(e) => {
                         (e.target as HTMLElement).style.display = 'none';
                       }}
@@ -419,6 +603,33 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                     </span>
                   )}
                 </div>
+
+                {/* Horizontal Thumbnail Carousel */}
+                {galleryList.length > 1 && (
+                  <div className="flex items-center justify-center gap-2 mt-3 overflow-x-auto max-w-full pb-1 px-1">
+                    {galleryList.slice(0, 10).map((imgUrl, imgIdx) => {
+                      const isSelected = activeImage === imgUrl;
+                      return (
+                        <button
+                          key={imgIdx}
+                          type="button"
+                          onClick={() => setActiveImage(imgUrl)}
+                          className={`relative w-12 h-12 rounded-xl overflow-hidden border-2 transition-all p-0.5 bg-white cursor-pointer ${
+                            isSelected
+                              ? 'border-amber-500 shadow-md scale-105 ring-2 ring-amber-500/20'
+                              : 'border-slate-200 opacity-70 hover:opacity-100 hover:border-slate-400'
+                          }`}
+                        >
+                          <img
+                            src={imgUrl}
+                            alt={`Preview ${imgIdx + 1}`}
+                            className="w-full h-full object-contain rounded-lg"
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-center gap-2">
@@ -437,6 +648,64 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               <h1 className="text-center font-black text-base md:text-lg text-slate-900 leading-snug">
                 {product.title}
               </h1>
+
+              {/* Dynamic Variant Selector Rows (ابعاد انتخابی کالا مثل طعم و سایز) */}
+              {dimensions.length > 0 && (
+                <div className="space-y-3 pt-2 pb-1 border-t border-slate-100">
+                  {dimensions.map((dim) => {
+                    const currentSelected = selectedVariants[dim.id] || dim.options[0];
+                    return (
+                      <div key={dim.id} className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-3.5 space-y-2 text-right">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 inline-block"></span>
+                            <span>{dim.name}</span>
+                          </span>
+                          {currentSelected && (
+                            <span className="text-[10px] font-bold text-slate-500 bg-white border border-slate-200/80 px-2 py-0.5 rounded-md">
+                              گزینه انتخاب شده: <span className="text-slate-900 font-black">{currentSelected.nameFa || currentSelected.name}</span>
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 pt-0.5 dir-ltr">
+                          {dim.options.map((opt) => {
+                            const isSelected = (currentSelected?.id === opt.id) || (currentSelected?.name === opt.name);
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedVariants(prev => ({
+                                    ...prev,
+                                    [dim.id]: opt
+                                  }));
+                                  if (opt.image) {
+                                    setActiveImage(opt.image);
+                                  }
+                                }}
+                                className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                  isSelected
+                                    ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02]'
+                                    : 'bg-white text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100'
+                                }`}
+                              >
+                                {isSelected && <Check className="w-3 h-3 text-emerald-400" />}
+                                <span>{opt.nameFa || opt.name}</span>
+                                {opt.priceAed && opt.priceAed !== product.priceAed && (
+                                  <span className={`text-[10px] ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
+                                    ({opt.priceAed} د.إ)
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div className="bg-[#F0FDF4] border border-emerald-100 rounded-[18px] p-3 text-center space-y-0.5">

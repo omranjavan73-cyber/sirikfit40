@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, ShoppingCart, Plane, ShieldCheck, Check, Sparkles, ExternalLink, Weight, Coins, Info } from 'lucide-react';
+import { X, ShoppingCart, ShieldCheck, Check, Sparkles, ExternalLink, Weight, Coins, Info } from 'lucide-react';
 import type { FinancialSettings } from '../types';
 import { formatToman, formatAed, toPersianDigits, calculateFinalToman } from '../utils/formatters';
 

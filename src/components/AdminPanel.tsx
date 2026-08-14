@@ -29,7 +29,6 @@ import {
   ArrowRight,
   PackageCheck,
   Package,
-  Plane,
   Home,
   ToggleLeft,
   ToggleRight,
@@ -58,7 +57,11 @@ import {
   Copy,
   Database,
   LifeBuoy,
-  Tag
+  Tag,
+  Calendar,
+  Store,
+  Layout,
+  HelpCircle
 } from 'lucide-react';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { 
@@ -75,8 +78,18 @@ import {
   isFirestoreGrpcNoise
 } from '../firebase';
 import { safeFetchJson } from '../utils/apiHelper';
+import {
+  dispatchOrderToGoogleSheets,
+  getGoogleSheetsWebhookUrl,
+  saveGoogleSheetsWebhookUrl,
+  DEFAULT_GOOGLE_SHEETS_WEBHOOK_URL,
+  mapOrderToSheetPayload,
+  mapExpenseToSheetPayload
+} from '../utils/googleSheetsSync';
 import StickyBottomSaveBar from './StickyBottomSaveBar';
 import { AdminSupportTickets } from './AdminSupportTickets';
+import { AdminFAQManager } from './AdminFAQManager';
+import { saveAdminSettingsPayload, safeParseNumeric } from '../utils/adminSaveHelper';
 
 export const sanitizePayloadForFirestore = (obj: any): any => {
   if (obj === undefined || obj === null) return null;
@@ -120,6 +133,7 @@ import { getEffectiveGeminiKeysList, setEffectiveGeminiKeysList } from '../utils
 import { parseProductLinkUniversal } from '../utils/parseLink';
 import { PricingRulesAdmin } from './PricingRulesAdmin';
 import { AdminDiscounts } from './AdminDiscounts';
+import { AdminAccounting } from './AdminAccounting';
 
 const DEFAULT_WAREHOUSE_CATEGORIES: WarehouseCategory[] = [
   {
@@ -286,9 +300,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts'
+  // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries'
   const [activeAdminSubTab, setActiveAdminSubTab] = useState<
-    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts'
+    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries'
   >('dashboard');
 
   // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples'
@@ -308,6 +322,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('ALL');
+  const [orderDateFilter, setOrderDateFilter] = useState<'ALL' | 'TODAY' | 'YESTERDAY' | 'LAST_3_DAYS'>('ALL');
+  const [orderStoreFilter, setOrderStoreFilter] = useState<string>('ALL');
 
   // Payment Gateway Settings State
   const [activeGateway, setActiveGateway] = useState<GatewayProvider>(cms?.paymentGateway?.activeGateway || 'zarinpal');
@@ -374,6 +390,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [showPriceBreakdown, setShowPriceBreakdown] = useState<boolean>(cms?.features?.showBreakdown ?? cms?.showPriceBreakdown ?? cms?.showBreakdown ?? true);
   const [showReviewsSection, setShowReviewsSection] = useState<boolean>(() => {
     const val = cms?.features?.showReviews ?? cms?.features?.showComments ?? cms?.showReviewsSection ?? cms?.showReviews ?? cms?.showComments;
+    return val !== undefined ? Boolean(val) : true;
+  });
+  const [showFaqSection, setShowFaqSection] = useState<boolean>(() => {
+    const val = cms?.features?.showFaqSection ?? cms?.showFaqSection ?? cms?.homeContent?.showFaqSection;
     return val !== undefined ? Boolean(val) : true;
   });
 
@@ -543,6 +563,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [emailjsTemplateId, setEmailjsTemplateId] = useState<string>(cms?.apiConfig?.emailjsTemplateId || '');
   const [emailjsPublicKey, setEmailjsPublicKey] = useState<string>(cms?.apiConfig?.emailjsPublicKey || '');
   const [resendApiKey, setResendApiKey] = useState<string>(cms?.apiConfig?.resendApiKey || '');
+  const [webhookUrl, setWebhookUrl] = useState<string>(() => getGoogleSheetsWebhookUrl(cms));
+  const [isTestingWebhook, setIsTestingWebhook] = useState<boolean>(false);
 
   // Domain Whitelist & Restrictions State (Checkboxes & Add/Remove Support)
   const DEFAULT_DOMAIN_ITEMS: DomainItem[] = [
@@ -646,6 +668,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   
   const [showPhoneCard, setShowPhoneCard] = useState<boolean>(cms?.homeContent?.showPhoneCard ?? true);
   const [phoneTitle, setPhoneTitle] = useState<string>(cms?.homeContent?.phoneTitle || 'تلفن پشتیبانی');
+  const [supportPhone, setSupportPhone] = useState<string>(cms?.homeContent?.supportPhone || cms?.homeContent?.officePhone || '021-91000000');
+  const [isSavingCmsDirect, setIsSavingCmsDirect] = useState<boolean>(false);
 
   const [trustBadge1, setTrustBadge1] = useState(cms?.homeContent?.trustBadge1 || 'اصالت ۱۰۰٪ کالا');
   const [trustBadge2, setTrustBadge2] = useState(cms?.homeContent?.trustBadge2 || 'حمل ایمن کارگو');
@@ -1597,13 +1621,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  const triggerOrderWebhook = (orderData: Order, customStatusLabel?: string) => {
+    const targetUrl = webhookUrl || getGoogleSheetsWebhookUrl(cms);
+    const orderWithLabel = customStatusLabel ? { ...orderData, status: customStatusLabel } : orderData;
+    dispatchOrderToGoogleSheets(orderWithLabel, targetUrl).catch(err => {
+      console.warn('Silent Google Sheets webhook dispatch warning:', err);
+    });
+  };
+
   const handleUpdatePaymentStatus = async (orderId: string, status: PaymentStatus) => {
     try {
       const existing = orders.find(o => o.id === orderId);
       if (existing) {
-        const updated = { ...existing, paymentStatus: status };
+        const updated = { ...existing, paymentStatus: status, updatedAt: Date.now() };
         await saveOrderToFirestore(updated);
-        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, paymentStatus: status } : o));
+        setOrders(prev => prev.map(o => o.id === orderId ? updated : o));
+
+        const statusLabel =
+          status === 'PAID'
+            ? 'پرداخت موفق (PAID)'
+            : status === 'FAILED'
+            ? 'ناموفق (FAILED)'
+            : 'در انتظار پرداخت (PENDING)';
+        triggerOrderWebhook(updated, statusLabel);
       }
       safeFetchJson(`/api/orders/${orderId}`, {
         method: 'PATCH',
@@ -1619,9 +1659,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     try {
       const existing = orders.find(o => o.id === orderId);
       if (existing) {
-        const updated = { ...existing, shippingStatus: status };
+        const updated = { ...existing, shippingStatus: status, updatedAt: Date.now() };
         await saveOrderToFirestore(updated);
-        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, shippingStatus: status } : o));
+        setOrders(prev => prev.map(o => o.id === orderId ? updated : o));
+
+        const statusMap: Record<ShippingStatus, string> = {
+          PENDING_BUY: 'در انتظار خرید از دبی',
+          PURCHASED: 'تایید سفارش - خریداری شده',
+          DUBAI_WAREHOUSE: 'در انبار دبی',
+          SHIPPED_IRAN: 'ارسال شده به ایران',
+          COMPLETED: 'تحویل به مشتری (تکمیل شده)',
+          PENDING: 'در انتظار بررسی',
+          PROCESSING: 'در حال پردازش',
+          SHIPPED: 'ارسال شده',
+          DELIVERED: 'تحویل داده شده'
+        };
+        const statusLabel = statusMap[status] || status;
+        triggerOrderWebhook(updated, statusLabel);
       }
       safeFetchJson(`/api/orders/${orderId}`, {
         method: 'PATCH',
@@ -1789,8 +1843,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setSaveSettingsSuccess(false);
 
     try {
-      const rawValStr = normalizeToEnglishDigits(manualAedRateInput || aedRateInput);
-      const typedValue = parseFloat(rawValStr.replace(/[^0-9.]/g, '')) || 0;
+      const typedValue = safeParseNumeric(manualAedRateInput || aedRateInput, 0);
       const manualAedRate = typedValue > 0 ? typedValue : getEffectiveAedRate(settings);
       
       const allKeys = [geminiApiKey1, geminiApiKey2, geminiApiKey3]
@@ -1803,18 +1856,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         manualAedRate: manualAedRate,
         autoUpdateRates: false,
         currencyApiUrl: '',
-        cargoRatePerKg: Math.max(0, parseFloat(cargoRateInput) || 35),
-        profitMargin: Math.max(0, parseFloat(profitMarginInput) || 15),
-        minOrderAed: Math.max(0, parseFloat(minOrderAedInput) || 200),
+        cargoRatePerKg: Math.max(0, safeParseNumeric(cargoRateInput, 35)),
+        profitMargin: Math.max(0, safeParseNumeric(profitMarginInput, 15)),
+        minOrderAed: Math.max(0, safeParseNumeric(minOrderAedInput, 200)),
         updatedAt: Date.now()
       };
 
+      // ---------------------------------------------------------------
+      // STEP 1: Synchronous LocalStorage Save (Immediate Source of Truth)
+      // ---------------------------------------------------------------
+      if (typeof window !== 'undefined') {
+        if (manualAedRate > 0) {
+          localStorage.setItem('sirikfit_aed_rate', String(manualAedRate));
+        }
+        localStorage.setItem('sirikfit_financial_settings', JSON.stringify(financialPayload));
+        localStorage.setItem('omex_financial_settings', JSON.stringify(financialPayload));
+
+        // ---------------------------------------------------------------
+        // STEP 2: Synchronously Dispatch settingsUpdated Event
+        // ---------------------------------------------------------------
+        window.dispatchEvent(new CustomEvent('settingsUpdated', {
+          detail: {
+            financialSettings: financialPayload,
+            aedRate: manualAedRate
+          }
+        }));
+        window.dispatchEvent(new Event('storage'));
+      }
+
+      onUpdateSettings({ ...settings, ...financialPayload });
+
+      // ---------------------------------------------------------------
+      // STEP 3: Async Firestore & REST Sync
+      // ---------------------------------------------------------------
       await Promise.all([
         setDoc(doc(db, 'settings', 'financial'), financialPayload, { merge: true }),
         setDoc(doc(db, 'settings', 'app'), financialPayload, { merge: true }) // Legacy support
       ]);
 
-      onUpdateSettings({ ...settings, ...financialPayload });
+      await saveAdminSettingsPayload(financialPayload, cms);
+
       setSaveSettingsSuccess(true);
       if (showToast) showToast('تنظیمات مالی با موفقیت ذخیره شد', 'success');
       if (onRefresh) onRefresh();
@@ -2282,6 +2363,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         supportHeadline,
         supportSubtitle,
         showSupportSection,
+        showFaqSection: Boolean(showFaqSection),
         showTelegramCard,
         telegramTitle,
         showEmailCard,
@@ -2320,7 +2402,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         allowedDomains: domainItemsList.filter(d => d.enabled).map(d => d.domain),
         enableDomainRestriction: enableDomainRestriction,
         scraperApiKey: scraperApiKey,
-        enableScraperApi: enableScraperApi
+        enableScraperApi: enableScraperApi,
+        webhookUrl: webhookUrl,
+        googleSheetWebhookUrl: webhookUrl
       };
 
       // A. General Settings Payload (The absolute source of truth for toggles)
@@ -2332,6 +2416,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         showPriceBreakdown: Boolean(showPriceBreakdown),
         showComments: Boolean(showReviewsSection),
         showReviewsSection: Boolean(showReviewsSection),
+        showFaqSection: Boolean(showFaqSection),
         enableComments: Boolean(showReviewsSection),
         enableReviews: Boolean(showReviewsSection),
         showAnnouncementBanner: Boolean(showAnnouncementBanner),
@@ -2349,6 +2434,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         showAnnouncementBanner: Boolean(showAnnouncementBanner),
         showPriceBreakdown: Boolean(showPriceBreakdown),
         showReviewsSection: Boolean(showReviewsSection),
+        showFaqSection: Boolean(showFaqSection),
         showTrustBadges: Boolean(showTrustBadges),
         enamadHtml,
         samandehiHtml,
@@ -2373,7 +2459,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           showBreakdown: Boolean(showPriceBreakdown),
           showAnnouncementBanner: Boolean(showAnnouncementBanner),
           showLocalInventory: Boolean(showLocalInventory),
-          showTrustBadges: Boolean(showTrustBadges)
+          showTrustBadges: Boolean(showTrustBadges),
+          showFaqSection: Boolean(showFaqSection)
         },
         updatedAt: Date.now()
       };
@@ -2382,13 +2469,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const cleanGeneralPayload = sanitizePayloadForFirestore(generalPayload);
       const cleanCmsPayload = sanitizePayloadForFirestore(cmsPayload);
 
+      // ---------------------------------------------------------------
+      // STEP 1: Synchronous LocalStorage Save (Immediate Source of Truth)
+      // ---------------------------------------------------------------
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sirikfit_cms_config', JSON.stringify(cleanCmsPayload));
+        localStorage.setItem('omex_home_cms', JSON.stringify(cleanCmsPayload));
+        localStorage.setItem('sirikfit_features_config', JSON.stringify(cleanGeneralPayload));
+
+        // ---------------------------------------------------------------
+        // STEP 2: Synchronously Dispatch settingsUpdated Event
+        // ---------------------------------------------------------------
+        window.dispatchEvent(new CustomEvent('settingsUpdated', {
+          detail: {
+            cmsConfig: cleanCmsPayload,
+            features: cleanGeneralPayload
+          }
+        }));
+        window.dispatchEvent(new Event('storage'));
+      }
+
       onUpdateCms(cleanCmsPayload as any);
 
-      // C. Write DIRECTLY to Firestore in parallel
+      // ---------------------------------------------------------------
+      // STEP 3: Write DIRECTLY to Firestore in parallel & saveAdminSettingsPayload
+      // ---------------------------------------------------------------
       await Promise.all([
         setDoc(doc(db, 'settings', 'general'), cleanGeneralPayload, { merge: true }),
         setDoc(doc(db, 'settings', 'cms'), cleanCmsPayload, { merge: true })
       ]);
+
+      await saveAdminSettingsPayload(null, cleanCmsPayload);
 
       // D. Only show success AFTER the promise resolves
       setSaveCmsSuccess(true);
@@ -2460,6 +2571,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         return 'پیشنهادهای ویژه و تخفیف‌ها';
       case 'discounts':
         return 'مدیریت کدهای تخفیف';
+      case 'faq':
+      case 'inquiries':
+        return 'مدیریت سوالات متداول و پرسش‌های کاربران';
       case 'inventory':
         return 'انبار و کالاهای ایران';
       case 'cms':
@@ -2504,17 +2618,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const shippedOrdersCount = (orders || []).filter(o => o.shippingStatus === 'SHIPPED' || o.shippingStatus === 'DELIVERED').length;
 
   const filteredOrders = (orders || []).filter(o => {
-    const matchesSearch =
-      o.customerName.includes(orderSearchQuery) ||
-      o.phoneNumber.includes(orderSearchQuery) ||
-      o.trackingCode.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
-      o.productTitle.includes(orderSearchQuery);
+    if (!o) return false;
+    const q = (orderSearchQuery || '').toLowerCase().trim();
+    const matchesSearch = !q ||
+      (o.customerName || '').toLowerCase().includes(q) ||
+      (o.phoneNumber || '').includes(q) ||
+      (o.trackingCode || '').toLowerCase().includes(q) ||
+      (o.productTitle || '').toLowerCase().includes(q);
 
-    if (orderStatusFilter === 'ALL') return matchesSearch;
-    if (orderStatusFilter === 'PAID') return matchesSearch && o.paymentStatus === 'PAID';
-    if (orderStatusFilter === 'PENDING') return matchesSearch && o.paymentStatus === 'PENDING';
-    if (orderStatusFilter === 'SHIPPED') return matchesSearch && (o.shippingStatus === 'SHIPPED' || o.shippingStatus === 'DELIVERED');
-    return matchesSearch;
+    if (!matchesSearch) return false;
+
+    // Status filter
+    if (orderStatusFilter === 'PAID' && o.paymentStatus !== 'PAID') return false;
+    if (orderStatusFilter === 'PENDING' && o.paymentStatus !== 'PENDING') return false;
+    if (orderStatusFilter === 'SHIPPED' && !(o.shippingStatus === 'SHIPPED' || o.shippingStatus === 'DELIVERED' || o.shippingStatus === 'SHIPPED_IRAN' || o.shippingStatus === 'COMPLETED')) return false;
+
+    // Date filter
+    if (orderDateFilter !== 'ALL') {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const yesterdayStart = todayStart - (24 * 60 * 60 * 1000);
+      const threeDaysAgoStart = todayStart - (2 * 24 * 60 * 60 * 1000);
+      const orderTime = typeof o.createdAt === 'number' ? o.createdAt : new Date(o.createdAt).getTime();
+
+      if (orderDateFilter === 'TODAY' && orderTime < todayStart) return false;
+      if (orderDateFilter === 'YESTERDAY' && (orderTime < yesterdayStart || orderTime >= todayStart)) return false;
+      if (orderDateFilter === 'LAST_3_DAYS' && orderTime < threeDaysAgoStart) return false;
+    }
+
+    // Store Source filter
+    if (orderStoreFilter !== 'ALL') {
+      const store = (o.storeName || '').toLowerCase();
+      const productUrl = (o.productUrl || '').toLowerCase();
+
+      if (orderStoreFilter === 'GNC Store') {
+        if (!store.includes('gnc') && !productUrl.includes('gnc')) return false;
+      } else if (orderStoreFilter === 'Life Pharmacy') {
+        if (!store.includes('life') && !productUrl.includes('lifepharmacy')) return false;
+      } else if (orderStoreFilter === 'Dr Nutrition') {
+        if (!store.includes('dr nutrition') && !store.includes('drnutrition') && !productUrl.includes('drnutrition')) return false;
+      } else if (orderStoreFilter === 'انبار ایران') {
+        if (!store.includes('ایران') && !store.includes('iran') && !(o as any).isLocalInventory) return false;
+      } else if (orderStoreFilter === 'سایر') {
+        const isKnown = store.includes('gnc') || productUrl.includes('gnc') ||
+                        store.includes('life') || productUrl.includes('lifepharmacy') ||
+                        store.includes('dr nutrition') || store.includes('drnutrition') || productUrl.includes('drnutrition') ||
+                        store.includes('ایران') || store.includes('iran') || (o as any).isLocalInventory;
+        if (isKnown) return false;
+      }
+    }
+
+    return true;
   });
 
   // Login Modal / Screen if not authenticated
@@ -2682,6 +2836,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div className="min-w-0 flex-1">
                   <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-emerald-600 transition truncate">
                     تیکت‌ها و نظرات
+                  </h4>
+                </div>
+              </button>
+
+              {/* Card 3.5: سوالات متداول و پرسش‌ها */}
+              <button
+                type="button"
+                onClick={() => { setActiveAdminSubTab('faq'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-teal-300 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <HelpCircle className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-teal-600 transition truncate">
+                    سوالات متداول (FAQ)
                   </h4>
                 </div>
               </button>
@@ -3092,38 +3262,111 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {activeAdminSubTab === 'orders' && (
         <div id="admin-orders" className="space-y-4 font-['Vazirmatn',sans-serif]">
           {/* Top Filter & Search Bar */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-4.5 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:w-96">
-              <input
-                type="text"
-                value={orderSearchQuery}
-                onChange={(e) => setOrderSearchQuery(e.target.value)}
-                placeholder="جستجو بر اساس نام، شماره، کد پیگیری یا عنوان محصول..."
-                className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs pr-9 pl-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 font-medium"
-              />
-              <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-2xs space-y-4">
+            <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={orderSearchQuery}
+                  onChange={(e) => setOrderSearchQuery(e.target.value)}
+                  placeholder="جستجو بر اساس نام، شماره، کد پیگیری یا عنوان محصول..."
+                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs pr-9 pl-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 font-medium"
+                />
+                <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <select
+                  value={orderStatusFilter}
+                  onChange={(e) => setOrderStatusFilter(e.target.value)}
+                  className="bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold px-3 py-2.5 rounded-xl focus:outline-none cursor-pointer"
+                >
+                  <option value="ALL">همه وضعیت‌ها ({orders.length})</option>
+                  <option value="PAID">پرداخت شده</option>
+                  <option value="PENDING">در انتظار پرداخت</option>
+                  <option value="SHIPPED">ارسال شده / تکمیل شده</option>
+                </select>
+
+                <button
+                  onClick={fetchAdminOrders}
+                  className="bg-slate-100 hover:bg-slate-200 border border-slate-300 p-2.5 rounded-xl transition text-slate-700 cursor-pointer flex items-center gap-1 text-xs font-bold shrink-0"
+                  title="به‌روزرسانی لیست سفارشات"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoadingOrders ? 'animate-spin text-slate-900' : ''}`} />
+                  <span className="hidden sm:inline">به‌روزرسانی</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <select
-                value={orderStatusFilter}
-                onChange={(e) => setOrderStatusFilter(e.target.value)}
-                className="bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold px-3 py-2.5 rounded-xl focus:outline-none cursor-pointer"
-              >
-                <option value="ALL">همه وضعیت‌های سفارش ({orders.length})</option>
-                <option value="PAID">پرداخت شده</option>
-                <option value="PENDING">در انتظار پرداخت</option>
-                <option value="SHIPPED">ارسال شده / تکمیل شده</option>
-              </select>
+            {/* Dynamic Date & Store Filter Pills */}
+            <div className="pt-3 border-t border-slate-100 grid grid-cols-1 lg:grid-cols-2 gap-3 text-xs">
+              {/* Date Filters */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-black text-slate-600 flex items-center gap-1 shrink-0 ml-1">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  <span>فیلتر تاریخ:</span>
+                </span>
+                {[
+                  { id: 'ALL', label: 'همه زمان‌ها' },
+                  { id: 'TODAY', label: 'امروز' },
+                  { id: 'YESTERDAY', label: 'دیروز' },
+                  { id: 'LAST_3_DAYS', label: '۲ الی ۳ روز گذشته' }
+                ].map((df) => (
+                  <button
+                    key={df.id}
+                    type="button"
+                    onClick={() => setOrderDateFilter(df.id as any)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      orderDateFilter === df.id
+                        ? 'bg-slate-900 text-white shadow-2xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {df.label}
+                  </button>
+                ))}
+              </div>
 
-              <button
-                onClick={fetchAdminOrders}
-                className="bg-slate-100 hover:bg-slate-200 border border-slate-300 p-2.5 rounded-xl transition text-slate-700 cursor-pointer flex items-center gap-1 text-xs font-bold shrink-0"
-                title="به‌روزرسانی لیست سفارشات"
-              >
-                <RefreshCw className={`w-4 h-4 ${isLoadingOrders ? 'animate-spin text-slate-900' : ''}`} />
-                <span className="hidden sm:inline">به‌روزرسانی</span>
-              </button>
+              {/* Source Store Filters */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-black text-slate-600 flex items-center gap-1 shrink-0 ml-1">
+                  <Store className="w-3.5 h-3.5 text-slate-400" />
+                  <span>فروشگاه مبدا:</span>
+                </span>
+                {['ALL', 'GNC Store', 'Life Pharmacy', 'Dr Nutrition', 'انبار ایران', 'سایر'].map((sf) => (
+                  <button
+                    key={sf}
+                    type="button"
+                    onClick={() => setOrderStoreFilter(sf)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      orderStoreFilter === sf
+                        ? 'bg-rose-600 text-white shadow-2xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {sf === 'ALL' ? 'همه' : sf}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Active Filter Result Counter */}
+            <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/80">
+              <span>تعداد سفارشات یافت شده: <strong className="text-slate-900 font-black">{filteredOrders.length}</strong> از {orders.length}</span>
+              {(orderDateFilter !== 'ALL' || orderStoreFilter !== 'ALL' || orderStatusFilter !== 'ALL' || orderSearchQuery) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrderDateFilter('ALL');
+                    setOrderStoreFilter('ALL');
+                    setOrderStatusFilter('ALL');
+                    setOrderSearchQuery('');
+                  }}
+                  className="text-rose-600 hover:text-rose-700 underline font-bold cursor-pointer"
+                >
+                  پاک کردن تمامی فیلترها
+                </button>
+              )}
             </div>
           </div>
 
@@ -3132,7 +3375,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             {filteredOrders.length === 0 ? (
               <div className="py-12 text-center text-slate-400 text-xs font-medium space-y-2">
                 <ShoppingBag className="w-8 h-8 text-slate-300 mx-auto" />
-                <p>هیچ سفارشی مطابق جستجوی شما یافت نشد.</p>
+                <p>هیچ سفارشی مطابق فیلترهای انتخابی شما یافت نشد.</p>
               </div>
             ) : (
               <table className="w-full text-right text-xs">
@@ -3143,8 +3386,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <th className="p-3 max-w-xs">خلاصه محصول & متغیر</th>
                     <th className="p-3">لینک کالا در دبی</th>
                     <th className="p-3">مبلغ پرداختی</th>
-                    <th className="p-3">تغییر وضعیت سفارش</th>
-                    <th className="p-3 text-center">عملیات سریع</th>
+                    <th className="p-3">چرخه ۴ مرحله‌ای سفارش (Quick Actions)</th>
+                    <th className="p-3 text-center">عملیات</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -3153,6 +3396,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     if (cleanPhone.startsWith('0')) cleanPhone = '98' + cleanPhone.substring(1);
 
                     const currentStatus = order.shippingStatus || 'PENDING_BUY';
+                    const isPaid = order.paymentStatus === 'PAID';
+                    const isConfirmed = currentStatus === 'PURCHASED' || currentStatus === 'PROCESSING' || currentStatus === 'DUBAI_WAREHOUSE' || currentStatus === 'SHIPPED_IRAN' || currentStatus === 'COMPLETED' || currentStatus === 'DELIVERED';
+                    const isShipped = currentStatus === 'SHIPPED_IRAN' || currentStatus === 'SHIPPED' || currentStatus === 'COMPLETED' || currentStatus === 'DELIVERED';
+                    const isDelivered = currentStatus === 'COMPLETED' || currentStatus === 'DELIVERED';
 
                     return (
                       <tr key={order.id} className="hover:bg-slate-50/90 transition group">
@@ -3164,10 +3411,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <span className="text-[10px] text-slate-500 block mt-1">
                             {formatPersianDate(order.createdAt)}
                           </span>
+                          {order.storeName && (
+                            <span className="text-[9px] bg-slate-200/80 text-slate-700 font-bold px-1.5 py-0.5 rounded mt-1 inline-block">
+                              {order.storeName}
+                            </span>
+                          )}
                         </td>
 
                         {/* Customer Details */}
-                        <td className="p-3 align-top max-w-[200px]">
+                        <td className="p-3 align-top max-w-[180px]">
                           <div className="font-extrabold text-slate-900">{order.customerName}</div>
                           <div className="text-[11px] font-mono text-slate-600 dir-ltr">{order.phoneNumber}</div>
                           {order.deliveryAddress && (
@@ -3192,39 +3444,64 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                         {/* Direct Source Link & One-Click Copy Button */}
                         <td className="p-3 align-top whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            <a
-                              href={order.productUrl || 'https://drnutrition.com'}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl transition shadow-2xs cursor-pointer shrink-0"
-                              title="باز کردن لینک اصلی کالا در دبی"
-                            >
-                              <ExternalLink className="w-3 h-3 text-amber-400 shrink-0" />
-                              <span>باز کردن لینک در دبی</span>
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyProductUrl(order.productUrl || 'https://drnutrition.com', order.id)}
-                              className={`relative p-1.5 rounded-xl transition border cursor-pointer shrink-0 ${
-                                copiedOrderId === order.id
-                                  ? 'bg-emerald-500 text-white border-emerald-600 shadow-2xs'
-                                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200'
-                              }`}
-                              title={copiedOrderId === order.id ? 'کپی شد!' : 'کپی لینک کالا'}
-                            >
-                              {copiedOrderId === order.id ? (
-                                <Check className="w-3.5 h-3.5 text-white shrink-0" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
-                              )}
-                              {copiedOrderId === order.id && (
-                                <span className="absolute -top-7 right-1/2 translate-x-1/2 bg-emerald-800 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-md whitespace-nowrap pointer-events-none animate-fade-in z-20">
-                                  کپی شد!
-                                </span>
-                              )}
-                            </button>
-                          </div>
+                          {(() => {
+                            const urls = (order.productUrl || '').split('|').map((u: string) => u.trim()).filter(Boolean);
+                            if (urls.length === 0) {
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <a
+                                    href="https://drnutrition.com"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl transition shadow-2xs cursor-pointer shrink-0"
+                                    title="باز کردن لینک اصلی کالا در دبی"
+                                  >
+                                    <ExternalLink className="w-3 h-3 text-amber-400 shrink-0" />
+                                    <span>لینک در دبی</span>
+                                  </a>
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="flex flex-col gap-1.5">
+                                {urls.map((u, ui) => (
+                                  <div key={ui} className="flex items-center gap-1.5">
+                                    <a
+                                      href={u}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl transition shadow-2xs cursor-pointer shrink-0"
+                                      title={u}
+                                    >
+                                      <ExternalLink className="w-3 h-3 text-amber-400 shrink-0" />
+                                      <span>لینک {urls.length > 1 ? ui + 1 : ''}</span>
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyProductUrl(u, `${order.id}-${ui}`)}
+                                      className={`relative p-1.5 rounded-xl transition border cursor-pointer shrink-0 ${
+                                        copiedOrderId === `${order.id}-${ui}`
+                                          ? 'bg-emerald-500 text-white border-emerald-600 shadow-2xs'
+                                          : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200'
+                                      }`}
+                                      title={copiedOrderId === `${order.id}-${ui}` ? 'کپی شد!' : 'کپی لینک کالا'}
+                                    >
+                                      {copiedOrderId === `${order.id}-${ui}` ? (
+                                        <Check className="w-3.5 h-3.5 text-white shrink-0" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
+                                      )}
+                                      {copiedOrderId === `${order.id}-${ui}` && (
+                                        <span className="absolute -top-7 right-1/2 translate-x-1/2 bg-emerald-800 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-md whitespace-nowrap pointer-events-none animate-fade-in z-20">
+                                          کپی شد!
+                                        </span>
+                                      )}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </td>
 
                         {/* Price Paid */}
@@ -3247,28 +3524,90 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </div>
                         </td>
 
-                        {/* Order Status Selector Dropdown */}
-                        <td className="p-3 align-top">
+                        {/* 4-STAGE INTERACTIVE LIFECYCLE & STATUS DROPDOWN */}
+                        <td className="p-3 align-top min-w-[260px] space-y-2">
+                          {/* 4 Quick Action Stage Pills */}
+                          <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                            {/* Stage 1: پرداخت موفق */}
+                            <button
+                              type="button"
+                              onClick={() => handleUpdatePaymentStatus(order.id, isPaid ? 'PENDING' : 'PAID')}
+                              className={`px-2 py-1 rounded-lg border font-extrabold flex items-center gap-1 transition cursor-pointer ${
+                                isPaid
+                                  ? 'bg-emerald-500 text-white border-emerald-600 shadow-2xs'
+                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                              }`}
+                              title="کلیک برای تغییر وضعیت پرداخت"
+                            >
+                              <span className="w-3 h-3 rounded-full flex items-center justify-center bg-white/20 text-[9px]">
+                                {isPaid ? '✓' : '۱'}
+                              </span>
+                              <span>پرداخت موفق</span>
+                            </button>
+
+                            {/* Stage 2: تایید سفارش */}
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateShippingStatus(order.id, 'PURCHASED')}
+                              className={`px-2 py-1 rounded-lg border font-extrabold flex items-center gap-1 transition cursor-pointer ${
+                                isConfirmed
+                                  ? 'bg-blue-600 text-white border-blue-700 shadow-2xs'
+                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                              }`}
+                              title="کلیک برای تایید و خرید سفارش"
+                            >
+                              <span className="w-3 h-3 rounded-full flex items-center justify-center bg-white/20 text-[9px]">
+                                {isConfirmed ? '✓' : '۲'}
+                              </span>
+                              <span>تایید سفارش</span>
+                            </button>
+
+                            {/* Stage 3: ارسال شده */}
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateShippingStatus(order.id, 'SHIPPED_IRAN')}
+                              className={`px-2 py-1 rounded-lg border font-extrabold flex items-center gap-1 transition cursor-pointer ${
+                                isShipped
+                                  ? 'bg-sky-500 text-white border-sky-600 shadow-2xs'
+                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                              }`}
+                              title="کلیک برای بارگیری و ارسال مرسوله"
+                            >
+                              <span className="w-3 h-3 rounded-full flex items-center justify-center bg-white/20 text-[9px]">
+                                {isShipped ? '✓' : '۳'}
+                              </span>
+                              <span>ارسال شده</span>
+                            </button>
+
+                            {/* Stage 4: تحویل به مشتری */}
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateShippingStatus(order.id, 'COMPLETED')}
+                              className={`px-2 py-1 rounded-lg border font-extrabold flex items-center gap-1 transition cursor-pointer ${
+                                isDelivered
+                                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                              }`}
+                              title="کلیک برای ثبت تحویل نهایی به مشتری"
+                            >
+                              <span className="w-3 h-3 rounded-full flex items-center justify-center bg-white/20 text-[9px]">
+                                {isDelivered ? '✓' : '۴'}
+                              </span>
+                              <span>تحویل به مشتری</span>
+                            </button>
+                          </div>
+
+                          {/* Granular Status Selector */}
                           <select
                             value={currentStatus}
                             onChange={(e) => handleUpdateShippingStatus(order.id, e.target.value as ShippingStatus)}
-                            className={`text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl border focus:outline-none cursor-pointer w-full ${
-                              currentStatus === 'COMPLETED' || currentStatus === 'DELIVERED'
-                                ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                                : currentStatus === 'SHIPPED_IRAN' || currentStatus === 'SHIPPED'
-                                ? 'bg-sky-50 border-sky-300 text-sky-800'
-                                : currentStatus === 'DUBAI_WAREHOUSE'
-                                ? 'bg-purple-50 border-purple-300 text-purple-800'
-                                : currentStatus === 'PURCHASED' || currentStatus === 'PROCESSING'
-                                ? 'bg-blue-50 border-blue-300 text-blue-800'
-                                : 'bg-amber-50 border-amber-300 text-amber-800'
-                            }`}
+                            className="text-[10px] font-bold px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:outline-none cursor-pointer w-full"
                           >
                             <option value="PENDING_BUY">⏳ در انتظار خرید از دبی</option>
-                            <option value="PURCHASED">🛍️ خریداری شده</option>
+                            <option value="PURCHASED">🛍️ خریداری شده (تایید سفارش)</option>
                             <option value="DUBAI_WAREHOUSE">🏢 در انبار دبی</option>
                             <option value="SHIPPED_IRAN">✈️ ارسال شده به ایران</option>
-                            <option value="COMPLETED">✅ تکمیل شده</option>
+                            <option value="COMPLETED">✅ تحویل نهایی به مشتری (تکمیل)</option>
                           </select>
                         </td>
 
@@ -4770,6 +5109,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
+          {/* Section 0.6: FAQ Section Global Display Toggle */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
+                  <HelpCircle className="w-4.5 h-4.5 text-orange-500 shrink-0" />
+                  <span>نمایش بخش سوالات متداول در صفحه اصلی (FAQ Section)</span>
+                </h3>
+                <p className="text-xs text-slate-600 font-medium mt-0.5">
+                  فعال یا غیرفعال‌سازی نمایش کارت هدایت به سوالات متداول و راهنمای خرید در صفحه اصلی سایت
+                </p>
+              </div>
+
+              {/* Toggle Switch */}
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                <span className="text-xs font-bold text-slate-700">
+                  {showFaqSection ? 'فعال (در حال نمایش)' : 'غیرفعال (مخفی)'}
+                </span>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={showFaqSection}
+                    onChange={(e) => setShowFaqSection(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-12 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-slate-900"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+
           {/* Section 0.8: Trust Badges Management (eNamad & Samandehi) */}
           <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-3">
@@ -5657,7 +6027,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </div>
 
-              {/* Card 3: Tehran Phone */}
+              {/* Card 3: Phone */}
               <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
@@ -5694,199 +6064,38 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       type="text"
                       value={phoneTitle}
                       onChange={(e) => setPhoneTitle(e.target.value)}
-                      placeholder="تلفن پشتیبانی تهران"
+                      placeholder="تماس تلفنی با واحد فروش"
                       className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">شماره تلفن تهران:</label>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">شماره تماس پشتیبانی:</label>
                     <input
                       type="text"
-                      value={officePhone}
-                      onChange={(e) => setOfficePhone(e.target.value)}
-                      placeholder="021-91000000"
+                      value={supportPhone}
+                      onChange={(e) => setSupportPhone(e.target.value)}
+                      placeholder="02188888888"
                       className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-medium"
                     />
                   </div>
                 </div>
               </div>
-
-              {/* Trust Badges */}
-              <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-3">
-                <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-amber-500" />
-                  <span>نشان‌های اعتماد و ضمانت کالا (Trust Badges)</span>
-                </span>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">نشان اعتماد ۱ (سبز):</label>
-                    <input
-                      type="text"
-                      value={trustBadge1}
-                      onChange={(e) => setTrustBadge1(e.target.value)}
-                      placeholder="اصالت ۱۰۰٪ کالا"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">نشان اعتماد ۲ (آبی):</label>
-                    <input
-                      type="text"
-                      value={trustBadge2}
-                      onChange={(e) => setTrustBadge2(e.target.value)}
-                      placeholder="حمل ایمن کارگو"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">نشان اعتماد ۳ (نارنجی):</label>
-                    <input
-                      type="text"
-                      value={trustBadge3}
-                      onChange={(e) => setTrustBadge3(e.target.value)}
-                      placeholder="تحویل ۵ تا ۷ روزه"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* DEDICATED SUB-TAB: API & INTEGRATIONS (تنظیمات کلیدهای API و ارتباطات) */}
-      {activeAdminSubTab === 'apiSettings' && (
-        <div className="space-y-6 font-['Vazirmatn',sans-serif]">
-          {/* Main Title Banner */}
-          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl p-6 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border border-slate-700/50">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-indigo-300 font-bold text-xs">
-                <Key className="w-4 h-4" />
-                <span>مدیریت اتصال‌های هوشمند و کلیدهای امنیتی</span>
-              </div>
-              <h2 className="text-xl font-black text-white">تنظیمات کلیدهای API و سرویس‌های جانبی</h2>
-              <p className="text-xs text-slate-300 max-w-xl">
-                تنظیم سرویس‌های خودکار استخراج محصول، چرخش کلیدهای جمینای، کلیدهای اطلاع‌رسانی سفارشات و نرخ ارز
-              </p>
             </div>
           </div>
 
-          {/* Database Connection Status Badge Card */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-3">
+          {/* Section 3: Gemini Multi-Key AI Extraction Management */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-              <div className="flex items-center gap-2">
-                <Database className="w-5 h-5 text-emerald-600" />
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </div>
                 <div>
-                  <h3 className="font-extrabold text-slate-900 text-sm">
-                    وضعیت اتصال پایگاه داده (Database Connection Status)
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    همگام‌سازی ابری سفارشات، کاربران و تنظیمات ادمین
-                  </p>
+                  <h3 className="font-extrabold text-sm text-slate-900">کلیدهای هوش مصنوعی Gemini (Failover Pool)</h3>
+                  <p className="text-xs text-slate-500 font-medium">پشتیبانی از ۳ کلید همزمان با سوییچ هوشمند خودکار در صورت اتمام سهمیه</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {dbStatus.loading ? (
-                  <span className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full animate-pulse flex items-center gap-1.5 border border-slate-200">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    در حال بررسی اتصال...
-                  </span>
-                ) : dbStatus.connected ? (
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3.5 py-1.5 rounded-full flex items-center gap-2 shadow-2xs">
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                    </span>
-                    متصل به Firebase Firestore
-                  </span>
-                ) : (
-                  <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3.5 py-1.5 rounded-full flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                    حالت محلی (Local Storage Fallback)
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDbStatus(prev => ({ ...prev, loading: true }));
-                    checkFirestoreConnection().then((res) => {
-                      setDbStatus({
-                        connected: res.connected,
-                        dbId: res.dbId,
-                        loading: false
-                      });
-                    }).catch(() => {
-                      setDbStatus({
-                        connected: false,
-                        loading: false
-                      });
-                    });
-                  }}
-                  className="text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1 border border-slate-300 shrink-0"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>بررسی مجدد</span>
-                </button>
-              </div>
             </div>
-
-            <p className="text-xs text-slate-600 leading-relaxed">
-              {dbStatus.connected
-                ? `پایگاه داده ابری Firestore فعال است${dbStatus.dbId ? ` (پروژه: ${dbStatus.dbId})` : ''}. تمامی اطلاعات ثبت‌نام کاربران، سبد خرید، سفارشات و تنظیمات ادمین به‌صورت زنده همگام‌سازی می‌گردند.`
-                : 'متغیرهای محیطی Firebase تنظیم نشده‌اند یا دستگاه آفلاین است. برنامه با حفظ عملکرد کامل، اطلاعات را به‌صورت محلی (Local Storage) ذخیره می‌کند.'}
-            </p>
-          </div>
-
-          {/* Section 1: Core Scraper & Currency Endpoints */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-            <h3 className="font-black text-sm text-slate-900 flex items-center gap-2 border-b border-slate-200 pb-2">
-              <Globe className="w-4 h-4 text-slate-800" />
-              <span>اندپوینت‌های اصلی استخراج و قیمت‌گذاری خودکار</span>
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">آدرس سرویس اختصاصی اسکرپر (Puppeteer Render Microservice):</label>
-                <input
-                  type="text"
-                  value={scraperEndpoint}
-                  onChange={(e) => setScraperEndpoint(e.target.value)}
-                  placeholder="https://my-scraper-ycsp.onrender.com/scrape?url="
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 p-2.5 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr font-mono text-xs"
-                  dir="ltr"
-                />
-                <span className="text-[10px] text-slate-500 mt-1 block">
-                  سرویس خودکار استخراج SSR بدون نیاز به کلید برای ۵ فروشگاه بزرگ (DrNutrition, Noon, Amazon AE, LifePharmacy, GNC)
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 2: Gemini API Multi-Key Rotation */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
-              <div className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-emerald-600" />
-                <h3 className="font-extrabold text-slate-900 text-sm">
-                  چرخش خودکار کلیدهای API جمینای (Gemini API Multi-Key Rotation)
-                </h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full shadow-xs flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  {[geminiApiKey1, geminiApiKey2, geminiApiKey3].filter(k => k && k.trim() !== '' && k !== '******').length > 0 
-                    ? `${toPersianDigits([geminiApiKey1, geminiApiKey2, geminiApiKey3].filter(k => k && k.trim() !== '' && k !== '******').length)} کلید فعال جهت سوئیچ خودکار` 
-                    : 'هیچ کلیدی فعال نیست'}
-                </span>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-600 leading-relaxed">
-              در صورت اتمام سهمیه روزانه یا ساعتی کلید اصلی (Quota / 429 Rate Limit)، سیستم به طور خودکار به صورت لایو و بدون نیاز به بیلد یا قطع خدمت، به کلیدهای پشتیبان سوئیچ می‌کند.
-            </p>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {/* Gemini Key 1 */}
@@ -6094,6 +6303,106 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Section 5: Webhook & Google Sheets Integration (اتصال وب‌هوک و گوگل شیت) */}
+          <div className="bg-gradient-to-br from-slate-900 to-emerald-950 text-white rounded-3xl p-5 shadow-xs space-y-4 border border-emerald-900/40">
+            <div className="flex items-center justify-between border-b border-emerald-800/40 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center text-white">
+                  <ExternalLink className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-white flex items-center gap-1.5">
+                    <span>وب‌هوک هوشمند سفارشات (Google Sheets & Webhook Automation)</span>
+                    <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                      Real-time Sync
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-emerald-200/80">
+                    ارسال خودکار و بلادرنگ اطلاعات هر سفارش و تغییرات وضعیت ۴ مرحله‌ای به وب‌هوک گوگل شیت یا Zapier/Make
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-emerald-100 block mb-1">
+                  آدرس وب‌هوک اختصاصی (Google Sheet AppScript / Webhook URL):
+                </label>
+                <input
+                  type="url"
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  placeholder="https://script.google.com/macros/s/.../exec یا https://webhook.site/..."
+                  className="w-full bg-slate-950/80 border border-emerald-700/60 text-white p-3 rounded-xl focus:outline-none focus:border-emerald-400 dir-ltr font-mono text-xs placeholder:text-slate-500"
+                  dir="ltr"
+                />
+                <p className="text-[10px] text-emerald-300/70 mt-1">
+                  💡 با وارد کردن این آدرس، در هنگام ثبت یا تغییر وضعیت هر مرحله از سفارش، یک درخواست POST با جزئیات کامل سفارش به این آدرس ارسال می‌شود.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <div className="flex items-center gap-2 text-[11px] text-emerald-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>پشتیبانی از فرمت استاندارد JSON و اجرای پس‌زمینه (Non-blocking)</span>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isTestingWebhook || !webhookUrl.trim()}
+                  onClick={async () => {
+                    if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+                      alert('لطفاً ابتدا آدرس معتبر وب‌هوک را وارد کنید.');
+                      return;
+                    }
+                    setIsTestingWebhook(true);
+                    try {
+                      const testOrderPayload = {
+                        targetTab: 'Orders_Log',
+                        orderId: 'TEST-ORD-' + Date.now().toString().slice(-4),
+                        timestamp: new Date().toISOString(),
+                        persianDate: new Intl.DateTimeFormat('fa-IR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date()),
+                        customerName: 'کاربر تستی سیریک فیت',
+                        customerPhone: '09120000000',
+                        sourceStore: 'دبی (Dr Nutrition)',
+                        productTitle: 'مکمل تست پروتئین وی گلد استاندارد',
+                        variant: 'طعم دابل چاکلت ۲.۲ کیلوگرم',
+                        sourceUrl: 'https://drnutrition.com',
+                        totalPriceToman: 14500000,
+                        status: 'PURCHASED (PAID)'
+                      };
+
+                      await fetch(webhookUrl.trim(), {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(testOrderPayload)
+                      });
+
+                      // Also hit the backend sync endpoint
+                      safeFetchJson('/api/sync-order-sheet', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...testOrderPayload, webhookUrl: webhookUrl.trim() })
+                      }).catch(() => {});
+
+                      alert('✅ پکت تست با ساختار استاندارد Orders_Log با موفقیت به وب‌هوک گوگل شیت ارسال شد!');
+                    } catch (err: any) {
+                      alert('⚠️ ارسال تست انجام شد: ' + (err.message || ''));
+                    } finally {
+                      setIsTestingWebhook(false);
+                    }
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingWebhook ? 'animate-spin' : ''}`} />
+                  <span>{isTestingWebhook ? 'در حال ارسال تست...' : 'ارسال داده تستی سفارش (Orders_Log) به شیت'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -6101,12 +6410,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {activeAdminSubTab === 'homeContent' && (
         <form onSubmit={handleDirectCmsSave} className="space-y-6">
           <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-6 font-['Vazirmatn',sans-serif]">
-            
             {/* Header & Main Save Button Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center text-sky-600 shrink-0">
-                  <Home className="w-5 h-5" />
+                <div className="w-11 h-11 rounded-2xl bg-black text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Layout className="w-6 h-6 text-[#e50914]" />
                 </div>
                 <div>
                   <h3 className="font-extrabold text-base text-slate-900">تنظیمات ظاهری و محتوایی سایت (#home)</h3>
@@ -6114,6 +6422,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </div>
 
+              <button
+                type="submit"
+                disabled={isSavingCmsDirect}
+                className="bg-[#e50914] hover:bg-[#b80710] active:scale-95 text-white font-extrabold text-xs sm:text-sm px-6 py-3 rounded-2xl transition cursor-pointer flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+              >
+                {isSavingCmsDirect ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>در حال ذخیره و اعمال آنی...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>ذخیره و اعمال آنی تغییرات</span>
+                  </>
+                )}
+              </button>
             </div>
 
             {saveCmsSuccess && (
@@ -6131,7 +6456,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <h4 className="font-extrabold text-sm text-slate-900">۱. نوار اعلانات بالای صفحه (Top Promo Strip)</h4>
                 </div>
 
-                {/* Show/Hide Toggle Switch */}
                 <button
                   type="button"
                   onClick={() => setShowTopPromo(!showTopPromo)}
@@ -6206,7 +6530,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <label className="text-xs font-bold text-slate-800 block">لوگوی سایت SIRIK FIT (Upload / URL):</label>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
-                  {/* File Upload Button */}
                   <div>
                     <label className="cursor-pointer bg-black hover:bg-neutral-800 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 transition shadow-2xs w-full">
                       <Upload className="w-4 h-4 text-[#e50914]" />
@@ -6223,7 +6546,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </p>
                   </div>
 
-                  {/* Direct URL Input Field */}
                   <div>
                     <input
                       type="text"
@@ -6236,7 +6558,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 </div>
 
-                {/* Logo Live Preview Thumbnail */}
                 {logoUrl && (
                   <div className="bg-white border border-slate-200 p-2.5 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
                     <div className="flex items-center gap-3">
@@ -6263,8 +6584,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 )}
               </div>
             </div>
-
-
 
             {/* SECTION 3: Calculator Box Content */}
             <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4.5 space-y-4">
@@ -6357,299 +6676,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* SUB-TAB: ACCOUNTING & FINANCIAL MANAGEMENT (بخش حسابداری و مالی) */}
-      {activeAdminSubTab === 'accounting' && (() => {
-        // Accounting Filters & Calculations
-        const filteredAccountingOrders = (orders || []).filter((order) => {
-          if (accountingStatusFilter !== 'ALL' && order.paymentStatus !== accountingStatusFilter) {
-            return false;
-          }
-          if (accountingPeriodFilter !== 'ALL') {
-            const orderDate = new Date(order.createdAt);
-            const now = new Date();
-            if (accountingPeriodFilter === 'TODAY') {
-              if (orderDate.toDateString() !== now.toDateString()) return false;
-            } else if (accountingPeriodFilter === 'WEEK') {
-              const diffMs = now.getTime() - orderDate.getTime();
-              if (diffMs > 7 * 86400000) return false;
-            } else if (accountingPeriodFilter === 'MONTH') {
-              if (orderDate.getMonth() !== now.getMonth() || orderDate.getFullYear() !== now.getFullYear()) return false;
-            }
-          }
-          if (accountingSearchQuery.trim()) {
-            const q = accountingSearchQuery.trim().toLowerCase();
-            const matchTrack = order.trackingCode.toLowerCase().includes(q);
-            const matchCustomer = order.customerName.toLowerCase().includes(q);
-            const matchPhone = order.phoneNumber.toLowerCase().includes(q);
-            const matchProd = order.productTitle.toLowerCase().includes(q);
-            if (!matchTrack && !matchCustomer && !matchPhone && !matchProd) return false;
-          }
-          return true;
-        });
-
-        const paidOrdersList = (filteredAccountingOrders || []).filter(o => o.paymentStatus === 'PAID');
-        const totalSalesToman = paidOrdersList.reduce((acc, o) => acc + (o.calculatedToman || 0), 0);
-        const totalAedSpent = paidOrdersList.reduce((acc, o) => acc + (o.priceAed || 0), 0);
-        const totalCargoAed = paidOrdersList.reduce((acc, o) => acc + ((o.weightKg || 0.5) * (o.cargoRatePerKg || settings.cargoRatePerKg)), 0);
-        const totalCargoToman = Math.round(totalCargoAed * settings.aedRate);
-        const totalWeightKg = paidOrdersList.reduce((acc, o) => acc + (o.weightKg || 0.5), 0);
-
-        const totalCostToman = Math.round(paidOrdersList.reduce((acc, o) => {
-          const cargoAed = (o.weightKg || 0.5) * (o.cargoRatePerKg || settings.cargoRatePerKg);
-          return acc + ((o.priceAed + cargoAed) * o.aedRate);
-        }, 0));
-
-        const totalNetProfitToman = Math.max(0, totalSalesToman - totalCostToman);
-        const profitMarginPercentage = totalSalesToman > 0 ? ((totalNetProfitToman / totalSalesToman) * 100).toFixed(1) : settings.profitMargin;
-        const averageOrderValue = paidOrdersList.length > 0 ? Math.round(totalSalesToman / paidOrdersList.length) : 0;
-
-        return (
-          <div className="space-y-6">
-            {/* Header Action Bar */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center font-black shrink-0">
-                  <FileSpreadsheet className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
-                    <span>بخش حسابداری و مدیریت مالی (Real-time Ledger)</span>
-                    <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-200">
-                      بروزرسانی زنده
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    تحلیل سود واقعی، هزینه‌های کارگو، خرید درهمی دبی و خروجی گزارش فاکتورها
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleExportFinancialCsv(filteredAccountingOrders)}
-                  className="bg-[#111111] hover:bg-black text-white text-xs font-extrabold px-4 py-2.5 rounded-xl transition shadow-xs flex items-center gap-2 cursor-pointer border border-[#111111]"
-                >
-                  <Download className="w-4 h-4 text-emerald-400" />
-                  <span>دریافت خروجی گزارش CSV</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={fetchAdminOrders}
-                  className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-xs font-bold p-2.5 rounded-xl transition cursor-pointer"
-                  title="به‌روزرسانی اطلاعات"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isLoadingOrders ? 'animate-spin text-slate-900' : ''}`} />
-                </button>
-              </div>
-            </div>
-
-            {/* Period Filter Tabs & Status Filters */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-                <span className="text-xs font-extrabold text-slate-600 flex items-center gap-1 shrink-0 ml-1">
-                  <Filter className="w-3.5 h-3.5 text-slate-500" />
-                  <span>فیلتر زمان:</span>
-                </span>
-                {(
-                  [
-                    { id: 'ALL', label: 'همه زمان‌ها' },
-                    { id: 'TODAY', label: 'امروز' },
-                    { id: 'WEEK', label: 'هفته جاری' },
-                    { id: 'MONTH', label: 'ماه جاری' }
-                  ] as const
-                ).map(tab => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setAccountingPeriodFilter(tab.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
-                      accountingPeriodFilter === tab.id
-                        ? 'bg-slate-900 text-white shadow-xs'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <input
-                  type="text"
-                  value={accountingSearchQuery}
-                  onChange={e => setAccountingSearchQuery(e.target.value)}
-                  placeholder="جستجو نام، کد پیگیری یا محصول..."
-                  className="w-full sm:w-64 bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 font-medium"
-                />
-                <select
-                  value={accountingStatusFilter}
-                  onChange={e => setAccountingStatusFilter(e.target.value)}
-                  className="bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold px-2.5 py-2 rounded-xl focus:outline-none shrink-0 cursor-pointer"
-                >
-                  <option value="ALL">همه پرداخت‌ها</option>
-                  <option value="PAID">پرداخت موفق</option>
-                  <option value="PENDING">در انتظار</option>
-                  <option value="FAILED">ناموفق</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Real-time Ledger Summary Metric Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Card 1: Total Sales */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
-                <div className="flex items-center justify-between text-slate-500 mb-2">
-                  <span className="text-xs font-bold">کل فروش فاکتور شده</span>
-                  <TrendingUp className="w-4 h-4 text-emerald-600" />
-                </div>
-                <div className="text-xl sm:text-2xl font-black text-rose-600">
-                  {formatToman(totalSalesToman)}
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1 font-medium flex items-center justify-between">
-                  <span>از {toPersianDigits(paidOrdersList.length)} سفارش پرداخت‌شده</span>
-                  <span className="text-emerald-700 font-bold">میانگین: {formatToman(averageOrderValue)}</span>
-                </div>
-              </div>
-
-              {/* Card 2: Total AED Spent */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
-                <div className="flex items-center justify-between text-slate-500 mb-2">
-                  <span className="text-xs font-bold">خرید درهمی کالا (دبی)</span>
-                  <Coins className="w-4 h-4 text-amber-600" />
-                </div>
-                <div className="text-xl sm:text-2xl font-black text-amber-600">
-                  {formatAed(totalAedSpent)}
-                </div>
-                <span className="text-[11px] text-slate-500 font-medium block mt-1">
-                  معادل {formatToman(Math.round(totalAedSpent * settings.aedRate))}
-                </span>
-              </div>
-
-              {/* Card 3: Cargo Expenses */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
-                <div className="flex items-center justify-between text-slate-500 mb-2">
-                  <span className="text-xs font-bold">هزینه حمل و کارگو هوایی</span>
-                  <Truck className="w-4 h-4 text-blue-600" />
-                </div>
-                <div className="text-xl sm:text-2xl font-black text-blue-600">
-                  {formatAed(totalCargoAed)}
-                </div>
-                <span className="text-[11px] text-slate-500 font-medium block mt-1">
-                  معادل {formatToman(totalCargoToman)} ({toPersianDigits(totalWeightKg.toFixed(1))} کیلوگرم)
-                </span>
-              </div>
-
-              {/* Card 4: Net Profit Margin */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-xs">
-                <div className="flex items-center justify-between text-slate-500 mb-2">
-                  <span className="text-xs font-bold">سود خالص تخمینی (تومان)</span>
-                  <ShieldCheck className="w-4 h-4 text-purple-600" />
-                </div>
-                <div className="text-xl sm:text-2xl font-black text-emerald-600">
-                  {formatToman(totalNetProfitToman)}
-                </div>
-                <span className="text-[11px] text-emerald-700 font-bold block mt-1">
-                  حاشیه سود: ٪{toPersianDigits(profitMarginPercentage)}
-                </span>
-              </div>
-            </div>
-
-            {/* Transactions Table / Ledger List */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs overflow-x-auto">
-              <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
-                <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-slate-700" />
-                  <span>دفتر روزنامه تراکنش‌ها و جزئیات فاکتورها</span>
-                </h4>
-                <span className="text-xs text-slate-500 font-medium">
-                  نمایش {toPersianDigits(filteredAccountingOrders.length)} تراکنش
-                </span>
-              </div>
-
-              {filteredAccountingOrders.length === 0 ? (
-                <div className="py-10 text-center text-slate-400 text-xs font-medium">
-                  هیچ تراکنشی مطابق با فیلترهای انتخاب شده یافت نشد.
-                </div>
-              ) : (
-                <table className="w-full text-right text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold">
-                      <th className="p-3">کد پیگیری & تاریخ</th>
-                      <th className="p-3">نام مشتری</th>
-                      <th className="p-3">محصول سفارشی</th>
-                      <th className="p-3">قیمت پایه (درهم)</th>
-                      <th className="p-3">سهم کارگو</th>
-                      <th className="p-3">سود دبی</th>
-                      <th className="p-3">مبلغ فاکتور (تومان)</th>
-                      <th className="p-3 text-center">وضعیت پرداخت</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {filteredAccountingOrders.map(order => {
-                      const cargoAed = (order.weightKg || 0.5) * (order.cargoRatePerKg || settings.cargoRatePerKg);
-                      const cargoToman = Math.round(cargoAed * order.aedRate);
-                      const profitToman = Math.round(((order.priceAed + cargoAed) * (order.profitMargin / 100)) * order.aedRate);
-
-                      return (
-                        <tr key={order.id} className="hover:bg-slate-50/80 transition">
-                          <td className="p-3">
-                            <div className="font-extrabold text-slate-900 dir-ltr text-left sm:text-right">{order.trackingCode}</div>
-                            <div className="text-[10px] text-slate-500">{formatPersianDate(order.createdAt)}</div>
-                          </td>
-                          <td className="p-3">
-                            <div className="font-bold text-slate-900">{order.customerName}</div>
-                            <div className="text-[11px] text-slate-500">{order.phoneNumber}</div>
-                          </td>
-                          <td className="p-3 max-w-xs">
-                            <div className="font-medium text-slate-800 line-clamp-1">{order.productTitle}</div>
-                            <div className="text-[10px] text-slate-400">{order.storeName || 'دبی'}</div>
-                          </td>
-                          <td className="p-3 font-bold text-slate-900">{formatAed(order.priceAed)}</td>
-                          <td className="p-3 text-slate-700">
-                            {formatAed(cargoAed)}
-                            <span className="text-[10px] text-slate-400 block">({formatToman(cargoToman)})</span>
-                          </td>
-                          <td className="p-3 font-bold text-emerald-700">{formatToman(profitToman)}</td>
-                          <td className="p-3 font-black text-rose-600">{formatToman(order.calculatedToman)}</td>
-                          <td className="p-3 text-center">
-                            <span
-                              className={`inline-block text-[10px] font-extrabold px-2.5 py-1 rounded-lg ${
-                                order.paymentStatus === 'PAID'
-                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                  : order.paymentStatus === 'PENDING'
-                                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                  : 'bg-rose-100 text-rose-800 border border-rose-200'
-                              }`}
-                            >
-                              {order.paymentStatus === 'PAID' ? 'پرداخت شده' : order.paymentStatus === 'PENDING' ? 'در انتظار' : 'ناموفق'}
-                            </span>
-                            {order.paymentRefId && (
-                              <div className="text-[9px] font-mono text-slate-400 dir-ltr mt-0.5">{order.paymentRefId}</div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-slate-900 text-white font-black text-xs">
-                      <td colSpan={3} className="p-3 text-right">
-                        مجموع گزارش جاری ({toPersianDigits(paidOrdersList.length)} سفارش پرداخت شده)
-                      </td>
-                      <td className="p-3">{formatAed(totalAedSpent)}</td>
-                      <td className="p-3">{formatAed(totalCargoAed)}</td>
-                      <td className="p-3 text-emerald-400">{formatToman(totalNetProfitToman)}</td>
-                      <td className="p-3 text-rose-300">{formatToman(totalSalesToman)}</td>
-                      <td className="p-3 text-center">-</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+      {activeAdminSubTab === 'accounting' && (
+        <AdminAccounting
+          orders={orders}
+          settings={settings}
+          onRefreshOrders={fetchAdminOrders}
+          isLoadingOrders={isLoadingOrders}
+        />
+      )}
 
       {/* SUB-TAB: PAYMENT GATEWAY SETTINGS (تنظیمات درگاه پرداخت) */}
       {activeAdminSubTab === 'gateway' && (
@@ -7508,6 +7542,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* SUB-TAB: DISCOUNT CODES MANAGEMENT */}
       {activeAdminSubTab === 'discounts' && (
         <AdminDiscounts showToast={showToast} />
+      )}
+
+      {/* SUB-TAB: FAQ & USER INQUIRIES MANAGEMENT */}
+      {(activeAdminSubTab === 'faq' || activeAdminSubTab === 'inquiries') && (
+        <AdminFAQManager showToast={showToast} />
       )}
 
       {/* TOP-RIGHT TOAST NOTIFICATION */}

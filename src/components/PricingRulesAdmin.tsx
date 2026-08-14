@@ -30,7 +30,7 @@ import {
 } from '../utils/pricingEngine';
 import { formatToman, toPersianDigits, normalizeToEnglishDigits } from '../utils/formatters';
 import { useSettings } from '../context/SettingsContext';
-import { saveAdminSettingsPayload } from '../utils/adminSaveHelper';
+import { saveAdminSettingsPayload, safeParseNumeric } from '../utils/adminSaveHelper';
 
 interface PricingRulesAdminProps {
   settings: FinancialSettings | null;
@@ -266,15 +266,13 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     setSaveMessage('');
 
     try {
-      const cleanRateStr = normalizeToEnglishDigits(aedRateInput);
-      const parsedRate = parseFloat(cleanRateStr.replace(/[^0-9.]/g, '')) || 0;
+      const parsedRate = safeParseNumeric(aedRateInput, 0);
+      const cleanBasePercent = safeParseNumeric(baseCommissionPercent, 20);
+      const cleanBaseShip = safeParseNumeric(baseShippingCostAed, 20);
+      const cleanMinShip = safeParseNumeric(minShippingCostAed, 20);
+      const cleanMaxShip = safeParseNumeric(maxShippingCostAed, 40);
 
-      const cleanBasePercent = parseFloat(normalizeToEnglishDigits(baseCommissionPercent)) || 20;
-      const cleanBaseShip = parseFloat(normalizeToEnglishDigits(baseShippingCostAed)) || 20;
-      const cleanMinShip = parseFloat(normalizeToEnglishDigits(minShippingCostAed)) || 20;
-      const cleanMaxShip = parseFloat(normalizeToEnglishDigits(maxShippingCostAed)) || 40;
-
-      // Construct Firestore AppSettings Object
+      // Construct Clean Numeric AppSettings Object
       const appSettingsPayload = {
         aedRate: parsedRate,
         baseCommission: {
@@ -289,49 +287,60 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         commissionRules: commissionRules.map(r => ({
           id: r.id,
           active: r.isEnabled,
-          minAmountAed: Number(r.minAmountAed || 0),
-          maxAmountAed: r.maxAmountAed === null || r.maxAmountAed === undefined || Number(r.maxAmountAed) === 0 ? null : Number(r.maxAmountAed),
-          percentage: Number(r.commissionPercent || 0)
+          minAmountAed: safeParseNumeric(r.minAmountAed, 0),
+          maxAmountAed: r.maxAmountAed === null || r.maxAmountAed === undefined || safeParseNumeric(r.maxAmountAed, 0) === 0 ? null : safeParseNumeric(r.maxAmountAed, 0),
+          percentage: safeParseNumeric(r.commissionPercent, 0)
         })),
         shippingIncrementRules: shippingIncrementRules.map(r => ({
           id: r.id,
           active: r.isEnabled,
-          itemIndex: Number(r.itemNumber || 2),
-          additionalCostAed: Number(r.additionalCostAed || 0)
+          itemIndex: safeParseNumeric(r.itemNumber, 2),
+          additionalCostAed: safeParseNumeric(r.additionalCostAed, 0)
         }))
       };
 
-      // 1. Write to Firestore document `settings/app` and `settings/financial`
-      await setDoc(doc(db, 'settings', 'app'), appSettingsPayload, { merge: true });
-      await setDoc(doc(db, 'settings', 'financial'), {
-        aedRate: parsedRate,
-        manualAedRate: parsedRate,
-        autoUpdateRates: false,
-        currencyApiUrl: ''
-      }, { merge: true });
-
-      // 2. Save directly to LocalStorage
+      // ---------------------------------------------------------------
+      // STEP 1: Synchronously Save to LocalStorage FIRST (Immediate Source of Truth)
+      // ---------------------------------------------------------------
       if (parsedRate > 0) {
         localStorage.setItem('sirikfit_aed_rate', String(parsedRate));
       }
       localStorage.setItem('sirikfit_app_settings', JSON.stringify(appSettingsPayload));
+      localStorage.setItem('sirikfit_financial_settings', JSON.stringify({
+        aedRate: parsedRate,
+        manualAedRate: parsedRate,
+        cargoRatePerKg: cleanBaseShip,
+        profitMargin: cleanBasePercent,
+        autoUpdateRates: false
+      }));
       localStorage.setItem('omex_pricing_rules', JSON.stringify(activePricingConfig));
 
-      // 3. Update React Global Context
+      // Update React Global Context immediately
       if (parsedRate > 0) {
         setContextAedRate(parsedRate);
       }
 
-      // 4. Dispatch custom window event
+      // ---------------------------------------------------------------
+      // STEP 2: Dispatch Synchronous Window Event (Instant React / Header Update)
+      // ---------------------------------------------------------------
       window.dispatchEvent(new CustomEvent('settingsUpdated', {
         detail: {
           aedRate: parsedRate,
+          financialSettings: {
+            aedRate: parsedRate,
+            manualAedRate: parsedRate,
+            cargoRatePerKg: cleanBaseShip,
+            profitMargin: cleanBasePercent
+          },
           appSettings: appSettingsPayload,
           pricingRules: activePricingConfig
         }
       }));
+      window.dispatchEvent(new Event('storage'));
 
-      // 4. Atomic Multi-Document Persistence via saveAdminSettingsPayload
+      // ---------------------------------------------------------------
+      // STEP 3: Async Persistence to Firestore SDK & REST API
+      // ---------------------------------------------------------------
       await saveAdminSettingsPayload(
         {
           aedRate: parsedRate,
@@ -343,15 +352,16 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         cms
       );
 
-      // Also attempt backend API save if server endpoint is live
-      try {
-        await saveSettingsToFirestore({
+      // Direct Firestore document updates
+      await Promise.all([
+        setDoc(doc(db, 'settings', 'app'), appSettingsPayload, { merge: true }),
+        setDoc(doc(db, 'settings', 'financial'), {
           aedRate: parsedRate,
           manualAedRate: parsedRate,
-          cargoRatePerKg: cleanBaseShip,
-          profitMargin: cleanBasePercent
-        } as any);
-      } catch (_apiErr) {}
+          autoUpdateRates: false,
+          currencyApiUrl: ''
+        }, { merge: true })
+      ]);
 
       setSaveSuccess(true);
       setSaveMessage('تنظیمات با موفقیت ذخیره شد و در سراسر سیستم اعمال گردید.');

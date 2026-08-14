@@ -17,8 +17,8 @@ export const AppDashboard: React.FC<AppDashboardProps> = ({
   cms,
   onOpenLocalStock
 }) => {
-  // If local inventory is explicitly disabled in CMS config, hide banner
-  if (cms?.showLocalInventory === false) {
+  const isLocalInventoryEnabled = cms?.features?.showLocalInventory ?? cms?.showLocalInventory ?? true;
+  if (!isLocalInventoryEnabled) {
     return null;
   }
 

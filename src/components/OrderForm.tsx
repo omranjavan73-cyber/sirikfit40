@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { FinancialSettings, Order, User } from '../types';
-import { formatToman, formatAed, toPersianDigits } from '../utils/formatters';
+import { formatToman, formatAed, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { saveOrderToFirestore } from '../firebase';
 
@@ -53,7 +53,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const pricingResult = calculateOrderPricing(
     product.priceAed * qty,
     qty,
-    settings.aedRate
+    getEffectiveAedRate(settings)
   );
 
   const totalToman = product.calculatedTomanOverride
@@ -90,34 +90,30 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     setIsSubmitting(true);
 
     try {
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: currentUser?.id,
-          customerName,
-          phoneNumber,
-          deliveryAddress,
-          notes,
-          productTitle: `${qty}× ${product.title}`,
-          productUrl: product.url,
-          productImage: product.image,
-          storeName: product.storeName,
-          priceAed: product.priceAed * qty,
-          weightKg: (product.weightKg || 0.5) * qty
-        })
-      });
+      const orderPayload = {
+        userId: currentUser?.id,
+        customerName,
+        phoneNumber,
+        deliveryAddress,
+        notes,
+        productTitle: `${qty}× ${product.title}`,
+        productUrl: product.url,
+        productImage: product.image,
+        storeName: product.storeName,
+        priceAed: product.priceAed * qty,
+        weightKg: (product.weightKg || 0.5) * qty,
+        totalToman,
+        createdAt: new Date().toISOString(),
+        paymentStatus: 'PENDING',
+        shippingStatus: 'PROCESSING'
+      };
 
-      const data = await res.json();
-      if (res.ok && data.order) {
-        saveOrderToFirestore(data.order);
-        onOrderCreated(data.order);
-      } else {
-        setErrorMessage(data.error || 'خطا در ثبت سفارش.');
-      }
-    } catch (e) {
+      const createdOrderId = await saveOrderToFirestore(orderPayload);
+      const createdOrder = { ...orderPayload, id: createdOrderId, orderId: createdOrderId };
+      onOrderCreated(createdOrder);
+    } catch (e: any) {
       console.error('Error submitting order:', e);
-      setErrorMessage('خطا در ارتباط با سرور.');
+      setErrorMessage(e?.message || 'خطا در ثبت سفارش.');
     } finally {
       setIsSubmitting(false);
     }
@@ -164,9 +160,15 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         <div className="p-4 pt-1 space-y-3.5">
           {/* Discount & Brand Pills (Aligned Right) */}
           <div className="flex items-center justify-end gap-2">
-            <span className="bg-[#DCFCE7] text-[#16A34A] text-[11px] font-extrabold px-2.5 py-0.5 rounded-md dir-ltr">
-              -{product.discountPercent || 15}٪
-            </span>
+            {(product.discountPercent && product.discountPercent > 0) ? (
+              <span className="bg-[#DCFCE7] text-[#16A34A] text-[11px] font-extrabold px-2.5 py-0.5 rounded-md dir-ltr">
+                -{product.discountPercent}٪
+              </span>
+            ) : product.badge ? (
+              <span className="bg-[#DCFCE7] text-[#16A34A] text-[11px] font-extrabold px-2.5 py-0.5 rounded-md dir-rtl">
+                {product.badge}
+              </span>
+            ) : null}
             <span className="bg-neutral-100 text-neutral-800 text-[11px] font-extrabold px-3 py-0.5 rounded-md">
               {product.brand || product.storeName || 'GNC'}
             </span>

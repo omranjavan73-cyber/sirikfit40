@@ -1,37 +1,29 @@
 import React, { useState } from 'react';
-import type { LocalInventoryItem, WarehouseCategory } from '../types';
+import type { LocalInventoryItem, WarehouseCategory, FinancialSettings } from '../types';
 import { formatToman } from '../utils/formatters';
-import { Search, Globe, Package, Shield, Zap, Droplet, Star, X } from 'lucide-react';
+import { CategoryGridSection } from './CategoryGridSection';
+import { ProductDetailModal } from './ProductDetailModal';
 
 interface InventoryPageProps {
   items: LocalInventoryItem[];
   categories?: WarehouseCategory[];
   onSelectLocalProduct: (item: LocalInventoryItem) => void;
+  settings?: FinancialSettings;
+  onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
 }
-
-const DEFAULT_CATEGORY_TILES = [
-  { id: 'all', label: 'همه کالاها', filterKey: 'all', icon: Globe },
-  { id: 'protein', label: 'پروتئین', filterKey: 'protein', icon: Package },
-  { id: 'vitamin', label: 'ویتامین', filterKey: 'vitamin', icon: Shield },
-  { id: 'pre', label: 'قبل تمرین', filterKey: 'pre', icon: Zap },
-  { id: 'omega', label: 'امگا ۳', filterKey: 'omega', icon: Droplet },
-  { id: 'hot', label: 'پرفروش', filterKey: 'hot', icon: Star },
-];
 
 export const InventoryPage: React.FC<InventoryPageProps> = ({
   items,
   categories,
-  onSelectLocalProduct
+  onSelectLocalProduct,
+  settings,
+  onAddToCart
 }) => {
   const [selectedCat, setSelectedCat] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [addedItemId, setAddedItemId] = useState<string | null>(null);
+  const [selectedLocalForModal, setSelectedLocalForModal] = useState<LocalInventoryItem | null>(null);
 
-  const categoryList = (categories && categories.length >= 6)
-    ? categories
-    : DEFAULT_CATEGORY_TILES;
-
-  const visibleItems = items.filter(item => item.inStock !== false);
+  const visibleItems = (items || []).filter(item => item && item.inStock !== false);
 
   const filteredItems = visibleItems.filter(item => {
     const q = searchQuery.trim().toLowerCase();
@@ -42,16 +34,30 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
     const matchesSearch = !q || title.includes(q) || cat.includes(q) || desc.includes(q);
 
     let matchesCat = true;
-    if (selectedCat === 'protein') matchesCat = cat.includes('پروتئین') || title.includes('وی') || title.includes('ایزوله') || title.includes('whey');
-    if (selectedCat === 'vitamin') matchesCat = cat.includes('ویتامین') || title.includes('مولتی') || title.includes('daily') || title.includes('سی') || title.includes('c');
-    if (selectedCat === 'pre') matchesCat = cat.includes('تمرین') || title.includes('پمپ') || title.includes('c4') || title.includes('کراتین') || title.includes('پرفروش');
-    if (selectedCat === 'omega') matchesCat = cat.includes('امگا') || title.includes('امگا') || title.includes('fish') || title.includes('omega');
-    if (selectedCat === 'hot') matchesCat = true;
+    if (selectedCat !== 'all' && selectedCat !== 'همه') {
+      const catObj = (categories || []).find(c => c.filterKey === selectedCat || c.id === selectedCat);
+      const term = (catObj?.filterKey || catObj?.label || selectedCat).toLowerCase();
+      
+      // Fallback matching logic for standard key terms
+      if (selectedCat === 'protein' || term.includes('پروتئین')) {
+        matchesCat = cat.includes('پروتئین') || title.includes('وی') || title.includes('ایزوله') || title.includes('whey') || title.includes('protein');
+      } else if (selectedCat === 'vitamin' || term.includes('ویتامین')) {
+        matchesCat = cat.includes('ویتامین') || title.includes('مولتی') || title.includes('daily') || title.includes('سی') || title.includes('c') || title.includes('vitamin');
+      } else if (selectedCat === 'pre' || term.includes('قبل')) {
+        matchesCat = cat.includes('تمرین') || title.includes('پمپ') || title.includes('c4') || title.includes('کراتین') || title.includes('pre') || title.includes('پرفروش');
+      } else if (selectedCat === 'omega' || term.includes('امگا')) {
+        matchesCat = cat.includes('امگا') || title.includes('امگا') || title.includes('fish') || title.includes('omega');
+      } else if (selectedCat === 'hot' || term.includes('فروش')) {
+        matchesCat = true;
+      } else {
+        matchesCat = cat.includes(term) || term.includes(cat) || title.includes(term) || desc.includes(term);
+      }
+    }
 
     return matchesSearch && matchesCat;
   });
 
-  // Short brand tag (3-4 uppercase letters) helper for exact screenshot replica
+  // Short brand tag (3-4 uppercase letters) helper
   const getItemBrandCode = (title: string, category?: string) => {
     const t = title.toLowerCase();
     if (t.includes('myprotein') || t.includes('مای پروتئین') || t.includes('myp')) return 'MYP';
@@ -64,118 +70,49 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
     return 'ON';
   };
 
-  const getFallbackIcon = (id: string) => {
-    if (id === 'protein') return Package;
-    if (id === 'vitamin') return Shield;
-    if (id === 'pre') return Zap;
-    if (id === 'omega') return Droplet;
-    if (id === 'hot') return Star;
-    return Globe;
+  const defaultSettings: FinancialSettings = settings || {
+    cargoRatePerKg: 35,
+    profitMargin: 20,
+    aedRate: 23000
   };
 
   return (
     <div className="space-y-4 font-['Vazirmatn',sans-serif] animate-fade-in pb-12">
-      {/* Top Header without extra back button */}
-      <div className="text-right pb-1">
-        <h2 className="text-lg md:text-xl font-black text-neutral-900 tracking-tight">
-          موجودی انبار ایران (تحویل فوری)
+      {/* Top Header */}
+      <div className="text-right pb-0.5">
+        <h2 className="text-lg md:text-xl font-black text-slate-900 tracking-tight">
+          موجودی انبار ایران
         </h2>
-        <p className="text-xs text-neutral-500 font-medium pt-0.5">
-          کالاهای موجود و آماده ارسال ۱ الی ۲ روزه با پیک/پست
-        </p>
       </div>
 
-      {/* Search Input Box */}
-      <div className="relative">
-        <div className="relative flex items-center bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] focus-within:border-[#111111] rounded-[12px] transition">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="...جستجوی مکمل، برند یا دسته"
-            className="w-full bg-transparent py-3 pr-10 pl-4 text-xs text-[#111111] placeholder-neutral-400 focus:outline-none text-right dir-rtl font-medium"
-          />
-          <Search className="w-4 h-4 text-neutral-400 absolute right-3 shrink-0 pointer-events-none" />
-
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute left-3 text-neutral-400 hover:text-neutral-700 text-xs cursor-pointer p-1"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* 3x2 Grid Category Cards with OUTSIDE BOLD LABELS & CENTERED GRAY CIRCLE */}
-      <div className="grid grid-cols-3 gap-3 pt-1">
-        {categoryList.slice(0, 6).map((tile) => {
-          const filterKey = tile.filterKey || tile.id;
-          const isActive = selectedCat === filterKey || selectedCat === tile.id;
-          const IconComp = getFallbackIcon(tile.id);
-
-          return (
-            <div key={tile.id} className="flex flex-col items-center cursor-pointer group" onClick={() => setSelectedCat(filterKey)}>
-              {/* Card Container */}
-              <div
-                className={`w-full aspect-[4/3] sm:aspect-square rounded-[16px] bg-white transition-all flex items-center justify-center relative ${
-                  isActive
-                    ? 'border-[1.5px] border-[#111111] shadow-2xs'
-                    : 'border-[1.5px] border-[#E5E5E5] group-hover:border-slate-400'
-                }`}
-              >
-                {/* Gray Circle Background inside Card */}
-                <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-full bg-[#F1F5F9] border border-slate-200/50 flex items-center justify-center p-2.5 overflow-hidden shadow-2xs">
-                  {tile.iconUrl ? (
-                    <img
-                      src={tile.iconUrl}
-                      alt={tile.label}
-                      className="w-[60%] h-[60%] object-contain block"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                    />
-                  ) : (
-                    <IconComp
-                      className={`w-6 h-6 transition ${
-                        isActive ? 'text-[#111111] stroke-[2.2]' : 'text-slate-700 stroke-[1.8]'
-                      }`}
-                    />
-                  )}
-                </div>
-              </div>
-
-              {/* OUTSIDE BOLD LABEL DIRECTLY BELOW THE CARD */}
-              <span
-                className={`mt-2 block text-xs md:text-sm text-center transition-all ${
-                  isActive ? 'font-black text-[#111111]' : 'font-extrabold text-slate-700 group-hover:text-slate-900'
-                }`}
-              >
-                {tile.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      {/* Shared Category Grid Section (Search + 3x2 Rectangular Category Cards + All Categories Button & Drawer) */}
+      <CategoryGridSection
+        categories={categories}
+        selectedCat={selectedCat}
+        onSelectCategory={setSelectedCat}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="...جستجوی مکمل، برند یا دسته"
+        itemsCount={filteredItems.length}
+      />
 
       {/* Stock Items List Header */}
-      <div className="flex items-center justify-between pt-2">
-        <h3 className="font-extrabold text-sm text-[#111111]">موجودی انبار</h3>
+      <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+        <h3 className="font-extrabold text-sm text-[#111111]">موجودی انبار ایران</h3>
         <span className="text-xs font-extrabold text-[#111111] bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] px-3 py-0.5 rounded-full">
           {filteredItems.length} کالا
         </span>
       </div>
 
-      {/* Stock Items Grid (2 Columns) */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Stock Items Grid (Responsive Multi-column Grid) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
         {filteredItems.map((item) => {
           const brandCode = getItemBrandCode(item.title, item.category);
 
           return (
             <div
               key={item.id}
-              onClick={() => onSelectLocalProduct(item)}
+              onClick={() => setSelectedLocalForModal(item)}
               className="product-card bg-white border border-slate-200/90 hover:border-[#111111] rounded-[22px] p-3.5 shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col justify-between relative space-y-3 overflow-hidden"
             >
               {/* Product Image Container */}
@@ -204,7 +141,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
               {/* Product Title & Stock Status */}
               <div className="space-y-1.5 text-right flex-1 flex flex-col justify-between">
                 <span className="text-[10px] font-extrabold text-emerald-600 block">
-                  موجود در ایران ({item.stockCount || 4} عدد)
+                  موجودی در ایران ({item.stockCount || 4} عدد)
                 </span>
 
                 <h4 className="font-extrabold text-xs md:text-sm text-slate-900 leading-snug line-clamp-2 min-h-[32px]">
@@ -224,22 +161,57 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onSelectLocalProduct(item);
-                  setAddedItemId(item.id);
-                  setTimeout(() => setAddedItemId(null), 1500);
+                  setSelectedLocalForModal(item);
                 }}
-                className={`w-full font-extrabold text-xs py-2 rounded-[12px] transition cursor-pointer text-center ${
-                  addedItemId === item.id
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : 'bg-white hover:bg-[#111111] hover:text-white border-[1.5px] border-[#111111] text-[#111111]'
-                }`}
+                className="w-full bg-slate-900 hover:bg-red-600 text-white text-xs font-bold py-2.5 rounded-xl transition-all duration-200 shadow-sm active:scale-95 mt-1 cursor-pointer flex items-center justify-center gap-1.5"
               >
-                {addedItemId === item.id ? '✓ اضافه شد!' : 'افزودن به سبد خرید'}
+                افزودن به سبد خرید
               </button>
             </div>
           );
         })}
       </div>
+
+      {filteredItems.length === 0 && (
+        <div className="text-center py-12 bg-white rounded-3xl border border-slate-200 p-6 space-y-2">
+          <p className="text-sm font-extrabold text-slate-800">هیچ کالایی با این مشخصات یافت نشد</p>
+          <p className="text-xs text-slate-500 font-medium">لطفاً کلمه کلیدی یا دسته‌بندی دیگری را امتحان کنید.</p>
+          <button
+            onClick={() => { setSelectedCat('all'); setSearchQuery(''); }}
+            className="mt-2 text-xs font-black text-slate-900 underline"
+          >
+            پاک کردن فیلترها
+          </button>
+        </div>
+      )}
+
+      {/* Embedded Product Details Modal */}
+      <ProductDetailModal
+        isOpen={!!selectedLocalForModal}
+        onClose={() => setSelectedLocalForModal(null)}
+        product={selectedLocalForModal ? {
+          title: `${selectedLocalForModal.title} (موجودی انبار ایران)`,
+          url: selectedLocalForModal.url || 'https://omex.ir/stock/' + selectedLocalForModal.id,
+          priceAed: Math.round(selectedLocalForModal.priceToman / defaultSettings.aedRate) || 100,
+          originalPriceAed: selectedLocalForModal.originalPriceToman ? Math.round(selectedLocalForModal.originalPriceToman / defaultSettings.aedRate) : 0,
+          weightKg: 0.5,
+          image: selectedLocalForModal.image,
+          storeName: 'انبار ایران (تحویل فوری)',
+          brand: 'انبار ایران',
+          category: selectedLocalForModal.category || 'موجودی ایران',
+          description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
+          badge: selectedLocalForModal.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته'
+        } : null}
+        settings={defaultSettings}
+        onAddToCart={(productPayload, flavor, size) => {
+          if (onAddToCart) {
+            onAddToCart(productPayload, flavor, size);
+          } else if (selectedLocalForModal) {
+            onSelectLocalProduct(selectedLocalForModal);
+          }
+          setSelectedLocalForModal(null);
+        }}
+      />
     </div>
   );
 };

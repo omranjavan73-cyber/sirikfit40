@@ -169,32 +169,34 @@ export const AdminSupportTickets: React.FC<AdminSupportTicketsProps> = ({ showTo
   }, []);
 
   // Filter tickets logic
-  const filteredTickets = tickets.filter((ticket) => {
+  const filteredTickets = (tickets || []).filter((ticket) => {
+    if (!ticket) return false;
     if (statusFilter !== 'ALL' && ticket.status !== statusFilter) return false;
     if (priorityFilter !== 'ALL' && ticket.priority !== priorityFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       return (
-        ticket.ticketNumber.toLowerCase().includes(q) ||
-        ticket.subject.toLowerCase().includes(q) ||
-        ticket.userName.toLowerCase().includes(q) ||
-        ticket.userPhone.toLowerCase().includes(q) ||
-        ticket.category.toLowerCase().includes(q)
+        (ticket.ticketNumber || '').toLowerCase().includes(q) ||
+        (ticket.subject || '').toLowerCase().includes(q) ||
+        (ticket.userName || '').toLowerCase().includes(q) ||
+        (ticket.userPhone || '').toLowerCase().includes(q) ||
+        (ticket.category || '').toLowerCase().includes(q)
       );
     }
     return true;
   });
 
   // Filter reviews logic
-  const filteredReviews = reviews.filter((rev) => {
+  const filteredReviews = (reviews || []).filter((rev) => {
+    if (!rev) return false;
     if (reviewsFilterStatus === 'APPROVED' && rev.isApproved === false) return false;
     if (reviewsFilterStatus === 'PENDING' && rev.isApproved !== false) return false;
     if (reviewsCategoryFilter !== 'ALL' && rev.category !== reviewsCategoryFilter) return false;
     if (reviewsSearchQuery.trim()) {
       const q = reviewsSearchQuery.trim().toLowerCase();
       return (
-        rev.authorName.toLowerCase().includes(q) ||
-        rev.content.toLowerCase().includes(q) ||
+        (rev.authorName || '').toLowerCase().includes(q) ||
+        (rev.content || '').toLowerCase().includes(q) ||
         (rev.reply && rev.reply.toLowerCase().includes(q))
       );
     }
@@ -432,9 +434,9 @@ export const AdminSupportTickets: React.FC<AdminSupportTicketsProps> = ({ showTo
     if (showToast) showToast('نظر جدید ثبت گردید', 'success');
   };
 
-  const pendingTicketsCount = tickets.filter((t) => t.status === 'PENDING').length;
-  const highPriorityCount = tickets.filter((t) => t.priority === 'HIGH' && t.status !== 'CLOSED').length;
-  const pendingReviewsCount = reviews.filter((r) => r.isApproved === false).length;
+  const pendingTicketsCount = (tickets || []).filter((t) => t && t.status === 'PENDING').length;
+  const highPriorityCount = (tickets || []).filter((t) => t && t.priority === 'HIGH' && t.status !== 'CLOSED').length;
+  const pendingReviewsCount = (reviews || []).filter((r) => r && r.isApproved === false).length;
 
   const getPriorityBadge = (p: 'HIGH' | 'MEDIUM' | 'LOW') => {
     switch (p) {
@@ -851,14 +853,14 @@ export const AdminSupportTickets: React.FC<AdminSupportTicketsProps> = ({ showTo
                     onClick={() => setReviewsFilterStatus('APPROVED')}
                     className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${reviewsFilterStatus === 'APPROVED' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:text-emerald-700'}`}
                   >
-                    منتشر شده ({reviews.filter(r => r.isApproved !== false).length})
+                    منتشر شده ({(reviews || []).filter(r => r && r.isApproved !== false).length})
                   </button>
                   <button
                     type="button"
                     onClick={() => setReviewsFilterStatus('PENDING')}
                     className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${reviewsFilterStatus === 'PENDING' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:text-amber-700'}`}
                   >
-                    در انتظار تایید ({reviews.filter(r => r.isApproved === false).length})
+                    در انتظار تایید ({(reviews || []).filter(r => r && r.isApproved === false).length})
                   </button>
                 </div>
 

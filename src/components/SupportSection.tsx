@@ -22,7 +22,7 @@ const formatTelegramUrl = (rawLink?: string, handle?: string) => {
 
 export const SupportSection: React.FC<SupportSectionProps> = ({ cms }) => {
   const home = cms?.homeContent;
-  const showSupport = home?.showSupportSection ?? true;
+  const showSupport = cms?.features?.showSupportSection ?? home?.showSupportSection ?? cms?.showSupportSection ?? true;
 
   if (!showSupport) return null;
 

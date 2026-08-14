@@ -21,7 +21,11 @@ export const StickyBottomSaveBar: React.FC<StickyBottomSaveBarProps> = ({
     <div className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-[9999] pointer-events-auto transition-all duration-300 max-w-[92vw]">
       <button
         type="button"
-        onClick={onSave}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onSave();
+        }}
         disabled={isSaving || disabled}
         className={`h-11 sm:h-12 px-6 sm:px-8 rounded-full font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all shadow-xl hover:shadow-2xl cursor-pointer active:scale-95 border whitespace-nowrap ${
           saveSuccess

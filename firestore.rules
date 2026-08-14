@@ -2,10 +2,77 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "omran.javan73@gmail.com" ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Reviews collection
+    match /reviews/{reviewId} {
       allow read, write: if true;
+    }
+
+    // CMS collection
+    match /cms/{docId} {
+      allow read, write: if true;
+    }
+
+    // Settings collection (app, cms, financial, pricing_rules, security)
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if true; // Allows settings save from web client and Cloud Functions
+    }
+
+    // Orders collection
+    match /orders/{orderId} {
+      allow read, create: if true;
+      allow update, delete: if true;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Support Tickets collection
+    match /tickets/{ticketId} {
+      allow read, create, update, delete: if true;
+    }
+
+    // Visitor Stats & Analytics collection
+    match /analytics/{docId} {
+      allow read, write: if true;
+    }
+
+    match /visitor_stats/{docId} {
+      allow read, write: if true;
+    }
+
+    // Audit logs collection
+    match /audit_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // Backups collection
+    match /backups/{backupId} {
+      allow read, write: if true;
+    }
+
+    // Admins collection
+    match /admins/{adminId} {
+      allow read, write: if true;
+    }
+
+    // Default deny catch-all for unknown collections
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
-
-

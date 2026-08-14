@@ -30,8 +30,8 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ cms }) => {
     : DEFAULT_HOME_BANNERS;
 
   // Filter active banners (enabled !== false)
-  const activeBanners = sourceBanners.filter(
-    (b) => b.enabled !== false && Boolean(b.imageUrl || b.linkUrl)
+  const activeBanners = (sourceBanners || []).filter(
+    (b) => b && b.enabled !== false && Boolean(b.imageUrl || b.linkUrl)
   );
 
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -83,7 +83,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ cms }) => {
       id="sports-hero-banner"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
-      className="relative w-full my-2 rounded-2xl overflow-hidden shadow-xs border border-slate-200/60 bg-slate-100 transition-all group"
+      className="relative w-full mt-0 mb-3 rounded-2xl overflow-hidden shadow-xs border border-slate-200/60 bg-slate-100 transition-all group"
     >
       {/* Clickable Image Only */}
       <a

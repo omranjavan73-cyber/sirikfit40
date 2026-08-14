@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, ShoppingBag, CreditCard, Coins, Weight, AlertCircle, CheckCircle2, ChevronRight, ArrowLeft, Trash2, Plus, Minus, ShoppingCart, Plane } from 'lucide-react';
+import { ArrowRight, ShoppingBag, CreditCard, Coins, Weight, AlertCircle, CheckCircle2, ChevronRight, ArrowLeft, Trash2, Plus, Minus, ShoppingCart, Plane, Tag, X } from 'lucide-react';
 import type { FinancialSettings, Order, User, CartItem, CmsConfig } from '../types';
-import { formatToman, formatAed, toPersianDigits, calculateFinalToman } from '../utils/formatters';
+import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
+import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
 
 interface ProductDetailViewProps {
   product: {
@@ -58,6 +59,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Promo Code States
+  const [promoInput, setPromoInput] = useState<string>('');
+  const [appliedDiscount, setAppliedDiscount] = useState<ValidationResult | null>(null);
+  const [isApplyingPromo, setIsApplyingPromo] = useState<boolean>(false);
+  const [promoMessage, setPromoMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
   useEffect(() => {
     if (currentUser) {
       if (currentUser.name && !customerName) setCustomerName(currentUser.name);
@@ -72,6 +79,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const originalPriceAed = product.originalPriceAed;
   const weightKg = product.weightKg || 0.5;
 
+  const activeAedRate = getEffectiveAedRate(settings, cms);
+
   const singleToman = product.calculatedTomanOverride
     ? product.calculatedTomanOverride
     : calculateFinalToman(
@@ -79,7 +88,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         weightKg,
         settings.cargoRatePerKg,
         settings.profitMargin,
-        settings.aedRate
+        activeAedRate
       );
 
   // Aggregate Cart Calculations
@@ -99,7 +108,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const pricingResult = calculateOrderPricing(
     cartTotalAed,
     totalItemCount,
-    settings.aedRate,
+    activeAedRate,
     cms?.pricingRules,
     cartTotalWeightKg,
     settings.cargoRatePerKg
@@ -109,13 +118,17 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     ? product.calculatedTomanOverride * qty
     : pricingResult.finalTotalToman;
 
-  const baseGoodsToman = Math.round(cartTotalAed * settings.aedRate);
-  const cargoShippingToman = Math.round(pricingResult.shippingCostAed * settings.aedRate);
-  const commissionToman = Math.round(pricingResult.commissionAmountAed * settings.aedRate);
+  // Effective Total with Discount Code Applied
+  const discountAmountToman = (appliedDiscount && appliedDiscount.isValid) ? appliedDiscount.discountAmountToman : 0;
+  const effectiveTotalToman = Math.max(0, cartTotalToman - discountAmountToman);
+
+  const baseGoodsToman = Math.round(cartTotalAed * activeAedRate);
+  const cargoShippingToman = Math.round(pricingResult.shippingCostAed * activeAedRate);
+  const commissionToman = Math.round(pricingResult.commissionAmountAed * activeAedRate);
 
   // User Savings from Volume Tier Commission and Combined Shipping Cap
   const baselineAed = cartTotalAed + (cartTotalAed * 0.20) + (totalItemCount * 20);
-  const baselineToman = Math.round(baselineAed * settings.aedRate);
+  const baselineToman = Math.round(baselineAed * activeAedRate);
   const savingsToman = Math.max(0, baselineToman - cartTotalToman);
 
   const getItemUnitToman = (item: CartItem) => {
@@ -124,13 +137,41 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       return Math.round((cartTotalToman * share) / item.quantity);
     }
     if (item.calculatedToman) return item.calculatedToman;
-    return calculateFinalToman(item.priceAed, item.weightKg, settings.cargoRatePerKg, settings.profitMargin, settings.aedRate);
+    return calculateFinalToman(item.priceAed, item.weightKg, settings.cargoRatePerKg, settings.profitMargin, activeAedRate);
   };
 
   const handleProceedToStep2 = () => {
     setErrorMessage('');
     setStep(2);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleApplyPromoCode = async () => {
+    if (!promoInput.trim()) return;
+    setIsApplyingPromo(true);
+    setPromoMessage(null);
+    try {
+      const itemsList = hasCart ? cartItems : undefined;
+      const singleProd = !hasCart ? product : undefined;
+      const res = await validateDiscountCode(promoInput, cartTotalToman, undefined, itemsList, singleProd);
+      if (res.isValid) {
+        setAppliedDiscount(res);
+        setPromoMessage({ text: res.message, type: 'success' });
+      } else {
+        setAppliedDiscount(null);
+        setPromoMessage({ text: res.message, type: 'error' });
+      }
+    } catch (_e) {
+      setPromoMessage({ text: 'خطا در بررسی کد تخفیف.', type: 'error' });
+    } finally {
+      setIsApplyingPromo(false);
+    }
+  };
+
+  const handleRemovePromoCode = () => {
+    setAppliedDiscount(null);
+    setPromoInput('');
+    setPromoMessage(null);
   };
 
   const handleSubmitOrder = async (e?: React.FormEvent) => {
@@ -186,12 +227,18 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
           storeName: orderStoreName || 'فروشگاه دبی',
           priceAed: cartTotalAed,
           weightKg: cartTotalWeightKg,
-          selectedOption: orderSelectedOption || undefined
+          calculatedToman: effectiveTotalToman,
+          selectedOption: orderSelectedOption || undefined,
+          discountCode: appliedDiscount?.discountCodeObj?.code,
+          discountAmountToman: discountAmountToman > 0 ? discountAmountToman : undefined
         })
       });
 
       const data = await res.json();
       if (res.ok && data.order) {
+        if (appliedDiscount?.discountCodeObj?.id) {
+          incrementDiscountUsage(appliedDiscount.discountCodeObj.id);
+        }
         if (hasCart && onClearCart) {
           onClearCart();
         }
@@ -299,6 +346,20 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                         {item.selectedOption && (
                           <div className="text-[10px] font-bold text-slate-700 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-md inline-block">
                             گزینه: <span className="font-extrabold text-amber-900">{item.selectedOption}</span>
+                          </div>
+                        )}
+                        {(item.selectedFlavor || item.selectedSize) && (
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {item.selectedFlavor && (
+                              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
+                                طعم: <span className="font-extrabold">{item.selectedFlavor}</span>
+                              </span>
+                            )}
+                            {item.selectedSize && (
+                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                                سایز: <span className="font-extrabold">{item.selectedSize}</span>
+                              </span>
+                            )}
                           </div>
                         )}
                         <div className="text-[11px] text-slate-500 font-medium dir-ltr">
@@ -413,12 +474,214 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 </div>
                 <span className="text-xs font-bold text-slate-900">تعداد کالا</span>
               </div>
+
+              {/* STRUCTURED TECHNICAL SPECIFICATIONS TABLE (جدول مشخصات فنی) */}
+              <div className="space-y-2 pt-2 border-t border-slate-100 text-right">
+                <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-sky-600" />
+                  <span>جدول مشخصات فنی کالا (Technical Specifications)</span>
+                </h3>
+                <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3 sm:p-4 text-xs">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
+                      <span className="text-[11px] text-slate-400 font-bold block">برند (Brand):</span>
+                      <span className="font-black text-slate-800 block">{product.brand || product.storeName || 'معتبر دبی'}</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
+                      <span className="text-[11px] text-slate-400 font-bold block">دسته‌بندی (Category):</span>
+                      <span className="font-black text-slate-800 block">{product.category || 'مکمل‌های ورزشی'}</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
+                      <span className="text-[11px] text-slate-400 font-bold block">وزن / سروینگ (Weight / Servings):</span>
+                      <span className="font-black text-slate-800 block dir-ltr text-right">{toPersianDigits(product.weightKg || 0.8)} کیلوگرم</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
+                      <span className="text-[11px] text-slate-400 font-bold block">اصالت کالا (Authenticity):</span>
+                      <span className="font-black text-emerald-700 block">۱۰۰٪ اورجینال (100% Authentic)</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5 col-span-2">
+                      <span className="text-[11px] text-slate-400 font-bold block">ترکیبات کلیدی (Key Ingredients):</span>
+                      <span className="font-bold text-slate-700 block dir-ltr text-right">
+                        {product.title.toLowerCase().includes('protein') || product.title.toLowerCase().includes('وی')
+                          ? 'Whey Protein Isolate, BCAA, Glutamine, Essential Amino Acids'
+                          : product.title.toLowerCase().includes('multi') || product.title.toLowerCase().includes('مولتی')
+                          ? 'Vitamin C, B-Complex, Vitamin D3, Zinc, Magnesium'
+                          : product.title.toLowerCase().includes('c4') || product.title.toLowerCase().includes('پمپ')
+                          ? 'Citrulline Malate, Beta-Alanine, Caffeine Anhydrous, Tyrosine'
+                          : 'Active Ingredients, Minerals, Vitamins & Essential Nutrients'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* PERSIAN CAPTION & FUNCTIONAL BENEFITS BOX */}
+              <div className="space-y-2 text-right">
+                <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span>توضیحات و کاربردهای اصلی محصول</span>
+                </h3>
+                <div className="bg-slate-50 p-4 rounded-2xl text-slate-700 text-xs sm:text-sm leading-relaxed border border-slate-200">
+                  {(() => {
+                    const desc = product.description && product.description.trim();
+                    if (desc && desc.length > 20) {
+                      const lines = desc.split(/\r?\n|•|- |\* |;/).map(l => l.trim()).filter(Boolean);
+                      if (lines.length > 1) {
+                        return (
+                          <div className="space-y-2">
+                            {lines.map((line, idx) => (
+                              <div key={idx} className="flex items-start gap-2 text-xs sm:text-sm text-slate-800 font-medium">
+                                <span className="text-emerald-600 font-black shrink-0 mt-0.5">✔</span>
+                                <span className="leading-relaxed">{line}</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+                      return <p className="font-medium text-slate-700 text-xs sm:text-sm leading-relaxed whitespace-pre-line">{desc}</p>;
+                    }
+
+                    const t = product.title.toLowerCase();
+                    let functionalBenefits = [
+                      'تضمین ۱۰۰٪ اصالت کالا، پلمپ کارخانه‌ای و ارسال سریع از دبی',
+                      'کیفیت گرید A جهانی با استاندارد کنترل کیفیت بین‌المللی',
+                      'حفظ حداکثر اثربخشی با شرایط نگهداری و بسته‌بندی استاندارد'
+                    ];
+
+                    if (t.includes('protein') || t.includes('وی') || t.includes('whey') || t.includes('iso')) {
+                      functionalBenefits = [
+                        'افزایش حجم عضلانی خشک و ترمیم سریع بافت‌های عضلانی پس از تمرینات سنگین',
+                        'هضم و جذب فوق‌العاده سریع با ارزش بیولوژیکی بالا (Whey Isolate/Concentrate)',
+                        'تامین اسیدهای آمینه ضروری (BCAA & Glutamine) برای جلوگیری از فرآیند کاتابولیسم'
+                      ];
+                    } else if (t.includes('creatine') || t.includes('کراتین')) {
+                      functionalBenefits = [
+                        'افزایش قدرت، توان انفجاری و ذخایر ATP در سلول‌های عضلانی',
+                        'بهبود عملکرد و استقامت بدنی در تمرینات پرفشار و سنگین ورزشی',
+                        'تسریع روند ریکاوری و افزایش حجم سلولی مفید عضلات'
+                      ];
+                    } else if (t.includes('multi') || t.includes('مولتی') || t.includes('vitamin') || t.includes('ویتامین')) {
+                      functionalBenefits = [
+                        'تامین ۱۰۰٪ نیاز روزانه بدن به ویتامین‌ها و ملاح معدنی کلیدی',
+                        'تقویت سیستم ایمنی بدن، افزایش سطح انرژی و رفع خستگی مفرط',
+                        'حاوی آنتی‌اکسیدان‌های قوی برای حفظ سلامت قلب، پوست و مو'
+                      ];
+                    } else if (t.includes('c4') || t.includes('پمپ') || t.includes('pre-workout') || t.includes('preworkout')) {
+                      functionalBenefits = [
+                        'افزایش شدید تمرکز فکری و دم عضلانی (Muscle Pump) در حین تمرین',
+                        'تاخیر در بروز خستگی و افزایش استقامت تمرینی با بتا-آلانین و سیترولین',
+                        'بهبود خون‌رسانی و اکسیژن‌رسانی بهتر به بافت‌های عضلانی'
+                      ];
+                    } else if (t.includes('gainer') || t.includes('گینر') || t.includes('mass')) {
+                      functionalBenefits = [
+                        'تامین کالری بالا و کربوهیدرات‌های پیچیده برای افزایش وزن سریع و پایدار',
+                        'کمک به ساخت عضلات باکیفیت در افراد سخت‌وزن‌گیر (Hardgainers)',
+                        'بازسازی سریع ذخایر گلیکوژن عضلانی پس از تمرین'
+                      ];
+                    } else if (t.includes('collagen') || t.includes('biotin') || t.includes('کلاژن') || t.includes('بیوتین') || t.includes('hair') || t.includes('skin')) {
+                      functionalBenefits = [
+                        'تقویت پوست، مو، ناخن و جوانسازی عمیق بافت‌های پوستی',
+                        'کاهش ریزش مو و تحریک رُشد مجدد فولیکول‌های مو',
+                        'حفظ کشسانی و رطوبت طبیعی پوست با ترکیب هیالورونیک اسید و ویتامین C'
+                      ];
+                    } else if (t.includes('probiotic') || t.includes('digestive') || t.includes('پروبیوتیک') || t.includes('گوارش') || t.includes('gut')) {
+                      functionalBenefits = [
+                        'بهبود عملکرد دستگاه گوارش و حفظ تعادل فلور میکروبی روده',
+                        'تقویت جذب مواد مغذی، مکمل‌ها و ویتامین‌ها در دستگاه هضم',
+                        'کاهش نفخ، بهبود هضم غذا و تقویت سلامت عمومی سیستم ایمنی'
+                      ];
+                    } else if (t.includes('omega') || t.includes('امگا')) {
+                      functionalBenefits = [
+                        'تقویت سلامت قلب و عروق، مفاصل و بهبود عملکرد سلول‌های مغزی',
+                        'عاری از جیوه و فلزات سنگین با درجه خلوص بالا (Pharmaceutical Grade)',
+                        'تنظیم سطح کلسترول و کاهش التهاب‌های مفصلی'
+                      ];
+                    }
+
+                    return (
+                      <div className="space-y-2">
+                        {functionalBenefits.map((benefit, idx) => (
+                          <div key={idx} className="flex items-start gap-2 text-xs sm:text-sm text-slate-800 font-medium">
+                            <span className="text-emerald-600 font-black shrink-0 mt-0.5">✔</span>
+                            <span className="leading-relaxed">{benefit}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
             </div>
           )}
 
+          {/* PROMO CODE INPUT BOX */}
+          <div className="bg-white border border-slate-200/90 rounded-[20px] p-4 shadow-2xs space-y-3 font-['Vazirmatn',sans-serif]">
+            <div className="flex items-center gap-2">
+              <Tag className="w-4 h-4 text-emerald-600" />
+              <h3 className="font-extrabold text-xs text-slate-900">ورود کد تخفیف</h3>
+            </div>
+
+            {appliedDiscount && appliedDiscount.isValid ? (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-black text-emerald-800 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>کد تخفیف <span className="uppercase tracking-wider font-extrabold">{appliedDiscount.discountCodeObj?.code}</span> اعمال شد</span>
+                  </div>
+                  <span className="text-[11px] text-emerald-700 font-bold block mt-0.5">
+                    تخفیف کسرشده: {formatToman(appliedDiscount.discountAmountToman)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemovePromoCode}
+                  className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                  title="حذف کد تخفیف"
+                >
+                  <X className="w-4 h-4" />
+                  <span>حذف</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={promoInput}
+                    onChange={(e) => setPromoInput(e.target.value.toUpperCase().replace(/\s/g, ''))}
+                    placeholder="کد تخفیف را وارد کنید (مثال: OFF10)"
+                    className="flex-1 p-2.5 border border-slate-300 focus:border-slate-900 rounded-xl text-xs font-black text-slate-900 focus:outline-none bg-[#F8FAFC] uppercase text-left dir-ltr"
+                    dir="ltr"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyPromoCode}
+                    disabled={isApplyingPromo || !promoInput.trim()}
+                    className="bg-slate-900 hover:bg-black disabled:bg-slate-300 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition cursor-pointer shrink-0 border-none"
+                  >
+                    {isApplyingPromo ? 'در حال بررسی...' : 'اعمال کد'}
+                  </button>
+                </div>
+
+                {promoMessage && (
+                  <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+                    promoMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  }`}>
+                    {promoMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                    <span>{promoMessage.text}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* CART TOTAL SUMMARY BOX - DETAILED FINANCIAL BREAKDOWN */}
           <div className="bg-white border border-slate-200/90 rounded-[24px] p-4.5 shadow-2xs space-y-3 font-['Vazirmatn',sans-serif]">
-            {cms?.showPriceBreakdown !== false && (
+            {(cms?.features?.showBreakdown ?? cms?.showPriceBreakdown ?? cms?.showBreakdown ?? true) && (
               <>
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
                   <h3 className="font-extrabold text-xs md:text-sm text-slate-900">
@@ -469,16 +732,36 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                     💡 با افزایش مبلغ سفارش به بالای ۵۰۰ درهم یا اضافه کردن کالاهای بیشتر، کارمزد سفارش از ۲۰٪ به ۱۸٪ و ۱۶٪ کاهش می‌یابد.
                   </div>
                 )}
+
+                {/* 4.5. 🎟️ کد تخفیف اعمال‌شده */}
+                {discountAmountToman > 0 && (
+                  <div className="flex justify-between items-center text-xs bg-emerald-100/80 border border-emerald-300 p-2.5 rounded-xl text-emerald-900">
+                    <span className="font-black flex items-center gap-1">
+                      <Tag className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>کد تخفیف ({appliedDiscount?.discountCodeObj?.code}):</span>
+                    </span>
+                    <span className="font-black text-emerald-800 dir-ltr">
+                      -{formatToman(discountAmountToman)}
+                    </span>
+                  </div>
+                )}
               </>
             )}
 
             {/* 5. مبلغ کل قابل پرداخت (تومان) */}
-            <div className={`pt-2 flex items-center justify-between ${cms?.showPriceBreakdown !== false ? 'border-t border-slate-100' : ''}`}>
+            <div className={`pt-2 flex items-center justify-between ${(cms?.features?.showBreakdown ?? cms?.showPriceBreakdown ?? cms?.showBreakdown ?? true) ? 'border-t border-slate-100' : ''}`}>
               <div>
                 <span className="text-xs font-black text-slate-900 block">مبلغ کل قابل پرداخت تحویل در ایران:</span>
                 <span className="text-[10px] text-slate-400 font-medium block">شامل کالا + کارمزد {toPersianDigits(pricingResult.commissionPercent)}٪ + ارسال هوایی</span>
               </div>
-              <span className="font-black text-lg sm:text-xl text-[#E11D48] tracking-tight">{formatToman(cartTotalToman)}</span>
+              <div className="text-left">
+                {discountAmountToman > 0 && (
+                  <span className="text-xs text-slate-400 line-through block font-bold dir-ltr">
+                    {formatToman(cartTotalToman)}
+                  </span>
+                )}
+                <span className="font-black text-lg sm:text-xl text-[#E11D48] tracking-tight">{formatToman(effectiveTotalToman)}</span>
+              </div>
             </div>
           </div>
 

@@ -3,6 +3,8 @@ import { MessageSquare, ThumbsUp, Send, CheckCircle2, User, X, Sparkles, Filter,
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, getDocs, addDoc, doc, updateDoc, query, orderBy, limit } from 'firebase/firestore';
 
+import type { CmsConfig } from '../types';
+
 export interface ReviewItem {
   id: string;
   authorName: string;
@@ -65,9 +67,12 @@ const DEFAULT_REVIEWS: ReviewItem[] = [
 
 interface ReviewsSectionProps {
   showReviewsSection?: boolean;
+  cms?: CmsConfig | null;
 }
 
-export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ showReviewsSection = true }) => {
+export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ showReviewsSection = true, cms }) => {
+  const isEnabled = (cms?.features?.showReviews ?? cms?.features?.showComments ?? cms?.showReviewsSection ?? cms?.showReviews ?? cms?.showComments ?? showReviewsSection) !== false;
+
   const [reviews, setReviews] = useState<ReviewItem[]>(DEFAULT_REVIEWS);
   const [authorName, setAuthorName] = useState('');
   const [content, setContent] = useState('');
@@ -124,7 +129,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ showReviewsSecti
   }, []);
 
   // If globally disabled from Admin Panel General Settings, return null completely
-  if (!showReviewsSection) {
+  if (!isEnabled) {
     return null;
   }
 
@@ -195,7 +200,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ showReviewsSecti
     }
   };
 
-  const approvedReviews = reviews.filter((r) => r.isApproved === true);
+  const approvedReviews = (reviews || []).filter((r) => r && r.isApproved === true);
   const recentReviews = approvedReviews.slice(0, 3);
 
   const filteredReviews = approvedReviews.filter((r) => {

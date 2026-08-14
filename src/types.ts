@@ -7,7 +7,7 @@ export interface User {
 }
 
 export interface FinancialSettings {
-  aedRate: number; // e.g., 19500 Tomans per AED (Active Rate)
+  aedRate: number | null; // Tomans per AED (Active Exchange Rate)
   manualAedRate?: number; // Manual override rate
   autoUpdateRates?: boolean; // Enable automatic API fetch switch
   currencyApiUrl?: string; // Rate API endpoint
@@ -46,6 +46,7 @@ export interface FeaturedDeal {
   badge?: string;
   section?: 'featured' | 'bestseller' | 'discount';
   isFeaturedInCalculator?: boolean;
+  isPopularSample?: boolean;
   isActive: boolean;
 }
 
@@ -60,6 +61,12 @@ export interface LocalInventoryItem {
   description?: string;
   deliveryBadge?: string;
   inStock: boolean;
+  isPopularSample?: boolean;
+  priceAed?: number;
+  weightKg?: number;
+  marginPercent?: number;
+  flavors?: string[];
+  sizes?: string[];
 }
 
 export interface HomePageSettings {
@@ -103,6 +110,11 @@ export interface HomePageSettings {
   trustBadge1: string;
   trustBadge2: string;
   trustBadge3: string;
+  showTrustBadges?: boolean;
+  enamadHtml?: string;
+  samandehiHtml?: string;
+  customBadgeImg?: string;
+  customBadgeLink?: string;
   headerPillSlogan?: string;
   heroMainHeadline?: string;
   heroHighlightWord?: string;
@@ -172,6 +184,8 @@ export interface WarehouseCategory {
   label: string;
   iconUrl?: string;
   filterKey: string;
+  englishLabel?: string;
+  isPinned?: boolean;
 }
 
 export interface HomeBanner {
@@ -187,14 +201,38 @@ export interface DomainItem {
   enabled: boolean;
 }
 
+export interface FeatureToggles {
+  showReviews: boolean;
+  showComments?: boolean;
+  showStores: boolean;
+  showBreakdown: boolean;
+  showLocalInventory: boolean;
+  showAnnouncementBanner: boolean;
+  showSupportSection: boolean;
+  showTopPromo: boolean;
+  showTrustBadges?: boolean;
+}
+
 export interface CmsConfig {
+  features?: FeatureToggles;
   heroTitle: string;
   heroSubtitle: string;
   heroNotice: string;
   heroImage: string;
   showAnnouncementBanner?: boolean;
   showPriceBreakdown?: boolean;
+  showBreakdown?: boolean;
   showReviewsSection?: boolean;
+  showReviews?: boolean;
+  showComments?: boolean;
+  showStores?: boolean;
+  showSupportSection?: boolean;
+  showTopPromo?: boolean;
+  showTrustBadges?: boolean;
+  enamadHtml?: string;
+  samandehiHtml?: string;
+  customBadgeImg?: string;
+  customBadgeLink?: string;
   announcementText?: string;
   announcementBadge?: string;
   announcementSlogans?: string[];
@@ -234,6 +272,7 @@ export interface CmsConfig {
     enableDomainRestriction?: boolean;
     scraperApiKey?: string;
     enableScraperApi?: boolean;
+    puppeteerScraperUrl?: string;
   };
 }
 
@@ -248,6 +287,21 @@ export type ShippingStatus =
   | 'PROCESSING' 
   | 'SHIPPED' 
   | 'DELIVERED';
+
+export interface DiscountCode {
+  id: string;
+  code: string;                 // e.g. "OFF10", "OMRAN2026" (uppercase, trimmed)
+  type: 'percent' | 'fixed';     // Percentage or Fixed Toman amount
+  value: number;                // e.g. 15 for 15% OR 200000 for 200k Toman
+  minOrderToman?: number;       // Optional minimum order criteria
+  maxDiscountToman?: number;    // Optional ceiling for percentage discounts
+  usageLimit?: number;          // Max total uses allowed (e.g. 100)
+  usedCount: number;            // Current number of redemptions
+  expiryDate?: string;          // ISO string date or YYYY-MM-DD
+  isActive: boolean;            // Active status toggle
+  applicableSection?: 'ALL' | 'IRAN_WAREHOUSE' | 'OFFERS'; // Section Scope: ALL, IRAN_WAREHOUSE, or OFFERS
+  createdAt: number;
+}
 
 export interface Order {
   id: string;
@@ -272,6 +326,8 @@ export interface Order {
   createdAt: string;
   paymentRefId?: string;
   selectedOption?: string;
+  discountCode?: string;
+  discountAmountToman?: number;
 }
 
 export interface ParsedProduct {
@@ -289,10 +345,22 @@ export interface ParsedProduct {
   description?: string;
   aiExtracted?: boolean;
   fallback?: boolean;
+  variants?: ProductVariant[];
+}
+
+export interface ProductVariant {
+  id: string;
+  flavor?: string; // e.g., "Green Apple", "Blue Raspberry", "Chocolate"
+  size?: string;   // e.g., "50 Servings", "1 kg", "2.3 kg"
+  priceAed?: number;
+  priceToman?: number;
+  inStock?: boolean;
 }
 
 export interface CartItem {
   id: string;
+  cartItemId?: string;
+  product?: any;
   title: string;
   url: string;
   priceAed: number;
@@ -305,8 +373,16 @@ export interface CartItem {
   category?: string;
   brand?: string;
   selectedOption?: string;
+  selectedFlavor?: string;
+  selectedSize?: string;
+  selectedVariant?: ProductVariant;
   options?: string[];
+  flavors?: string[];
+  sizes?: string[];
+  variants?: ProductVariant[];
   description?: string;
+  isLocalInventory?: boolean;
+  isDeal?: boolean;
 }
 
 export type TabType = 'main' | 'inventory' | 'deals' | 'account' | 'admin' | 'detail' | 'cart';

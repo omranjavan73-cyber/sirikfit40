@@ -1,71 +1,141 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 import {
   getFirestore,
   initializeFirestore,
-  memoryLocalCache,
+  setLogLevel,
   doc,
-  setDoc,
   getDoc,
-  collection,
+  setDoc,
+  deleteDoc,
   getDocs,
+  collection,
   query,
-  where
+  where,
+  orderBy,
+  limit
 } from 'firebase/firestore';
-import firebaseConfigJson from '../firebase-applet-config.json';
-
-const metaEnv = (import.meta as any).env || {};
-const apiKey = firebaseConfigJson?.apiKey || metaEnv.VITE_FIREBASE_API_KEY || 'AIzaSyDDT03m1Qxzzdk9drEMF-R9L1Y_VzhkyCY';
-const authDomain = firebaseConfigJson?.authDomain || metaEnv.VITE_FIREBASE_AUTH_DOMAIN || 'ai-studio-omexdubaiimportp-d094498d-8b4a-4b4b-8b36-0d6a233161cd.firebaseapp.com';
-const projectId = firebaseConfigJson?.projectId || metaEnv.VITE_FIREBASE_PROJECT_ID || 'ai-studio-omexdubaiimportp-d094498d-8b4a-4b4b-8b36-0d6a233161cd';
-const storageBucket = firebaseConfigJson?.storageBucket || metaEnv.VITE_FIREBASE_STORAGE_BUCKET || 'ai-studio-omexdubaiimportp-d094498d-8b4a-4b4b-8b36-0d6a233161cd.firebasestorage.app';
-const messagingSenderId = firebaseConfigJson?.messagingSenderId || metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '647943404812';
-const appId = firebaseConfigJson?.appId || metaEnv.VITE_FIREBASE_APP_ID || '1:647943404812:web:2aac3fab6cdfab690f1d29';
-const firestoreDatabaseId = firebaseConfigJson?.firestoreDatabaseId;
+import { safeFetchJson } from './utils/apiHelper';
 
 const firebaseConfig = {
-  apiKey,
-  authDomain,
-  projectId,
-  storageBucket,
-  messagingSenderId,
-  appId,
+  apiKey: "AIzaSyD38wxpvo9EcqM5LzCQGTGVfdY8PXizlRo",
+  authDomain: "sirikfit-dev.firebaseapp.com",
+  projectId: "sirikfit-dev",
+  storageBucket: "sirikfit-dev.firebasestorage.app",
+  messagingSenderId: "829488991969",
+  appId: "1:829488991969:web:104cf399019302736a31a0",
+  measurementId: "G-8DXSQEM1XM"
 };
 
-export const isFirebaseConfigured = Boolean(apiKey && projectId && apiKey !== '');
-
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-
-export const auth = getAuth(app);
-
-// Automatically sign in anonymously if not authenticated to grant Firestore read/write permissions
+// Suppress internal gRPC stream disconnect debug/info messages
 try {
-  if (auth) {
-    onAuthStateChanged(auth, (user) => {
-      if (!user) {
-        signInAnonymously(auth).catch((err) => {
-          console.warn('Anonymous Auth sign-in bypassed:', err?.message || err);
-        });
-      }
-    });
-  }
+  setLogLevel('silent');
 } catch (_e) {}
 
-export const db = (() => {
+export const isFirestoreGrpcNoise = (arg: any): boolean => {
+  if (!arg) return false;
+  let str = '';
   try {
-    return (firestoreDatabaseId && firestoreDatabaseId !== '(default)')
-      ? initializeFirestore(app, { localCache: memoryLocalCache() }, firestoreDatabaseId)
-      : initializeFirestore(app, { localCache: memoryLocalCache() });
-  } catch (e) {
-    try {
-      return (firestoreDatabaseId && firestoreDatabaseId !== '(default)')
-        ? getFirestore(app, firestoreDatabaseId)
-        : getFirestore(app);
-    } catch (_err) {
-      return getFirestore(app);
+    if (typeof arg === 'string') {
+      str = arg;
+    } else if (arg instanceof Error) {
+      str = `${arg.message || ''} ${arg.stack || ''} ${String((arg as any).code || '')}`;
+    } else if (typeof arg === 'object') {
+      str = `${JSON.stringify(arg)} ${String(arg.message || '')} ${String(arg.reason || '')} ${String(arg.code || '')}`;
+    } else {
+      str = String(arg);
     }
+  } catch (_e) {
+    str = String(arg);
   }
-})();
+
+  return (
+    str.includes('Disconnecting idle stream') ||
+    str.includes('Timed out waiting for new targets') ||
+    str.includes('GrpcConnection') ||
+    str.includes('RPC \'Listen\' stream') ||
+    str.includes('Listen\' stream') ||
+    str.includes('Listen stream') ||
+    (str.includes('CANCELLED') && str.includes('stream')) ||
+    (str.includes('CANCELLED') && str.includes('Listen')) ||
+    (str.includes('Code: 1') && str.includes('CANCELLED'))
+  );
+};
+
+if (typeof window !== 'undefined') {
+  const checkArgsNoise = (args: any[]): boolean => {
+    if (args.some(isFirestoreGrpcNoise)) return true;
+    try {
+      const combined = args.map(a => {
+        if (typeof a === 'string') return a;
+        if (a instanceof Error) return `${a.message || ''} ${a.stack || ''}`;
+        try { return JSON.stringify(a); } catch (_e) { return String(a); }
+      }).join(' ');
+      if (isFirestoreGrpcNoise(combined)) return true;
+    } catch (_e) {}
+    return false;
+  };
+
+  const origError = console.error;
+  console.error = (...args: any[]) => {
+    if (checkArgsNoise(args)) return;
+    origError.apply(console, args);
+  };
+
+  const origWarn = console.warn;
+  console.warn = (...args: any[]) => {
+    if (checkArgsNoise(args)) return;
+    origWarn.apply(console, args);
+  };
+
+  const origLog = console.log;
+  console.log = (...args: any[]) => {
+    if (checkArgsNoise(args)) return;
+    origLog.apply(console, args);
+  };
+
+  const origInfo = console.info;
+  console.info = (...args: any[]) => {
+    if (checkArgsNoise(args)) return;
+    origInfo.apply(console, args);
+  };
+
+  const origDebug = console.debug;
+  console.debug = (...args: any[]) => {
+    if (checkArgsNoise(args)) return;
+    origDebug.apply(console, args);
+  };
+
+  window.addEventListener('unhandledrejection', (event) => {
+    if (isFirestoreGrpcNoise(event.reason)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+
+  window.addEventListener('error', (event) => {
+    if (isFirestoreGrpcNoise(event.error) || isFirestoreGrpcNoise(event.message)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+}
+
+// Initialize Firebase App & Firestore with long polling for proxy & Cloud Run resilience
+export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+  });
+} catch (_e) {
+  firestoreDb = getFirestore(app);
+}
+
+export const db = firestoreDb;
+export const auth = getAuth(app);
+export const isFirebaseConfigured = true;
 
 export enum OperationType {
   CREATE = 'create',
@@ -97,12 +167,12 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth?.currentUser?.uid || null,
-      email: auth?.currentUser?.email || null,
-      emailVerified: auth?.currentUser?.emailVerified || null,
-      isAnonymous: auth?.currentUser?.isAnonymous || null,
-      tenantId: auth?.currentUser?.tenantId || null,
-      providerInfo: auth?.currentUser?.providerData?.map(provider => ({
+      userId: auth.currentUser?.uid || null,
+      email: auth.currentUser?.email || null,
+      emailVerified: auth.currentUser?.emailVerified || null,
+      isAnonymous: auth.currentUser?.isAnonymous || null,
+      tenantId: auth.currentUser?.tenantId || null,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
         providerId: provider.providerId,
         email: provider.email,
       })) || []
@@ -110,16 +180,13 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
-  const errMsg = errInfo.error;
-  if (errMsg.includes('PERMISSION_DENIED') || errMsg.includes('permission-denied')) {
-    console.warn('Firestore Notice (Local Storage Active):', path, errMsg);
-  } else {
-    console.warn('Firestore Notice:', path, errMsg);
-  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
   return errInfo;
 }
 
-// Helper: Save/Update User Profile in Firestore "users" collection
+// ----------------------------------------------------
+// USER PROFILE PERSISTENCE
+// ----------------------------------------------------
 export async function saveUserProfileToFirestore(userData: {
   id: string;
   name: string;
@@ -127,134 +194,202 @@ export async function saveUserProfileToFirestore(userData: {
   email?: string;
   createdAt?: string;
 }) {
-  if (!db) return;
-  const path = `users/${userData.id}`;
   try {
     const userRef = doc(db, 'users', userData.id);
-    await setDoc(
-      userRef,
-      {
-        uid: userData.id,
-        name: userData.name,
-        phoneNumber: userData.phoneNumber,
-        email: userData.email || '',
-        createdAt: userData.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
+    await setDoc(userRef, { ...userData, updatedAt: new Date().toISOString() }, { merge: true });
+    
+    if (typeof window !== 'undefined') {
+      const key = `sirikfit_user_${userData.id}`;
+      localStorage.setItem(key, JSON.stringify(userData));
+      localStorage.setItem('omex_current_user', JSON.stringify(userData));
+    }
   } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+    handleFirestoreError(err, OperationType.WRITE, `users/${userData.id}`);
   }
 }
 
-// Helper: Save Order in Firestore "orders" collection
+// ----------------------------------------------------
+// ORDERS PERSISTENCE
+// ----------------------------------------------------
 export async function saveOrderToFirestore(orderData: any) {
-  if (!db) return;
   const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
-  const path = `orders/${orderId}`;
+  const payload = { ...orderData, id: orderId, orderId, updatedAt: new Date().toISOString() };
+  
   try {
+    // 1. Direct write to Firestore
     const orderRef = doc(db, 'orders', orderId);
-    const dataToSave = {
-      ...orderData,
-      orderId,
-      createdAt: orderData.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    await setDoc(orderRef, dataToSave, { merge: true });
-    return orderId;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-  }
-}
+    await setDoc(orderRef, payload, { merge: true });
 
-// Helper: Fetch User Orders from Firestore
-export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: string) {
-  if (!db) return [];
-  const path = 'orders';
-  try {
-    const ordersRef = collection(db, 'orders');
-    let q = query(ordersRef, where('userId', '==', userId));
-    let snapshot = await getDocs(q);
-
-    if (snapshot.empty && userPhone) {
-      q = query(ordersRef, where('userPhone', '==', userPhone));
-      snapshot = await getDocs(q);
+    // 2. LocalStorage sync
+    if (typeof window !== 'undefined') {
+      const existingStr = localStorage.getItem('sirikfit_orders') || '[]';
+      const existing: any[] = JSON.parse(existingStr);
+      const idx = existing.findIndex((o) => o.id === orderId || o.orderId === orderId);
+      if (idx > -1) {
+        existing[idx] = payload;
+      } else {
+        existing.unshift(payload);
+      }
+      localStorage.setItem('sirikfit_orders', JSON.stringify(existing));
     }
 
-    const orders: any[] = [];
-    snapshot.forEach((docSnap) => {
-      orders.push({ id: docSnap.id, ...docSnap.data() });
-    });
-    return orders;
+    // 3. REST API background POST using safeFetchJson
+    safeFetchJson('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
   } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, path);
-    return [];
+    handleFirestoreError(err, OperationType.WRITE, `orders/${orderId}`);
   }
+  return orderId;
 }
 
-// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
-export async function saveSettingsToFirestore(settingsData: any): Promise<boolean> {
-  // Always update local storage as instant secondary cache
+export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: string) {
   try {
+    // Query Firestore
+    const ordersRef = collection(db, 'orders');
+    const snap = await getDocs(ordersRef);
+    if (!snap.empty) {
+      const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const userOrders = orders.filter((o: any) => o.userId === userId || (userPhone && (o.userPhone === userPhone || o.phoneNumber === userPhone)));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sirikfit_orders', JSON.stringify(orders));
+      }
+      return userOrders;
+    }
+  } catch (err) {
+    console.warn('Firestore orders fetch warning:', err);
+  }
+
+  // Fallback to LocalStorage
+  try {
+    if (typeof window !== 'undefined') {
+      const existingStr = localStorage.getItem('sirikfit_orders') || '[]';
+      const existing: any[] = JSON.parse(existingStr);
+      return existing.filter((o) => o.userId === userId || (userPhone && (o.userPhone === userPhone || o.phoneNumber === userPhone)));
+    }
+  } catch (_e) {}
+  return [];
+}
+
+export async function fetchAllOrdersFromFirestore(): Promise<any[]> {
+  try {
+    const ordersRef = collection(db, 'orders');
+    const snap = await getDocs(ordersRef);
+    if (!snap.empty) {
+      const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sirikfit_orders', JSON.stringify(orders));
+      }
+      return orders;
+    }
+  } catch (err) {
+    console.warn('Firestore all orders fetch warning:', err);
+  }
+
+  // Fallback to REST API / LocalStorage
+  const res = await safeFetchJson('/api/orders');
+  if (res.ok && Array.isArray(res.data)) {
+    return res.data;
+  }
+
+  try {
+    if (typeof window !== 'undefined') {
+      const existingStr = localStorage.getItem('sirikfit_orders') || '[]';
+      return JSON.parse(existingStr);
+    }
+  } catch (_e) {}
+  return [];
+}
+
+export async function deleteOrderFromFirestore(orderId: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, 'orders', orderId));
+  } catch (err) {
+    console.warn('Firestore order delete warning:', err);
+  }
+
+  try {
+    if (typeof window !== 'undefined') {
+      const existingStr = localStorage.getItem('sirikfit_orders') || '[]';
+      const existing: any[] = JSON.parse(existingStr);
+      const filtered = existing.filter((o) => o.id !== orderId && o.orderId !== orderId);
+      localStorage.setItem('sirikfit_orders', JSON.stringify(filtered));
+    }
+  } catch (_e) {}
+
+  await safeFetchJson(`/api/orders/${orderId}`, { method: 'DELETE' });
+  return true;
+}
+
+// ----------------------------------------------------
+// FINANCIAL & GENERAL SETTINGS PERSISTENCE
+// ----------------------------------------------------
+export async function saveSettingsToFirestore(settingsData: any): Promise<boolean> {
+  try {
+    // 1. Write to Firestore 'settings/app' and 'settings/financial'
+    await setDoc(doc(db, 'settings', 'app'), settingsData, { merge: true });
+    await setDoc(doc(db, 'settings', 'financial'), settingsData, { merge: true });
+
+    // 2. LocalStorage sync
     if (typeof window !== 'undefined') {
       const existing = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
       const parsed = existing ? JSON.parse(existing) : {};
       const updated = { ...parsed, ...settingsData };
       localStorage.setItem('sirikfit_financial_settings', JSON.stringify(updated));
       localStorage.setItem('omex_financial_settings', JSON.stringify(updated));
-    }
-  } catch (_lsErr) {}
 
-  if (!db) return true;
-  const path = 'settings/app';
-  try {
-    const settingsRef = doc(db, 'settings', 'app');
-    const globalRef = doc(db, 'settings', 'global');
-    const payload = {
-      ...settingsData,
-      updatedAt: new Date().toISOString(),
-    };
-    await setDoc(settingsRef, payload, { merge: true });
-    await setDoc(globalRef, payload, { merge: true });
+      if (settingsData?.aedRate) {
+        localStorage.setItem('sirikfit_aed_rate', String(settingsData.aedRate));
+      }
+    }
+
+    // 3. REST API POST via safeFetchJson
+    await safeFetchJson('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settingsData)
+    });
+
     return true;
   } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-    return true; // Local storage saved successfully
+    handleFirestoreError(err, OperationType.WRITE, 'settings/app');
+    return true;
   }
 }
 
-// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
-export async function fetchSettingsFromFirestore() {
-  let firestoreData: any = null;
-  if (db) {
-    try {
-      const globalRef = doc(db, 'settings', 'global');
-      const globalSnap = await getDoc(globalRef);
-      if (globalSnap.exists()) {
-        firestoreData = globalSnap.data();
+export async function fetchSettingsFromFirestore(): Promise<any> {
+  // 1. Direct Firestore read
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'app'));
+    if (snap.exists()) {
+      const data = snap.data();
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sirikfit_financial_settings', JSON.stringify(data));
+        if (data.aedRate) {
+          localStorage.setItem('sirikfit_aed_rate', String(data.aedRate));
+        }
       }
-
-      const settingsRef = doc(db, 'settings', 'app');
-      const docSnap = await getDoc(settingsRef);
-      if (docSnap.exists()) {
-        firestoreData = { ...firestoreData, ...docSnap.data() };
-      }
-    } catch (err) {
-      handleFirestoreError(err, OperationType.GET, 'settings/app');
+      return data;
     }
+  } catch (err) {
+    console.warn('Firestore settings read notice:', err);
   }
 
-  // If Firestore returned data, update local storage cache and return Firestore as absolute source of truth
-  if (firestoreData && typeof window !== 'undefined') {
-    try {
-      localStorage.setItem('sirikfit_financial_settings', JSON.stringify(firestoreData));
-      localStorage.setItem('omex_financial_settings', JSON.stringify(firestoreData));
-    } catch (_e) {}
-    return firestoreData;
+  // 2. REST API fallback via safeFetchJson
+  const res = await safeFetchJson('/api/settings');
+  if (res.ok && res.data && typeof res.data === 'object') {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sirikfit_financial_settings', JSON.stringify(res.data));
+      if (res.data.aedRate) {
+        localStorage.setItem('sirikfit_aed_rate', String(res.data.aedRate));
+      }
+    }
+    return res.data;
   }
 
-  // Local storage fallback if offline / unconfigured
+  // 3. LocalStorage fallback
   try {
     if (typeof window !== 'undefined') {
       const local = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
@@ -264,69 +399,66 @@ export async function fetchSettingsFromFirestore() {
     }
   } catch (_lsErr) {}
 
-  return firestoreData;
+  return null;
 }
 
 export const getSettingsFromFirestore = fetchSettingsFromFirestore;
 
-// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
+// ----------------------------------------------------
+// CMS CONFIG PERSISTENCE
+// ----------------------------------------------------
 export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
   try {
+    // 1. Save to Firestore
+    await setDoc(doc(db, 'settings', 'cms'), cmsData, { merge: true });
+
+    // 2. LocalStorage sync
     if (typeof window !== 'undefined') {
       const existing = localStorage.getItem('sirikfit_cms_config');
       const parsed = existing ? JSON.parse(existing) : {};
       const updated = { ...parsed, ...cmsData };
       localStorage.setItem('sirikfit_cms_config', JSON.stringify(updated));
     }
-  } catch (_lsErr) {}
 
-  if (!db) return true;
-  const path = 'cms/app';
-  try {
-    const cmsRef = doc(db, 'cms', 'app');
-    const globalRef = doc(db, 'settings', 'global');
-    const payload = {
-      ...cmsData,
-      updatedAt: new Date().toISOString(),
-    };
-    await setDoc(cmsRef, payload, { merge: true });
-    await setDoc(globalRef, payload, { merge: true });
+    // 3. REST POST
+    await safeFetchJson('/api/cms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cmsData)
+    });
+
     return true;
   } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+    handleFirestoreError(err, OperationType.WRITE, 'settings/cms');
     return true;
   }
 }
 
-// 🟢 Exported helper function for direct Firestore persistence with local storage fallback
-export async function getCmsFromFirestore() {
-  let firestoreData: any = null;
-  if (db) {
-    try {
-      const globalRef = doc(db, 'settings', 'global');
-      const globalSnap = await getDoc(globalRef);
-      if (globalSnap.exists()) {
-        firestoreData = globalSnap.data();
+export async function getCmsFromFirestore(): Promise<any> {
+  // 1. Read from Firestore
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'cms'));
+    if (snap.exists()) {
+      const data = snap.data();
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sirikfit_cms_config', JSON.stringify(data));
       }
-
-      const cmsRef = doc(db, 'cms', 'app');
-      const docSnap = await getDoc(cmsRef);
-      if (docSnap.exists()) {
-        firestoreData = { ...firestoreData, ...docSnap.data() };
-      }
-    } catch (err) {
-      handleFirestoreError(err, OperationType.GET, 'cms/app');
+      return data;
     }
+  } catch (err) {
+    console.warn('Firestore CMS read notice:', err);
   }
 
-  // If Firestore returned data, update local storage cache and return Firestore as absolute source of truth
-  if (firestoreData && typeof window !== 'undefined') {
-    try {
-      localStorage.setItem('sirikfit_cms_config', JSON.stringify(firestoreData));
-    } catch (_e) {}
-    return firestoreData;
+  // 2. REST API fallback
+  const res = await safeFetchJson('/api/cms');
+  if (res.ok && res.data) {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sirikfit_cms_config', JSON.stringify(res.data));
+    }
+    return res.data;
   }
 
+  // 3. LocalStorage fallback
   try {
     if (typeof window !== 'undefined') {
       const local = localStorage.getItem('sirikfit_cms_config');
@@ -335,11 +467,9 @@ export async function getCmsFromFirestore() {
       }
     }
   } catch (_lsErr) {}
-
-  return firestoreData;
+  return null;
 }
 
-// 🟢 Reusable Firestore Settings API Functions
 export async function loadSettings(): Promise<any> {
   const [financial, cms] = await Promise.all([
     fetchSettingsFromFirestore(),
@@ -362,65 +492,128 @@ export async function updateSetting(key: string, value: any): Promise<boolean> {
   return await saveSettings(payload);
 }
 
-// Helper: Save Admin Password in Firestore "settings/admin" document
-export async function saveAdminPasswordToFirestore(password: string) {
-  if (!db) return;
-  const path = 'settings/admin';
+// ----------------------------------------------------
+// VISITOR STATS & ANALYTICS PERSISTENCE
+// ----------------------------------------------------
+export async function trackVisitInFirestore(visitData: any) {
   try {
-    const adminRef = doc(db, 'settings', 'admin');
-    await setDoc(
-      adminRef,
-      {
-        password,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
+    const today = new Date().toISOString().split('T')[0];
+    const statsRef = doc(db, 'analytics', 'visitor_stats');
+    const snap = await getDoc(statsRef);
+    let current = snap.exists() ? snap.data() : { totalViews: 0, todayViews: 0, lastDate: today, visits: [] };
+
+    if (current.lastDate !== today) {
+      current.todayViews = 0;
+      current.lastDate = today;
+    }
+
+    current.totalViews = (current.totalViews || 0) + 1;
+    current.todayViews = (current.todayViews || 0) + 1;
+    current.updatedAt = new Date().toISOString();
+
+    await setDoc(statsRef, current, { merge: true });
   } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+    console.warn('Firestore analytics track notice:', err);
   }
+
+  safeFetchJson('/api/analytics/track-visit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(visitData)
+  }).catch(() => {});
 }
 
-// Helper: Fetch Admin Password from Firestore
-export async function getAdminPasswordFromFirestore() {
-  if (!db) return null;
-  const path = 'settings/admin';
+export async function fetchVisitorStatsFromFirestore(): Promise<any> {
   try {
-    const adminRef = doc(db, 'settings', 'admin');
-    const docSnap = await getDoc(adminRef);
-    if (docSnap.exists()) {
-      return docSnap.data()?.password || null;
+    const snap = await getDoc(doc(db, 'analytics', 'visitor_stats'));
+    if (snap.exists()) {
+      return snap.data();
     }
   } catch (err) {
-    handleFirestoreError(err, OperationType.GET, path);
+    console.warn('Firestore visitor stats read notice:', err);
   }
+
+  const res = await safeFetchJson('/api/admin/visitor-stats');
+  if (res.ok && res.data) {
+    return res.data;
+  }
+
+  return {
+    totalOrders: 0,
+    paidOrders: 0,
+    totalRevenueToman: 0,
+    todayOrdersCount: 0,
+    visitorCountToday: 1,
+    visitorCountTotal: 1,
+    weeklyOrdersCount: 0,
+    monthlyOrdersCount: 0,
+    conversionRate: 0
+  };
+}
+
+// ----------------------------------------------------
+// TICKETS PERSISTENCE
+// ----------------------------------------------------
+export async function saveTicketToFirestore(ticketData: any) {
+  const ticketId = ticketData.id || 'tck-' + Date.now();
+  const payload = { ...ticketData, id: ticketId, updatedAt: new Date().toISOString() };
+  try {
+    await setDoc(doc(db, 'tickets', ticketId), payload, { merge: true });
+  } catch (err) {
+    console.warn('Firestore ticket write notice:', err);
+  }
+  return ticketId;
+}
+
+export async function fetchTicketsFromFirestore(): Promise<any[]> {
+  try {
+    const snap = await getDocs(collection(db, 'tickets'));
+    if (!snap.empty) {
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+  } catch (err) {
+    console.warn('Firestore tickets read notice:', err);
+  }
+  return [];
+}
+
+// ----------------------------------------------------
+// ADMIN AUXILIARIES
+// ----------------------------------------------------
+export async function saveAdminPasswordToFirestore(password: string) {
+  try {
+    await setDoc(doc(db, 'settings', 'security'), { adminPassword: password }, { merge: true });
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sirikfit_admin_password', password);
+    }
+  } catch (_e) {}
+}
+
+export async function getAdminPasswordFromFirestore() {
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'security'));
+    if (snap.exists() && snap.data()?.adminPassword) {
+      return snap.data().adminPassword;
+    }
+  } catch (_e) {}
+  try {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('sirikfit_admin_password') || null;
+    }
+  } catch (_e) {}
   return null;
 }
 
-// 🟢 [FIXED_BY_AI]: Exported helper function for direct Firestore persistence with local storage fallback
 export async function checkFirestoreConnection(): Promise<{
   connected: boolean;
   dbId?: string;
   error?: string;
 }> {
-  if (!isFirebaseConfigured || !db) {
-    return { connected: false, error: 'Firebase configuration missing' };
-  }
   try {
-    const settingsRef = doc(db, 'settings', 'app');
-    await getDoc(settingsRef);
-    return { connected: true, dbId: firestoreDatabaseId || '(default)' };
+    await getDoc(doc(db, 'settings', 'app'));
+    return { connected: true, dbId: '(default)' };
   } catch (err: any) {
-    // Check if local storage persistence is available as fallback
-    const hasLocal = typeof window !== 'undefined' && Boolean(
-      localStorage.getItem('sirikfit_financial_settings') ||
-      localStorage.getItem('omex_financial_settings') ||
-      localStorage.getItem('sirikfit_cms_config')
-    );
-    if (hasLocal) {
-      return { connected: true, dbId: (firestoreDatabaseId || 'local-fallback') + ' (Local Storage Active)' };
-    }
-    return { connected: false, error: err?.message || 'Permission or Connection Issue' };
+    return { connected: false, error: err?.message || String(err) };
   }
 }
 

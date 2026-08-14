@@ -12,13 +12,14 @@ const DEFAULT_SLOGANS = [
 ];
 
 export const AnnouncementBanner: React.FC<AnnouncementBannerProps> = ({ cms }) => {
-  if (cms?.showAnnouncementBanner === false) {
+  const isEnabled = cms?.features?.showAnnouncementBanner ?? cms?.showAnnouncementBanner ?? true;
+  if (!isEnabled) {
     return null;
   }
 
-  const slogans = (cms?.announcementSlogans && cms.announcementSlogans.filter(s => s && s.trim().length > 0).length > 0)
-    ? cms.announcementSlogans.filter(s => s && s.trim().length > 0)
-    : DEFAULT_SLOGANS;
+  const rawSlogans = (cms?.announcementSlogans && Array.isArray(cms.announcementSlogans)) ? cms.announcementSlogans : [];
+  const validSlogans = rawSlogans.filter(s => s && s.trim().length > 0);
+  const slogans = validSlogans.length > 0 ? validSlogans : DEFAULT_SLOGANS;
 
   const [currentIndex, setCurrentIndex] = useState(0);
 

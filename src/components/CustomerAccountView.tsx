@@ -21,6 +21,7 @@ import {
 import type { Order, User } from '../types';
 import { formatToman, formatPersianDate } from '../utils/formatters';
 import { UserSupportTickets } from './UserSupportTickets';
+import { fetchUserOrdersFromFirestore } from '../firebase';
 
 interface CustomerAccountViewProps {
   currentUser: User | null;
@@ -62,23 +63,11 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
     setErrorMessage('');
 
     try {
-      const params = new URLSearchParams();
-      if (currentUser.id) {
-        params.append('userId', currentUser.id);
-      } else if (currentUser.phoneNumber) {
-        params.append('phone', currentUser.phoneNumber);
-      }
-
-      const res = await fetch(`/api/orders?${params.toString()}`);
-      const data = await res.json();
-      if (res.ok) {
-        setOrders(data);
-      } else {
-        setErrorMessage('خطا در دریافت لیست سفارشات شخصی.');
-      }
+      const userOrders = await fetchUserOrdersFromFirestore(currentUser.id, currentUser.phoneNumber);
+      setOrders(userOrders || []);
     } catch (e) {
       console.error('Error fetching personal orders:', e);
-      setErrorMessage('ارتباط با سرور برقرار نشد.');
+      setErrorMessage('ارتباط با پایگاه داده برقرار نشد.');
     } finally {
       setIsLoading(false);
     }
@@ -186,21 +175,22 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
   const [selectedTrackingOrder, setSelectedTrackingOrder] = useState<Order | null>(null);
 
   // Filter personal orders locally if user types in search
-  const filteredPersonalOrders = orders.filter((order) => {
+  const filteredPersonalOrders = (orders || []).filter((order) => {
+    if (!order) return false;
     if (!searchQuery.trim()) return true;
     const q = searchQuery.trim().toLowerCase();
     return (
-      order.trackingCode.toLowerCase().includes(q) ||
-      order.productTitle.toLowerCase().includes(q) ||
+      (order.trackingCode || '').toLowerCase().includes(q) ||
+      (order.productTitle || '').toLowerCase().includes(q) ||
       (order.storeName && order.storeName.toLowerCase().includes(q))
     );
   });
 
-  const activeShipmentsCount = orders.filter(
-    (o) => o.shippingStatus === 'PROCESSING' || o.shippingStatus === 'SHIPPED'
+  const activeShipmentsCount = (orders || []).filter(
+    (o) => o && (o.shippingStatus === 'PROCESSING' || o.shippingStatus === 'SHIPPED')
   ).length;
 
-  const paidOrdersCount = orders.filter((o) => o.paymentStatus === 'PAID').length;
+  const paidOrdersCount = (orders || []).filter((o) => o && o.paymentStatus === 'PAID').length;
 
   const getTrackingStepIndex = (status: string) => {
     switch (status) {

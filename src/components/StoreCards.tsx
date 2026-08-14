@@ -10,6 +10,8 @@ interface StoreCardsProps {
 }
 
 export const StoreCards: React.FC<StoreCardsProps> = ({ stores, cms, onSelectStoreSample }) => {
+  const showStores = cms?.features?.showStores ?? cms?.showStores ?? true;
+  if (!showStores) return null;
   // Strictly ordered 3 partner stores as default fallbacks:
   const defaultPartnerStores = [
     {
@@ -51,7 +53,7 @@ export const StoreCards: React.FC<StoreCardsProps> = ({ stores, cms, onSelectSto
   ];
 
   const rawStores = (cms?.stores && cms.stores.length > 0) ? cms.stores : defaultPartnerStores;
-  const activeStores = rawStores.filter((s: any) => s.enabled !== false && s.active !== false);
+  const activeStores = (rawStores || []).filter((s: any) => s && s.enabled !== false && s.active !== false);
 
   if (activeStores.length === 0) return null;
 

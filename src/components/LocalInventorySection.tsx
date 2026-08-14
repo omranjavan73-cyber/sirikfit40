@@ -1,20 +1,23 @@
 import React, { useState } from 'react';
-import type { LocalInventoryItem } from '../types';
+import type { LocalInventoryItem, FinancialSettings } from '../types';
 import { formatToman } from '../utils/formatters';
+import { ProductDetailModal } from './ProductDetailModal';
 
 interface LocalInventorySectionProps {
   items?: LocalInventoryItem[];
+  settings?: FinancialSettings;
   onSelectLocalProduct: (item: LocalInventoryItem) => void;
   onOpenFullModal?: () => void;
 }
 
 export const LocalInventorySection: React.FC<LocalInventorySectionProps> = ({
   items = [],
+  settings,
   onSelectLocalProduct,
   onOpenFullModal
 }) => {
-  const [addedItemId, setAddedItemId] = useState<string | null>(null);
-  const visibleItems = items.filter(item => item.inStock !== false);
+  const [selectedLocalForModal, setSelectedLocalForModal] = useState<LocalInventoryItem | null>(null);
+  const visibleItems = (items || []).filter(item => item && item.inStock !== false);
 
   if (visibleItems.length === 0) {
     return null;
@@ -29,6 +32,16 @@ export const LocalInventorySection: React.FC<LocalInventorySectionProps> = ({
     if (t.includes('optimum') || t.includes('on ') || t.includes('وی')) return 'ON';
     if (t.includes('dymatize') || t.includes('iso')) return 'ISO';
     return 'ON';
+  };
+
+  const handleCardClick = (item: LocalInventoryItem) => {
+    setSelectedLocalForModal(item);
+  };
+
+  const defaultSettings: FinancialSettings = settings || {
+    cargoRatePerKg: 35,
+    profitMargin: 20,
+    aedRate: 23000
   };
 
   return (
@@ -59,26 +72,23 @@ export const LocalInventorySection: React.FC<LocalInventorySectionProps> = ({
           return (
             <div
               key={item.id}
-              onClick={() => onSelectLocalProduct(item)}
+              onClick={() => handleCardClick(item)}
               className="bg-white border border-neutral-200 hover:border-black rounded-2xl p-3 flex items-center justify-between gap-3 shadow-2xs transition cursor-pointer"
             >
-              {/* Left Side: Price + 'ثبت سفارش' Button */}
+              {/* Left Side: Price + 'مشاهده جزئیات' Button */}
               <div className="flex flex-col items-start shrink-0 min-w-[100px]">
                 <span className="font-black text-xs sm:text-sm text-neutral-900 mb-1.5 dir-rtl">
                   {formatToman(item.priceToman)}
                 </span>
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onSelectLocalProduct(item);
-                    setAddedItemId(item.id);
-                    setTimeout(() => setAddedItemId(null), 1500);
+                    handleCardClick(item);
                   }}
-                  className={`font-extrabold text-[11px] px-3 py-1.5 rounded-xl transition cursor-pointer shadow-2xs text-center w-full ${
-                    addedItemId === item.id ? 'bg-emerald-600 text-white' : 'bg-black hover:bg-neutral-800 text-white'
-                  }`}
+                  className="font-bold text-[11px] px-3 py-2 rounded-xl transition-all duration-200 cursor-pointer shadow-sm text-center w-full bg-slate-900 hover:bg-red-600 text-white flex items-center justify-center gap-1.5 active:scale-95"
                 >
-                  {addedItemId === item.id ? '✓ اضافه شد!' : 'افزودن به سبد خرید'}
+                  افزودن به سبد خرید
                 </button>
               </div>
 
@@ -105,6 +115,31 @@ export const LocalInventorySection: React.FC<LocalInventorySectionProps> = ({
           );
         })}
       </div>
+
+      {/* Embedded Product Details Modal */}
+      <ProductDetailModal
+        isOpen={!!selectedLocalForModal}
+        onClose={() => setSelectedLocalForModal(null)}
+        product={selectedLocalForModal ? {
+          title: `${selectedLocalForModal.title} (موجودی انبار ایران)`,
+          url: selectedLocalForModal.url || 'https://omex.ir/stock/' + selectedLocalForModal.id,
+          priceAed: Math.round(selectedLocalForModal.priceToman / defaultSettings.aedRate) || 100,
+          originalPriceAed: selectedLocalForModal.originalPriceToman ? Math.round(selectedLocalForModal.originalPriceToman / defaultSettings.aedRate) : 0,
+          weightKg: 0.5,
+          image: selectedLocalForModal.image,
+          storeName: 'انبار ایران (تحویل فوری)',
+          brand: 'انبار ایران',
+          category: selectedLocalForModal.category || 'موجودی ایران',
+          description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
+          badge: selectedLocalForModal.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته'
+        } : null}
+        settings={defaultSettings}
+        onAddToCart={(item) => {
+          if (selectedLocalForModal) {
+            onSelectLocalProduct(selectedLocalForModal);
+          }
+        }}
+      />
     </section>
   );
 };

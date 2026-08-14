@@ -1,9 +1,21 @@
-// Helper utilities for Persian formatting
+// Helper utilities for Persian formatting and exchange rate resolution
 
 export function toPersianDigits(str: string | number): string {
   if (str === null || str === undefined) return '';
   const persianDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
   return String(str).replace(/\d/g, (digit) => persianDigits[parseInt(digit, 10)]);
+}
+
+export function normalizeToEnglishDigits(str: string | number): string {
+  if (str === null || str === undefined) return '';
+  const persianDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+  const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  let res = String(str);
+  for (let i = 0; i < 10; i++) {
+    res = res.replace(new RegExp(persianDigits[i], 'g'), String(i));
+    res = res.replace(new RegExp(arabicDigits[i], 'g'), String(i));
+  }
+  return res;
 }
 
 export function formatToman(amount: number): string {
@@ -49,7 +61,6 @@ export function calculateFinalToman(
 }
 
 /**
- * CRITICAL INPUT CLEANING RULE:
  * Preprocesses and sanitizes user input containing product links.
  * 1. Locate position where "http://" or "https://" starts in user input.
  * 2. Completely DISCARD and REMOVE all text that appears BEFORE "http://" or "https://".
@@ -70,17 +81,43 @@ export function extractCleanUrl(input: string): string {
 
 /**
  * Admin Rate History Fallback Architecture for AED Exchange Rate:
- * Priority 1: Current manual rate input from admin in settings (settings.manualAedRate or settings.aedRate)
- * Priority 2: Last saved rate from admin in localStorage (sirikfit_financial_settings, omex_financial_settings, or sirikfit_aed_rate)
- * Priority 3: Last saved rate in cmsConfig or Firestore
- * Warning: If no admin rate has ever been set, logs warning "لطفاً نرخ درهم را وارد کنید" and returns safe fallback to prevent crashes.
+ * Fallback order:
+ * 1. direct localStorage key ('sirikfit_aed_rate')
+ * 2. localStorage ('sirikfit_financial_settings' -> exchangeRate or aedRate)
+ * 3. settings props
+ * 4. cms props
+ * 5. Return 0 if uninitialized (no hardcoded fallback)
  */
 export function getEffectiveAedRate(
-  settings?: { aedRate?: number; manualAedRate?: number } | null,
+  settings?: { aedRate?: number | null; manualAedRate?: number | null; exchangeRate?: number | null } | null,
   cms?: any
 ): number {
-  // Priority 1: Current admin rate input from settings
+  // 1. Direct localStorage key
+  if (typeof window !== 'undefined') {
+    try {
+      const directLocal = localStorage.getItem('sirikfit_aed_rate');
+      if (directLocal) {
+        const num = parseFloat(directLocal);
+        if (!isNaN(num) && num > 0) return num;
+      }
+
+      // 2. LocalStorage financial settings
+      const savedFinancials = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
+      if (savedFinancials) {
+        const parsed = JSON.parse(savedFinancials);
+        if (parsed) {
+          const exRate = parseFloat(parsed.exchangeRate || parsed.aedRate || parsed.manualAedRate);
+          if (!isNaN(exRate) && exRate > 0) return exRate;
+        }
+      }
+    } catch (_e) {}
+  }
+
+  // 3. Current admin rate input from settings props
   if (settings) {
+    if (typeof settings.exchangeRate === 'number' && !isNaN(settings.exchangeRate) && settings.exchangeRate > 0) {
+      return settings.exchangeRate;
+    }
     if (typeof settings.manualAedRate === 'number' && !isNaN(settings.manualAedRate) && settings.manualAedRate > 0) {
       return settings.manualAedRate;
     }
@@ -89,41 +126,16 @@ export function getEffectiveAedRate(
     }
   }
 
-  // Priority 2: Stored in localStorage from previous admin saves
-  try {
-    if (typeof window !== 'undefined') {
-      const savedFinancials = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
-      if (savedFinancials) {
-        const parsed = JSON.parse(savedFinancials);
-        if (parsed) {
-          if (typeof parsed.manualAedRate === 'number' && !isNaN(parsed.manualAedRate) && parsed.manualAedRate > 0) return parsed.manualAedRate;
-          if (typeof parsed.aedRate === 'number' && !isNaN(parsed.aedRate) && parsed.aedRate > 0) return parsed.aedRate;
-          const pRate = parseFloat(parsed.manualAedRate || parsed.aedRate);
-          if (!isNaN(pRate) && pRate > 0) return pRate;
-        }
-      }
-      const directLocal = localStorage.getItem('sirikfit_aed_rate');
-      if (directLocal) {
-        const num = parseFloat(directLocal);
-        if (!isNaN(num) && num > 0) return num;
-      }
-    }
-  } catch (_e) {}
-
-  // Priority 3: Last saved rate in cmsConfig
+  // 4. CMS Config
   if (cms) {
     const cmsRate = cms?.pricingRules?.manualAedRate || cms?.pricingRules?.aedRate || cms?.apiConfig?.manualAedRate || cms?.apiConfig?.aedRate;
-    if (typeof cmsRate === 'number' && !isNaN(cmsRate) && cmsRate > 0) {
-      return cmsRate;
-    }
-    const parsedCmsRate = parseFloat(cmsRate);
-    if (!isNaN(parsedCmsRate) && parsedCmsRate > 0) {
-      return parsedCmsRate;
+    if (cmsRate) {
+      const parsedCmsRate = parseFloat(cmsRate);
+      if (!isNaN(parsedCmsRate) && parsedCmsRate > 0) {
+        return parsedCmsRate;
+      }
     }
   }
 
-  // Fallback if no rate recorded in history: Log warning "لطفاً نرخ درهم را وارد کنید"
-  console.warn('⚠️ [SirikFit Admin Warning]: لطفاً نرخ درهم را وارد کنید! (هیچ نرخ واقعی در تاریخچه ثبت نشده است)');
-  return 53000;
+  return 0;
 }
-

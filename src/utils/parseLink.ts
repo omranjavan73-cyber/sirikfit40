@@ -2,6 +2,7 @@ import { getEffectiveGeminiKeysList, callGeminiApiWithKeyRotation } from './gemi
 
 export interface ParsedProductResult {
   success: boolean;
+  requireManualEntry?: boolean;
   title?: string;
   priceAed?: number;
   originalPriceAed?: number;
@@ -14,6 +15,8 @@ export interface ParsedProductResult {
   category?: string;
   description?: string;
   options?: string[];
+  flavors?: string[];
+  sizes?: string[];
   error?: string;
   message?: string;
 }
@@ -694,10 +697,12 @@ export async function parseProductLinkUniversal(params: {
     }
   })();
 
-  // 1. Try local/backend /api/parse-link endpoint first if available
+  const defaultErrorMsg = "در حال حاضر امکان استخراج خودکار اطلاعات این لینک وجود ندارد. لطفاً چند لحظه بعد مجدداً تلاش فرمایید.";
+
+  // Call backend /api/parse-link Microservice
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     const res = await fetch('/api/parse-link', {
       method: 'POST',
@@ -705,9 +710,7 @@ export async function parseProductLinkUniversal(params: {
       body: JSON.stringify({
         url: targetUrl,
         apiKey: scraperKeyVal,
-        scraper_api_key: scraperKeyVal,
         scraperApiKey: scraperKeyVal,
-        enable_scraper_api: true,
         geminiApiKeys: geminiKeys,
         geminiApiKey: geminiKeys?.[0] || ''
       }),
@@ -715,121 +718,55 @@ export async function parseProductLinkUniversal(params: {
     });
     clearTimeout(timeoutId);
 
-    if (res.ok) {
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const data: any = await res.json();
-        const priceAed = Number(data?.priceAed || data?.price_aed || data?.price) || 0;
-        if (data && (data.success !== false) && data.title && priceAed > 0) {
-          const storeName = data.storeName || 'دبی';
-          const brandName = data.brand || storeName;
-          const formattedTitle = generateBilingualProductTitle(data.title, storeName, brandName);
-          return {
-            success: true,
-            title: formattedTitle,
-            priceAed,
-            originalPriceAed: Number(data.originalPriceAed || data.original_price_aed) || undefined,
-            discountPercent: Number(data.discountPercent) || undefined,
-            storeName,
-            brand: brandName,
-            category: data.category || '💊 مکمل‌های ورزشی',
-            image: data.image || data.image_url || '',
-            images: data.images || data.galleryImages || (data.image ? [data.image] : []),
-            weightKg: Number(data.weightKg) || 0.8,
-            description: data.description,
-            options: data.options
-          };
-        }
-      }
+    const data: any = await res.json();
+    const priceAed = Number(data?.priceAed || data?.price_aed || data?.price) || 0;
+
+    if (data && data.success === true && data.title && priceAed > 0) {
+      const storeName = data.storeName || data.brand || 'دبی';
+      const brandName = data.brand || storeName;
+      const formattedTitle = generateBilingualProductTitle(data.title, storeName, brandName);
+
+      return {
+        success: true,
+        title: formattedTitle,
+        priceAed,
+        originalPriceAed: Number(data.originalPriceAed || data.original_price_aed) || undefined,
+        discountPercent: Number(data.discountPercent) || undefined,
+        storeName,
+        brand: brandName,
+        category: data.category || '💊 مکمل‌های ورزشی',
+        image: data.image || data.mainImage || data.image_url || '',
+        images: data.images || data.galleryImages || (data.image ? [data.image] : []),
+        weightKg: Number(data.weightKg) || 0.8,
+        description: data.description,
+        options: data.options,
+        flavors: data.flavors || [],
+        sizes: data.sizes || []
+      };
     }
+
+    // Backend returned extraction failure -> Return Tier 4 structured error directly.
+    // DO NOT trigger browser-side CORS proxy attempts.
+    return {
+      success: false,
+      requireManualEntry: true,
+      error: data?.message || defaultErrorMsg,
+      message: data?.message || defaultErrorMsg,
+      title: "",
+      priceAed: 0,
+      image: ""
+    };
   } catch (serverErr) {
-    console.warn('Backend /api/parse-link skipped or unavailable, falling back to client-side extraction:', serverErr);
+    console.warn('Backend /api/parse-link microservice call failed:', serverErr);
+    return {
+      success: false,
+      requireManualEntry: true,
+      error: defaultErrorMsg,
+      message: defaultErrorMsg,
+      title: "",
+      priceAed: 0,
+      image: ""
+    };
   }
-
-  // 2. Primary Client-Side Extractor: Microlink API
-  try {
-    const microResult = await fetchWithMicrolink(targetUrl);
-    if (microResult && microResult.title) {
-      const storeName = microResult.publisher || 'فروشگاه دبی';
-      const formattedTitle = generateBilingualProductTitle(microResult.title, storeName);
-
-      if (microResult.priceAed && microResult.priceAed > 0) {
-        console.log(`[LinkParser] [Microlink] Complete instant extraction! Title: "${formattedTitle}", Price: ${microResult.priceAed} AED`);
-        return {
-          success: true,
-          title: formattedTitle,
-          priceAed: microResult.priceAed,
-          storeName,
-          brand: storeName,
-          category: '💊 مکمل‌های ورزشی',
-          image: microResult.image || '',
-          images: microResult.image ? [microResult.image] : [],
-          weightKg: 0.8,
-          description: microResult.description || `محصول استخراج شده از ${storeName}`,
-          options: ["پیش‌فرض / استاندارد"]
-        };
-      }
-
-      // If Microlink returned title & description but price wasn't matched directly, pass Microlink text payload to Gemini
-      const geminiFromMicro = await parseProductLinkWithGemini(
-        targetUrl,
-        `Title: ${microResult.title}\nPublisher: ${microResult.publisher || ''}\nDescription: ${microResult.description || ''}\nImage: ${microResult.image || ''}`,
-        geminiKeys
-      );
-      if (geminiFromMicro.success && geminiFromMicro.priceAed && geminiFromMicro.priceAed > 0) {
-        if (microResult.image && (!geminiFromMicro.image || geminiFromMicro.image.length < 5)) {
-          geminiFromMicro.image = microResult.image;
-          geminiFromMicro.images = [microResult.image];
-        }
-        return geminiFromMicro;
-      }
-    }
-  } catch (microErr) {
-    console.warn('[LinkParser] Microlink stage failed, proceeding to ScraperAPI / CORS proxies:', microErr);
-  }
-
-  // 3. Secondary Client-Side Extractor: ScraperAPI (if key exists)
-  if (scraperKeyVal) {
-    try {
-      const scraperHtml = await fetchWithScraperApi(targetUrl, scraperKeyVal);
-      if (scraperHtml) {
-        const metaResult = parseHtmlMetadata(scraperHtml, targetUrl);
-        if (metaResult && metaResult.success && metaResult.priceAed && metaResult.priceAed > 0) {
-          return metaResult;
-        }
-
-        const geminiScraperResult = await parseProductLinkWithGemini(targetUrl, scraperHtml, geminiKeys);
-        if (geminiScraperResult.success && geminiScraperResult.priceAed && geminiScraperResult.priceAed > 0) {
-          return geminiScraperResult;
-        }
-      }
-    } catch (scraperErr) {
-      console.warn('[LinkParser] ScraperAPI stage failed:', scraperErr);
-    }
-  }
-
-  // 4. Fallback pipeline: Jina AI Reader & public CORS proxies
-  try {
-    const rawHtml = await fetchHtmlWithCorsProxy(targetUrl);
-    if (rawHtml) {
-      const fastResult = parseHtmlMetadata(rawHtml, targetUrl);
-      if (fastResult && fastResult.success && fastResult.priceAed && fastResult.priceAed > 0) {
-        return fastResult;
-      }
-
-      const geminiResult = await parseProductLinkWithGemini(targetUrl, rawHtml, geminiKeys);
-      if (geminiResult.success && geminiResult.priceAed && geminiResult.priceAed > 0) {
-        return geminiResult;
-      }
-    }
-  } catch (clientErr) {
-    console.error('Client-side proxy + parsing failed:', clientErr);
-  }
-
-  // 5. Graceful error response without crashing UI
-  return {
-    success: false,
-    error: 'امکان استخراج اتوماتیک لینک وجود نداشت؛ لطفاً قیمت درهم را به صورت دستی وارد کنید.'
-  };
 }
 

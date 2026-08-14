@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link2, Sparkles, ArrowLeft, Weight, Coins, PackageCheck, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Info, ShieldCheck, Plane, ShoppingCart, CheckCircle2, Trash2, X } from 'lucide-react';
 import { FinancialSettings, ParsedProduct, CmsConfig } from '../types';
-import { formatToman, formatAed, toPersianDigits, extractCleanUrl } from '../utils/formatters';
+import { formatToman, formatAed, toPersianDigits, extractCleanUrl, getEffectiveAedRate } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { getEffectiveGeminiKeysList, extractProductWithGeminiAI } from '../utils/geminiKey';
 import { parseProductLinkUniversal } from '../utils/parseLink';
@@ -19,20 +19,7 @@ interface HeroCalculatorProps {
     image?: string;
     storeName?: string;
   } | null;
-  onAddToCart?: (product: {
-    title: string;
-    url: string;
-    priceAed: number;
-    originalPriceAed?: number;
-    weightKg: number;
-    image?: string;
-    storeName?: string;
-    calculatedToman?: number;
-    quantity?: number;
-    selectedOption?: string;
-    options?: string[];
-    description?: string;
-  }) => void;
+  onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   onProceedToOrder?: (product: {
     title: string;
     url: string;
@@ -147,7 +134,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
   const pricingResult = calculateOrderPricing(
     totalAed,
     quantity,
-    settings.aedRate,
+    getEffectiveAedRate(settings, cms),
     cms?.pricingRules,
     totalWeightKg,
     settings.cargoRatePerKg
@@ -185,12 +172,12 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         : defaultAllowedDomains;
 
       let activeAllowedDomains = configuredAllowed;
-      if (cms?.stores) {
+      if (cms?.stores && Array.isArray(cms.stores)) {
         const disabledStoreUrls = cms.stores
-          .filter((s: any) => s.enabled === false || s.active === false)
+          .filter((s: any) => s && (s.enabled === false || s.active === false))
           .map((s: any) => (s.url || '').toLowerCase());
 
-        activeAllowedDomains = configuredAllowed.filter(domain => {
+        activeAllowedDomains = (configuredAllowed || []).filter(domain => {
           const isStoreDisabled = disabledStoreUrls.some((u: string) => u.includes(domain));
           return !isStoreDisabled;
         });
@@ -198,7 +185,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
 
       const isAllowedDomain = activeAllowedDomains.some(domain => targetUrl.toLowerCase().includes(domain));
       if (!isAllowedDomain) {
-        setErrorMessage('استخراج خودکار از این سایت در حال حاضر پشتیبانی نمیشود. لطفاً قیمت و مشخصات را دستی وارد کنید.');
+        setErrorMessage('استخراج خودکار از این سایت در حال حاضر پشتیبانی نمیشود.');
         setIsParsing(false);
         return;
       }
@@ -234,13 +221,15 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         if (result.brand) setBrandName(result.brand);
         if (result.category) setCategoryName(result.category);
 
-        if (result.options && Array.isArray(result.options) && result.options.length > 0) {
-          setProductOptions(result.options);
-          setSelectedOption(result.options[0]);
+        const validExtractedOptions = (result.options || []).filter(
+          (opt) => opt && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(opt.trim().toLowerCase())
+        );
+        if (validExtractedOptions.length > 0) {
+          setProductOptions(validExtractedOptions);
+          setSelectedOption(validExtractedOptions[0]);
         } else {
-          const defaults = ["پیش‌فرض / استاندارد"];
-          setProductOptions(defaults);
-          setSelectedOption(defaults[0]);
+          setProductOptions([]);
+          setSelectedOption('');
         }
 
         if (result.description) {
@@ -258,12 +247,12 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         }, 100);
       } else {
         setShowResult(false);
-        setErrorMessage(result.error || 'امکان استخراج اتوماتیک لینک وجود نداشت؛ لطفاً قیمت درهم را به صورت دستی وارد کنید.');
+        setErrorMessage(result.message || result.error || 'در حال حاضر امکان استخراج خودکار اطلاعات این لینک وجود ندارد. لطفاً چند لحظه بعد مجدداً تلاش فرمایید.');
       }
     } catch (err) {
       console.error('Error parsing link:', err);
       setShowResult(false);
-      setErrorMessage('امکان استخراج اتوماتیک لینک وجود نداشت؛ لطفاً قیمت درهم را به صورت دستی وارد کنید.');
+      setErrorMessage('در حال حاضر امکان استخراج خودکار اطلاعات این لینک وجود ندارد. لطفاً چند لحظه بعد مجدداً تلاش فرمایید.');
     } finally {
       setIsParsing(false);
     }
@@ -302,9 +291,25 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
   };
 
   const handleAddToCartClick = () => {
-    const handler = onAddToCart || onProceedToOrder;
-    if (handler) {
-      handler({
+    if (onAddToCart) {
+      onAddToCart({
+        title: productTitle,
+        url: urlInput || 'https://www.drnutrition.com',
+        priceAed,
+        originalPriceAed,
+        weightKg,
+        image: productImage,
+        storeName,
+        calculatedToman: Math.round(finalToman / quantity),
+        quantity: quantity,
+        selectedOption: selectedOption || undefined,
+        options: productOptions,
+        description: productDescription
+      }, selectedOption || undefined, undefined);
+      setIsAdded(true);
+      setTimeout(() => setIsAdded(false), 1500);
+    } else if (onProceedToOrder) {
+      onProceedToOrder({
         title: productTitle,
         url: urlInput || 'https://www.drnutrition.com',
         priceAed,
@@ -318,8 +323,6 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         options: productOptions,
         description: productDescription
       });
-      setIsAdded(true);
-      setTimeout(() => setIsAdded(false), 1500);
     }
   };
 
@@ -331,13 +334,13 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
       {/* Header Compact Title & Subtitle */}
       <div className="relative z-10 mb-3.5">
         <div className="inline-flex items-center gap-1.5 bg-[#111111] text-white text-[11px] font-extrabold px-3 py-1 rounded-md mb-2 border-none">
-          <span id="calc-black-badge">{cms?.homeContent?.calcBlackBadge || '✦ خرید مستقیم از دبی'}</span>
+          <span id="calc-black-badge">{cms?.homeContent?.calcBlackBadge || 'خرید مستقیم از دبی ✦'}</span>
         </div>
         <h2 id="calc-main-headline" className="text-xl md:text-2xl font-black text-[#111111] tracking-tight mb-1">
           {cms?.homeContent?.calcMainHeadline || 'برآورد قیمت و ثبت سفارش'}
         </h2>
-        <p id="calc-subtitle" className="text-xs text-neutral-500 font-medium mb-3">
-          {cms?.homeContent?.calcSubtitle || 'لینک محصول را وارد کنید تا قیمت تحویل در ایران فوری محاسبه شود.'}
+        <p id="calc-subtitle" className="text-xs text-neutral-500 font-medium mb-3 leading-relaxed">
+          {cms?.homeContent?.calcSubtitle || 'لینک محصول مورد نظر را از سایتهای معتبر دبی را وارد کنید تا قیمت نهایی به تومان و هزینه ارسال محاسبه شود.'}
         </p>
       </div>
 
@@ -367,7 +370,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
               if (errorMessage) setErrorMessage('');
               if (successMessage) setSuccessMessage('');
             }}
-            placeholder="لطفاً لینک محصول را اینجا وارد کنید..."
+            placeholder="... لینک محصول را اینجا paste کنید"
             className="w-full bg-transparent text-xs text-[#111111] placeholder:text-[#9ca3af] focus:outline-none font-sans font-medium text-right dir-rtl focus:text-left focus:dir-ltr placeholder:text-right"
             dir={urlInput ? "ltr" : "rtl"}
           />
@@ -377,7 +380,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         <button
           onClick={() => handleParseLink()}
           disabled={isParsing}
-          className="w-full bg-[#111111] hover:bg-black text-white font-extrabold text-xs md:text-sm py-3 px-4 rounded-[12px] transition flex items-center justify-center gap-2 mb-3 cursor-pointer shadow-xs border-none"
+          className="w-full bg-[#111111] hover:bg-black text-white font-extrabold text-xs md:text-sm py-3 px-4 rounded-[12px] transition flex items-center justify-center gap-2 mb-1 cursor-pointer shadow-xs border-none active:scale-[0.99]"
         >
           {isParsing ? (
             <>
@@ -386,8 +389,8 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
             </>
           ) : (
             <>
-              <span>استخراج و محاسبه</span>
               <ArrowLeft className="w-4 h-4" />
+              <span>استخراج و محاسبه</span>
             </>
           )}
         </button>
@@ -410,59 +413,6 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         {isParsing && (
           <SpeedboatLoader statusText="🛥️ در حال استخراج و تحلیل کالا از دبی..." />
         )}
-
-        {/* Quick Sample Links */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 text-[11px] no-scrollbar">
-          <span className="text-neutral-500 whitespace-nowrap font-bold shrink-0">نمونه‌های محبوب:</span>
-          {(() => {
-            const rawDeals = cms?.deals && cms.deals.length > 0
-              ? cms.deals.filter(d => d.isActive !== false && (d.isFeaturedInCalculator !== false || d.section === 'featured'))
-              : [
-                  {
-                    id: 's1',
-                    title: 'مکمل پروتئین وی ON Gold Standard 100%',
-                    priceAed: 320,
-                    weightKg: 2.3,
-                    image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600',
-                    storeName: 'Dr. Nutrition',
-                    url: 'https://www.drnutrition.com/en-ae/product/on-gold-standard-100-whey-5lb',
-                    badge: '💪 وی ۵ پوندی ON'
-                  },
-                  {
-                    id: 's2',
-                    title: 'مولتی ویتامین GNC Mega Men Sport',
-                    priceAed: 125,
-                    weightKg: 0.35,
-                    image: 'https://images.unsplash.com/photo-1584017911766-d451b3d0e843?auto=format&fit=crop&q=80&w=600',
-                    storeName: 'GNC Store',
-                    url: 'https://gnc-mena.com/en-ae/multivitamins/gnc-mega-men-sport.html',
-                    badge: '💊 مولتی GNC'
-                  }
-                ];
-
-            return rawDeals.slice(0, 8).map((item) => {
-              const pillLabel = item.badge || item.title;
-              return (
-                <button
-                  key={item.id || item.title}
-                  type="button"
-                  onClick={() => handleQuickSample({
-                    title: item.title,
-                    priceAed: item.priceAed,
-                    originalPriceAed: item.originalPriceAed,
-                    weightKg: item.weightKg || 0.5,
-                    image: item.image || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600',
-                    storeName: item.storeName || 'فروشگاه دبی',
-                    url: item.url || 'https://www.drnutrition.com'
-                  })}
-                  className="bg-[#F8FAFC] hover:bg-slate-200 text-[#111111] px-3 py-1 rounded-full border-[1.5px] border-[#E5E5E5] whitespace-nowrap font-extrabold transition cursor-pointer shrink-0 shadow-2xs"
-                >
-                  {pillLabel}
-                </button>
-              );
-            });
-          })()}
-        </div>
       </div>
 
       {/* Extracted Product Rich Card */}
@@ -567,40 +517,46 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
             </div>
 
             {/* Interactive Variant Selection UI (گزینه‌های قابل انتخاب) */}
-            {productOptions.length > 0 && (
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-[#111111] flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-900 inline-block"></span>
-                    <span>گزینه‌های قابل انتخاب:</span>
-                  </span>
-                  {selectedOption && (
-                    <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md dir-rtl">
-                      انتخاب‌شده: <span className="text-slate-900 font-black">{selectedOption}</span>
+            {(() => {
+              const validOptions = (productOptions || []).filter(
+                (opt) => opt && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(opt.trim().toLowerCase())
+              );
+              if (validOptions.length === 0) return null;
+              return (
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-[#111111] flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-900 inline-block"></span>
+                      <span>گزینه‌های قابل انتخاب:</span>
                     </span>
-                  )}
+                    {selectedOption && validOptions.includes(selectedOption) && (
+                      <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md dir-rtl">
+                        انتخاب‌شده: <span className="text-slate-900 font-black">{selectedOption}</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-0.5 dir-ltr">
+                    {validOptions.map((opt) => {
+                      const isSelected = selectedOption === opt;
+                      return (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => setSelectedOption(opt)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02]'
+                              : 'bg-slate-50 text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100'
+                          }`}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2 pt-0.5 dir-ltr">
-                  {productOptions.map((opt) => {
-                    const isSelected = selectedOption === opt;
-                    return (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => setSelectedOption(opt)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02]'
-                            : 'bg-slate-50 text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100'
-                        }`}
-                      >
-                        {opt}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Product Features & Description Box (ویژگی‌های محصول) */}
             {productDescription && (
@@ -688,7 +644,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
             </div>
 
             {/* Price Breakdown Toggle */}
-            {cms?.showPriceBreakdown !== false && (
+            {(cms?.features?.showBreakdown ?? cms?.showPriceBreakdown ?? cms?.showBreakdown ?? true) && (
               <div className="border-t border-slate-200 pt-3">
                 <button
                   type="button"

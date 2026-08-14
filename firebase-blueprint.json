@@ -41,6 +41,18 @@
         "api": { "type": "object" },
         "updatedAt": { "type": "string" }
       }
+    },
+    "reviews": {
+      "title": "Customer Reviews",
+      "description": "Store and product feedback reviews from customers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "author": { "type": "string" },
+        "rating": { "type": "number" },
+        "comment": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
     }
   }
 }

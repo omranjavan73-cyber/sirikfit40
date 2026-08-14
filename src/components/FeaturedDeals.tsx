@@ -1,21 +1,25 @@
 import React, { useState } from 'react';
-import type { FeaturedDeal, FinancialSettings } from '../types';
-import { formatToman, formatAed, toPersianDigits, calculateFinalToman } from '../utils/formatters';
+import { Search, X, Tag, Dumbbell, Pill, Flame, Zap, Sparkles } from 'lucide-react';
+import type { FeaturedDeal, FinancialSettings, WarehouseCategory } from '../types';
+import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 import { ProductDetailModal } from './ProductDetailModal';
+import { CategoryGridSection } from './CategoryGridSection';
 
 interface FeaturedDealsProps {
   deals?: FeaturedDeal[];
+  categories?: WarehouseCategory[];
   settings: FinancialSettings;
   onSelectDeal: (deal: FeaturedDeal) => void;
+  onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
 }
 
-const CATEGORY_TABS = [
-  { id: 'all', label: 'همه' },
-  { id: 'featured', label: '⭐ پیشنهادهای ویژه' },
-  { id: 'bestseller', label: '🔥 پرفروش‌ترین‌ها' },
-  { id: 'discount', label: '🏷️ تخفیف‌دار و ویژه' },
-  { id: 'sport', label: '💪 مکمل ورزشی' },
-  { id: 'vitamin', label: '✨ ویتامین و سلامت' },
+const DEFAULT_CATEGORY_TILES: WarehouseCategory[] = [
+  { id: 'all', label: 'همه پیشنهادها', filterKey: 'all', iconUrl: '' },
+  { id: 'protein', label: 'پروتئین', filterKey: 'protein', iconUrl: '' },
+  { id: 'vitamin', label: 'ویتامین', filterKey: 'vitamin', iconUrl: '' },
+  { id: 'pre', label: 'قبل تمرین', filterKey: 'pre', iconUrl: '' },
+  { id: 'omega', label: 'امگا ۳', filterKey: 'omega', iconUrl: '' },
+  { id: 'hot', label: 'پرفروش', filterKey: 'hot', iconUrl: '' },
 ];
 
 const DEFAULT_DEALS: FeaturedDeal[] = [
@@ -87,165 +91,82 @@ const DEFAULT_DEALS: FeaturedDeal[] = [
 
 export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   deals = [],
+  categories = [],
   settings,
-  onSelectDeal
+  onSelectDeal,
+  onAddToCart
 }) => {
-  const [activeTab, setActiveTab] = useState<string>('all');
+  const [selectedCat, setSelectedCat] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [failedCatImages, setFailedCatImages] = useState<Record<string, boolean>>({});
   const [selectedDealForModal, setSelectedDealForModal] = useState<FeaturedDeal | null>(null);
 
-  const rawDeals = deals.length > 0 ? deals : DEFAULT_DEALS;
-  const activeDeals = rawDeals.filter((d) => d.isActive !== false);
+  const rawDeals = (deals && deals.length > 0) ? deals : DEFAULT_DEALS;
+  const activeDeals = (rawDeals || []).filter((d) => d && d.isActive !== false);
+
+  const categoryList = (categories && categories.length > 0) ? categories : DEFAULT_CATEGORY_TILES;
 
   const filteredDeals = activeDeals.filter((deal) => {
-    if (activeTab === 'all') return true;
-    const cat = deal.category?.toLowerCase() || '';
-    const title = deal.title?.toLowerCase() || '';
-    const sec = deal.section || '';
+    const q = searchQuery.trim().toLowerCase();
+    const title = (deal.title || '').toLowerCase();
+    const cat = (deal.category || '').toLowerCase();
+    const brand = (deal.brand || '').toLowerCase();
+    const store = (deal.storeName || '').toLowerCase();
 
-    if (activeTab === 'featured' && (sec === 'featured' || deal.isFeaturedInCalculator)) return true;
-    if (activeTab === 'bestseller' && (sec === 'bestseller' || (deal.badge && deal.badge.includes('پرفروش')))) return true;
-    if (activeTab === 'discount' && (sec === 'discount' || (deal.discountPercent && deal.discountPercent > 0))) return true;
-    if (activeTab === 'sport' && (cat.includes('ورزش') || title.includes('ورزش') || title.includes('c4') || title.includes('پمپ'))) return true;
-    if (activeTab === 'vitamin' && (cat.includes('ویتامین') || cat.includes('سلامت') || title.includes('ویتامین') || title.includes('امگا'))) return true;
+    const matchesSearch = !q || title.includes(q) || cat.includes(q) || brand.includes(q) || store.includes(q);
 
-    return true;
+    let matchesCat = true;
+    if (selectedCat !== 'all' && selectedCat !== 'همه') {
+      const matchedTile = categoryList.find(c => c.id === selectedCat || (c.filterKey && c.filterKey === selectedCat));
+      const filterTerm = (matchedTile?.filterKey || matchedTile?.label || selectedCat).toLowerCase();
+
+      matchesCat = cat.includes(filterTerm) || filterTerm.includes(cat) || title.includes(filterTerm) || brand.includes(filterTerm);
+    }
+
+    return matchesSearch && matchesCat;
   });
-
-  // Section 1: Featured Deals (پیشنهادهای ویژه)
-  const featuredSectionDeals = activeDeals.filter(d => 
-    d.section === 'featured' || d.isFeaturedInCalculator || (d.badge && d.badge.includes('ویژه'))
-  );
-
-  // Section 2: Bestseller Deals (پرفروش‌ترین‌ها)
-  const bestsellerSectionDeals = activeDeals.filter(d => 
-    d.section === 'bestseller' || (d.badge && d.badge.includes('پرفروش')) || d.title.includes('ON') || d.title.includes('GNC')
-  );
-
-  // Section 3: Discounted Deals (تخفیف‌دار و ویژه)
-  const discountSectionDeals = activeDeals.filter(d => 
-    d.section === 'discount' || (d.discountPercent && d.discountPercent > 0) || (d.originalPriceAed && d.originalPriceAed > d.priceAed)
-  );
 
   return (
     <div className="space-y-5 font-['Vazirmatn',sans-serif] animate-fade-in pb-16">
       
-      {/* Top Announcement Banner */}
-      <div className="bg-[#111111] text-white text-[11px] font-extrabold py-2.5 px-4 rounded-[14px] flex items-center justify-center gap-1.5 shadow-2xs">
-        <span>❄️ نگهداری و ارسال کنترل‌شده دما • اورجینال از دبی</span>
-      </div>
-
-      {/* Header Banner */}
-      <div className="bg-white border border-slate-200/90 rounded-[24px] p-5 shadow-2xs space-y-2">
-        <div className="inline-flex items-center bg-[#111111] text-white text-[10px] font-black px-3 py-1 rounded-lg">
-          پیشنهادهای ویژه
-        </div>
-        <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">
-          پیشنهادهای خرید از دبی
+      {/* Top Header */}
+      <div className="text-right pb-1">
+        <h1 className="text-lg md:text-xl font-black text-slate-900 tracking-tight">
+          پیشنهاد خرید از دبی
         </h1>
-        <p className="text-xs text-slate-500 font-medium">
-          محبوب‌ترین مکمل‌های ورزشی، ویتامین‌ها و کالاهای تخفیف‌دار با تحویل فوری ایران
-        </p>
-
-        {/* Horizontal Category Filter Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto pt-2 pb-1 no-scrollbar dir-rtl">
-          {CATEGORY_TABS.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-                  isActive
-                    ? 'bg-[#111111] text-white shadow-xs border-none'
-                    : 'bg-[#F8FAFC] border border-slate-200 text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
-      {/* Main Sections Ordered: 1. Featured Deals -> 2. Bestsellers -> 3. Discounted */}
-      {activeTab === 'all' ? (
-        <div className="space-y-6">
-          {/* Section 1: Featured Deals (پیشنهادهای ویژه) */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <h3 className="font-black text-base text-slate-900 flex items-center gap-1.5">
-                <span className="text-amber-500">⭐</span>
-                <span>پیشنهادهای ویژه</span>
-              </h3>
-              <button
-                onClick={() => setActiveTab('featured')}
-                className="text-xs font-extrabold text-slate-900 hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <span>مشاهده همه</span>
-                <span className="text-sm">←</span>
-              </button>
-            </div>
+      {/* Shared CategoryGridSection (Search Bar + Circular Category Row + All Categories Modal) */}
+      <CategoryGridSection
+        categories={categories}
+        selectedCat={selectedCat}
+        onSelectCategory={setSelectedCat}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="...جستجوی پیشنهاد، برند یا دسته"
+        itemsCount={filteredDeals.length}
+      />
 
-            <div className="grid grid-cols-2 gap-3">
-              {(featuredSectionDeals.length > 0 ? featuredSectionDeals.slice(0, 4) : activeDeals.slice(0, 2)).map((deal) => (
-                <ProductCard key={deal.id} deal={deal} settings={settings} onSelect={onSelectDeal} onCardClick={() => setSelectedDealForModal(deal)} />
-              ))}
-            </div>
-          </div>
+      {/* Filtered Products List Header */}
+      <div className="flex items-center justify-between px-1 pt-1">
+        <h3 className="font-extrabold text-sm text-[#111111]">پیشنهادهای یافت‌شده</h3>
+        <span className="text-xs font-extrabold text-[#111111] bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] px-3 py-0.5 rounded-full">
+          {filteredDeals.length} کالا
+        </span>
+      </div>
 
-          {/* Section 2: Bestsellers (پرفروش‌ترین‌ها) */}
-          <div className="space-y-3 pt-1">
-            <div className="flex items-center justify-between px-1">
-              <h3 className="font-black text-base text-slate-900 flex items-center gap-1.5">
-                <span className="text-rose-500">🔥</span>
-                <span>پرفروش‌ترین‌ها</span>
-              </h3>
-              <button
-                onClick={() => setActiveTab('bestseller')}
-                className="text-xs font-extrabold text-slate-900 hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <span>مشاهده همه</span>
-                <span className="text-sm">←</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              {(bestsellerSectionDeals.length > 0 ? bestsellerSectionDeals.slice(0, 4) : activeDeals.slice(2, 4)).map((deal) => (
-                <ProductCard key={deal.id} deal={deal} settings={settings} onSelect={onSelectDeal} onCardClick={() => setSelectedDealForModal(deal)} />
-              ))}
-            </div>
-          </div>
-
-          {/* Section 3: Discounted Items (تخفیف‌دار و ویژه) */}
-          <div className="space-y-3 pt-1">
-            <div className="flex items-center justify-between px-1">
-              <h3 className="font-black text-base text-slate-900 flex items-center gap-1.5">
-                <span className="text-emerald-600">🏷️</span>
-                <span>تخفیف‌دار و ویژه</span>
-              </h3>
-              <button
-                onClick={() => setActiveTab('discount')}
-                className="text-xs font-extrabold text-slate-900 hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <span>مشاهده همه</span>
-                <span className="text-sm">←</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              {(discountSectionDeals.length > 0 ? discountSectionDeals.slice(0, 4) : activeDeals).map((deal) => (
-                <ProductCard key={deal.id} deal={deal} settings={settings} onSelect={onSelectDeal} onCardClick={() => setSelectedDealForModal(deal)} />
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          {filteredDeals.map((deal) => (
-            <ProductCard key={deal.id} deal={deal} settings={settings} onSelect={onSelectDeal} onCardClick={() => setSelectedDealForModal(deal)} />
-          ))}
-        </div>
-      )}
+      {/* Main Deals Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+        {filteredDeals.map((deal) => (
+          <ProductCard
+            key={deal.id}
+            deal={deal}
+            settings={settings}
+            onSelect={onSelectDeal}
+            onCardClick={() => setSelectedDealForModal(deal)}
+          />
+        ))}
+      </div>
 
       {/* Product Detail Modal */}
       <ProductDetailModal
@@ -265,18 +186,23 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
           badge: selectedDealForModal.badge
         } : null}
         settings={settings}
-        onAddToCart={(item) => {
-          onSelectDeal({
-            id: selectedDealForModal?.id || 'modal-deal',
-            title: item.title,
-            priceAed: item.priceAed,
-            weightKg: item.weightKg,
-            image: item.image,
-            storeName: item.storeName,
-            url: item.url || 'https://www.drnutrition.com',
-            isActive: true,
-            category: selectedDealForModal?.category || 'محصول دبی'
-          });
+        onAddToCart={(productPayload, flavor, size) => {
+          if (onAddToCart) {
+            onAddToCart(productPayload, flavor, size);
+          } else {
+            onSelectDeal({
+              id: selectedDealForModal?.id || 'modal-deal',
+              title: productPayload.title,
+              priceAed: productPayload.priceAed,
+              weightKg: productPayload.weightKg,
+              image: productPayload.image,
+              storeName: productPayload.storeName,
+              url: productPayload.url || 'https://www.drnutrition.com',
+              isActive: true,
+              category: selectedDealForModal?.category || 'محصول دبی'
+            });
+          }
+          setSelectedDealForModal(null);
         }}
       />
 
@@ -299,14 +225,16 @@ const ProductCard: React.FC<{
     weight,
     settings.cargoRatePerKg,
     settings.profitMargin,
-    settings.aedRate
+    getEffectiveAedRate(settings)
   );
 
-  const discountVal =
-    deal.discountPercent ||
-    (deal.originalPriceAed
-      ? Math.round(((deal.originalPriceAed - deal.priceAed) / deal.originalPriceAed) * 100)
-      : 20);
+  const computedDiscount = (deal.originalPriceAed && deal.originalPriceAed > deal.priceAed)
+    ? Math.round(((deal.originalPriceAed - deal.priceAed) / deal.originalPriceAed) * 100)
+    : 0;
+
+  const discountVal = (deal.discountPercent && deal.discountPercent > 0)
+    ? deal.discountPercent
+    : (computedDiscount > 0 ? computedDiscount : 0);
 
   // Visual styling for Brand Logo Container & Badges (Matching Screenshot 1 & 2)
   const getBrandVisual = (title: string, brandName?: string) => {
@@ -360,12 +288,16 @@ const ProductCard: React.FC<{
       onClick={onCardClick || (() => onSelect(deal))}
       className="product-card bg-white border border-slate-200/90 rounded-[22px] p-3.5 shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col justify-between relative space-y-3 overflow-hidden"
     >
-      {/* Top Left Floating Discount Badge (-20%, -10%, etc) */}
-      {discountVal > 0 && (
+      {/* Top Left Floating Discount Badge or Custom Badge */}
+      {discountVal > 0 ? (
         <span className="discount-badge absolute top-3 left-3 bg-[#E11D48] text-white text-[10px] font-black px-2 py-0.5 rounded-full z-20 dir-ltr shadow-2xs">
           -{toPersianDigits(discountVal)}٪
         </span>
-      )}
+      ) : deal.badge ? (
+        <span className="discount-badge absolute top-3 left-3 bg-[#E11D48] text-white text-[10px] font-black px-2 py-0.5 rounded-full z-20 dir-rtl shadow-2xs">
+          {deal.badge}
+        </span>
+      ) : null}
 
       {/* Center Pastel Logo Box / Image Container with Overlapping Brand Pill */}
       <div className="img-wrap relative w-full h-[130px] overflow-hidden rounded-[18px]">
@@ -434,22 +366,20 @@ const ProductCard: React.FC<{
         </div>
       </div>
 
-      {/* Full-width Crimson Red Action Button */}
+      {/* Full-width Action Button - Opens Product Details Modal */}
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          onSelect(deal);
-          setIsAdded(true);
-          setTimeout(() => setIsAdded(false), 1500);
+          if (onCardClick) {
+            onCardClick();
+          } else {
+            onSelect(deal);
+          }
         }}
-        className={`w-full font-extrabold text-xs py-2.5 rounded-[14px] transition cursor-pointer text-center ${
-          isAdded
-            ? 'bg-emerald-600 text-white border-emerald-600'
-            : 'bg-[#111111] hover:bg-[#D31027] text-white border border-[#111111] hover:border-[#D31027] shadow-2xs'
-        }`}
+        className="w-full font-extrabold text-xs py-2.5 rounded-[14px] transition cursor-pointer text-center bg-[#111111] hover:bg-[#D31027] text-white border border-[#111111] hover:border-[#D31027] shadow-2xs"
       >
-        {isAdded ? '✓ اضافه شد!' : 'افزودن به سبد خرید'}
+        افزودن به سبد خرید
       </button>
 
     </div>

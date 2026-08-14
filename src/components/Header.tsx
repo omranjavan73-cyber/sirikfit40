@@ -1,8 +1,9 @@
-import React, { useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ShoppingCart, RotateCw } from 'lucide-react';
 import type { FinancialSettings, User, CmsConfig } from '../types';
-import { formatToman, toPersianDigits } from '../utils/formatters';
+import { formatToman, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
 import { SirikFitLogo } from './SirikFitLogo';
+import { useSettings } from '../context/SettingsContext';
 
 interface HeaderProps {
   settings: FinancialSettings | null;
@@ -31,6 +32,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCart,
   isCartActive
 }) => {
+  const { aedRate, isLoading: isSettingsContextLoading, refreshSettings } = useSettings();
+
   const home = cms?.homeContent;
   const showPromo = home?.showTopPromo ?? false;
   const promoText = home?.topPromoText || 'سیریک فیت - مکمل‌های تخصصی ورزشی و اورجینال';
@@ -41,6 +44,17 @@ export const Header: React.FC<HeaderProps> = ({
 
   const rawBrandSubtitle = (home as any)?.brandSubtitle || home?.headerPillSlogan || home?.appSubtitle || (settings as any)?.brandSubtitle || 'مکملهای ورزشی و اورجینال';
   const cleanBrandSubtitle = rawBrandSubtitle.replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکملهای ورزشی و اورجینال';
+
+  // Read dynamic aedRate directly from React Global Context or localStorage
+  const localRateStr = typeof window !== 'undefined' ? localStorage.getItem('sirikfit_aed_rate') : null;
+  const localRate = localRateStr ? parseFloat(localRateStr) : null;
+  const dynamicRate = (aedRate && aedRate > 0)
+    ? aedRate
+    : ((localRate && localRate > 0)
+      ? localRate
+      : (settings?.aedRate || settings?.manualAedRate || getEffectiveAedRate(settings, cms) || null));
+
+  const isLoadingRate = isLoadingSettings || isSettingsContextLoading;
 
   // Triple-tap counter for admin access (3 taps within 1.5 seconds)
   const tapCountRef = useRef<number>(0);
@@ -139,7 +153,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* LEFT SIDE UTILITY AREA (Shopping Cart physically on LEFT, AED Rate physically on RIGHT) */}
+          {/* LEFT SIDE UTILITY AREA */}
           <div dir="ltr" className="flex items-center gap-1.5 sm:gap-2 shrink-0 [direction:ltr]">
             
             {/* 1. Shopping Cart Icon Button (Physically on the LEFT) */}
@@ -164,23 +178,30 @@ export const Header: React.FC<HeaderProps> = ({
             )}
 
             {/* 2. AED Rate Pill (Physically to the RIGHT of Cart Button) */}
-            {settings && (
-              <div
-                onClick={onRefreshSettings}
-                className="flex flex-col items-center justify-center dir-rtl bg-white border border-slate-200 hover:border-slate-300 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-2xl shadow-2xs cursor-pointer select-none transition min-w-[78px] sm:min-w-[95px] shrink-0"
-                title="به‌روزرسانی نرخ درهم"
-              >
-                <div className="flex items-center justify-center gap-1">
-                  <span className="text-[9px] sm:text-[9.5px] font-bold text-slate-400 whitespace-nowrap leading-none">
-                    نرخ درهم
-                  </span>
-                  <RotateCw className={`w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400 ${isLoadingSettings ? 'animate-spin text-amber-500' : ''}`} />
-                </div>
-                <span className="font-extrabold text-slate-900 text-[9.5px] sm:text-[11px] whitespace-nowrap leading-tight mt-0.5">
-                  {toPersianDigits(formatToman(settings.aedRate))}
+            <div
+              onClick={() => {
+                if (onRefreshSettings) onRefreshSettings();
+                refreshSettings();
+              }}
+              className="flex flex-col items-center justify-center dir-rtl bg-white border border-slate-200 hover:border-slate-300 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-2xl shadow-2xs cursor-pointer select-none transition min-w-[78px] sm:min-w-[95px] shrink-0"
+              title="به‌روزرسانی نرخ درهم"
+            >
+              <div className="flex items-center justify-center gap-1">
+                <span className="text-[9px] sm:text-[9.5px] font-bold text-slate-400 whitespace-nowrap leading-none">
+                  نرخ درهم
                 </span>
+                <RotateCw className={`w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400 ${isLoadingRate ? 'animate-spin text-amber-500' : ''}`} />
               </div>
-            )}
+              <span className="font-extrabold text-slate-900 text-[9.5px] sm:text-[11px] whitespace-nowrap leading-tight mt-0.5">
+                {isLoadingRate ? (
+                  <span className="text-slate-400 font-normal">--</span>
+                ) : dynamicRate && dynamicRate > 0 ? (
+                  `${toPersianDigits(dynamicRate.toLocaleString('fa-IR'))} تومان`
+                ) : (
+                  '--'
+                )}
+              </span>
+            </div>
 
           </div>
 
@@ -190,3 +211,4 @@ export const Header: React.FC<HeaderProps> = ({
   );
 };
 
+export default Header;

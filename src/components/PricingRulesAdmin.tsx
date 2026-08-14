@@ -1,226 +1,213 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Calculator,
+  Percent,
+  Truck,
+  Layers,
+  PackagePlus,
+  ShieldCheck,
+  Sparkles,
   Plus,
   Trash2,
-  Save,
-  CheckCircle2,
-  AlertCircle,
-  HelpCircle,
   ArrowUp,
   ArrowDown,
-  Layers,
-  Sparkles,
-  Truck,
-  Percent,
+  Save,
+  ArrowRight,
+  CheckCircle2,
   Coins,
-  ShieldCheck,
   RefreshCw,
-  Info,
-  ToggleLeft,
-  ToggleRight,
-  Lock
+  Loader2,
+  AlertTriangle,
+  X
 } from 'lucide-react';
 import { FinancialSettings, CmsConfig, PricingRulesConfig, CommissionRule, ShippingIncrementRule } from '../types';
-import { saveSettingsToFirestore, saveCmsToFirestore } from '../firebase';
+import { db, saveSettingsToFirestore, saveCmsToFirestore, isFirestoreGrpcNoise } from '../firebase';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import {
   DEFAULT_PRICING_RULES,
-  loadPricingRulesFromStorage,
-  savePricingRulesToStorage,
-  calculateOrderPricing
+  calculateOrderPricing,
+  normalizeToPricingRulesConfig
 } from '../utils/pricingEngine';
-import { formatToman, formatAed, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
-import { getEffectiveGeminiKey } from '../utils/geminiKey';
+import { formatToman, toPersianDigits, normalizeToEnglishDigits } from '../utils/formatters';
+import { useSettings } from '../context/SettingsContext';
+import { saveAdminSettingsPayload } from '../utils/adminSaveHelper';
 
 interface PricingRulesAdminProps {
-  settings: FinancialSettings;
-  onUpdateSettings?: (newSettings: FinancialSettings) => void;
-  cms?: CmsConfig | null;
-  onUpdateCms?: (newCms: CmsConfig) => void;
-  onSavePricingRules?: (newRules: PricingRulesConfig) => void;
+  settings: FinancialSettings | null;
+  cms: CmsConfig | null;
+  onSaveSuccess?: () => void;
+  onBackToMainAdmin?: () => void;
+  onOpenStandalonePage?: () => void;
 }
-
-const sanitizeNumericInput = (val: string): string => {
-  if (val === '') return '';
-  // Strips leading zeros before any digits (e.g. "0200" -> "200", "020" -> "20", "0.5" -> "0.5", "00" -> "0")
-  let cleaned = val.replace(/^0+(?=\d)/, '');
-  if (cleaned.startsWith('.')) cleaned = '0' + cleaned;
-  return cleaned;
-};
-
-const handleNumberInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-  e.target.select();
-};
 
 export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
   settings,
-  onUpdateSettings,
   cms,
-  onUpdateCms,
-  onSavePricingRules
+  onSaveSuccess,
+  onBackToMainAdmin,
+  onOpenStandalonePage
 }) => {
-  // Load initial configuration
-  const initialConfig = cms?.pricingRules || loadPricingRulesFromStorage();
+  const { aedRate: contextAedRate, setAedRate: setContextAedRate } = useSettings();
 
-  // SECTION 0: AED Exchange Rate & Financial Settings State
-  const [aedRateInput, setAedRateInput] = useState<string>(String(settings.aedRate || 53000));
-  const [manualAedRateInput, setManualAedRateInput] = useState<string>(
-    String(settings.manualAedRate || settings.aedRate || 53000)
-  );
-  const [autoUpdateRates, setAutoUpdateRates] = useState<boolean>(
-    cms?.apiConfig?.autoUpdateRates ?? true
-  );
-  const [currencyApiUrl, setCurrencyApiUrl] = useState<string>(
-    cms?.apiConfig?.currencyApiUrl || ''
-  );
-  const [cargoRateKgInput, setCargoRateKgInput] = useState<string>(
-    String(settings.cargoRatePerKg || 35)
-  );
-  const [profitMarginInput, setProfitMarginInput] = useState<string>(
-    String(settings.profitMargin || 15)
-  );
+  // Load initial value from context or localStorage or settings
+  const initialAedRate = useMemo(() => {
+    if (contextAedRate && contextAedRate > 0) return contextAedRate;
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('sirikfit_aed_rate');
+      if (stored) {
+        const p = parseFloat(stored);
+        if (!isNaN(p) && p > 0) return p;
+      }
+    }
+    return settings?.aedRate || settings?.manualAedRate || 52000;
+  }, [contextAedRate, settings]);
 
-  const [isTestingRateApi, setIsTestingRateApi] = useState<boolean>(false);
-  const [rateTestResult, setRateTestResult] = useState<{
-    message: string;
-    type: 'success' | 'error' | 'warning';
-    rate?: number;
-  } | null>(null);
+  // Section 1: AED Rate Input
+  const [aedRateInput, setAedRateInput] = useState<string>(String(initialAedRate));
 
-  // SECTION 1: Base Commission State
-  const [baseCommissionPercent, setBaseCommissionPercent] = useState<string>(
-    String(initialConfig.baseCommission?.percentage ?? 20)
-  );
-  const [isBaseCommissionEnabled, setIsBaseCommissionEnabled] = useState<boolean>(
-    initialConfig.baseCommission?.isEnabled ?? true
-  );
+  // Section 2: Base Commission
+  const [baseCommissionEnabled, setBaseCommissionEnabled] = useState<boolean>(true);
+  const [baseCommissionPercent, setBaseCommissionPercent] = useState<string>('20');
 
-  // SECTION 2: Commission Rules State
-  const [commissionRules, setCommissionRules] = useState<CommissionRule[]>(
-    initialConfig.commissionRules && initialConfig.commissionRules.length > 0
-      ? initialConfig.commissionRules
-      : DEFAULT_PRICING_RULES.commissionRules
-  );
+  // Section 3: Shipping Config
+  const [baseShippingCostAed, setBaseShippingCostAed] = useState<string>('20');
+  const [minShippingCostAed, setMinShippingCostAed] = useState<string>('20');
+  const [maxShippingCostAed, setMaxShippingCostAed] = useState<string>('40');
 
-  // SECTION 3: Shipping Configuration State
-  const [baseShippingCost, setBaseShippingCost] = useState<string>(
-    String(initialConfig.shippingConfig?.baseShippingCostAed ?? 20)
-  );
-  const [minShippingCost, setMinShippingCost] = useState<string>(
-    String(initialConfig.shippingConfig?.minShippingCostAed ?? 20)
-  );
-  const [maxShippingCost, setMaxShippingCost] = useState<string>(
-    String(initialConfig.shippingConfig?.maxShippingCostAed ?? 40)
-  );
+  // Section 4: Commission Tiered Rules
+  const [commissionRules, setCommissionRules] = useState<CommissionRule[]>([
+    { id: 'rule-1', minAmountAed: 0, maxAmountAed: 500, commissionPercent: 20, isEnabled: true },
+    { id: 'rule-2', minAmountAed: 500, maxAmountAed: 1000, commissionPercent: 18, isEnabled: true },
+    { id: 'rule-3', minAmountAed: 1000, maxAmountAed: 2000, commissionPercent: 16, isEnabled: true },
+    { id: 'rule-4', minAmountAed: 2000, maxAmountAed: null, commissionPercent: 14, isEnabled: true }
+  ]);
 
-  // SECTION 4: Shipping Increment Rules State
-  const [shippingIncrementRules, setShippingIncrementRules] = useState<ShippingIncrementRule[]>(
-    initialConfig.shippingIncrementRules && initialConfig.shippingIncrementRules.length > 0
-      ? initialConfig.shippingIncrementRules
-      : DEFAULT_PRICING_RULES.shippingIncrementRules
-  );
+  // Section 5: Shipping Increments
+  const [shippingIncrementRules, setShippingIncrementRules] = useState<ShippingIncrementRule[]>([
+    { id: 'ship-inc-2', itemNumber: 2, additionalCostAed: 5, isEnabled: true },
+    { id: 'ship-inc-3', itemNumber: 3, additionalCostAed: 5, isEnabled: true },
+    { id: 'ship-inc-4', itemNumber: 4, additionalCostAed: 5, isEnabled: true }
+  ]);
 
-  // UI Save / Toast State
+  // Section 7: Live Simulator Inputs
+  const [simOrderAmountAed, setSimOrderAmountAed] = useState<string>('750');
+  const [simProductCount, setSimProductCount] = useState<string>('2');
+  const [simAedRate, setSimAedRate] = useState<string>(String(initialAedRate));
+
+  // Saving states
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+  const [saveMessage, setSaveMessage] = useState<string>('');
 
-  // SECTION 7: Live Pricing Simulator State
-  const [simOrderAmount, setSimOrderAmount] = useState<string>('750');
-  const [simProductCount, setSimProductCount] = useState<string>('2');
-  const [simAedRate, setSimAedRate] = useState<string>(String(settings.aedRate || 53000));
-
-  // Active AED Rate calculation
-  const currentActiveAedRate = autoUpdateRates
-    ? (parseFloat(aedRateInput) || parseFloat(manualAedRateInput) || 53000)
-    : (parseFloat(manualAedRateInput) || 53000);
-
-  // Sync state if settings change
+  // Hydrate & Realtime Sync from Firestore / LocalStorage on mount
   useEffect(() => {
-    if (settings) {
-      setAedRateInput(String(settings.aedRate || 53000));
-      setManualAedRateInput(String(settings.manualAedRate || settings.aedRate || 53000));
-      setCargoRateKgInput(String(settings.cargoRatePerKg || 35));
-      setProfitMarginInput(String(settings.profitMargin || 15));
-      setSimAedRate(String(settings.aedRate || 53000));
-    }
-  }, [settings.aedRate, settings.manualAedRate, settings.cargoRatePerKg, settings.profitMargin]);
+    let unsubApp: (() => void) | null = null;
 
+    const populateFromData = (data: any) => {
+      if (!data) return;
+      if (data.aedRate && Number(data.aedRate) > 0) {
+        setAedRateInput(String(data.aedRate));
+        setSimAedRate(String(data.aedRate));
+      }
+
+      if (data.baseCommission) {
+        setBaseCommissionEnabled(data.baseCommission.enabled ?? data.baseCommission.isEnabled ?? true);
+        setBaseCommissionPercent(String(data.baseCommission.percentage ?? data.baseCommission.percent ?? 20));
+      }
+
+      if (data.shippingConfig) {
+        setBaseShippingCostAed(String(data.shippingConfig.baseCostAed ?? data.shippingConfig.baseShippingCostAed ?? 20));
+        setMinShippingCostAed(String(data.shippingConfig.minCostAed ?? data.shippingConfig.minShippingCostAed ?? 20));
+        setMaxShippingCostAed(String(data.shippingConfig.maxCostAed ?? data.shippingConfig.maxShippingCostAed ?? 40));
+      }
+
+      if (Array.isArray(data.commissionRules) && data.commissionRules.length > 0) {
+        setCommissionRules(
+          data.commissionRules.map((r: any, idx: number) => ({
+            id: String(r.id || `rule-${idx + 1}`),
+            minAmountAed: Number(r.minAmountAed ?? 0),
+            maxAmountAed: r.maxAmountAed === null || r.maxAmountAed === undefined || Number(r.maxAmountAed) === 0 ? null : Number(r.maxAmountAed),
+            commissionPercent: Number(r.percentage ?? r.commissionPercent ?? 20),
+            isEnabled: Boolean(r.active ?? r.isEnabled ?? true)
+          }))
+        );
+      }
+
+      if (Array.isArray(data.shippingIncrementRules) && data.shippingIncrementRules.length > 0) {
+        setShippingIncrementRules(
+          data.shippingIncrementRules.map((r: any, idx: number) => ({
+            id: String(r.id || `inc-${idx + 2}`),
+            itemNumber: Number(r.itemIndex ?? r.itemNumber ?? idx + 2),
+            additionalCostAed: Number(r.additionalCostAed ?? 5),
+            isEnabled: Boolean(r.active ?? r.isEnabled ?? true)
+          }))
+        );
+      }
+    };
+
+    // 1. Immediate local cache load
+    try {
+      const raw = localStorage.getItem('sirikfit_app_settings') || localStorage.getItem('omex_pricing_rules');
+      if (raw) populateFromData(JSON.parse(raw));
+    } catch (_e) {}
+
+    // 2. Realtime Firestore listener
+    try {
+      unsubApp = onSnapshot(doc(db, 'settings', 'app'), (snap) => {
+        if (snap.exists()) {
+          populateFromData(snap.data());
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('PricingRules onSnapshot notice:', err);
+      });
+    } catch (err) {
+      console.warn('Error setting up PricingRules onSnapshot:', err);
+    }
+
+    return () => {
+      if (unsubApp) unsubApp();
+    };
+  }, []);
+
+  // Update sim rate when main rate changes
   useEffect(() => {
-    if (cms?.apiConfig) {
-      setCurrencyApiUrl(cms.apiConfig.currencyApiUrl || '');
-      setAutoUpdateRates(cms.apiConfig.autoUpdateRates ?? true);
+    if (aedRateInput) {
+      setSimAedRate(aedRateInput);
     }
-  }, [cms?.apiConfig?.currencyApiUrl, cms?.apiConfig?.autoUpdateRates]);
+  }, [aedRateInput]);
 
-  // Build current rules config object dynamically
-  const getCurrentRulesConfig = (): PricingRulesConfig => {
+  // Current Active Rules Config Object
+  const activePricingConfig = useMemo(() => {
     return {
       baseCommission: {
-        percentage: Math.max(0, parseFloat(baseCommissionPercent) || 0),
-        isEnabled: isBaseCommissionEnabled
+        percentage: Math.max(0, parseFloat(normalizeToEnglishDigits(baseCommissionPercent)) || 20),
+        isEnabled: baseCommissionEnabled
+      },
+      shippingConfig: {
+        baseShippingCostAed: Math.max(0, parseFloat(normalizeToEnglishDigits(baseShippingCostAed)) || 20),
+        minShippingCostAed: Math.max(0, parseFloat(normalizeToEnglishDigits(minShippingCostAed)) || 20),
+        maxShippingCostAed: Math.max(0, parseFloat(normalizeToEnglishDigits(maxShippingCostAed)) || 40)
       },
       commissionRules,
-      shippingConfig: {
-        baseShippingCostAed: Math.max(0, parseFloat(baseShippingCost) || 0),
-        minShippingCostAed: Math.max(0, parseFloat(minShippingCost) || 0),
-        maxShippingCostAed: Math.max(0, parseFloat(maxShippingCost) || 0)
-      },
       shippingIncrementRules
     };
-  };
+  }, [baseCommissionEnabled, baseCommissionPercent, baseShippingCostAed, minShippingCostAed, maxShippingCostAed, commissionRules, shippingIncrementRules]);
 
-  // Run calculation simulator
-  const activeConfig = getCurrentRulesConfig();
-  const simResult = calculateOrderPricing(
-    parseFloat(simOrderAmount) || 0,
-    parseInt(simProductCount) || 1,
-    parseFloat(simAedRate) || currentActiveAedRate,
-    activeConfig
-  );
+  // Live Simulator Calculation
+  const simResult = useMemo(() => {
+    const amount = parseFloat(normalizeToEnglishDigits(simOrderAmountAed)) || 0;
+    const count = parseInt(normalizeToEnglishDigits(simProductCount), 10) || 1;
+    const rate = parseFloat(normalizeToEnglishDigits(simAedRate)) || parseFloat(normalizeToEnglishDigits(aedRateInput)) || 0;
 
-  // SECTION 0 Handlers: Rate API Test & Manual Lock (🟢 [FIXED_BY_AI]: Bypassed external API fetch and enforced cascading manual rate system)
-  const handleTestApiRate = async () => {
-    setIsTestingRateApi(true);
-    setRateTestResult(null);
-    try {
-      const activeRate = getEffectiveAedRate(settings);
-      setRateTestResult({
-        message: `استعلام آنلاین غیرفعال گردید. سیستم بر روی نرخ دستی آبشاری فعال است: ${activeRate.toLocaleString('fa-IR')} تومان`,
-        type: 'success',
-        rate: activeRate
-      });
-      setAedRateInput(String(activeRate));
-      setManualAedRateInput(String(activeRate));
-      setSimAedRate(String(activeRate));
-    } catch (_e) {
-      const fallback = 53000;
-      setRateTestResult({
-        message: `نرخ دستی رزرو سختافزاری: ${fallback.toLocaleString('fa-IR')} تومان`,
-        type: 'warning',
-        rate: fallback
-      });
-    } finally {
-      setIsTestingRateApi(false);
-    }
-  };
+    return calculateOrderPricing(amount, count, rate, activePricingConfig);
+  }, [simOrderAmountAed, simProductCount, simAedRate, aedRateInput, activePricingConfig]);
 
-  const handleForceManualRate = () => {
-    setAutoUpdateRates(false);
-    const manualNum = parseFloat(manualAedRateInput) || 53000;
-    setAedRateInput(String(manualNum));
-    setSimAedRate(String(manualNum));
-    setRateTestResult({
-      message: `سیستم قفل شد روی نرخ دستی: ${manualNum.toLocaleString('fa-IR')} تومان`,
-      type: 'success'
-    });
-  };
-
-  // SECTION 2 Handlers: Commission Rules
+  // Handlers for Commission Rules
   const handleAddCommissionRule = () => {
     const lastRule = commissionRules[commissionRules.length - 1];
-    const newMin = lastRule ? (lastRule.maxAmountAed || lastRule.minAmountAed + 1000) : 2000;
+    const newMin = lastRule ? (lastRule.maxAmountAed || lastRule.minAmountAed + 1000) : 0;
     const newRule: CommissionRule = {
-      id: 'rule-' + Date.now(),
+      id: `rule-${Date.now()}`,
       minAmountAed: newMin,
       maxAmountAed: newMin + 1000,
       commissionPercent: 12,
@@ -236,26 +223,26 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
   };
 
   const handleDeleteCommissionRule = (id: string) => {
+    if (commissionRules.length <= 1) return;
     setCommissionRules(prev => prev.filter(r => r.id !== id));
   };
 
   const handleMoveCommissionRule = (index: number, direction: 'up' | 'down') => {
-    if (direction === 'up' && index === 0) return;
-    if (direction === 'down' && index === commissionRules.length - 1) return;
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    const updated = [...commissionRules];
-    const temp = updated[index];
-    updated[index] = updated[targetIndex];
-    updated[targetIndex] = temp;
-    setCommissionRules(updated);
+    if (targetIndex < 0 || targetIndex >= commissionRules.length) return;
+    const newRules = [...commissionRules];
+    const temp = newRules[index];
+    newRules[index] = newRules[targetIndex];
+    newRules[targetIndex] = temp;
+    setCommissionRules(newRules);
   };
 
-  // SECTION 4 Handlers: Shipping Increment Rules
+  // Handlers for Shipping Increment Rules
   const handleAddShippingIncrementRule = () => {
-    const nextItemNumber = shippingIncrementRules.length + 2;
+    const nextItemIndex = shippingIncrementRules.length + 2;
     const newRule: ShippingIncrementRule = {
-      id: 'ship-inc-' + Date.now(),
-      itemNumber: nextItemNumber,
+      id: `ship-inc-${Date.now()}`,
+      itemNumber: nextItemIndex,
       additionalCostAed: 5,
       isEnabled: true
     };
@@ -272,98 +259,179 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
     setShippingIncrementRules(prev => prev.filter(r => r.id !== id));
   };
 
-  // Unified Save Config Handler (🟢 [FIXED_BY_AI]: Direct Firestore persistence with cascading fallback)
-  const handleSaveAllRules = async () => {
+  // Main Save Handler
+  const handleSaveSettings = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
-
-    const rawInput = parseFloat(manualAedRateInput) || parseFloat(aedRateInput);
-    const manualAedRate = (!isNaN(rawInput) && rawInput > 0) ? rawInput : getEffectiveAedRate(settings);
-    const aedRate = manualAedRate;
-    const cargoRatePerKg = Math.max(0, parseFloat(cargoRateKgInput) || 35);
-    const profitMargin = Math.max(0, parseFloat(profitMarginInput) || 15);
-    const savedGeminiKey = getEffectiveGeminiKey(cms?.apiConfig?.geminiApiKey);
-
-    const settingsPayload: FinancialSettings = {
-      aedRate,
-      manualAedRate,
-      autoUpdateRates: false,
-      currencyApiUrl: '',
-      cargoRatePerKg,
-      profitMargin
-    };
-
-    if (onUpdateSettings) {
-      onUpdateSettings(settingsPayload);
-    }
+    setSaveMessage('');
 
     try {
-      localStorage.setItem('sirikfit_financial_settings', JSON.stringify(settingsPayload));
-      localStorage.setItem('omex_financial_settings', JSON.stringify(settingsPayload));
-      localStorage.setItem('sirikfit_aed_rate', String(aedRate));
-      await saveSettingsToFirestore(settingsPayload);
-    } catch (err) {
-      console.warn('Firestore settings save warning:', err);
-    }
+      const cleanRateStr = normalizeToEnglishDigits(aedRateInput);
+      const parsedRate = parseFloat(cleanRateStr.replace(/[^0-9.]/g, '')) || 0;
 
-    // Save Pricing Rules & CMS config
-    const configToSave = getCurrentRulesConfig();
-    savePricingRulesToStorage(configToSave);
+      const cleanBasePercent = parseFloat(normalizeToEnglishDigits(baseCommissionPercent)) || 20;
+      const cleanBaseShip = parseFloat(normalizeToEnglishDigits(baseShippingCostAed)) || 20;
+      const cleanMinShip = parseFloat(normalizeToEnglishDigits(minShippingCostAed)) || 20;
+      const cleanMaxShip = parseFloat(normalizeToEnglishDigits(maxShippingCostAed)) || 40;
 
-    if (onSavePricingRules) {
-      onSavePricingRules(configToSave);
-    }
+      // Construct Firestore AppSettings Object
+      const appSettingsPayload = {
+        aedRate: parsedRate,
+        baseCommission: {
+          enabled: baseCommissionEnabled,
+          percentage: cleanBasePercent
+        },
+        shippingConfig: {
+          baseCostAed: cleanBaseShip,
+          minCostAed: cleanMinShip,
+          maxCostAed: cleanMaxShip
+        },
+        commissionRules: commissionRules.map(r => ({
+          id: r.id,
+          active: r.isEnabled,
+          minAmountAed: Number(r.minAmountAed || 0),
+          maxAmountAed: r.maxAmountAed === null || r.maxAmountAed === undefined || Number(r.maxAmountAed) === 0 ? null : Number(r.maxAmountAed),
+          percentage: Number(r.commissionPercent || 0)
+        })),
+        shippingIncrementRules: shippingIncrementRules.map(r => ({
+          id: r.id,
+          active: r.isEnabled,
+          itemIndex: Number(r.itemNumber || 2),
+          additionalCostAed: Number(r.additionalCostAed || 0)
+        }))
+      };
 
-    const updatedCms: CmsConfig = {
-      ...(cms || {
-        heroTitle: '',
-        heroSubtitle: '',
-        heroNotice: '',
-        heroImage: '',
-        stores: [],
-        apiConfig: { currencyApiUrl: '', autoUpdateRates: false, scraperEndpoint: '', geminiApiKey: '' }
-      }),
-      pricingRules: configToSave,
-      apiConfig: {
-        ...(cms?.apiConfig || { scraperEndpoint: '', geminiApiKey: '' }),
-        currencyApiUrl: '',
+      // 1. Write to Firestore document `settings/app` and `settings/financial`
+      await setDoc(doc(db, 'settings', 'app'), appSettingsPayload, { merge: true });
+      await setDoc(doc(db, 'settings', 'financial'), {
+        aedRate: parsedRate,
+        manualAedRate: parsedRate,
         autoUpdateRates: false,
-        geminiApiKey: savedGeminiKey
+        currencyApiUrl: ''
+      }, { merge: true });
+
+      // 2. Save directly to LocalStorage
+      if (parsedRate > 0) {
+        localStorage.setItem('sirikfit_aed_rate', String(parsedRate));
       }
-    };
+      localStorage.setItem('sirikfit_app_settings', JSON.stringify(appSettingsPayload));
+      localStorage.setItem('omex_pricing_rules', JSON.stringify(activePricingConfig));
 
-    if (onUpdateCms) {
-      onUpdateCms(updatedCms);
-    }
+      // 3. Update React Global Context
+      if (parsedRate > 0) {
+        setContextAedRate(parsedRate);
+      }
 
-    try {
-      localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
-      await saveCmsToFirestore(updatedCms);
-    } catch (e) {
-      console.warn('Error syncing pricing rules to Firestore:', e);
+      // 4. Dispatch custom window event
+      window.dispatchEvent(new CustomEvent('settingsUpdated', {
+        detail: {
+          aedRate: parsedRate,
+          appSettings: appSettingsPayload,
+          pricingRules: activePricingConfig
+        }
+      }));
+
+      // 4. Atomic Multi-Document Persistence via saveAdminSettingsPayload
+      await saveAdminSettingsPayload(
+        {
+          aedRate: parsedRate,
+          manualAedRate: parsedRate,
+          cargoRatePerKg: cleanBaseShip,
+          profitMargin: cleanBasePercent,
+          ...appSettingsPayload
+        },
+        cms
+      );
+
+      // Also attempt backend API save if server endpoint is live
+      try {
+        await saveSettingsToFirestore({
+          aedRate: parsedRate,
+          manualAedRate: parsedRate,
+          cargoRatePerKg: cleanBaseShip,
+          profitMargin: cleanBasePercent
+        } as any);
+      } catch (_apiErr) {}
+
+      setSaveSuccess(true);
+      setSaveMessage('تنظیمات با موفقیت ذخیره شد و در سراسر سیستم اعمال گردید.');
+
+      if (onSaveSuccess) {
+        onSaveSuccess();
+      }
+
+      setTimeout(() => {
+        setSaveSuccess(false);
+        setSaveMessage('');
+      }, 4000);
+    } catch (err: any) {
+      console.error('Failed to save pricing rules:', err);
+      setSaveMessage('خطا در ذخیره‌سازی تنظیمات. لطفا مجددا تلاش کنید.');
+      setTimeout(() => {
+        setSaveMessage('');
+      }, 4000);
     } finally {
       setIsSaving(false);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3500);
     }
   };
 
   return (
-    <div className="space-y-6 font-['Vazirmatn',sans-serif] animate-fade-in text-slate-800">
+    <div className="w-full max-w-5xl mx-auto space-y-6 pb-32 dir-rtl text-slate-900 font-['Vazirmatn',sans-serif]">
       
-      {/* Top Banner & Header */}
-      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 shadow-2xs">
-            <Calculator className="w-6 h-6" />
+      {/* TOP NAVIGATION BANNER */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 text-white p-4 rounded-2xl shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+            <Calculator className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="font-extrabold text-lg sm:text-xl text-slate-900 tracking-tight flex items-center gap-2">
-              <span>قوانین قیمت‌گذاری، نرخ درهم و کارمزد SIRIK FIT</span>
+            <h2 className="font-extrabold text-sm sm:text-base">
+              قوانین قیمت‌گذاری، نرخ درهم و کارمزد SIRIK FIT (پنل یکپارچه)
+            </h2>
+            <p className="text-xs text-slate-300 mt-0.5">
+              تنظیم نرخ درهم (خودکار/دستی)، درصد کارمزد، فرمول هزینه ارسال و شبیه‌ساز قیمت در یک صفحه واحد
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {onOpenStandalonePage && (
+            <button
+              type="button"
+              onClick={onOpenStandalonePage}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition shadow-xs"
+            >
+              صفحه اختصاصی
+            </button>
+          )}
+          {onBackToMainAdmin && (
+            <button
+              type="button"
+              onClick={onBackToMainAdmin}
+              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition flex items-center gap-1.5 border border-slate-700"
+            >
+              <span>بازگشت به منوی اصلی مدیریت</span>
+              <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* HEADER TITLE CARD */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-2xs">
+            <Calculator className="w-6 h-6 stroke-[2]" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-black text-slate-900">
+                قوانین قیمت‌گذاری، نرخ درهم و کارمزد SIRIK FIT
+              </h1>
               <span className="bg-indigo-100 text-indigo-800 text-[10px] font-black px-2 py-0.5 rounded-md">
                 پنل یکپارچه
               </span>
-            </h2>
+            </div>
             <p className="text-xs text-slate-500 font-medium mt-1">
               تنظیم نرخ درهم (خودکار/دستی)، درصد کارمزد، فرمول هزینه ارسال و شبیه‌ساز قیمت در یک صفحه واحد
             </p>
@@ -371,202 +439,168 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       </div>
 
-      {/* Success Toast / Notification */}
-      {saveSuccess && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-extrabold flex items-center justify-between shadow-2xs animate-fade-in">
-          <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-            <span>تنظیمات نرخ درهم و قوانین قیمت‌گذاری با موفقیت ذخیره شد و در تمام بخش‌های فروشگاه اعمال گردید.</span>
+      {/* SECTION 1: تنظیم نرخ درهم (AED Exchange Rate) */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 text-amber-600 flex items-center justify-center">
+            <Coins className="w-5 h-5 stroke-[2.2]" />
           </div>
-          <span className="text-[10px] bg-emerald-100 px-2 py-1 rounded-md text-emerald-900 font-bold">
-            اعمال آنی (Real-Time)
-          </span>
-        </div>
-      )}
-
-      {/* SECTION 0: AED Exchange Rate Configuration (تنظیمات نرخ دستی درهم) */}
-      <div id="ap-rate" className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
-        
-        {/* Header Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-          <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-              <Coins className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="font-black text-base text-slate-900">
-                تنظیم نرخ درهم (AED Exchange Rate)
-              </h3>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">
-                تعیین نرخ دقیق مبنای محاسبه تمام سفارشات و محصولات بر اساس تومان
-              </p>
-            </div>
+          <div>
+            <h2 className="font-extrabold text-sm text-slate-900">
+              تنظیم نرخ درهم (AED Exchange Rate)
+            </h2>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              تعیین نرخ دقیق مبنای محاسبه تمام سفارشات و محصولات بر اساس تومان
+            </p>
           </div>
         </div>
 
-        {/* Input Configuration Grid */}
-        <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3">
-          <label className="text-xs font-black text-slate-800 block">
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-2">
+          <label className="block text-xs font-bold text-slate-700">
             نرخ درهم (تومان):
           </label>
-          <div className="relative max-w-md">
+          <div className="relative max-w-sm">
             <input
               type="text"
-              inputMode="decimal"
-              value={manualAedRateInput}
+              value={aedRateInput}
               onChange={(e) => {
-                const val = e.target.value.replace(/^0+(?=\d)/, '');
-                setManualAedRateInput(val);
+                const val = normalizeToEnglishDigits(e.target.value);
                 setAedRateInput(val);
-                setSimAedRate(val);
               }}
-              onFocus={handleNumberInputFocus}
-              placeholder="19500"
-              className="w-full bg-white border border-slate-300 focus:border-slate-900 text-slate-900 font-black text-base px-4 py-3 rounded-xl focus:outline-none transition dir-ltr text-left font-mono pr-16"
+              placeholder="مثلا ۵۲۰۰۰"
+              className="w-full bg-white border border-slate-300 focus:border-slate-900 text-slate-900 font-black text-base px-4 py-3 rounded-xl focus:outline-none transition dir-ltr text-center font-mono"
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
               تومان
             </span>
           </div>
-          <p className="text-[11px] text-slate-500 font-medium">
+          <p className="text-[11px] font-medium text-slate-500 pt-1">
             تغییر این نرخ با ذخیره، فوراً در تمامی فرمول‌های محاسباتی فروشگاه و دیتابیس اعمال خواهد شد.
           </p>
         </div>
-
       </div>
 
-      {/* Grid: Section 1 (Base Commission) & Section 3 (Shipping Config) */}
+      {/* SECTIONS 2 & 3: GRID (Base Commission + Shipping Config) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         
-        {/* SECTION 1 - Base Commission */}
-        <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-                <Percent className="w-4 h-4" />
+        {/* SECTION 2: کارمزد پایه (Base Commission) */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4 flex flex-col justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                  <Percent className="w-4.5 h-4.5 stroke-[2.2]" />
+                </div>
+                <h3 className="font-extrabold text-sm text-slate-900">
+                  ۱. کارمزد پایه (Base Commission)
+                </h3>
               </div>
-              <h3 className="font-extrabold text-sm text-slate-900">۱. کارمزد پایه (Base Commission)</h3>
+
+              <label className="flex items-center gap-1.5 cursor-pointer select-none bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition">
+                <input
+                  type="checkbox"
+                  checked={baseCommissionEnabled}
+                  onChange={(e) => setBaseCommissionEnabled(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+                />
+                <span className="text-xs font-bold text-slate-800">فعال</span>
+              </label>
             </div>
 
-            {/* Toggle Switch */}
-            <label className="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
-              <span className="text-[11px] font-extrabold text-slate-700">
-                {isBaseCommissionEnabled ? 'فعال' : 'غیرفعال'}
-              </span>
-              <input
-                type="checkbox"
-                checked={isBaseCommissionEnabled}
-                onChange={(e) => setIsBaseCommissionEnabled(e.target.checked)}
-                className="w-4 h-4 text-slate-900 rounded focus:ring-slate-900"
-              />
-            </label>
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">درصد کارمزد پایه (%):</label>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700">
+                درصد کارمزد پایه (%):
+              </label>
               <div className="relative">
                 <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.5"
+                  type="text"
                   value={baseCommissionPercent}
-                  onChange={(e) => setBaseCommissionPercent(sanitizeNumericInput(e.target.value))}
-                  onFocus={handleNumberInputFocus}
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-extrabold text-sm px-4 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 focus:bg-white transition"
+                  onChange={(e) => setBaseCommissionPercent(normalizeToEnglishDigits(e.target.value))}
                   placeholder="20"
+                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-bold text-sm px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr text-center font-mono"
                 />
-                <span className="absolute left-3 top-2.5 text-xs font-black text-slate-400">٪</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                  ٪
+                </span>
               </div>
-              <p className="text-[11px] text-slate-500 font-medium mt-1.5 leading-relaxed">
-                در صورتی که هیچ قانون متغیر دیگری شامل مبلغ سفارش نشود، این درصد به عنوان نرخ پیش‌فرض کارمزد محاسبه می‌شود.
-              </p>
-            </div>
-
-            <div className="bg-amber-50/70 border border-amber-200/60 rounded-xl p-3 text-[11px] text-amber-900 space-y-1">
-              <div className="font-bold flex items-center gap-1.5">
-                <Info className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                <span>مثال کاربردی:</span>
-              </div>
-              <p className="text-amber-800">
-                اگر کارمزد پایه <strong>۲۰٪</strong> باشد و سفارش مشتری به ارزش <strong>۳۰۰ درهم</strong> ثبت گردد، مبلغ کارمزد برابر <strong>۶۰ درهم</strong> خواهد بود.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* SECTION 3 - Shipping Configuration */}
-        <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold">
-                <Truck className="w-4 h-4" />
-              </div>
-              <h3 className="font-extrabold text-sm text-slate-900">۳. تنظیمات هزینه ارسال (Shipping Configuration)</h3>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="text-[11px] font-extrabold text-slate-700 block mb-1">هزینه ارسال پایه (AED):</label>
-              <input
-                type="number"
-                min="0"
-                value={baseShippingCost}
-                onChange={(e) => setBaseShippingCost(sanitizeNumericInput(e.target.value))}
-                onFocus={handleNumberInputFocus}
-                className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-black text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 focus:bg-white"
-                placeholder="20"
-              />
-              <span className="text-[10px] text-slate-400 font-bold mt-1 block">پیش‌فرض: ۲۰ درهم</span>
-            </div>
-
-            <div>
-              <label className="text-[11px] font-extrabold text-slate-700 block mb-1">حداقل هزینه (AED):</label>
-              <input
-                type="number"
-                min="0"
-                value={minShippingCost}
-                onChange={(e) => setMinShippingCost(sanitizeNumericInput(e.target.value))}
-                onFocus={handleNumberInputFocus}
-                className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-black text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 focus:bg-white"
-                placeholder="20"
-              />
-              <span className="text-[10px] text-slate-400 font-bold mt-1 block">کف هزینه ارسال</span>
-            </div>
-
-            <div>
-              <label className="text-[11px] font-extrabold text-slate-700 block mb-1">حداکثر هزینه (AED):</label>
-              <input
-                type="number"
-                min="0"
-                value={maxShippingCost}
-                onChange={(e) => setMaxShippingCost(sanitizeNumericInput(e.target.value))}
-                onFocus={handleNumberInputFocus}
-                className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-black text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 focus:bg-white"
-                placeholder="40"
-              />
-              <span className="text-[10px] text-slate-400 font-bold mt-1 block">سقف هزینه ارسال</span>
-            </div>
-          </div>
-
-          <p className="text-[11px] text-slate-500 font-medium leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200/80">
-            هزینه ارسال محاسبه‌شده هیچ‌گاه کمتر از <strong>حداقل ({minShippingCost} درهم)</strong> یا بیشتر از <strong>حداکثر ({maxShippingCost} درهم)</strong> نخواهد شد.
+          <p className="text-[11px] font-medium text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200/60 mt-3">
+            در صورتی که هیچ قانون متغیر دیگری شامل مبلغ سفارش نشود، این درصد به عنوان نرخ پیش‌فرض کارمزد محاسبه می‌شود.
           </p>
         </div>
+
+        {/* SECTION 3: تنظیمات هزینه ارسال (Shipping Configuration) */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
+              <Truck className="w-4.5 h-4.5 stroke-[2.2]" />
+            </div>
+            <h3 className="font-extrabold text-sm text-slate-900">
+              ۳. تنظیمات هزینه ارسال (Shipping Configuration)
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2.5">
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold text-slate-700 whitespace-nowrap">
+                هزینه ارسال پایه (AED):
+              </label>
+              <input
+                type="text"
+                value={baseShippingCostAed}
+                onChange={(e) => setBaseShippingCostAed(normalizeToEnglishDigits(e.target.value))}
+                placeholder="20"
+                className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-bold text-xs px-2.5 py-2 rounded-xl focus:outline-none focus:border-slate-900 text-center font-mono"
+              />
+              <span className="block text-[10px] text-slate-400 text-center">پیش‌فرض: 20 درهم</span>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold text-slate-700 whitespace-nowrap">
+                حداقل هزینه (AED):
+              </label>
+              <input
+                type="text"
+                value={minShippingCostAed}
+                onChange={(e) => setMinShippingCostAed(normalizeToEnglishDigits(e.target.value))}
+                placeholder="20"
+                className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-bold text-xs px-2.5 py-2 rounded-xl focus:outline-none focus:border-slate-900 text-center font-mono"
+              />
+              <span className="block text-[10px] text-slate-400 text-center">کف هزینه ارسال</span>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold text-slate-700 whitespace-nowrap">
+                حداکثر هزینه (AED):
+              </label>
+              <input
+                type="text"
+                value={maxShippingCostAed}
+                onChange={(e) => setMaxShippingCostAed(normalizeToEnglishDigits(e.target.value))}
+                placeholder="40"
+                className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-bold text-xs px-2.5 py-2 rounded-xl focus:outline-none focus:border-slate-900 text-center font-mono"
+              />
+              <span className="block text-[10px] text-slate-400 text-center">سقف هزینه ارسال</span>
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      {/* SECTION 2 - Commission Rules Based on Order Value */}
-      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+      {/* SECTION 4: قوانین کارمزد بر اساس ارزش سفارش (Commission Rules) */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
-              <Layers className="w-4 h-4" />
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <Layers className="w-4.5 h-4.5 stroke-[2.2]" />
             </div>
             <div>
-              <h3 className="font-extrabold text-sm text-slate-900">۲. قوانین کارمزد بر اساس ارزش سفارش (Commission Rules)</h3>
-              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+              <h3 className="font-extrabold text-sm text-slate-900">
+                ۲. قوانین کارمزد بر اساس ارزش سفارش (Commission Rules)
+              </h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
                 تعیین پلکانی کارمزد بر اساس مبلغ کل سفارش مشتری (AED)
               </p>
             </div>
@@ -575,123 +609,115 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           <button
             type="button"
             onClick={handleAddCommissionRule}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-900 font-extrabold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer border border-slate-200 shrink-0"
+            className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5 border border-indigo-200 shadow-2xs"
           >
-            <Plus className="w-4 h-4 text-indigo-600" />
+            <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>افزودن قانون کارمزد جدید</span>
           </button>
         </div>
 
-        {/* Dynamic Rules List */}
-        <div className="space-y-2.5">
-          {commissionRules.map((rule, idx) => (
+        {/* RULES LIST */}
+        <div className="space-y-3">
+          {commissionRules.map((rule, index) => (
             <div
               key={rule.id}
-              className={`p-3.5 rounded-2xl border transition flex flex-col md:flex-row items-start md:items-center justify-between gap-3 ${
-                rule.isEnabled ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-50 border-slate-200/60 opacity-60'
+              className={`p-3.5 rounded-xl border transition flex flex-wrap items-center justify-between gap-3 ${
+                rule.isEnabled ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-100/50 border-slate-200/60 opacity-60'
               }`}
             >
-              {/* Rule Sequence Badge & Range Input */}
-              <div className="flex items-center gap-3 w-full md:w-auto">
+              <div className="flex items-center gap-3 flex-1 min-w-[280px]">
                 <div className="w-7 h-7 rounded-lg bg-slate-900 text-white font-black text-xs flex items-center justify-center shrink-0">
-                  {idx + 1}
+                  {toPersianDigits(index + 1)}
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 w-full">
+                <div className="grid grid-cols-3 gap-2.5 flex-1">
                   <div>
-                    <label className="text-[10px] font-extrabold text-slate-500 block">حداقل مبلغ (AED):</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={rule.minAmountAed}
-                      onChange={(e) => {
-                        const clean = sanitizeNumericInput(e.target.value);
-                        handleUpdateCommissionRule(rule.id, 'minAmountAed', clean === '' ? 0 : Math.max(0, parseFloat(clean) || 0));
-                      }}
-                      onFocus={handleNumberInputFocus}
-                      className="w-full bg-slate-50 border border-slate-300 font-extrabold text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-extrabold text-slate-500 block">حداکثر مبلغ (AED / به بالا):</label>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                      حداقل مبلغ (AED):
+                    </label>
                     <input
                       type="text"
-                      value={rule.maxAmountAed === null ? 'به بالا' : rule.maxAmountAed}
-                      onChange={(e) => {
-                        const val = e.target.value.trim();
-                        if (val === '' || val === 'به بالا' || val === 'null' || val === '∞') {
-                          handleUpdateCommissionRule(rule.id, 'maxAmountAed', null);
-                        } else {
-                          const sanitized = sanitizeNumericInput(val);
-                          const parsed = parseFloat(sanitized);
-                          handleUpdateCommissionRule(rule.id, 'maxAmountAed', isNaN(parsed) ? null : parsed);
-                        }
-                      }}
-                      onFocus={handleNumberInputFocus}
-                      placeholder="مثلا 1000 یا 'به بالا'"
-                      className="w-full bg-slate-50 border border-slate-300 font-extrabold text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 text-indigo-700"
+                      value={rule.minAmountAed}
+                      onChange={(e) =>
+                        handleUpdateCommissionRule(rule.id, 'minAmountAed', parseFloat(normalizeToEnglishDigits(e.target.value)) || 0)
+                      }
+                      className="w-full bg-white border border-slate-300 text-slate-900 font-bold text-xs px-2.5 py-1.5 rounded-lg text-center font-mono"
                     />
                   </div>
 
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="text-[10px] font-extrabold text-slate-500 block">درصد کارمزد (%):</label>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                      حداکثر مبلغ (AED / به بالا):
+                    </label>
                     <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.5"
-                      value={rule.commissionPercent}
+                      type="text"
+                      value={rule.maxAmountAed === null ? '' : rule.maxAmountAed}
                       onChange={(e) => {
-                        const clean = sanitizeNumericInput(e.target.value);
-                        handleUpdateCommissionRule(rule.id, 'commissionPercent', clean === '' ? 0 : Math.max(0, parseFloat(clean) || 0));
+                        const val = normalizeToEnglishDigits(e.target.value);
+                        handleUpdateCommissionRule(
+                          rule.id,
+                          'maxAmountAed',
+                          val.trim() === '' ? null : parseFloat(val) || 0
+                        );
                       }}
-                      onFocus={handleNumberInputFocus}
-                      className="w-full bg-slate-50 border border-slate-300 font-black text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 text-emerald-700"
+                      placeholder="به بالا"
+                      className="w-full bg-white border border-slate-300 text-slate-900 font-bold text-xs px-2.5 py-1.5 rounded-lg text-center font-mono placeholder:text-indigo-600 placeholder:font-extrabold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                      درصد کارمزد (%):
+                    </label>
+                    <input
+                      type="text"
+                      value={rule.commissionPercent}
+                      onChange={(e) =>
+                        handleUpdateCommissionRule(rule.id, 'commissionPercent', parseFloat(normalizeToEnglishDigits(e.target.value)) || 0)
+                      }
+                      className="w-full bg-white border border-slate-300 text-slate-900 font-bold text-xs px-2.5 py-1.5 rounded-lg text-center font-mono"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Action Buttons: Enable, Move Up/Down, Delete */}
-              <div className="flex items-center gap-2 self-end md:self-auto shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 w-full md:w-auto justify-end">
-                <label className="flex items-center gap-1.5 cursor-pointer bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-bold">
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1 cursor-pointer select-none bg-white px-2.5 py-1 rounded-lg border border-slate-200">
                   <input
                     type="checkbox"
                     checked={rule.isEnabled}
                     onChange={(e) => handleUpdateCommissionRule(rule.id, 'isEnabled', e.target.checked)}
-                    className="w-3.5 h-3.5 text-slate-900 rounded focus:ring-slate-900"
+                    className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500"
                   />
-                  <span>{rule.isEnabled ? 'فعال' : 'غیرفعال'}</span>
+                  <span className="text-xs font-bold text-slate-700">فعال</span>
                 </label>
 
-                <button
-                  type="button"
-                  disabled={idx === 0}
-                  onClick={() => handleMoveCommissionRule(idx, 'up')}
-                  className="p-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded-lg text-slate-700 cursor-pointer"
-                  title="انتقال به بالا"
-                >
-                  <ArrowUp className="w-3.5 h-3.5" />
-                </button>
-
-                <button
-                  type="button"
-                  disabled={idx === commissionRules.length - 1}
-                  onClick={() => handleMoveCommissionRule(idx, 'down')}
-                  className="p-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded-lg text-slate-700 cursor-pointer"
-                  title="انتقال به پایین"
-                >
-                  <ArrowDown className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center border border-slate-200 rounded-lg bg-white overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => handleMoveCommissionRule(index, 'up')}
+                    disabled={index === 0}
+                    className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleMoveCommissionRule(index, 'down')}
+                    disabled={index === commissionRules.length - 1}
+                    className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30 border-r border-slate-200"
+                  >
+                    <ArrowDown className="w-3.5 h-3.5" />
+                  </button>
+                </div>
 
                 <button
                   type="button"
                   onClick={() => handleDeleteCommissionRule(rule.id)}
-                  className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer transition border border-rose-200/60"
+                  className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition"
                   title="حذف قانون"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -699,16 +725,18 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       </div>
 
-      {/* SECTION 4 - Shipping Increment Rules */}
-      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+      {/* SECTION 5: افزایش هزینه ارسال با تعداد کالا (Shipping Increment Rules) */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
-              <Truck className="w-4 h-4" />
+            <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+              <PackagePlus className="w-4.5 h-4.5 stroke-[2.2]" />
             </div>
             <div>
-              <h3 className="font-extrabold text-sm text-slate-900">۴. افزایش هزینه ارسال با تعداد کالا (Shipping Increment Rules)</h3>
-              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+              <h3 className="font-extrabold text-sm text-slate-900">
+                ۴. افزایش هزینه ارسال با تعداد کالا (Shipping Increment Rules)
+              </h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
                 تعیین مبلغ اضافه برای کالای دوم، سوم، چهارم و... در یک سفارش
               </p>
             </div>
@@ -717,41 +745,40 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           <button
             type="button"
             onClick={handleAddShippingIncrementRule}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-900 font-extrabold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer border border-slate-200 shrink-0"
+            className="px-3.5 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5 border border-purple-200 shadow-2xs"
           >
-            <Plus className="w-4 h-4 text-purple-600" />
+            <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>افزودن قانون افزایش کالا</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-          {shippingIncrementRules.map((incRule) => (
+        {/* INCREMENT RULES GRID */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {shippingIncrementRules.map((inc) => (
             <div
-              key={incRule.id}
-              className={`p-3.5 rounded-2xl border transition space-y-2.5 ${
-                incRule.isEnabled ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-50 border-slate-200/60 opacity-60'
-              }`}
+              key={inc.id}
+              className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-slate-900 bg-purple-50 text-purple-800 px-2.5 py-1 rounded-lg">
-                  کالای {incRule.itemNumber}‌ام
+              <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                <span className="font-black text-xs text-slate-800">
+                  کالای {toPersianDigits(inc.itemNumber)}ام
                 </span>
 
-                <div className="flex items-center gap-1.5">
-                  <label className="flex items-center gap-1 cursor-pointer text-[11px] font-bold text-slate-600">
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1 cursor-pointer select-none">
                     <input
                       type="checkbox"
-                      checked={incRule.isEnabled}
-                      onChange={(e) => handleUpdateShippingIncrementRule(incRule.id, 'isEnabled', e.target.checked)}
-                      className="w-3.5 h-3.5 text-slate-900 rounded"
+                      checked={inc.isEnabled}
+                      onChange={(e) => handleUpdateShippingIncrementRule(inc.id, 'isEnabled', e.target.checked)}
+                      className="w-3.5 h-3.5 rounded text-purple-600 focus:ring-purple-500"
                     />
-                    <span>{incRule.isEnabled ? 'فعال' : 'غیرفعال'}</span>
+                    <span className="text-[11px] font-bold text-slate-600">فعال</span>
                   </label>
 
                   <button
                     type="button"
-                    onClick={() => handleDeleteShippingIncrementRule(incRule.id)}
-                    className="p-1 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                    onClick={() => handleDeleteShippingIncrementRule(inc.id)}
+                    className="text-rose-500 hover:bg-rose-100 p-1 rounded-md transition"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -759,21 +786,20 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
               </div>
 
               <div>
-                <label className="text-[10px] font-extrabold text-slate-500 block mb-1">افزایش هزینه (AED):</label>
+                <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                  افزایش هزینه (AED):
+                </label>
                 <input
-                  type="number"
-                  min="0"
-                  value={incRule.additionalCostAed}
-                  onChange={(e) => {
-                    const clean = sanitizeNumericInput(e.target.value);
+                  type="text"
+                  value={inc.additionalCostAed}
+                  onChange={(e) =>
                     handleUpdateShippingIncrementRule(
-                      incRule.id,
+                      inc.id,
                       'additionalCostAed',
-                      clean === '' ? 0 : Math.max(0, parseFloat(clean) || 0)
-                    );
-                  }}
-                  onFocus={handleNumberInputFocus}
-                  className="w-full bg-slate-50 border border-slate-300 font-extrabold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900"
+                      parseFloat(normalizeToEnglishDigits(e.target.value)) || 0
+                    )
+                  }
+                  className="w-full bg-white border border-slate-300 text-slate-900 font-bold text-xs px-2.5 py-1.5 rounded-lg text-center font-mono"
                 />
               </div>
             </div>
@@ -781,55 +807,65 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         </div>
       </div>
 
-      {/* SECTION 5 - Calculation Order Reference */}
-      <div className="bg-[#111111] text-white rounded-3xl p-5 sm:p-6 shadow-md space-y-3">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0" />
-          <h3 className="font-extrabold text-sm text-white">۵. ترتیب استاندارد محاسبه موتور قیمت‌گذاری (Calculation Order)</h3>
+      {/* SECTION 6: ترتیب استاندارد محاسبه موتور قیمت‌گذاری (Calculation Order) */}
+      <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-md space-y-4">
+        <div className="flex items-center gap-2.5">
+          <ShieldCheck className="w-5 h-5 text-amber-400" />
+          <h3 className="font-extrabold text-sm text-white">
+            ۵. ترتیب استاندارد محاسبه موتور قیمت‌گذاری (Calculation Order)
+          </h3>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 pt-1 text-[11px] font-extrabold">
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۱</span>
-            <span>جمع سفارش (Subtotal)</span>
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 text-center text-[11px]">
+          <div className="bg-slate-800/90 border border-slate-700/80 p-2.5 rounded-xl space-y-1">
+            <span className="block text-[9.5px] font-extrabold text-amber-400">گام ۱</span>
+            <span className="block font-bold text-white">جمع سفارش (Subtotal)</span>
           </div>
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۲</span>
-            <span>انتخاب قانون کارمزد</span>
+
+          <div className="bg-slate-800/90 border border-slate-700/80 p-2.5 rounded-xl space-y-1">
+            <span className="block text-[9.5px] font-extrabold text-amber-400">گام ۲</span>
+            <span className="block font-bold text-white">انتخاب قانون کارمزد</span>
           </div>
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۳</span>
-            <span>محاسبه کارمزد درهمی</span>
+
+          <div className="bg-slate-800/90 border border-slate-700/80 p-2.5 rounded-xl space-y-1">
+            <span className="block text-[9.5px] font-extrabold text-amber-400">گام ۳</span>
+            <span className="block font-bold text-white">محاسبه کارمزد درهمی</span>
           </div>
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۴</span>
-            <span>محاسبه هزینه ارسال</span>
+
+          <div className="bg-slate-800/90 border border-slate-700/80 p-2.5 rounded-xl space-y-1">
+            <span className="block text-[9.5px] font-extrabold text-amber-400">گام ۴</span>
+            <span className="block font-bold text-white">محاسبه هزینه ارسال</span>
           </div>
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۵</span>
-            <span>اعمال حداقل کف</span>
+
+          <div className="bg-slate-800/90 border border-slate-700/80 p-2.5 rounded-xl space-y-1">
+            <span className="block text-[9.5px] font-extrabold text-amber-400">گام ۵</span>
+            <span className="block font-bold text-white">اعمال حداقل/حداکثر سقف</span>
           </div>
-          <div className="bg-slate-800 p-2.5 rounded-xl border border-slate-700 text-center">
-            <span className="block text-[10px] text-amber-400 font-black">گام ۶</span>
-            <span>اعمال حداکثر سقف</span>
+
+          <div className="bg-slate-800/90 border border-slate-700/80 p-2.5 rounded-xl space-y-1">
+            <span className="block text-[9.5px] font-extrabold text-amber-400">گام ۶</span>
+            <span className="block font-bold text-white">مجموع نهایی سفارش</span>
           </div>
-          <div className="bg-amber-500 text-slate-950 p-2.5 rounded-xl text-center font-black col-span-2 sm:col-span-1">
-            <span className="block text-[10px] opacity-80">گام ۷</span>
-            <span>نمایش قیمت نهایی</span>
+
+          <div className="bg-gradient-to-b from-amber-500 to-amber-600 text-slate-900 font-black p-2.5 rounded-xl space-y-1 shadow-xs">
+            <span className="block text-[9.5px] uppercase tracking-wider opacity-90">گام ۷</span>
+            <span className="block text-[11px]">نمایش قیمت نهایی (تومان)</span>
           </div>
         </div>
       </div>
 
-      {/* SECTION 7 - Live Pricing Simulator */}
-      <div className="bg-white border-2 border-slate-900 rounded-3xl p-5 sm:p-6 shadow-md space-y-5">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+      {/* SECTION 7: شبیه‌ساز زنده قیمت‌گذاری (Live Pricing Simulator) */}
+      <div className="bg-white p-5 rounded-2xl border-2 border-indigo-200/90 shadow-md space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold">
-              <Sparkles className="w-5 h-5 text-amber-400" />
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+              <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-base text-slate-900">۷. شبیه‌ساز زنده قیمت‌گذاری (Live Pricing Simulator)</h3>
-              <p className="text-xs text-slate-500 font-medium">
+              <h3 className="font-extrabold text-base text-slate-900">
+                ۷. شبیه‌ساز زنده قیمت‌گذاری (Live Pricing Simulator)
+              </h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
                 تست آنی کارکرد موتور قیمت‌گذاری با مقادیر نمونه درهمی
               </p>
             </div>
@@ -840,121 +876,245 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           </span>
         </div>
 
-        {/* Inputs */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+        {/* SIMULATOR INPUTS */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
           <div>
-            <label className="text-xs font-extrabold text-slate-800 block mb-1">ارزش کل سفارش (AED):</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              ارزش کل سفارش (AED):
+            </label>
             <input
-              type="number"
-              min="0"
-              value={simOrderAmount}
-              onChange={(e) => setSimOrderAmount(sanitizeNumericInput(e.target.value))}
-              onFocus={handleNumberInputFocus}
-              className="w-full bg-white border border-slate-300 text-slate-900 font-extrabold text-sm px-3.5 py-2 rounded-xl focus:outline-none focus:border-slate-900 shadow-2xs"
+              type="text"
+              value={simOrderAmountAed}
+              onChange={(e) => setSimOrderAmountAed(normalizeToEnglishDigits(e.target.value))}
               placeholder="750"
+              className="w-full bg-white border border-slate-300 text-slate-900 font-extrabold text-sm px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 font-mono text-center"
             />
           </div>
 
           <div>
-            <label className="text-xs font-extrabold text-slate-800 block mb-1">تعداد محصولات سفارش:</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              تعداد محصولات سفارش:
+            </label>
             <input
-              type="number"
-              min="1"
+              type="text"
               value={simProductCount}
-              onChange={(e) => setSimProductCount(sanitizeNumericInput(e.target.value))}
-              onFocus={handleNumberInputFocus}
-              className="w-full bg-white border border-slate-300 text-slate-900 font-extrabold text-sm px-3.5 py-2 rounded-xl focus:outline-none focus:border-slate-900 shadow-2xs"
+              onChange={(e) => setSimProductCount(normalizeToEnglishDigits(e.target.value))}
               placeholder="2"
+              className="w-full bg-white border border-slate-300 text-slate-900 font-extrabold text-sm px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 font-mono text-center"
             />
           </div>
 
           <div>
-            <label className="text-xs font-extrabold text-slate-800 block mb-1">نرخ درهم فعال (تومان):</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              نرخ درهم فعال (تومان):
+            </label>
             <input
-              type="number"
-              min="1"
+              type="text"
               value={simAedRate}
-              onChange={(e) => setSimAedRate(sanitizeNumericInput(e.target.value))}
-              onFocus={handleNumberInputFocus}
-              className="w-full bg-white border border-slate-300 text-slate-900 font-extrabold text-sm px-3.5 py-2 rounded-xl focus:outline-none focus:border-slate-900 shadow-2xs"
-              placeholder="53000"
+              onChange={(e) => setSimAedRate(normalizeToEnglishDigits(e.target.value))}
+              placeholder="52000"
+              className="w-full bg-white border border-slate-300 text-slate-900 font-extrabold text-sm px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 font-mono text-center"
             />
           </div>
         </div>
 
-        {/* Output Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-indigo-50/80 border border-indigo-200/80 p-3.5 rounded-2xl space-y-1">
-            <span className="text-[11px] font-bold text-indigo-700 block">قانون کارمزد اعمال‌شده:</span>
-            <div className="text-sm font-black text-indigo-950 truncate" title={simResult.ruleDescription}>
-              {simResult.ruleDescription}
+        {/* OUTPUT CARDS */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          
+          {/* Card 1: Commission Rule */}
+          <div className="bg-sky-50 border border-sky-200/90 p-4 rounded-xl space-y-1">
+            <span className="block text-[11px] font-bold text-sky-800">قانون کارمزد اعمال‌شده:</span>
+            <div className="font-extrabold text-xs text-sky-950 truncate">
+              {simResult.appliedRule ? `قانون سفارش ${simResult.appliedRule.minAmountAed} تا ${simResult.appliedRule.maxAmountAed || 'به بالا'}` : 'کارمزد پایه (Base Commission)'}
             </div>
-            <span className="text-[10px] font-extrabold bg-indigo-200 text-indigo-900 px-2 py-0.5 rounded-md inline-block">
-              {simResult.commissionPercent}٪ کارمزد
+            <span className="inline-block bg-sky-200/80 text-sky-900 text-[10px] font-black px-2 py-0.5 rounded-md mt-1">
+              {simResult.commissionPercent}% کارمزد
             </span>
           </div>
 
-          <div className="bg-amber-50/80 border border-amber-200/80 p-3.5 rounded-2xl space-y-1">
-            <span className="text-[11px] font-bold text-amber-800 block">مبلغ کارمزد:</span>
-            <div className="text-sm font-black text-amber-950">
+          {/* Card 2: Commission Amount */}
+          <div className="bg-amber-50 border border-amber-200/90 p-4 rounded-xl space-y-1">
+            <span className="block text-[11px] font-bold text-amber-800">مبلغ کارمزد:</span>
+            <div className="font-black text-base text-amber-950 font-mono">
               {simResult.commissionAmountAed.toFixed(1)} درهم
             </div>
-            <span className="text-[10px] font-bold text-amber-700 block">
-              ≈ {formatToman(simResult.commissionAmountAed * (parseFloat(simAedRate) || 53000))}
+            <span className="block text-[10px] font-bold text-amber-700">
+              ≈ {formatToman(simResult.commissionAmountAed * simResult.finalTotalToman / simResult.finalTotalAed)}
             </span>
           </div>
 
-          <div className="bg-sky-50/80 border border-sky-200/80 p-3.5 rounded-2xl space-y-1">
-            <span className="text-[11px] font-bold text-sky-800 block">هزینه ارسال محاسبه‌شده:</span>
-            <div className="text-sm font-black text-sky-950">
+          {/* Card 3: Shipping Cost */}
+          <div className="bg-teal-50 border border-teal-200/90 p-4 rounded-xl space-y-1">
+            <span className="block text-[11px] font-bold text-teal-800">هزینه ارسال محاسبه‌شده:</span>
+            <div className="font-black text-base text-teal-950 font-mono">
               {simResult.shippingCostAed} درهم
             </div>
-            {simResult.isMaxShippingApplied && (
-              <span className="text-[10px] font-extrabold bg-sky-200 text-sky-900 px-1.5 py-0.5 rounded-md inline-block">
-                اعمال سقف {simResult.shippingCostAed} درهم
-              </span>
-            )}
-            {simResult.isMinShippingApplied && (
-              <span className="text-[10px] font-extrabold bg-sky-200 text-sky-900 px-1.5 py-0.5 rounded-md inline-block">
-                اعمال کف {simResult.shippingCostAed} درهم
-              </span>
-            )}
           </div>
 
-          <div className="bg-[#111111] text-white p-3.5 rounded-2xl space-y-1 col-span-2 md:col-span-1 shadow-sm">
-            <span className="text-[11px] font-bold text-slate-300 block">مجموع نهایی پرداختی:</span>
-            <div className="text-base font-black text-amber-400">
+          {/* Card 4: Dark Total Card */}
+          <div className="bg-slate-900 text-white p-4 rounded-xl space-y-1 flex flex-col justify-center">
+            <span className="block text-[11px] font-bold text-slate-300">مجموع نهایی پرداختی:</span>
+            <div className="font-black text-lg text-amber-400 font-mono leading-none">
               {simResult.finalTotalAed.toFixed(1)} درهم
             </div>
-            <div className="text-xs font-black text-white">
+            <div className="font-extrabold text-xs text-white mt-1">
               {formatToman(simResult.finalTotalToman)}
             </div>
           </div>
+
         </div>
 
-        {/* Step-by-Step Breakdown Table */}
-        <div className="border border-slate-200 rounded-2xl overflow-hidden">
-          <div className="bg-slate-100 px-4 py-2.5 text-xs font-extrabold text-slate-800 border-b border-slate-200">
-            جزئیات گام‌به‌گام محاسبه قیمت (Breakdown):
+        {/* STEP BY STEP BREAKDOWN LIST */}
+        <div className="bg-slate-50 p-4 sm:p-5 rounded-xl border border-slate-200/90 space-y-3.5">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+            <h4 className="font-extrabold text-xs sm:text-sm text-slate-800 flex items-center gap-2">
+              <Layers className="w-4 h-4 text-indigo-600" />
+              <span>جزئیات گام‌به‌گام محاسبه قیمت (Breakdown Table):</span>
+            </h4>
+            <span className="text-[11px] bg-slate-200 text-slate-700 px-2.5 py-0.5 rounded-full font-bold">
+              ۷ گام شفاف
+            </span>
           </div>
 
-          <div className="divide-y divide-slate-100 text-xs">
-            {simResult.breakdownSteps.map((step) => (
-              <div key={step.step} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 font-black text-[10px] flex items-center justify-center shrink-0">
-                    {step.step}
-                  </span>
-                  <span className="font-bold text-slate-700">{step.label}</span>
+          {/* TABLE HEADER FOR DESKTOP */}
+          <div className="hidden md:grid grid-cols-12 gap-3 px-4 py-2.5 text-[11px] font-black text-slate-500 bg-slate-200/70 rounded-lg">
+            <div className="col-span-1 text-center">گام</div>
+            <div className="col-span-5 text-right">عنوان عملیات / فرمول</div>
+            <div className="col-span-6 text-left dir-ltr font-mono">خروجی درهمی / تومانی</div>
+          </div>
+
+          {/* STEP CARDS / ROWS */}
+          <div className="space-y-2.5 text-xs font-medium">
+            {simResult.breakdownSteps.map((s) => {
+              const isFinalStep = s.step >= 6;
+              const rateNum = parseFloat(simAedRate) || 52000;
+
+              if (isFinalStep) {
+                // HIGHLIGHTED FINAL TOTAL CARDS
+                return (
+                  <div
+                    key={s.step}
+                    className={`p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-3 shadow-md ${
+                      s.step === 7
+                        ? 'bg-slate-900 border-amber-500/60 text-amber-400'
+                        : 'bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-900 border-indigo-700/60 text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className={`w-8 h-8 rounded-xl text-xs font-black flex items-center justify-center shrink-0 shadow-xs ${
+                        s.step === 7 ? 'bg-amber-400 text-slate-900' : 'bg-indigo-600 text-white'
+                      }`}>
+                        {toPersianDigits(s.step)}
+                      </span>
+                      <div>
+                        <span className="font-black text-sm block text-white">{s.label}</span>
+                        <span className="text-[11px] text-slate-300 font-normal">
+                          {s.step === 7 ? `محاسبه‌شده با نرخ فعال ${formatToman(rateNum)}` : 'مجموع کل سفارش + کارمزد + هزینه ارسال'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-right sm:text-left dir-ltr font-mono">
+                      <span className={`font-black text-base sm:text-lg block ${s.step === 7 ? 'text-amber-400 font-mono' : 'text-emerald-400'}`}>
+                        {s.value}
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+
+              // STANDARD STEP SUB-CARDS (Steps 1-5)
+              return (
+                <div
+                  key={s.step}
+                  className="border border-gray-200 bg-gray-50/50 hover:bg-white rounded-xl p-3 transition shadow-xs grid grid-cols-1 md:grid-cols-12 gap-2 items-center"
+                >
+                  <div className="md:col-span-1 flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200/80 text-xs font-black flex items-center justify-center shrink-0">
+                      {toPersianDigits(s.step)}
+                    </span>
+                    <span className="md:hidden font-bold text-slate-800">{s.label}</span>
+                  </div>
+
+                  <div className="hidden md:block md:col-span-5 font-bold text-slate-800 text-xs sm:text-sm">
+                    {s.label}
+                  </div>
+
+                  <div className="md:col-span-6 flex items-center justify-between md:justify-end gap-3 text-slate-900 font-extrabold font-mono text-xs sm:text-sm dir-ltr">
+                    <span className="bg-white border border-slate-200 text-slate-900 px-3 py-1.5 rounded-lg font-mono text-left shadow-2xs">
+                      {s.value}
+                    </span>
+                  </div>
                 </div>
-                <span className="font-black text-slate-900 dir-ltr">{step.value}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
       </div>
 
+      {/* TOP-RIGHT TOAST NOTIFICATION */}
+      {saveMessage && (
+        <div className="fixed top-6 right-6 z-[9999] max-w-md animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto">
+          <div className={`p-4 rounded-2xl shadow-2xl border backdrop-blur-md flex items-center gap-3 text-white ${
+            saveSuccess 
+              ? 'bg-slate-900/95 border-emerald-500/50 shadow-emerald-950/40' 
+              : 'bg-slate-900/95 border-rose-500/50 shadow-rose-950/40'
+          }`}>
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold ${
+              saveSuccess ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+            }`}>
+              {saveSuccess ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+            </div>
+            <div className="flex-1 text-xs sm:text-sm font-extrabold leading-relaxed">
+              {saveMessage}
+            </div>
+            <button
+              type="button"
+              onClick={() => setSaveMessage('')}
+              className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition shrink-0 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* CLEAN FLOATING GREEN SAVE BUTTON */}
+      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 pointer-events-auto max-w-[92vw]">
+        <button
+          type="button"
+          onClick={handleSaveSettings}
+          disabled={isSaving}
+          className={`h-12 px-7 rounded-full font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all duration-200 shadow-xl hover:shadow-2xl hover:shadow-emerald-600/40 cursor-pointer active:scale-95 border border-emerald-400/30 whitespace-nowrap ${
+            saveSuccess
+              ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30 ring-2 ring-emerald-400/40'
+              : isSaving
+              ? 'bg-slate-800 text-slate-300 border-slate-700 cursor-not-allowed opacity-90'
+              : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
+          }`}
+        >
+          {isSaving ? (
+            <>
+              <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-emerald-100 shrink-0" />
+              <span>در حال ذخیره...</span>
+            </>
+          ) : saveSuccess ? (
+            <>
+              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-white shrink-0" />
+              <span>تنظیمات ذخیره شد ✓</span>
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-100 shrink-0" />
+              <span>ذخیره تنظیمات</span>
+            </>
+          )}
+        </button>
+      </div>
+
     </div>
   );
 };
+
+export default PricingRulesAdmin;

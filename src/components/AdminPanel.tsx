@@ -3444,64 +3444,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                         {/* Direct Source Link & One-Click Copy Button */}
                         <td className="p-3 align-top whitespace-nowrap">
-                          {(() => {
-                            const urls = (order.productUrl || '').split('|').map((u: string) => u.trim()).filter(Boolean);
-                            if (urls.length === 0) {
-                              return (
-                                <div className="flex items-center gap-1.5">
-                                  <a
-                                    href="https://drnutrition.com"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl transition shadow-2xs cursor-pointer shrink-0"
-                                    title="باز کردن لینک اصلی کالا در دبی"
-                                  >
-                                    <ExternalLink className="w-3 h-3 text-amber-400 shrink-0" />
-                                    <span>لینک در دبی</span>
-                                  </a>
-                                </div>
-                              );
-                            }
-                            return (
-                              <div className="flex flex-col gap-1.5">
-                                {urls.map((u, ui) => (
-                                  <div key={ui} className="flex items-center gap-1.5">
-                                    <a
-                                      href={u}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl transition shadow-2xs cursor-pointer shrink-0"
-                                      title={u}
-                                    >
-                                      <ExternalLink className="w-3 h-3 text-amber-400 shrink-0" />
-                                      <span>لینک {urls.length > 1 ? ui + 1 : ''}</span>
-                                    </a>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCopyProductUrl(u, `${order.id}-${ui}`)}
-                                      className={`relative p-1.5 rounded-xl transition border cursor-pointer shrink-0 ${
-                                        copiedOrderId === `${order.id}-${ui}`
-                                          ? 'bg-emerald-500 text-white border-emerald-600 shadow-2xs'
-                                          : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200'
-                                      }`}
-                                      title={copiedOrderId === `${order.id}-${ui}` ? 'کپی شد!' : 'کپی لینک کالا'}
-                                    >
-                                      {copiedOrderId === `${order.id}-${ui}` ? (
-                                        <Check className="w-3.5 h-3.5 text-white shrink-0" />
-                                      ) : (
-                                        <Copy className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
-                                      )}
-                                      {copiedOrderId === `${order.id}-${ui}` && (
-                                        <span className="absolute -top-7 right-1/2 translate-x-1/2 bg-emerald-800 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-md whitespace-nowrap pointer-events-none animate-fade-in z-20">
-                                          کپی شد!
-                                        </span>
-                                      )}
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            );
-                          })()}
+                          <div className="flex items-center gap-1.5">
+                            <a
+                              href={order.productUrl || 'https://drnutrition.com'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl transition shadow-2xs cursor-pointer shrink-0"
+                              title="باز کردن لینک اصلی کالا در دبی"
+                            >
+                              <ExternalLink className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>لینک در دبی</span>
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyProductUrl(order.productUrl || 'https://drnutrition.com', order.id)}
+                              className={`relative p-1.5 rounded-xl transition border cursor-pointer shrink-0 ${
+                                copiedOrderId === order.id
+                                  ? 'bg-emerald-500 text-white border-emerald-600 shadow-2xs'
+                                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200'
+                              }`}
+                              title={copiedOrderId === order.id ? 'کپی شد!' : 'کپی لینک کالا'}
+                            >
+                              {copiedOrderId === order.id ? (
+                                <Check className="w-3.5 h-3.5 text-white shrink-0" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
+                              )}
+                              {copiedOrderId === order.id && (
+                                <span className="absolute -top-7 right-1/2 translate-x-1/2 bg-emerald-800 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-md whitespace-nowrap pointer-events-none animate-fade-in z-20">
+                                  کپی شد!
+                                </span>
+                              )}
+                            </button>
+                          </div>
                         </td>
 
                         {/* Price Paid */}

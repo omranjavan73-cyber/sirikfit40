@@ -1,4 +1,13 @@
-import type { UniversalProduct, VariantDimension, VariantOption, ProductVariantGroup, ScrapedProductResult, ProductVariantItem } from '../types';
+import type { 
+  UniversalProduct, 
+  VariantDimension, 
+  VariantOption, 
+  ProductVariantGroup, 
+  ScrapedProductResult, 
+  ProductVariantItem,
+  ProductData,
+  VariantGroupsStructure
+} from '../types';
 import { generateBilingualProductTitle } from '../utils/parseLink';
 
 export interface ScraperAdapter {
@@ -45,6 +54,122 @@ export class UniversalScraperService {
   }
 
   /**
+   * Extracts structured ProductData conforming to the ProductData schema
+   */
+  public extractProductData(raw: any, sourceUrl: string): ProductData {
+    const originInfo = detectStoreOrigin(sourceUrl);
+    const storeName = raw.storeName || raw.sourceStore || originInfo.storeName;
+    const brand = raw.brand || storeName;
+
+    const mainImage = raw.mainImage || raw.image || raw.image_url || '';
+    const rawGallery: string[] = Array.isArray(raw.galleryImages)
+      ? raw.galleryImages
+      : (Array.isArray(raw.images) ? raw.images : []);
+
+    const images: string[] = Array.from(
+      new Set([mainImage, ...rawGallery].filter(Boolean))
+    );
+
+    const price = Number(raw.basePriceAED || raw.priceAed || raw.price_aed || raw.price) || 0;
+    const originalPrice = Number(raw.originalPriceAed || raw.original_price_aed || raw.originalPrice) || undefined;
+
+    const variantGroups: VariantGroupsStructure = {
+      flavors: [],
+      sizes: [],
+      others: []
+    };
+
+    // Extract and categorize variants into flavors, sizes, others
+    if (Array.isArray(raw.variantGroups)) {
+      raw.variantGroups.forEach((vg: any) => {
+        const gType = vg.type || (vg.id === 'sizes' ? 'size' : (vg.id === 'flavors' ? 'flavor' : 'other'));
+        const options: VariantOption[] = (vg.options || []).map((opt: any, idx: number) => {
+          const optName = typeof opt === 'string' ? opt : (opt.name || opt.label || '');
+          const optPrice = typeof opt === 'object' && (opt.price ?? opt.priceAed ?? opt.priceAED) ? Number(opt.price ?? opt.priceAed ?? opt.priceAED) : price;
+          const isAvail = typeof opt === 'object' ? (opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut) : true;
+          return {
+            id: (typeof opt === 'object' && opt.id) ? opt.id : `${gType}-${idx}`,
+            label: optName,
+            name: optName,
+            nameFa: typeof opt === 'object' ? opt.nameFa : undefined,
+            type: gType as any,
+            inStock: isAvail,
+            price: optPrice,
+            priceAed: optPrice,
+            imageUrl: typeof opt === 'object' ? (opt.imageUrl || opt.image || opt.imageThumbnail) : undefined,
+            image: typeof opt === 'object' ? (opt.imageUrl || opt.image || opt.imageThumbnail) : undefined,
+            sku: typeof opt === 'object' ? opt.sku : undefined
+          };
+        });
+
+        if (gType === 'flavor') {
+          variantGroups.flavors = [...(variantGroups.flavors || []), ...options];
+        } else if (gType === 'size') {
+          variantGroups.sizes = [...(variantGroups.sizes || []), ...options];
+        } else {
+          variantGroups.others = [...(variantGroups.others || []), ...options];
+        }
+      });
+    }
+
+    // Process flat arrays if groups are empty
+    if (!variantGroups.flavors?.length && Array.isArray(raw.flavors)) {
+      variantGroups.flavors = raw.flavors.map((f: any, idx: number) => {
+        const name = typeof f === 'string' ? f : (f.name || f.label || '');
+        const isAvail = typeof f === 'object' ? (f.inStock !== false && f.available !== false) : true;
+        return {
+          id: `flv-${idx}`,
+          label: name,
+          name,
+          type: 'flavor',
+          inStock: isAvail,
+          price,
+          priceAed: price
+        };
+      });
+    }
+
+    if (!variantGroups.sizes?.length && Array.isArray(raw.sizes)) {
+      variantGroups.sizes = raw.sizes.map((s: any, idx: number) => {
+        const name = typeof s === 'string' ? s : (s.name || s.label || '');
+        const isAvail = typeof s === 'object' ? (s.inStock !== false && s.available !== false) : true;
+        return {
+          id: `sz-${idx}`,
+          label: name,
+          name,
+          type: 'size',
+          inStock: isAvail,
+          price,
+          priceAed: price
+        };
+      });
+    }
+
+    const allOptions = [
+      ...(variantGroups.flavors || []),
+      ...(variantGroups.sizes || []),
+      ...(variantGroups.others || [])
+    ];
+
+    const isAvailable = raw.inStock !== false && raw.available !== false && (allOptions.length === 0 || allOptions.some(o => o.inStock));
+
+    return {
+      title: raw.title || 'Dubai Store Product',
+      brand,
+      price,
+      originalPrice,
+      currency: raw.currency || 'AED',
+      description: raw.description || '',
+      features: Array.isArray(raw.features) ? raw.features : [],
+      images,
+      videos: Array.isArray(raw.videos) ? raw.videos : [],
+      variantGroups,
+      isAvailable,
+      sourceUrl
+    };
+  }
+
+  /**
    * Builds flat ProductVariantItem list from raw scraped variants, flavors, sizes, or options
    */
   public extractFlatVariants(raw: any, defaultPriceAed: number): ProductVariantItem[] {
@@ -53,24 +178,16 @@ export class UniversalScraperService {
 
     if (Array.isArray(raw.variants) && raw.variants.length > 0) {
       raw.variants.forEach((v: any, idx: number) => {
-        const vName = typeof v === 'string' ? v : (v.name || v.title || '');
+        const vName = typeof v === 'string' ? v : (v.name || v.label || v.title || '');
         if (vName && !seenNames.has(vName.trim().toLowerCase())) {
-          const isAvailable = v.inStock !== false && 
-                              v.available !== false && 
-                              !v.soldOut && 
-                              !v.isSoldOut && 
-                              v.is_available !== false &&
-                              (v.inventory_quantity === undefined || v.inventory_quantity > 0);
-          if (!isAvailable) {
-            return;
-          }
           seenNames.add(vName.trim().toLowerCase());
+          const isAvailable = v.inStock !== false && v.available !== false && !v.soldOut && !v.isSoldOut && v.is_available !== false;
           flatVariants.push({
             id: v.id || `variant-${idx}`,
             name: vName,
-            inStock: true,
-            priceAED: v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : defaultPriceAed),
-            imageThumbnail: v.imageThumbnail || v.image || undefined
+            inStock: isAvailable,
+            priceAED: v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : (v.price !== undefined ? Number(v.price) : defaultPriceAed)),
+            imageThumbnail: v.imageThumbnail || v.imageUrl || v.image || undefined
           });
         }
       });
@@ -79,23 +196,16 @@ export class UniversalScraperService {
     if (Array.isArray(raw.variantGroups) && raw.variantGroups.length > 0) {
       raw.variantGroups.forEach((vg: any) => {
         (vg.options || []).forEach((opt: any, optIdx: number) => {
-          const optName = typeof opt === 'string' ? opt : (opt.name || opt.nameFa || '');
+          const optName = typeof opt === 'string' ? opt : (opt.name || opt.label || opt.nameFa || '');
           if (optName && !seenNames.has(optName.trim().toLowerCase())) {
-            const isAvailable = opt.inStock !== false && 
-                                opt.available !== false && 
-                                !opt.soldOut && 
-                                !opt.isSoldOut &&
-                                (opt.inventory_quantity === undefined || opt.inventory_quantity > 0);
-            if (!isAvailable) {
-              return;
-            }
             seenNames.add(optName.trim().toLowerCase());
+            const isAvailable = opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut;
             flatVariants.push({
               id: opt.id || `opt-${optIdx}`,
               name: optName,
-              inStock: true,
-              priceAED: opt.priceAed !== undefined ? Number(opt.priceAed) : defaultPriceAed,
-              imageThumbnail: opt.image || undefined
+              inStock: isAvailable,
+              priceAED: opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : defaultPriceAed),
+              imageThumbnail: opt.image || opt.imageUrl || undefined
             });
           }
         });
@@ -105,15 +215,14 @@ export class UniversalScraperService {
     if (flatVariants.length === 0) {
       const flavors: any[] = Array.isArray(raw.flavors) ? raw.flavors : [];
       flavors.forEach((flv, idx) => {
-        const flvName = typeof flv === 'string' ? flv : (flv?.name || '');
-        const isAvailable = typeof flv === 'object' ? (flv.inStock !== false && flv.available !== false && !flv.soldOut && !flv.isSoldOut) : true;
-        if (!isAvailable) return;
+        const flvName = typeof flv === 'string' ? flv : (flv?.name || flv?.label || '');
+        const isAvailable = typeof flv === 'object' ? (flv.inStock !== false && flv.available !== false) : true;
         if (flvName && !seenNames.has(flvName.trim().toLowerCase())) {
           seenNames.add(flvName.trim().toLowerCase());
           flatVariants.push({
             id: `flv-${idx}`,
             name: flvName,
-            inStock: true,
+            inStock: isAvailable,
             priceAED: defaultPriceAed
           });
         }
@@ -121,15 +230,14 @@ export class UniversalScraperService {
 
       const sizes: any[] = Array.isArray(raw.sizes) ? raw.sizes : [];
       sizes.forEach((sz, idx) => {
-        const szName = typeof sz === 'string' ? sz : (sz?.name || '');
-        const isAvailable = typeof sz === 'object' ? (sz.inStock !== false && sz.available !== false && !sz.soldOut && !sz.isSoldOut) : true;
-        if (!isAvailable) return;
+        const szName = typeof sz === 'string' ? sz : (sz?.name || sz?.label || '');
+        const isAvailable = typeof sz === 'object' ? (sz.inStock !== false && sz.available !== false) : true;
         if (szName && !seenNames.has(szName.trim().toLowerCase())) {
           seenNames.add(szName.trim().toLowerCase());
           flatVariants.push({
             id: `sz-${idx}`,
             name: szName,
-            inStock: true,
+            inStock: isAvailable,
             priceAED: defaultPriceAed
           });
         }
@@ -137,15 +245,14 @@ export class UniversalScraperService {
 
       const options: any[] = Array.isArray(raw.options) ? raw.options : [];
       options.forEach((opt, idx) => {
-        const optName = typeof opt === 'string' ? opt : (opt?.name || '');
-        const isAvailable = typeof opt === 'object' ? (opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut) : true;
-        if (!isAvailable) return;
+        const optName = typeof opt === 'string' ? opt : (opt?.name || opt?.label || '');
+        const isAvailable = typeof opt === 'object' ? (opt.inStock !== false && opt.available !== false) : true;
         if (optName && !seenNames.has(optName.trim().toLowerCase()) && !['default', 'standard', 'پیش‌فرض'].includes(optName.trim().toLowerCase())) {
           seenNames.add(optName.trim().toLowerCase());
           flatVariants.push({
             id: `opt-${idx}`,
             name: optName,
-            inStock: true,
+            inStock: isAvailable,
             priceAED: defaultPriceAed
           });
         }
@@ -175,6 +282,38 @@ export class UniversalScraperService {
     const basePriceAED = Number(raw.basePriceAED || raw.priceAed || raw.price_aed || raw.price) || 0;
     const variants = this.extractFlatVariants(raw, basePriceAED);
 
+    // Build structured variant groups if available
+    const variantGroups: VariantGroupsStructure = {
+      flavors: [],
+      sizes: [],
+      others: []
+    };
+
+    if (Array.isArray(raw.variantGroups)) {
+      raw.variantGroups.forEach((vg: any) => {
+        const gType = vg.type || (vg.id === 'sizes' ? 'size' : (vg.id === 'flavors' ? 'flavor' : 'other'));
+        const options: VariantOption[] = (vg.options || []).map((opt: any, idx: number) => ({
+          id: (typeof opt === 'object' && opt.id) ? opt.id : `${gType}-${idx}`,
+          label: typeof opt === 'string' ? opt : (opt.name || opt.label || ''),
+          name: typeof opt === 'string' ? opt : (opt.name || opt.label || ''),
+          type: gType as any,
+          inStock: typeof opt === 'object' ? (opt.inStock !== false && opt.available !== false) : true,
+          price: typeof opt === 'object' && opt.priceAed ? Number(opt.priceAed) : basePriceAED,
+          priceAed: typeof opt === 'object' && opt.priceAed ? Number(opt.priceAed) : basePriceAED,
+          imageUrl: typeof opt === 'object' ? (opt.image || opt.imageUrl) : undefined,
+          image: typeof opt === 'object' ? (opt.image || opt.imageUrl) : undefined
+        }));
+
+        if (gType === 'flavor') {
+          variantGroups.flavors = [...(variantGroups.flavors || []), ...options];
+        } else if (gType === 'size') {
+          variantGroups.sizes = [...(variantGroups.sizes || []), ...options];
+        } else {
+          variantGroups.others = [...(variantGroups.others || []), ...options];
+        }
+      });
+    }
+
     return {
       id: raw.id || `scraped-${Date.now()}`,
       title: raw.title || 'Dubai Store Product',
@@ -183,10 +322,13 @@ export class UniversalScraperService {
       sourceUrl,
       mainImage: galleryImages[0] || mainImage,
       galleryImages,
+      videos: Array.isArray(raw.videos) ? raw.videos : [],
+      features: Array.isArray(raw.features) ? raw.features : [],
       basePriceAED,
       calculatedPriceToman: calculatedPriceToman || Number(raw.calculatedPriceToman) || 0,
       inStock: raw.inStock !== false,
       variants,
+      variantGroups: (variantGroups.flavors?.length || variantGroups.sizes?.length || variantGroups.others?.length) ? variantGroups : undefined,
       description: raw.description
     };
   }
@@ -222,41 +364,41 @@ export class UniversalScraperService {
 
     if (Array.isArray(raw.variantGroups) && raw.variantGroups.length > 0) {
       raw.variantGroups.forEach((vg: any) => {
-        const options: VariantOption[] = (vg.options || [])
-          .map((opt: any, idx: number) => ({
-            id: opt.id || `${vg.id || 'dim'}-${idx}`,
-            name: opt.name || String(opt),
-            nameFa: opt.nameFa,
-            priceAed: opt.priceAed !== undefined ? Number(opt.priceAed) : priceAed,
-            image: opt.image || opt.imageThumbnail,
-            inStock: opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut,
-            sku: opt.sku
+        const options: VariantOption[] = (vg.options || []).map((opt: any, idx: number) => ({
+          id: opt.id || `${vg.id || 'dim'}-${idx}`,
+          label: opt.name || opt.label || String(opt),
+          name: opt.name || opt.label || String(opt),
+          nameFa: opt.nameFa,
+          type: vg.type || 'generic',
+          price: opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed),
+          priceAed: opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed),
+          image: opt.image || opt.imageThumbnail || opt.imageUrl,
+          imageUrl: opt.imageUrl || opt.image || opt.imageThumbnail,
+          inStock: opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut,
+          sku: opt.sku
+        }));
+
+        dimensions.push({
+          id: vg.id || 'dimension',
+          name: vg.name || 'انتخاب گزینه',
+          type: vg.type || 'generic',
+          options
+        });
+
+        variantGroups.push({
+          id: vg.id || 'vg',
+          name: vg.name || 'انتخاب گزینه',
+          type: vg.type || 'generic',
+          options: options.map(o => ({
+            id: o.id,
+            name: o.name,
+            nameFa: o.nameFa,
+            priceAed: o.priceAed,
+            image: o.image,
+            inStock: o.inStock !== false,
+            sku: o.sku
           }))
-          .filter((o: VariantOption) => o.inStock !== false);
-
-        if (options.length > 0) {
-          dimensions.push({
-            id: vg.id || 'dimension',
-            name: vg.name || 'انتخاب گزینه',
-            type: vg.type || 'generic',
-            options
-          });
-
-          variantGroups.push({
-            id: vg.id || 'vg',
-            name: vg.name || 'انتخاب گزینه',
-            type: vg.type || 'generic',
-            options: options.map(o => ({
-              id: o.id,
-              name: o.name,
-              nameFa: o.nameFa,
-              priceAed: o.priceAed,
-              image: o.image,
-              inStock: true,
-              sku: o.sku
-            }))
-          });
-        }
+        });
       });
     } else {
       const flavors: any[] = Array.isArray(raw.flavors) ? raw.flavors : [];
@@ -264,58 +406,58 @@ export class UniversalScraperService {
 
       if (flavors.length > 0) {
         const flvOptions: VariantOption[] = flavors.map((f, idx) => {
-          const fName = typeof f === 'string' ? f : (f?.name || '');
-          const isAvail = typeof f === 'object' ? (f.inStock !== false && f.available !== false && !f.soldOut && !f.isSoldOut) : true;
+          const fName = typeof f === 'string' ? f : (f?.name || f?.label || '');
+          const isAvail = typeof f === 'object' ? (f.inStock !== false && f.available !== false) : true;
           return {
             id: `flv-${idx}`,
+            label: fName,
             name: fName,
+            type: 'flavor',
+            price: priceAed,
             priceAed: priceAed,
             inStock: isAvail
           };
-        }).filter(o => o.inStock !== false);
-
-        if (flvOptions.length > 0) {
-          dimensions.push({
-            id: 'flavor',
-            name: 'طعم (Flavor)',
-            type: 'flavor',
-            options: flvOptions
-          });
-          variantGroups.push({
-            id: 'flavors',
-            name: 'طعم (Flavor)',
-            type: 'flavor',
-            options: flvOptions
-          });
-        }
+        });
+        dimensions.push({
+          id: 'flavor',
+          name: 'طعم (Flavor)',
+          type: 'flavor',
+          options: flvOptions
+        });
+        variantGroups.push({
+          id: 'flavors',
+          name: 'طعم (Flavor)',
+          type: 'flavor',
+          options: flvOptions
+        });
       }
 
       if (sizes.length > 0) {
         const szOptions: VariantOption[] = sizes.map((s, idx) => {
-          const sName = typeof s === 'string' ? s : (s?.name || '');
-          const isAvail = typeof s === 'object' ? (s.inStock !== false && s.available !== false && !s.soldOut && !s.isSoldOut) : true;
+          const sName = typeof s === 'string' ? s : (s?.name || s?.label || '');
+          const isAvail = typeof s === 'object' ? (s.inStock !== false && s.available !== false) : true;
           return {
             id: `sz-${idx}`,
+            label: sName,
             name: sName,
+            type: 'size',
+            price: priceAed,
             priceAed: priceAed,
             inStock: isAvail
           };
-        }).filter(o => o.inStock !== false);
-
-        if (szOptions.length > 0) {
-          dimensions.push({
-            id: 'size',
-            name: 'وزن / بسته‌بندی (Size)',
-            type: 'size',
-            options: szOptions
-          });
-          variantGroups.push({
-            id: 'sizes',
-            name: 'وزن / بسته‌بندی (Size)',
-            type: 'size',
-            options: szOptions
-          });
-        }
+        });
+        dimensions.push({
+          id: 'size',
+          name: 'وزن / بسته‌بندی (Size)',
+          type: 'size',
+          options: szOptions
+        });
+        variantGroups.push({
+          id: 'sizes',
+          name: 'وزن / بسته‌بندی (Size)',
+          type: 'size',
+          options: szOptions
+        });
       }
     }
 
@@ -342,6 +484,8 @@ export class UniversalScraperService {
       image: galleryImages[0] || mainImage,
       images: galleryImages,
       galleryImages,
+      videos: Array.isArray(raw.videos) ? raw.videos : [],
+      features: Array.isArray(raw.features) ? raw.features : [],
       storeName,
       storeOrigin: originInfo.origin,
       brand,
@@ -350,7 +494,7 @@ export class UniversalScraperService {
       descriptionFa: raw.descriptionFa,
       dimensions: dimensions.length > 0 ? dimensions : undefined,
       variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
-      variants: flatVariants,
+      variants: flatVariants.length > 0 ? flatVariants as any : undefined,
       options: raw.options || [],
       flavors: raw.flavors || [],
       sizes: raw.sizes || [],
@@ -360,3 +504,4 @@ export class UniversalScraperService {
 }
 
 export const universalScraperService = UniversalScraperService.getInstance();
+

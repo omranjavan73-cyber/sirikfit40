@@ -1,9 +1,52 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowRight, ShoppingBag, CreditCard, Coins, Weight, AlertCircle, CheckCircle2, ChevronRight, ArrowLeft, Trash2, Plus, Minus, ShoppingCart, Tag, X, Info, Sparkles, Building2, Layers, Check } from 'lucide-react';
-import type { FinancialSettings, Order, User, CartItem, CmsConfig, UniversalProduct, VariantDimension, VariantOption } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  ArrowRight,
+  ShoppingBag,
+  AlertCircle,
+  CheckCircle2,
+  ChevronRight,
+  ChevronLeft,
+  Trash2,
+  Plus,
+  Minus,
+  ShoppingCart,
+  Tag,
+  X,
+  Sparkles,
+  Layers,
+  Check,
+  Video,
+  ShieldCheck,
+  Maximize2,
+  Zap,
+  ZoomIn
+} from 'lucide-react';
+import type { FinancialSettings, Order, User, CartItem, CmsConfig, VariantDimension, VariantOption } from '../types';
 import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
+
+/**
+ * Utility to strip raw HTML tags and markdown formatting from scraped text
+ */
+function cleanHtmlAndMarkdown(text?: string): string {
+  if (!text) return '';
+  return text
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/#+\s?/g, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 interface ProductDetailViewProps {
   product: {
@@ -14,10 +57,13 @@ interface ProductDetailViewProps {
     image?: string;
     images?: string[];
     galleryImages?: string[];
+    videos?: string[];
+    features?: string[];
     storeName?: string;
     storeOrigin?: string;
     calculatedTomanOverride?: number;
     brand?: string;
+    category?: string;
     discountPercent?: number;
     originalPriceAed?: number;
     servings?: string;
@@ -28,10 +74,13 @@ interface ProductDetailViewProps {
     sizes?: string[];
     dimensions?: VariantDimension[];
     variantGroups?: any[];
+    variants?: any[];
     description?: string;
     descriptionFa?: string;
+    isLocalInventory?: boolean;
   };
   cartItems?: CartItem[];
+  onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   onUpdateCartQuantity?: (id: string, delta: number) => void;
   onRemoveCartItem?: (id: string) => void;
   onClearCart?: () => void;
@@ -45,6 +94,7 @@ interface ProductDetailViewProps {
 export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   product,
   cartItems,
+  onAddToCart,
   onUpdateCartQuantity,
   onRemoveCartItem,
   onClearCart,
@@ -57,8 +107,9 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   // Step 1: Product / Cart detail view. Step 2: Recipient details & order checkout
   const [step, setStep] = useState<1 | 2>(1);
   const [qty, setQty] = useState<number>(1);
+  const [isAddedToCart, setIsAddedToCart] = useState<boolean>(false);
 
-  // Gallery state
+  // Gallery and Image States
   const rawGalleryList = Array.isArray(product.galleryImages) && product.galleryImages.length > 0
     ? product.galleryImages
     : (Array.isArray(product.images) && product.images.length > 0
@@ -69,14 +120,53 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const [activeImage, setActiveImage] = useState<string>(galleryList[0] || product.image || '');
 
   useEffect(() => {
-    if (galleryList.length > 0 && !activeImage) {
-      setActiveImage(galleryList[0]);
+    if (galleryList.length > 0) {
+      if (!activeImage || !galleryList.includes(activeImage)) {
+        setActiveImage(galleryList[0]);
+      }
     }
   }, [product.image, galleryList]);
 
+  // Interactive Hover Zoom Lens States (Desktop)
+  const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [zoomPos, setZoomPos] = useState<{ x: number; y: number }>({ x: 50, y: 50 });
+  const imageContainerRef = useRef<HTMLDivElement>(null);
+
+  // Lightbox Modal States (Mobile tap & Desktop expand)
+  const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number>(0);
+  const [lightboxZoom, setLightboxZoom] = useState<boolean>(false);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!imageContainerRef.current) return;
+    const rect = imageContainerRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+    const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+    setZoomPos({ x, y });
+  };
+
+  const openLightbox = (index?: number) => {
+    const targetIdx = index !== undefined ? index : galleryList.indexOf(activeImage);
+    setLightboxIndex(targetIdx >= 0 ? targetIdx : 0);
+    setLightboxZoom(false);
+    setIsLightboxOpen(true);
+  };
+
+  const handleLightboxNext = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setLightboxIndex((prev) => (prev + 1) % galleryList.length);
+    setLightboxZoom(false);
+  };
+
+  const handleLightboxPrev = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setLightboxIndex((prev) => (prev - 1 + galleryList.length) % galleryList.length);
+    setLightboxZoom(false);
+  };
+
   // Variant selector states
   const [selectedVariants, setSelectedVariants] = useState<Record<string, VariantOption>>({});
-  const [selectedOptionFallback, setSelectedOptionFallback] = useState<string>(product.selectedOption || product.options?.[0] || '');
+  const [selectedOptionFallback] = useState<string>(product.selectedOption || product.options?.[0] || '');
 
   // Extract dimensions or fallback to flavors/sizes
   const dimensions: VariantDimension[] = React.useMemo(() => {
@@ -189,8 +279,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       const initial: Record<string, VariantOption> = {};
       dimensions.forEach(dim => {
         if (dim.options.length > 0 && !selectedVariants[dim.id]) {
-          const firstAvailable = dim.options.find(o => o.inStock !== false) || dim.options[0];
-          initial[dim.id] = firstAvailable;
+          const firstInStock = dim.options.find(o => o.inStock !== false) || dim.options[0];
+          initial[dim.id] = firstInStock;
         }
       });
       if (Object.keys(initial).length > 0) {
@@ -298,12 +388,6 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     }
     if (item.calculatedToman) return item.calculatedToman;
     return calculateFinalToman(item.priceAed, item.weightKg, settings.cargoRatePerKg, settings.profitMargin, activeAedRate);
-  };
-
-  const handleProceedToStep2 = () => {
-    setErrorMessage('');
-    setStep(2);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleApplyPromoCode = async () => {
@@ -422,8 +506,177 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     }
   };
 
-  // EMPTY CART VIEW
-  if (cartItems && cartItems.length === 0) {
+  const handleAddSingleProductToCart = () => {
+    if (!onAddToCart) return;
+
+    const selectedFlavorOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('flavor') || dimId === 'flavors')?.[1] as VariantOption | undefined;
+    const selectedSizeOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('size') || dimId === 'sizes')?.[1] as VariantOption | undefined;
+    
+    const selectedFlavorName = selectedFlavorOpt?.nameFa || selectedFlavorOpt?.name || (product.flavors && product.flavors.length > 0 ? product.flavors[0] : undefined);
+    const selectedSizeName = selectedSizeOpt?.nameFa || selectedSizeOpt?.name || (product.sizes && product.sizes.length > 0 ? product.sizes[0] : undefined);
+
+    const activeVariantSummary = Object.entries(selectedVariants)
+      .map(([_, v]) => {
+        const opt = v as VariantOption;
+        return opt?.nameFa || opt?.name || '';
+      })
+      .filter(Boolean)
+      .join(' - ');
+
+    const payload = {
+      id: product.url || product.title,
+      title: product.title,
+      url: product.url || 'https://www.drnutrition.com',
+      priceAed: priceAed,
+      originalPriceAed: originalPriceAed,
+      discountPercent: product.discountPercent,
+      weightKg: weightKg,
+      image: activeImage || product.image,
+      images: galleryList.length > 0 ? galleryList : (product.image ? [product.image] : []),
+      galleryImages: galleryList.length > 0 ? galleryList : (product.image ? [product.image] : []),
+      storeName: product.storeName || 'فروشگاه دبی',
+      brand: product.brand,
+      quantity: qty,
+      calculatedTomanOverride: product.calculatedTomanOverride,
+      calculatedToman: Math.round(singleToman),
+      selectedOption: activeVariantSummary || selectedOptionFallback || undefined,
+      selectedFlavor: selectedFlavorName,
+      selectedSize: selectedSizeName,
+      selectedVariants: selectedVariants,
+      flavors: product.flavors,
+      sizes: product.sizes,
+      options: product.options,
+      dimensions: dimensions,
+      isLocalInventory: product.isLocalInventory
+    };
+
+    onAddToCart(payload, selectedFlavorName, selectedSizeName);
+    setIsAddedToCart(true);
+    setTimeout(() => setIsAddedToCart(false), 2200);
+  };
+
+  // Clean description and extract structured benefits
+  const cleanDescription = cleanHtmlAndMarkdown(product.description || product.descriptionFa || '');
+  const titleLower = (product.title || '').toLowerCase();
+
+  // Dynamic Structure 1: Composition & Formulation (ترکیبات و ساختار)
+  const getCompositionBullets = () => {
+    if (titleLower.includes('protein') || titleLower.includes('وی') || titleLower.includes('whey') || titleLower.includes('iso')) {
+      return [
+        'پروتئین وی ایزوله و کنسانتره میکروفیلتر شده با خلوص بیش از ۸۰٪',
+        'پروفایل کامل آمینو اسیدهای ضروری و شاخه‌دار (BCAA & EAA)',
+        'فاقد شکر افزوده، چربی ترانس و ناخالصی‌های غیرمجاز'
+      ];
+    }
+    if (titleLower.includes('creatine') || titleLower.includes('کراتین')) {
+      return [
+        'کراتین مونوهیدرات ۱۰۰٪ خالص میکرونایز شده با انحلال‌پذیری بالا',
+        'درجه خلوص دارویی (Pharmaceutical Grade) بدون طعم‌دهنده مصنوعی',
+        'فاقد فیلر، کربوهیدرات اضافه و مواد نگه‌دارنده شیمیایی'
+      ];
+    }
+    if (titleLower.includes('c4') || titleLower.includes('پمپ') || titleLower.includes('pre-workout') || titleLower.includes('preworkout')) {
+      return [
+        'فرمولاسیون سینرژیک بتا-آلانین، سیترولین مالات و ال-تیروزین',
+        'حاوی کافئین آنهیدروس خالص برای افزایش فوری تمرکز و هوشیاری',
+        'ماتریکس الکترولیت‌های هیدراتاسیون جهت تعادل یونی عضلات'
+      ];
+    }
+    if (titleLower.includes('gainer') || titleLower.includes('گینر') || titleLower.includes('mass')) {
+      return [
+        'نسبت طلایی کربوهیدرات‌های پیچیده به پروتئین با ارزش بیولوژیکی بالا',
+        'غنی‌شده با مالتودکسترین استاندارد و آنزیم‌های هضم گوارشی',
+        'تامین زنجیره کامل ویتامین‌ها و مواد معدنی مورد نیاز رشد'
+      ];
+    }
+    if (titleLower.includes('collagen') || titleLower.includes('biotin') || titleLower.includes('کلاژن') || titleLower.includes('بیوتین')) {
+      return [
+        'پپتیدهای کلاژن هیدرولیز شده نوع ۱ و ۳ با جذب سلولی سریع',
+        'ترکیب هم‌افزا با ویتامین C و هیالورونیک اسید برای سنتز بهینه',
+        'دوز استاندارد بیوتین خالص جهت تقویت فولیکول‌های مو و بافت ناخن'
+      ];
+    }
+    if (titleLower.includes('omega') || titleLower.includes('امگا')) {
+      return [
+        'روغن ماهی فوق تصفیه شده با دوز بالای EPA و DHA فعال',
+        'عاری از جیوه، فلزات سنگین و توکسین‌های صنعتی (Molecularly Distilled)',
+        'کپسول‌های ژلاتینی نرم با پوشش انتریک برای جلوگیری از طعم نامطلوب'
+      ];
+    }
+    if (titleLower.includes('multi') || titleLower.includes('مولتی') || titleLower.includes('vitamin') || titleLower.includes('ویتامین')) {
+      return [
+        'مجموعه جامع ویتامین‌های گروه B، ویتامین D3، زینک و منیزیم کلاته',
+        'حاوی عصاره‌های گیاهی و آنتی‌اکسیدان‌های قوی محافظت سلولی',
+        'فرمول زیست‌دسترس‌پذیر با حداکثر جذب در دستگاه گوارش'
+      ];
+    }
+    return [
+      'فرمولاسیون استاندارد با مواد اولیه مرغوب بین‌المللی گرید A',
+      'تولید مطابق بالاترین استانداردهای کنترل کیفیت GMP و cGMP',
+      'فاقد ترکیبات غیرمجاز، محرک‌های مضر و مواد افزودنی غیراستاندارد'
+    ];
+  };
+
+  // Dynamic Structure 2: Key Benefits & Performance (کارایی و عملکرد)
+  const getPerformanceBullets = () => {
+    if (titleLower.includes('protein') || titleLower.includes('وی') || titleLower.includes('whey') || titleLower.includes('iso')) {
+      return [
+        'تسریع رشد و ریکاوری فیبرهای عضلانی پس از تمرینات سنگین',
+        'جلوگیری از فرآیند کاتابولیسم و تحلیل عضلات در دوره‌های رژیم',
+        'هضم سریع و روان بدون ایجاد نفخ و سنگینی در معده'
+      ];
+    }
+    if (titleLower.includes('creatine') || titleLower.includes('کراتین')) {
+      return [
+        'افزایش توان انفجاری و بازسازی سریع ذخایر فسفاژن ATP',
+        'افزایش حجم سلولی و هیدراتاسیون مفید داخل سلول‌های عضلانی',
+        'بهبود رکوردها و افزایش استقامت در ست‌های پرفشار تمرینی'
+      ];
+    }
+    if (titleLower.includes('c4') || titleLower.includes('پمپ') || titleLower.includes('pre-workout') || titleLower.includes('preworkout')) {
+      return [
+        'ایجاد پمپ عضلانی شدید (دم عضلانی) با افزایش اکسید نیتریک خون',
+        'تاخیر چشمگیر در خستگی و سوزش عضلانی حین تمرینات شدید',
+        'افزایش حداکثری انگیزه، تمرکز ذهنی و تمرکز ورزشی'
+      ];
+    }
+    if (titleLower.includes('gainer') || titleLower.includes('گینر') || titleLower.includes('mass')) {
+      return [
+        'افزایش وزن و حجم عضلانی اصولی در افراد لاغراندام (Hardgainers)',
+        'بازسازی سریع ذخایر گلیکوژن کبد و عضلات پس از تمرینات سخت',
+        'تامین انرژی متوالی در طول روز بدون ایجاد احساس افت قند'
+      ];
+    }
+    if (titleLower.includes('collagen') || titleLower.includes('biotin') || titleLower.includes('کلاژن') || titleLower.includes('بیوتین')) {
+      return [
+        'افزایش خاصیت ارتجاعی، سفتی و رطوبت طبیعی لایه‌های پوست',
+        'کاهش ریزش مو، افزایش ضخامت تارهای مو و تقویت استحکام ناخن‌ها',
+        'کمک به حفظ سلامت مفاصل، تاندون‌ها و بافت‌های پیوندی بدن'
+      ];
+    }
+    if (titleLower.includes('omega') || titleLower.includes('امگا')) {
+      return [
+        'تقویت سلامت قلب و عروق و کمک به تنظیم سطح چربی خون',
+        'کاهش التهابات مفصلی و بهبود سرعت بازیابی تاندون‌ها پس از ورزش',
+        'بهبود عملکرد شناختی، حافظه و سلامت سیستم عصبی'
+      ];
+    }
+    if (titleLower.includes('multi') || titleLower.includes('مولتی') || titleLower.includes('vitamin') || titleLower.includes('ویتامین')) {
+      return [
+        'تقویت سیستم دفاعی بدن و محافظت در برابر بیماری‌ها و خستگی',
+        'افزایش سطح انرژی روزانه و بهبود سوخت‌وساز طبیعی بدن',
+        'تامین صددرصدی نیاز روزانه ورزشکاران به ریزمغذی‌های حیاتی'
+      ];
+    }
+    return [
+      'افزایش شادابی، انرژی و حفظ سلامت عمومی بدن در طول روز',
+      'حفظ بالاترین راندمان زیستی با فرمولاسیون تخصصی و جذب بهینه',
+      'مناسب برای استفاده منظم ورزشکاران و عموم علاقه‌مندان به سلامتی'
+    ];
+  };
+
+  // EMPTY CART VIEW (Only when no cart items AND no product was provided)
+  if ((!cartItems || cartItems.length === 0) && (!product || !product.title)) {
     return (
       <div id="detail" className="space-y-4 font-['Vazirmatn',sans-serif] max-w-lg mx-auto pb-20 animate-fade-in text-center">
         <div className="bg-white border border-slate-200/90 rounded-[24px] p-8 shadow-2xs space-y-4 my-6">
@@ -568,62 +821,116 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               })}
             </div>
           ) : (
-            /* SINGLE PRODUCT VIEW WITH UNIVERSAL STORE PILL, GALLERY & VARIANT SELECTORS */
-            <div className="bg-white border border-slate-200/90 rounded-[24px] p-5 shadow-2xs space-y-4">
+            /* SINGLE PRODUCT VIEW WITH HIGH-RES GALLERY & HOVER ZOOM LENS */
+            <div className="bg-white border border-slate-200/90 rounded-[28px] p-4 sm:p-5 shadow-2xs space-y-5">
               
-              {/* Store Origin Pill (نشانگر مبدا فروشگاه) */}
-              <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
+              {/* Store Origin Pill & Stock Status */}
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
                 <div className="inline-flex items-center gap-1.5 bg-slate-900 text-white text-[11px] font-black px-3 py-1 rounded-full shadow-2xs">
                   <span>🇦🇪</span>
                   <span>مبدا سفارش:</span>
                   <span className="text-amber-400 font-extrabold">{product.storeName || 'انبار دبی'}</span>
                 </div>
 
-                <div className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                   <span>موجود در انبار امارات</span>
                 </div>
               </div>
 
-              {/* Main Image Stage */}
-              <div className="flex flex-col items-center justify-center pt-1">
-                <div className="detail-img-wrap relative w-48 h-48 sm:w-56 sm:h-56 bg-slate-50 border border-slate-100 rounded-[24px] flex items-center justify-center overflow-hidden p-2 shadow-2xs">
+              {/* ------------------------------------------------------------------ */}
+              {/* FULL-SIZE PROFESSIONAL PRODUCT GALLERY WITH HOVER ZOOM LENS */}
+              {/* ------------------------------------------------------------------ */}
+              <div className="space-y-3 select-none">
+                {/* Main High-Resolution Viewport Stage */}
+                <div
+                  ref={imageContainerRef}
+                  onMouseEnter={() => setIsHovered(true)}
+                  onMouseLeave={() => setIsHovered(false)}
+                  onMouseMove={handleMouseMove}
+                  onClick={() => openLightbox()}
+                  className="relative w-full h-[380px] sm:h-[440px] md:h-[460px] bg-slate-50 border border-slate-200/90 rounded-[24px] overflow-hidden flex items-center justify-center p-4 shadow-sm cursor-zoom-in group"
+                >
                   {activeImage ? (
                     <img
                       src={activeImage}
                       alt={product.title}
-                      className="w-full h-full object-contain object-center block rounded-[20px] transition-all duration-300"
+                      referrerPolicy="no-referrer"
+                      style={{
+                        transformOrigin: `${zoomPos.x}% ${zoomPos.y}%`,
+                        transform: isHovered ? 'scale(2.3)' : 'scale(1)'
+                      }}
+                      className="w-full h-full object-contain object-center block rounded-[20px] transition-transform duration-100 ease-out will-change-transform"
                       onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
+                        const target = e.currentTarget;
+                        if (String(target.src || '').includes('images.weserv.nl') === false && activeImage) {
+                          target.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(String(activeImage));
+                        }
                       }}
                     />
                   ) : (
-                    <span className="font-black text-3xl md:text-4xl text-[#111111] tracking-tighter">
-                      ON
+                    <span className="font-black text-4xl text-slate-800 tracking-tighter">
+                      OMEX
                     </span>
+                  )}
+
+                  {/* Desktop Hover Hint Pill */}
+                  <div className={`absolute bottom-3 right-3 hidden sm:flex items-center gap-1.5 bg-slate-900/85 backdrop-blur-md text-white text-[10px] font-bold px-3 py-1.5 rounded-full pointer-events-none transition-opacity duration-200 ${
+                    isHovered ? 'opacity-20' : 'opacity-90'
+                  }`}>
+                    <ZoomIn className="w-3.5 h-3.5 text-amber-400" />
+                    <span>جهت بزرگنمایی نشانگر را روی تصویر ببرید</span>
+                  </div>
+
+                  {/* Tap to Expand Button (Mobile & Desktop Lightbox Trigger) */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openLightbox();
+                    }}
+                    className="absolute top-3 left-3 bg-white/90 hover:bg-white text-slate-800 p-2.5 rounded-2xl shadow-sm border border-slate-200 transition active:scale-95 cursor-pointer z-10"
+                    title="مشاهده تمام صفحه تصویر"
+                    aria-label="مشاهده تمام صفحه تصویر"
+                  >
+                    <Maximize2 className="w-4 h-4 text-slate-700" />
+                  </button>
+
+                  {/* Image Counter Badge if multiple images exist */}
+                  {galleryList.length > 1 && (
+                    <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm text-slate-800 text-[10px] font-black px-2.5 py-1 rounded-full border border-slate-200/80 shadow-2xs">
+                      تصویر {toPersianDigits(galleryList.indexOf(activeImage) + 1)} از {toPersianDigits(galleryList.length)}
+                    </div>
                   )}
                 </div>
 
-                {/* Horizontal Thumbnail Carousel */}
+                {/* Horizontal Interactive Thumbnail Strip */}
                 {galleryList.length > 1 && (
-                  <div className="flex items-center justify-center gap-2 mt-3 overflow-x-auto max-w-full pb-1 px-1">
-                    {galleryList.slice(0, 10).map((imgUrl, imgIdx) => {
+                  <div className="flex items-center justify-center gap-2.5 overflow-x-auto pb-1 pt-1 px-1 dir-ltr">
+                    {galleryList.map((imgUrl, imgIdx) => {
                       const isSelected = activeImage === imgUrl;
                       return (
                         <button
                           key={imgIdx}
                           type="button"
                           onClick={() => setActiveImage(imgUrl)}
-                          className={`relative w-12 h-12 rounded-xl overflow-hidden border-2 transition-all p-0.5 bg-white cursor-pointer ${
+                          className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden border-2 transition-all p-1 bg-white cursor-pointer shrink-0 ${
                             isSelected
-                              ? 'border-amber-500 shadow-md scale-105 ring-2 ring-amber-500/20'
-                              : 'border-slate-200 opacity-70 hover:opacity-100 hover:border-slate-400'
+                              ? 'border-slate-900 shadow-sm scale-105 ring-2 ring-slate-900/20'
+                              : 'border-slate-200 opacity-60 hover:opacity-100 hover:border-slate-400'
                           }`}
                         >
                           <img
                             src={imgUrl}
                             alt={`Preview ${imgIdx + 1}`}
-                            className="w-full h-full object-contain rounded-lg"
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-contain rounded-xl"
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              if (String(target.src || '').includes('images.weserv.nl') === false && imgUrl) {
+                                target.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(String(imgUrl));
+                              }
+                            }}
                           />
                         </button>
                       );
@@ -632,22 +939,28 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 )}
               </div>
 
-              <div className="flex items-center justify-center gap-2">
-                {originalPriceAed && originalPriceAed > priceAed && (
-                  <span className="bg-rose-100 text-rose-700 text-xs font-black px-2.5 py-0.5 rounded-full dir-ltr">
-                    -{toPersianDigits(Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100))}٪
+              {/* Badges & Product Title */}
+              <div className="space-y-2 text-center pt-1">
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  {originalPriceAed && originalPriceAed > priceAed && (
+                    <span className="bg-rose-100 text-rose-700 text-xs font-black px-3 py-1 rounded-full dir-ltr">
+                      -{toPersianDigits(Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100))}٪ تخفیف ویژه
+                    </span>
+                  )}
+                  {product.brand && (
+                    <span className="bg-slate-100 text-slate-800 text-xs font-black px-3 py-1 rounded-full border border-slate-200">
+                      برند: {product.brand}
+                    </span>
+                  )}
+                  <span className="bg-emerald-50 text-emerald-800 text-xs font-extrabold px-3 py-1 rounded-full border border-emerald-200">
+                    تضمین ۱۰۰٪ اصالت
                   </span>
-                )}
-                {product.brand && (
-                  <span className="bg-slate-100 text-slate-700 text-xs font-bold px-3 py-0.5 rounded-full">
-                    {product.brand}
-                  </span>
-                )}
-              </div>
+                </div>
 
-              <h1 className="text-center font-black text-base md:text-lg text-slate-900 leading-snug">
-                {product.title}
-              </h1>
+                <h1 className="font-black text-base sm:text-lg text-slate-900 leading-snug px-2">
+                  {product.title}
+                </h1>
+              </div>
 
               {/* Dynamic Variant Selector Rows (ابعاد انتخابی کالا مثل طعم و سایز) */}
               {dimensions.length > 0 && (
@@ -663,7 +976,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                           </span>
                           {currentSelected && (
                             <span className="text-[10px] font-bold text-slate-500 bg-white border border-slate-200/80 px-2 py-0.5 rounded-md">
-                              گزینه انتخاب شده: <span className="text-slate-900 font-black">{currentSelected.nameFa || currentSelected.name}</span>
+                              انتخاب‌شده: <span className="text-slate-900 font-black">{currentSelected.nameFa || currentSelected.name}</span>
                             </span>
                           )}
                         </div>
@@ -671,11 +984,15 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                         <div className="flex flex-wrap gap-2 pt-0.5 dir-ltr">
                           {dim.options.map((opt) => {
                             const isSelected = (currentSelected?.id === opt.id) || (currentSelected?.name === opt.name);
+                            const isAvailable = opt.inStock !== false;
+
                             return (
                               <button
                                 key={opt.id}
                                 type="button"
+                                disabled={!isAvailable}
                                 onClick={() => {
+                                  if (!isAvailable) return;
                                   setSelectedVariants(prev => ({
                                     ...prev,
                                     [dim.id]: opt
@@ -684,15 +1001,22 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                     setActiveImage(opt.image);
                                   }
                                 }}
-                                className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
-                                  isSelected
-                                    ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02]'
-                                    : 'bg-white text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100'
+                                className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all flex items-center gap-1.5 ${
+                                  !isAvailable
+                                    ? 'bg-slate-100/80 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50 line-through'
+                                    : isSelected
+                                    ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02] cursor-pointer'
+                                    : 'bg-white text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100 cursor-pointer'
                                 }`}
                               >
-                                {isSelected && <Check className="w-3 h-3 text-emerald-400" />}
+                                {isSelected && isAvailable && <Check className="w-3 h-3 text-emerald-400" />}
                                 <span>{opt.nameFa || opt.name}</span>
-                                {opt.priceAed && opt.priceAed !== product.priceAed && (
+                                {!isAvailable && (
+                                  <span className="text-[10px] text-rose-500 font-normal no-underline mr-1">
+                                    (ناموجود)
+                                  </span>
+                                )}
+                                {isAvailable && opt.priceAed && opt.priceAed !== product.priceAed && (
                                   <span className={`text-[10px] ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
                                     ({opt.priceAed} د.إ)
                                   </span>
@@ -707,183 +1031,179 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 </div>
               )}
 
+              {/* Pricing Cards */}
               <div className="grid grid-cols-2 gap-3 pt-1">
-                <div className="bg-[#F0FDF4] border border-emerald-100 rounded-[18px] p-3 text-center space-y-0.5">
+                <div className="bg-[#F0FDF4] border border-emerald-100 rounded-[20px] p-3.5 text-center space-y-0.5">
                   <span className="text-[11px] text-slate-500 font-semibold block">تحویل ایران</span>
-                  <span className="font-black text-emerald-600 text-sm md:text-base block">
+                  <span className="font-black text-emerald-600 text-base md:text-lg block">
                     {formatToman(singleToman)}
                   </span>
                 </div>
 
-                <div className="bg-[#F8FAFC] border border-slate-200 rounded-[18px] p-3 text-center space-y-0.5">
-                  <span className="text-[11px] text-slate-500 font-semibold block">قیمت درهم</span>
-                  <span className="font-black text-slate-900 text-sm md:text-base block dir-ltr">
+                <div className="bg-[#F8FAFC] border border-slate-200 rounded-[20px] p-3.5 text-center space-y-0.5">
+                  <span className="text-[11px] text-slate-500 font-semibold block">قیمت درهم (دبی)</span>
+                  <span className="font-black text-slate-900 text-base md:text-lg block dir-ltr">
                     {formatAed(priceAed)}
                   </span>
                 </div>
               </div>
 
-              <div className="bg-[#F8FAFC] border border-slate-200 rounded-[18px] p-3 flex items-center justify-between">
-                <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
-                  <button
-                    type="button"
-                    onClick={() => setQty(Math.min(20, qty + 1))}
-                    className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 font-black text-sm flex items-center justify-center transition cursor-pointer text-slate-900"
-                  >
-                    +
-                  </button>
-                  <span className="font-black text-sm w-6 text-center text-slate-900 dir-ltr">{toPersianDigits(qty)}</span>
-                  <button
-                    type="button"
-                    onClick={() => setQty(Math.max(1, qty - 1))}
-                    className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 font-black text-sm flex items-center justify-center transition cursor-pointer text-slate-900"
-                  >
-                    -
-                  </button>
+              {/* Quantity Selector & Add to Cart Action */}
+              <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-3 font-['Vazirmatn',sans-serif]">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800">تعداد سفارش:</span>
+                  <div className="flex items-center gap-3 bg-white border border-slate-300 rounded-xl px-2.5 py-1 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setQty(Math.max(1, qty - 1))}
+                      disabled={qty <= 1}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-xs font-black text-slate-900 w-6 text-center dir-ltr">
+                      {toPersianDigits(qty)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setQty(qty + 1)}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-                <span className="text-xs font-bold text-slate-900">تعداد کالا</span>
+
+                {/* Primary Add to Cart Button */}
+                <button
+                  type="button"
+                  onClick={handleAddSingleProductToCart}
+                  className={`w-full py-3.5 px-4 rounded-xl font-black text-xs sm:text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer border-none ${
+                    isAddedToCart
+                      ? 'bg-emerald-600 text-white scale-[0.99]'
+                      : 'bg-[#111111] hover:bg-black text-white active:scale-95'
+                  }`}
+                >
+                  {isAddedToCart ? (
+                    <>
+                      <Check className="w-4.5 h-4.5 text-white" />
+                      <span>✓ محصول به سبد خرید اضافه شد</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart className="w-4.5 h-4.5" />
+                      <span>افزودن به سبد خرید</span>
+                    </>
+                  )}
+                </button>
               </div>
 
-              {/* STRUCTURED TECHNICAL SPECIFICATIONS TABLE (جدول مشخصات فنی) */}
-              <div className="space-y-2 pt-2 border-t border-slate-100 text-right">
-                <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
-                  <Info className="w-4 h-4 text-sky-600" />
-                  <span>جدول مشخصات فنی کالا (Technical Specifications)</span>
+              {/* ------------------------------------------------------------------ */}
+              {/* STRUCTURED PRODUCT HIGHLIGHTS & BENEFIT CARDS (3 CLEAN DISTINCT BLOCKS) */}
+              {/* ------------------------------------------------------------------ */}
+              <div className="space-y-3 pt-2 border-t border-slate-100 text-right">
+                <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span>ویژگی‌ها و مزایای برجسته محصول</span>
                 </h3>
-                <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3 sm:p-4 text-xs">
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
-                      <span className="text-[11px] text-slate-400 font-bold block">برند (Brand):</span>
-                      <span className="font-black text-slate-800 block">{product.brand || product.storeName || 'معتبر دبی'}</span>
-                    </div>
 
-                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
-                      <span className="text-[11px] text-slate-400 font-bold block">دسته‌بندی (Category):</span>
-                      <span className="font-black text-slate-800 block">{product.category || 'مکمل‌های ورزشی'}</span>
-                    </div>
+                {/* Block 1: ترکیبات و ساختار (Composition & Formulation) */}
+                <div className="bg-sky-50/50 border border-sky-200/80 rounded-2xl p-4 space-y-2.5 text-right">
+                  <div className="flex items-center gap-2 text-sky-900 font-black text-xs sm:text-sm border-b border-sky-100 pb-1.5">
+                    <Layers className="w-4 h-4 text-sky-600" />
+                    <span>ترکیبات و ساختار (Composition & Formulation)</span>
+                  </div>
+                  <div className="space-y-2">
+                    {getCompositionBullets().map((bullet, idx) => (
+                      <div key={idx} className="flex items-start gap-2 text-xs text-slate-800">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-600 mt-1.5 shrink-0"></span>
+                        <span className="leading-relaxed font-medium">{bullet}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
-                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
-                      <span className="text-[11px] text-slate-400 font-bold block">وزن / سروینگ (Weight / Servings):</span>
-                      <span className="font-black text-slate-800 block dir-ltr text-right">{toPersianDigits(product.weightKg || 0.8)} کیلوگرم</span>
-                    </div>
+                {/* Block 2: کارایی و عملکرد (Key Benefits & Performance) */}
+                <div className="bg-amber-50/50 border border-amber-200/80 rounded-2xl p-4 space-y-2.5 text-right">
+                  <div className="flex items-center gap-2 text-amber-900 font-black text-xs sm:text-sm border-b border-amber-100 pb-1.5">
+                    <Zap className="w-4 h-4 text-amber-600" />
+                    <span>کارایی و عملکرد (Key Benefits & Performance)</span>
+                  </div>
+                  <div className="space-y-2">
+                    {getPerformanceBullets().map((bullet, idx) => (
+                      <div key={idx} className="flex items-start gap-2 text-xs text-slate-800">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-600 mt-1.5 shrink-0"></span>
+                        <span className="leading-relaxed font-medium">{bullet}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
-                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
-                      <span className="text-[11px] text-slate-400 font-bold block">اصالت کالا (Authenticity):</span>
-                      <span className="font-black text-emerald-700 block">۱۰۰٪ اورجینال (100% Authentic)</span>
+                {/* Block 3: تضمین اصالت و سلامت (Trust & Authenticity Badges) */}
+                <div className="bg-emerald-50/60 border border-emerald-200/90 rounded-2xl p-4 space-y-2.5 text-right">
+                  <div className="flex items-center gap-2 text-emerald-900 font-black text-xs sm:text-sm border-b border-emerald-100 pb-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span>تضمین اصالت و سلامت فیزیکی کالا</span>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-start gap-2 text-xs text-emerald-950 font-bold">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                      <span className="leading-relaxed">۱۰۰٪ اورجینال و واردات مستقیم از نمایندگی‌های معتبر دبی</span>
                     </div>
-
-                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5 col-span-2">
-                      <span className="text-[11px] text-slate-400 font-bold block">ترکیبات کلیدی (Key Ingredients):</span>
-                      <span className="font-bold text-slate-700 block dir-ltr text-right">
-                        {product.title.toLowerCase().includes('protein') || product.title.toLowerCase().includes('وی')
-                          ? 'Whey Protein Isolate, BCAA, Glutamine, Essential Amino Acids'
-                          : product.title.toLowerCase().includes('multi') || product.title.toLowerCase().includes('مولتی')
-                          ? 'Vitamin C, B-Complex, Vitamin D3, Zinc, Magnesium'
-                          : product.title.toLowerCase().includes('c4') || product.title.toLowerCase().includes('پمپ')
-                          ? 'Citrulline Malate, Beta-Alanine, Caffeine Anhydrous, Tyrosine'
-                          : 'Active Ingredients, Minerals, Vitamins & Essential Nutrients'}
-                      </span>
+                    <div className="flex items-start gap-2 text-xs text-emerald-950 font-bold">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                      <span className="leading-relaxed">تضمین سلامت فیزیکی، بسته‌بندی پلمپ شرکتی و کنترل بارکد اصالت</span>
+                    </div>
+                    <div className="flex items-start gap-2 text-xs text-emerald-950 font-bold">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                      <span className="leading-relaxed">دارای تاریخ انقضای معتبر و نگهداری در شرایط دمایی استاندارد</span>
                     </div>
                   </div>
                 </div>
+
+                {/* Detailed Clean Description if available */}
+                {cleanDescription && cleanDescription.length > 20 && (
+                  <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-2 text-right">
+                    <span className="text-xs font-black text-slate-800 block">توضیحات تکمیلی کالا:</span>
+                    <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-line">
+                      {cleanDescription}
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* PERSIAN CAPTION & FUNCTIONAL BENEFITS BOX */}
-              <div className="space-y-2 text-right">
-                <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-amber-500" />
-                  <span>توضیحات و کاربردهای اصلی محصول</span>
-                </h3>
-                <div className="bg-slate-50 p-4 rounded-2xl text-slate-700 text-xs sm:text-sm leading-relaxed border border-slate-200">
-                  {(() => {
-                    const desc = product.description && product.description.trim();
-                    if (desc && desc.length > 20) {
-                      const lines = desc.split(/\r?\n|•|- |\* |;/).map(l => l.trim()).filter(Boolean);
-                      if (lines.length > 1) {
-                        return (
-                          <div className="space-y-2">
-                            {lines.map((line, idx) => (
-                              <div key={idx} className="flex items-start gap-2 text-xs sm:text-sm text-slate-800 font-medium">
-                                <span className="text-emerald-600 font-black shrink-0 mt-0.5">✔</span>
-                                <span className="leading-relaxed">{line}</span>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      }
-                      return <p className="font-medium text-slate-700 text-xs sm:text-sm leading-relaxed whitespace-pre-line">{desc}</p>;
-                    }
-
-                    const t = product.title.toLowerCase();
-                    let functionalBenefits = [
-                      'تضمین ۱۰۰٪ اصالت کالا، پلمپ کارخانه‌ای و ارسال سریع از دبی',
-                      'کیفیت گرید A جهانی با استاندارد کنترل کیفیت بین‌المللی',
-                      'حفظ حداکثر اثربخشی با شرایط نگهداری و بسته‌بندی استاندارد'
-                    ];
-
-                    if (t.includes('protein') || t.includes('وی') || t.includes('whey') || t.includes('iso')) {
-                      functionalBenefits = [
-                        'افزایش حجم عضلانی خشک و ترمیم سریع بافت‌های عضلانی پس از تمرینات سنگین',
-                        'هضم و جذب فوق‌العاده سریع با ارزش بیولوژیکی بالا (Whey Isolate/Concentrate)',
-                        'تامین اسیدهای آمینه ضروری (BCAA & Glutamine) برای جلوگیری از فرآیند کاتابولیسم'
-                      ];
-                    } else if (t.includes('creatine') || t.includes('کراتین')) {
-                      functionalBenefits = [
-                        'افزایش قدرت، توان انفجاری و ذخایر ATP در سلول‌های عضلانی',
-                        'بهبود عملکرد و استقامت بدنی در تمرینات پرفشار و سنگین ورزشی',
-                        'تسریع روند ریکاوری و افزایش حجم سلولی مفید عضلات'
-                      ];
-                    } else if (t.includes('multi') || t.includes('مولتی') || t.includes('vitamin') || t.includes('ویتامین')) {
-                      functionalBenefits = [
-                        'تامین ۱۰۰٪ نیاز روزانه بدن به ویتامین‌ها و ملاح معدنی کلیدی',
-                        'تقویت سیستم ایمنی بدن، افزایش سطح انرژی و رفع خستگی مفرط',
-                        'حاوی آنتی‌اکسیدان‌های قوی برای حفظ سلامت قلب، پوست و مو'
-                      ];
-                    } else if (t.includes('c4') || t.includes('پمپ') || t.includes('pre-workout') || t.includes('preworkout')) {
-                      functionalBenefits = [
-                        'افزایش شدید تمرکز فکری و دم عضلانی (Muscle Pump) در حین تمرین',
-                        'تاخیر در بروز خستگی و افزایش استقامت تمرینی با بتا-آلانین و سیترولین',
-                        'بهبود خون‌رسانی و اکسیژن‌رسانی بهتر به بافت‌های عضلانی'
-                      ];
-                    } else if (t.includes('gainer') || t.includes('گینر') || t.includes('mass')) {
-                      functionalBenefits = [
-                        'تامین کالری بالا و کربوهیدرات‌های پیچیده برای افزایش وزن سریع و پایدار',
-                        'کمک به ساخت عضلات باکیفیت در افراد سخت‌وزن‌گیر (Hardgainers)',
-                        'بازسازی سریع ذخایر گلیکوژن عضلانی پس از تمرین'
-                      ];
-                    } else if (t.includes('collagen') || t.includes('biotin') || t.includes('کلاژن') || t.includes('بیوتین') || t.includes('hair') || t.includes('skin')) {
-                      functionalBenefits = [
-                        'تقویت پوست، مو، ناخن و جوانسازی عمیق بافت‌های پوستی',
-                        'کاهش ریزش مو و تحریک رُشد مجدد فولیکول‌های مو',
-                        'حفظ کشسانی و رطوبت طبیعی پوست با ترکیب هیالورونیک اسید و ویتامین C'
-                      ];
-                    } else if (t.includes('probiotic') || t.includes('digestive') || t.includes('پروبیوتیک') || t.includes('گوارش') || t.includes('gut')) {
-                      functionalBenefits = [
-                        'بهبود عملکرد دستگاه گوارش و حفظ تعادل فلور میکروبی روده',
-                        'تقویت جذب مواد مغذی، مکمل‌ها و ویتامین‌ها در دستگاه هضم',
-                        'کاهش نفخ، بهبود هضم غذا و تقویت سلامت عمومی سیستم ایمنی'
-                      ];
-                    } else if (t.includes('omega') || t.includes('امگا')) {
-                      functionalBenefits = [
-                        'تقویت سلامت قلب و عروق، مفاصل و بهبود عملکرد سلول‌های مغزی',
-                        'عاری از جیوه و فلزات سنگین با درجه خلوص بالا (Pharmaceutical Grade)',
-                        'تنظیم سطح کلسترول و کاهش التهاب‌های مفصلی'
-                      ];
-                    }
-
-                    return (
-                      <div className="space-y-2">
-                        {functionalBenefits.map((benefit, idx) => (
-                          <div key={idx} className="flex items-start gap-2 text-xs sm:text-sm text-slate-800 font-medium">
-                            <span className="text-emerald-600 font-black shrink-0 mt-0.5">✔</span>
-                            <span className="leading-relaxed">{benefit}</span>
-                          </div>
-                        ))}
+              {/* EMBEDDED PRODUCT VIDEOS (ویدیوهای معرفی کالا) */}
+              {Array.isArray(product.videos) && product.videos.length > 0 && (
+                <div className="space-y-2 text-right pt-2 border-t border-slate-100">
+                  <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                    <Video className="w-4 h-4 text-indigo-600" />
+                    <span>ویدیوهای معرفی کالا (Product Videos)</span>
+                  </h3>
+                  <div className="space-y-3">
+                    {product.videos.map((vidUrl, vIdx) => (
+                      <div key={vIdx} className="bg-slate-900 rounded-2xl overflow-hidden shadow-md border border-slate-800">
+                        {vidUrl.includes('youtube.com') || vidUrl.includes('youtu.be') ? (
+                          <iframe
+                            src={vidUrl.replace('watch?v=', 'embed/')}
+                            title={`Video ${vIdx + 1}`}
+                            className="w-full aspect-video border-0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        ) : (
+                          <video
+                            src={vidUrl}
+                            controls
+                            className="w-full aspect-video bg-black"
+                            poster={product.image}
+                          />
+                        )}
                       </div>
-                    );
-                  })()}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+
             </div>
           )}
 
@@ -1225,7 +1545,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               />
             </div>
 
-            {/* Action Button: RENAMED TO "تأیید و پرداخت نهایی ←" */}
+            {/* Action Button */}
             <button
               type="submit"
               disabled={isSubmitting}
@@ -1238,6 +1558,114 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
           </div>
 
         </form>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* FULLSCREEN LIGHTBOX MODAL (TAP-TO-EXPAND & PINCH-TO-ZOOM) */}
+      {/* ------------------------------------------------------------------ */}
+      {isLightboxOpen && (
+        <div
+          onClick={() => setIsLightboxOpen(false)}
+          className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex flex-col justify-between p-3 sm:p-5 select-none animate-fade-in"
+        >
+          {/* Top Bar Controls */}
+          <div className="flex items-center justify-between z-10" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <span className="bg-white/15 text-white text-xs font-black px-3 py-1.5 rounded-full border border-white/20">
+                {product.brand || product.storeName || 'فروشگاه دبی'}
+              </span>
+              {galleryList.length > 1 && (
+                <span className="text-white/80 text-xs font-extrabold bg-black/40 px-2.5 py-1 rounded-full border border-white/10">
+                  تصویر {toPersianDigits(lightboxIndex + 1)} از {toPersianDigits(galleryList.length)}
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsLightboxOpen(false)}
+              className="text-white/90 hover:text-white bg-white/20 hover:bg-white/30 p-2.5 rounded-full transition cursor-pointer"
+              title="بستن گالری"
+              aria-label="بستن گالری"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Center Main Stage with Zoom Toggle */}
+          <div
+            className="relative flex-1 flex items-center justify-center p-2 sm:p-6 overflow-hidden cursor-zoom-in"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLightboxZoom(!lightboxZoom);
+            }}
+          >
+            {galleryList[lightboxIndex] && (
+              <img
+                src={galleryList[lightboxIndex]}
+                alt={product.title}
+                referrerPolicy="no-referrer"
+                className={`max-w-full max-h-[75vh] object-contain transition-transform duration-200 select-none ${
+                  lightboxZoom ? 'scale-175 cursor-zoom-out' : 'scale-100'
+                }`}
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (String(target.src || '').includes('images.weserv.nl') === false && galleryList[lightboxIndex]) {
+                    target.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(String(galleryList[lightboxIndex]));
+                  }
+                }}
+              />
+            )}
+
+            {/* Navigation Arrows for Multiple Images */}
+            {galleryList.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleLightboxPrev}
+                  className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 bg-white/20 hover:bg-white/40 text-white p-3 rounded-full backdrop-blur-md transition cursor-pointer"
+                  title="تصویر قبلی"
+                  aria-label="تصویر قبلی"
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLightboxNext}
+                  className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 bg-white/20 hover:bg-white/40 text-white p-3 rounded-full backdrop-blur-md transition cursor-pointer"
+                  title="تصویر بعدی"
+                  aria-label="تصویر بعدی"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Bottom Thumbnails Strip */}
+          <div className="flex items-center justify-center gap-2 overflow-x-auto py-2 z-10 dir-ltr" onClick={(e) => e.stopPropagation()}>
+            {galleryList.length > 1 && galleryList.map((imgUrl, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  setLightboxIndex(idx);
+                  setLightboxZoom(false);
+                }}
+                className={`w-12 h-12 rounded-xl overflow-hidden border-2 transition cursor-pointer shrink-0 ${
+                  lightboxIndex === idx ? 'border-white ring-2 ring-white/50 scale-110' : 'border-white/30 opacity-50 hover:opacity-100'
+                }`}
+              >
+                <img
+                  src={imgUrl}
+                  alt={`Thumb ${idx + 1}`}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-contain bg-white/5 p-0.5"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
     </div>

@@ -11,6 +11,7 @@ export interface SiteSettings {
   autoUpdateRates?: boolean;
   currencyApiUrl?: string;
   minOrderAed?: number;
+  minOrderAmountToman?: number;
 
   // تنظیمات عمومی و ظاهری (اضافه شده)
   enableComments?: boolean;
@@ -57,6 +58,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     let initialRate: number | null = null;
     let cargo = 35;
     let margin = 15;
+    let minOrderToman = 0;
     let savedData: Partial<SiteSettings> = {};
 
     if (typeof window !== 'undefined') {
@@ -74,10 +76,21 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
             savedData = parsed;
             if (typeof parsed.cargoRatePerKg === 'number') cargo = parsed.cargoRatePerKg;
             if (typeof parsed.profitMargin === 'number') margin = parsed.profitMargin;
+            if (typeof parsed.minOrderAmountToman === 'number') minOrderToman = parsed.minOrderAmountToman;
             if (!initialRate) {
               const r = Number(parsed.aedRate || parsed.manualAedRate || parsed.exchangeRate);
               if (!isNaN(r) && r > 0) initialRate = r;
             }
+          }
+        } catch (_e) {}
+      }
+
+      const savedApp = localStorage.getItem('sirikfit_app_settings');
+      if (savedApp) {
+        try {
+          const parsedApp = JSON.parse(savedApp);
+          if (parsedApp && typeof parsedApp.minOrderAmountToman === 'number') {
+            minOrderToman = parsedApp.minOrderAmountToman;
           }
         } catch (_e) {}
       }
@@ -89,6 +102,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
       isStoreActive: true,
       showContactNumber: true,
       slogans: [],
+      minOrderAmountToman: minOrderToman,
       ...savedData,
       aedRate: initialRate,
       manualAedRate: initialRate,
@@ -159,6 +173,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
         ...fetchedData,
         aedRate: fetchedRate || prev.aedRate,
         manualAedRate: fetchedRate || prev.manualAedRate,
+        minOrderAmountToman: fetchedData.minOrderAmountToman !== undefined ? Number(fetchedData.minOrderAmountToman) : (prev.minOrderAmountToman ?? 0),
         cargoRatePerKg: fetchedData.cargoRatePerKg ?? prev.cargoRatePerKg ?? 35,
         profitMargin: fetchedData.profitMargin ?? prev.profitMargin ?? 15,
         enableComments: fetchedData.enableComments ?? fetchedData.showComments ?? prev.enableComments ?? true,

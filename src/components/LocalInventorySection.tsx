@@ -8,13 +8,15 @@ interface LocalInventorySectionProps {
   settings?: FinancialSettings;
   onSelectLocalProduct: (item: LocalInventoryItem) => void;
   onOpenFullModal?: () => void;
+  onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
 }
 
 export const LocalInventorySection: React.FC<LocalInventorySectionProps> = ({
   items = [],
   settings,
   onSelectLocalProduct,
-  onOpenFullModal
+  onOpenFullModal,
+  onAddToCart
 }) => {
   const [selectedLocalForModal, setSelectedLocalForModal] = useState<LocalInventoryItem | null>(null);
   const visibleItems = (items || []).filter(item => item && item.inStock !== false);
@@ -134,10 +136,13 @@ export const LocalInventorySection: React.FC<LocalInventorySectionProps> = ({
           badge: selectedLocalForModal.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته'
         } : null}
         settings={defaultSettings}
-        onAddToCart={(item) => {
-          if (selectedLocalForModal) {
+        onAddToCart={(productPayload, flavor, size) => {
+          if (onAddToCart) {
+            onAddToCart(productPayload, flavor, size);
+          } else if (selectedLocalForModal) {
             onSelectLocalProduct(selectedLocalForModal);
           }
+          setSelectedLocalForModal(null);
         }}
       />
     </section>

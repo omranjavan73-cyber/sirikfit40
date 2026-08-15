@@ -183,13 +183,13 @@ Respond ONLY with valid JSON in this exact structure without markdown formatting
     const parsed = JSON.parse(cleanJsonStr);
     if (parsed && (parsed.title || parsed.priceAed)) {
       return {
-        title: parsed.title || 'محصول استخراج شده',
+        title: parsed.title || 'مکمل اورجینال امارات',
         priceAed: Number(parsed.priceAed) || 0,
         originalPriceAed: Number(parsed.originalPriceAed) || 0,
         storeName: parsed.storeName || 'فروشگاه دبی',
         image: parsed.image || '',
         weightKg: Number(parsed.weightKg) || 0.8,
-        description: parsed.description || 'توضیحات استخراج شده توسط هوش مصنوعی',
+        description: parsed.description || 'محصول اورجینال با ضمانت اصالت ۱۰۰٪ دبی و بسته‌بندی پلمپ شرکتی',
         aiExtracted: true
       };
     }

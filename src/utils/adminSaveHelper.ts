@@ -78,6 +78,7 @@ export async function saveAdminSettingsPayload(
         cargoRatePerKg: safeParseNumeric(financialSettings.cargoRatePerKg, 35),
         profitMargin: safeParseNumeric(financialSettings.profitMargin, 15),
         minOrderAed: safeParseNumeric(financialSettings.minOrderAed, 200),
+        minOrderAmountToman: safeParseNumeric(financialSettings.minOrderAmountToman, 0),
         updatedAt: Date.now()
       };
     }

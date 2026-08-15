@@ -19,13 +19,13 @@ import { safeFetchJson } from './utils/apiHelper';
 import { dispatchOrderToGoogleSheets } from './utils/googleSheetsSync';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyD38wxpvo9EcqM5LzCQGTGVfdY8PXizlRo",
-  authDomain: "sirikfit-dev.firebaseapp.com",
-  projectId: "sirikfit-dev",
-  storageBucket: "sirikfit-dev.firebasestorage.app",
-  messagingSenderId: "829488991969",
-  appId: "1:829488991969:web:104cf399019302736a31a0",
-  measurementId: "G-8DXSQEM1XM"
+  apiKey: "AIzaSyBAB1TsbUTwgLcHxFAeIMVECS9zqGP7Zk0",
+  authDomain: "sirikfit40.firebaseapp.com",
+  projectId: "sirikfit40",
+  storageBucket: "sirikfit40.firebasestorage.app",
+  messagingSenderId: "532757567852",
+  appId: "1:532757567852:web:01f36071e84c96b4933b49",
+  measurementId: "G-QFR8G0QFNH"
 };
 
 // Suppress internal gRPC stream disconnect debug/info messages

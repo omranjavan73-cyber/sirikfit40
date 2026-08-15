@@ -2,6 +2,7 @@ import { PricingRulesConfig, CommissionRule, ShippingIncrementRule } from '../ty
 
 export interface AppSettings {
   aedRate: number;
+  minOrderAmountToman?: number;
   baseCommission: { enabled: boolean; percentage: number };
   shippingConfig: { baseCostAed: number; minCostAed: number; maxCostAed: number };
   commissionRules: Array<{
@@ -21,6 +22,7 @@ export interface AppSettings {
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   aedRate: 52000,
+  minOrderAmountToman: 0,
   baseCommission: {
     enabled: true,
     percentage: 20
@@ -44,6 +46,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 };
 
 export const DEFAULT_PRICING_RULES: PricingRulesConfig = {
+  minOrderAmountToman: 0,
   baseCommission: {
     percentage: 20,
     isEnabled: true
@@ -126,7 +129,12 @@ export function normalizeToPricingRulesConfig(input: any): PricingRulesConfig {
       }))
     : DEFAULT_PRICING_RULES.shippingIncrementRules;
 
+  const minOrderAmountToman = input.minOrderAmountToman !== undefined && !isNaN(Number(input.minOrderAmountToman))
+    ? Math.max(0, Number(input.minOrderAmountToman))
+    : (input.minOrderToman !== undefined && !isNaN(Number(input.minOrderToman)) ? Math.max(0, Number(input.minOrderToman)) : (DEFAULT_PRICING_RULES.minOrderAmountToman ?? 0));
+
   return {
+    minOrderAmountToman,
     baseCommission,
     shippingConfig,
     commissionRules,

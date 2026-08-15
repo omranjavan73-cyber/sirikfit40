@@ -14,6 +14,8 @@ export interface ParsedProductResult {
   mainImage?: string;
   images?: string[];
   galleryImages?: string[];
+  videos?: string[];
+  features?: string[];
   weightKg?: number;
   storeName?: string;
   sourceStore?: string;
@@ -45,10 +47,10 @@ export function toPersianDigits(str: string): string {
  * [معادل و ویژگی‌های اصلی به فارسی] (Original English Title)
  */
 export function generateBilingualProductTitle(rawTitle: string, storeName?: string, brand?: string): string {
-  if (!rawTitle) return 'محصول استخراج شده';
+  if (!rawTitle) return 'مکمل اورجینال امارات';
 
   const cleanTitle = rawTitle.replace(/\s+/g, ' ').trim();
-  if (!cleanTitle) return 'محصول استخراج شده';
+  if (!cleanTitle) return 'مکمل اورجینال امارات';
 
   // If already bilingual (e.g., contains Persian text followed by English in parentheses)
   if (/[\u0600-\u06FF]/.test(cleanTitle) && /\([A-Za-z0-9\s.,%&+\-/'"]+\)/.test(cleanTitle)) {
@@ -578,7 +580,7 @@ export function parseHtmlMetadata(html: string, targetUrl: string): ParsedProduc
       image: image || '',
       images: image ? [image] : [],
       weightKg: 0.8,
-      description: `محصول استخراج شده مستقیم از ${storeName || 'فروشگاه دبی'}`,
+      description: `محصول اورجینال با ضمانت اصالت ۱۰۰٪ از ${storeName || 'فروشگاه‌های معتبر دبی'}`,
       options: ["پیش‌فرض / استاندارد"]
     };
   }
@@ -729,7 +731,7 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
         images: galleryImages,
         galleryImages,
         weightKg: Number(parsed.weightKg) || 0.8,
-        description: parsed.description || 'توضیحات استخراج شده توسط هوش مصنوعی',
+        description: parsed.description || 'محصول اورجینال با ضمانت اصالت ۱۰۰٪ دبی و بسته‌بندی پلمپ شرکتی',
         variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
         flavors: extractedFlavors.length > 0 ? extractedFlavors : (parsed.flavors || []),
         sizes: extractedSizes.length > 0 ? extractedSizes : (parsed.sizes || []),

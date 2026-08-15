@@ -19,6 +19,7 @@ interface LocalInventoryModalProps {
     calculatedTomanOverride?: number;
   }) => void;
   settings?: FinancialSettings;
+  onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
 }
 
 export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
@@ -26,7 +27,8 @@ export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
   isOpen,
   onClose,
   onSelectLocalProduct,
-  settings
+  settings,
+  onAddToCart
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('همه');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -47,15 +49,25 @@ export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
   });
 
   const handleOrder = (item: LocalInventoryItem) => {
-    onSelectLocalProduct({
+    const payload = {
+      id: 'local-' + item.id,
       title: item.title,
       url: 'https://omex-dubai.ir/local-stock/' + item.id,
       priceAed: currentRate > 0 ? Math.round(item.priceToman / currentRate) : 0,
       weightKg: 0.5,
       image: item.image,
       storeName: 'انبار ایران (تحویل فوری)',
-      calculatedTomanOverride: item.priceToman
-    });
+      calculatedTomanOverride: item.priceToman,
+      calculatedToman: item.priceToman,
+      isLocalInventory: true,
+      quantity: 1
+    };
+
+    if (onAddToCart) {
+      onAddToCart(payload);
+    } else {
+      onSelectLocalProduct(payload);
+    }
     onClose();
   };
 
@@ -198,6 +210,39 @@ export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
         </div>
 
       </div>
+
+      {/* Embedded Product Details Modal */}
+      <ProductDetailModal
+        isOpen={!!selectedLocalForModal}
+        onClose={() => setSelectedLocalForModal(null)}
+        product={selectedLocalForModal ? {
+          title: `${selectedLocalForModal.title} (موجودی انبار ایران)`,
+          url: selectedLocalForModal.url || 'https://omex.ir/stock/' + selectedLocalForModal.id,
+          priceAed: Math.round(selectedLocalForModal.priceToman / defaultSettings.aedRate) || 100,
+          originalPriceAed: selectedLocalForModal.originalPriceToman ? Math.round(selectedLocalForModal.originalPriceToman / defaultSettings.aedRate) : 0,
+          weightKg: 0.5,
+          image: selectedLocalForModal.image,
+          storeName: 'انبار ایران (تحویل فوری)',
+          brand: 'انبار ایران',
+          category: selectedLocalForModal.category || 'موجودی ایران',
+          description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
+          badge: selectedLocalForModal.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته',
+          calculatedTomanOverride: selectedLocalForModal.priceToman,
+          isLocalInventory: true,
+          flavors: selectedLocalForModal.flavors || [],
+          sizes: selectedLocalForModal.sizes || []
+        } : null}
+        settings={defaultSettings}
+        onAddToCart={(productPayload, flavor, size) => {
+          if (onAddToCart) {
+            onAddToCart(productPayload, flavor, size);
+          } else if (selectedLocalForModal) {
+            handleOrder(selectedLocalForModal);
+          }
+          setSelectedLocalForModal(null);
+          onClose();
+        }}
+      />
     </div>
   );
 };

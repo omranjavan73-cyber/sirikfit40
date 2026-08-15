@@ -97,7 +97,7 @@ try {
 const db = firestoreDbInstance;
 
 const app = express();
-const PORT = Number(process.env.PORT || 8080);
+const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -2401,19 +2401,12 @@ async function fetchWithProxies(
 function extractCleanUrl(input: string): string {
   if (!input || typeof input !== 'string') return '';
   const trimmed = input.trim();
-  if (trimmed.includes('|')) {
-    return trimmed
-      .split('|')
-      .map(part => extractCleanUrl(part.trim()))
-      .filter(Boolean)
-      .join(' | ');
-  }
   const httpIndex = trimmed.search(/https?:\/\//i);
   if (httpIndex === -1) {
     return trimmed;
   }
   const fromHttp = trimmed.slice(httpIndex);
-  const match = fromHttp.match(/^(https?:\/\/[^\s|]+)/i);
+  const match = fromHttp.match(/^(https?:\/\/[^\s]+)/i);
   return match ? match[1] : fromHttp;
 }
 
@@ -2520,18 +2513,6 @@ async function saveScrapedProductToCache(
   }
 }
 
-const cleanHighResImageUrl = (url: string): string => {
-  if (!url) return '';
-  let cleaned = url;
-  if (cleaned.includes('cdn.shopify.com') || cleaned.includes('shopify.com')) {
-    cleaned = cleaned.replace(/_(?:pico|icon|thumb|small|compact|medium|large|grande|100x100|160x160|240x240|480x480|570x380|600x600|720x720|1024x1024|2048x2048|master|(\d+)x(\d+)?|x(\d+))(?=\.(?:jpe?g|png|gif|webp))/gi, '');
-  }
-  if (cleaned.includes('drnutrition.com')) {
-    cleaned = cleaned.replace(/_(?:[0-9]+x[0-9]+)(?=\.(?:jpe?g|png|gif|webp))/gi, '');
-  }
-  return cleaned;
-};
-
 const sanitizeImageUrl = (rawImg: string, cleanUrl: string = '') => {
   if (!rawImg) return '';
   let str = String(rawImg).trim().replace(/&amp;/g, '&').replace(/^["']|["']$/g, '').trim();
@@ -2548,38 +2529,78 @@ const sanitizeImageUrl = (rawImg: string, cleanUrl: string = '') => {
     str = str.replace('http://', 'https://');
   }
   str = str.split('"')[0].split("'")[0].split('\\')[0].trim();
-  return cleanHighResImageUrl(str);
+  // Upgrade Shopify/E-Commerce thumbnail images to high-res master/1024x1024
+  str = str.replace(/_(?:small|compact|thumb|medium|100x100|150x150|200x200|240x240|300x300)\.(jpe?g|png|webp|avif)/gi, '_1024x1024.$1');
+  return str;
 };
 
-function isElementUnavailable(attributes: string, innerText: string): boolean {
-  const attrLower = (attributes || '').toLowerCase();
-  const textLower = (innerText || '').toLowerCase();
+/**
+ * Strict Out-Of-Stock & Disabled Variant Filter
+ * Detects disabled, strikethrough, sold-out attributes, classes, tags, and text.
+ */
+export const isOutOfStockElement = (tagHtml: string, rawText?: string): boolean => {
+  if (!tagHtml && !rawText) return false;
+  const tag = (tagHtml || '').toLowerCase();
+  const text = (rawText || '').toLowerCase();
 
-  if (attrLower.includes('disabled') || attrLower.includes('is-disabled')) return true;
-  if (/data-available\s*=\s*["']false["']/i.test(attrLower)) return true;
-  if (attrLower.includes('sold-out') || attrLower.includes('soldout')) return true;
-  if (attrLower.includes('out-of-stock') || attrLower.includes('outofstock')) return true;
-  if (/aria-disabled\s*=\s*["']true["']/i.test(attrLower)) return true;
-
-  if (attrLower.includes('line-through') || 
-      attrLower.includes('dimmed') || 
-      attrLower.includes('strikethrough') || 
-      /opacity\s*[:\-][\s\d\.]+/.test(attrLower) || 
-      /color\s*:\s*#(?:ccc|999|888|ddd)/.test(attrLower)) {
+  // 1. HTML Attributes indicating unavailable/disabled
+  if (
+    tag.includes('disabled') ||
+    tag.includes('aria-disabled="true"') ||
+    tag.includes('data-in-stock="false"') ||
+    tag.includes('data-available="false"') ||
+    tag.includes('data-is-available="false"') ||
+    tag.includes('data-stock="out"') ||
+    tag.includes('data-stock="0"') ||
+    tag.includes('data-unavailable="true"') ||
+    tag.includes('data-inventory="0"') ||
+    tag.includes('aria-hidden="true"')
+  ) {
     return true;
   }
 
-  if (textLower.includes('sold out') || 
-      textLower.includes('out of stock') || 
-      textLower.includes('ناموجود') || 
-      textLower.includes('تمام شده') || 
-      textLower.includes('not available') || 
-      textLower.includes('unavailable')) {
+  // 2. Class Names indicating unavailable / strikethrough / dimmed
+  const outOfStockClasses = [
+    'disabled', 'unavailable', 'out-of-stock', 'out_of_stock', 'sold-out', 'sold_out',
+    'is-disabled', 'inactive', 'opacity-50', 'dimmed', 'strikethrough', 'line-through',
+    'is-soldout', 'soldout', 'unavailable-variant', 'disabled-item', 'out-stock',
+    'no-stock', 'item-disabled', 'is-unavailable'
+  ];
+  for (const cls of outOfStockClasses) {
+    const classRegex = new RegExp(`class=["'][^"']*\\b${cls}\\b[^"']*["']`, 'i');
+    if (classRegex.test(tag)) return true;
+  }
+
+  // 3. Inline style strikethrough or hidden
+  if (
+    /style=["'][^"']*(?:text-decoration\s*:\s*line-through|opacity\s*:\s*0\.[1-4]|display\s*:\s*none)[^"']*["']/i.test(tag)
+  ) {
     return true;
+  }
+
+  // 4. Strikethrough or deletion HTML tags inside the element
+  if (tag.includes('<s>') || tag.includes('<strike>') || tag.includes('<del>') || tag.includes('line-through')) {
+    return true;
+  }
+
+  // 5. Strikethrough SVG slash / line overlay
+  if (tag.includes('<svg') && (tag.includes('slash') || tag.includes('cross') || tag.includes('diagonal') || tag.includes('disabled'))) {
+    return true;
+  }
+
+  // 6. Explicit Out of stock text keywords
+  const outKeywords = [
+    'out of stock', 'currently unavailable', 'sold out', 'sold-out', 'unavailable',
+    'عدم موجودی', 'ناموجود', 'تمام شد', 'غیرفعال', 'موجود نیست'
+  ];
+  for (const kw of outKeywords) {
+    if (text.includes(kw) || tag.includes(kw)) {
+      return true;
+    }
   }
 
   return false;
-}
+};
 
 const cleanTitleStr = (raw: string) => {
   if (!raw) return '';
@@ -2635,6 +2656,8 @@ export interface ParseAdapterResult {
   image?: string;
   galleryImages?: string[];
   images?: string[];
+  videos?: string[];
+  features?: string[];
   storeName?: string;
   originalPriceAed?: number;
   discountPercent?: number;
@@ -2746,13 +2769,11 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
   }
 
   // 4. Meta Tag & HTML Multi-Image Extraction
-  const isInvalidImage = (u: string) => /icon|logo|flag|arrow|loader|spinner|spacer|trust|payment|badge|social/i.test(u);
-
   const metaImgMatches = Array.from(rawHtmlText.matchAll(/<meta[^>]*property=["'](?:og:image|og:image:secure_url)["'][^>]*content=["']([^"']+)["']/gi));
   for (const m of metaImgMatches) {
     if (m[1]) {
       const s = sanitizeImageUrl(m[1], targetUrl);
-      if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) extractedGallery.push(s);
+      if (s && !extractedGallery.includes(s)) extractedGallery.push(s);
     }
   }
 
@@ -2760,7 +2781,7 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
   for (const m of twitterImgs) {
     if (m[1]) {
       const s = sanitizeImageUrl(m[1], targetUrl);
-      if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) extractedGallery.push(s);
+      if (s && !extractedGallery.includes(s)) extractedGallery.push(s);
     }
   }
 
@@ -2772,7 +2793,7 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
       const parsedObj = JSON.parse(unescaped);
       Object.keys(parsedObj).forEach(imgUrl => {
         const s = sanitizeImageUrl(imgUrl, targetUrl);
-        if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) extractedGallery.push(s);
+        if (s && !extractedGallery.includes(s)) extractedGallery.push(s);
       });
     } catch (_e) {}
   }
@@ -2785,7 +2806,7 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
       const u = matchStr.replace(/data-old-hires=["']/i, '').replace(/["']$/i, '');
       if (u && u.startsWith('http')) {
         const s = sanitizeImageUrl(u, targetUrl);
-        if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) extractedGallery.push(s);
+        if (s && !extractedGallery.includes(s)) extractedGallery.push(s);
       }
     });
   }
@@ -2795,18 +2816,7 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
   for (const m of hiResImgTags) {
     if (m[1]) {
       const s = sanitizeImageUrl(m[1], targetUrl);
-      if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) {
-        extractedGallery.push(s);
-      }
-    }
-  }
-
-  // DOM Carousel / Swiper slide scanning
-  const swiperImgTags = Array.from(rawHtmlText.matchAll(/<img[^>]*(?:class|id|data-gallery|data-swiper-slide)=["']([^"']*(?:swiper|carousel|slide|gallery|thumb|preview|zoom)[^"']*)["'][^>]*src=["']([^"']+)["']/gi)) || [];
-  for (const m of swiperImgTags) {
-    if (m[2]) {
-      const s = sanitizeImageUrl(m[2], targetUrl);
-      if (s && !isInvalidImage(s) && !extractedGallery.includes(s)) {
+      if (s && !s.includes('icon') && !s.includes('logo') && !s.includes('flag') && !extractedGallery.includes(s)) {
         extractedGallery.push(s);
       }
     }
@@ -2822,9 +2832,7 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
                   rawHtmlText.match(/<link[^>]*rel=["']image_src["'][^>]*href=["']([^"']+)["']/i);
     if (ogImg && ogImg[1]) {
       extractedImage = sanitizeImageUrl(ogImg[1], targetUrl);
-      if (extractedImage && !isInvalidImage(extractedImage) && !extractedGallery.includes(extractedImage)) {
-        extractedGallery.push(extractedImage);
-      }
+      if (extractedImage && !extractedGallery.includes(extractedImage)) extractedGallery.push(extractedImage);
     }
   }
 
@@ -2874,7 +2882,7 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
   // 7. Advanced Variant & E-Commerce Options Matrix Extraction
   let flavors: string[] = [];
   let sizes: string[] = [];
-  const variantMatrixOptions: { name: string; type: 'flavor' | 'size'; priceAed?: number; image?: string }[] = [];
+  const variantMatrixOptions: { name: string; type: 'flavor' | 'size'; priceAed?: number; image?: string; inStock: boolean }[] = [];
 
   const isDummyOption = (val: string) => {
     if (!val || typeof val !== 'string') return true;
@@ -2913,13 +2921,9 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
                 const parsed = JSON.parse(arrayContent);
                 if (Array.isArray(parsed)) {
                   parsed.forEach((item: any) => {
-                    if (item && typeof item === 'object') {
-                      const isAvail = item.available !== false && item.inStock !== false && 
-                                      (item.inventory_quantity === undefined || item.inventory_quantity > 0);
-                      if (!isAvail) {
-                        return; // Exclude out-of-stock variants
-                      }
-                    }
+                    const isAvailable = item?.available !== false && item?.inStock !== false && item?.is_available !== false && item?.inventory_quantity !== 0;
+                    if (!isAvailable) return;
+
                     const candidateStrings: string[] = [];
                     let varPrice = extractedPrice;
                     let varImage = '';
@@ -2957,10 +2961,10 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
                         const isSize = lowerName.includes('serving') || lowerName.includes('kg') || lowerName.includes('g') || lowerName.includes('lb') || lowerName.includes('oz') || lowerName.includes('عددی') || lowerName.includes('سروینگ');
                         if (isSize) {
                           sizes.push(cleanName);
-                          variantMatrixOptions.push({ name: cleanName, type: 'size', priceAed: varPrice, image: varImage });
+                          variantMatrixOptions.push({ name: cleanName, type: 'size', priceAed: varPrice, image: varImage, inStock: true });
                         } else {
                           flavors.push(cleanName);
-                          variantMatrixOptions.push({ name: cleanName, type: 'flavor', priceAed: varPrice, image: varImage });
+                          variantMatrixOptions.push({ name: cleanName, type: 'flavor', priceAed: varPrice, image: varImage, inStock: true });
                         }
                       }
                     });
@@ -2975,14 +2979,13 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
     }
   }
 
-  // Strategy B: Aggressive option tags scanning
+  // Strategy B: Aggressive option tags scanning (with strict out-of-stock exclusion)
   const allOptionTags = Array.from(rawHtmlText.matchAll(/<option([^>]*)>([\s\S]*?)<\/option>/gi));
   for (const opt of allOptionTags) {
-    const attr = opt[1];
+    const tagAttrs = opt[1] || '';
     const text = opt[2].replace(/<[^>]+>/g, '').trim();
-    if (isElementUnavailable(attr, text)) {
-      continue; // Exclude out of stock
-    }
+    if (isOutOfStockElement(tagAttrs, text)) continue;
+
     if (text && !isDummyOption(text) && text.length > 1 && text.length < 50) {
       const lowerText = text.toLowerCase();
       if (!lowerText.includes('select') && !lowerText.includes('choose')) {
@@ -2996,17 +2999,13 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
     }
   }
 
-  // Strategy C: radio button inputs / swatch labels
-  const allInputs = Array.from(rawHtmlText.matchAll(/<input([^>]*)(?:value|data-value)=["']([^"']+)["']([^>]*)/gi));
+  // Strategy C: radio button inputs / swatch labels (with strict out-of-stock exclusion)
+  const allInputs = Array.from(rawHtmlText.matchAll(/<input([^>]*(?:value|data-value)=["']([^"']+)["'][^>]*)>/gi));
   for (const match of allInputs) {
-    const beforeVal = match[1];
-    const val = match[2];
-    const afterVal = match[3];
-    const attr = beforeVal + ' ' + afterVal;
-    if (isElementUnavailable(attr, val)) {
-      continue; // Exclude out of stock
-    }
-    const text = val.trim();
+    const tagAttrs = match[1] || '';
+    const text = (match[2] || '').trim();
+    if (isOutOfStockElement(tagAttrs, text)) continue;
+
     if (text && !isDummyOption(text) && text.length > 1 && text.length < 40) {
       const lower = text.toLowerCase();
       if (lower.includes('serving') || lower.includes('kg') || lower.includes('g') || lower.includes('lb') || lower.includes('oz') || lower.includes('عددی')) {
@@ -3017,17 +3016,13 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
     }
   }
 
-  // Strategy D: general classes swatch/variant/flavor elements
-  const swatchMatches = Array.from(rawHtmlText.matchAll(/<(option|label|span|div|button)([^>]*)class=["'][^"']*(?:swatch|flavor|size|variant|option-item|product-form__input|value|title|btn)[^"']*["']([^>]*)>([\s\S]*?)<\/\1>/gi));
+  // Strategy D: general classes swatch/variant/flavor elements (with strict out-of-stock exclusion)
+  const swatchMatches = Array.from(rawHtmlText.matchAll(/<(?:option|label|span|div|button)([^>]*class=["'][^"']*(?:swatch|flavor|size|variant|option-item|product-form__input|value|title|btn)[^"']*["'][^>]*)>([\s\S]*?)<\/(?:option|label|span|div|button)>/gi));
   for (const match of swatchMatches) {
-    const tagName = match[1];
-    const beforeClass = match[2];
-    const afterClass = match[3];
-    const text = match[4].replace(/<[^>]+>/g, '').trim();
-    const attr = `tagName="${tagName}" class="..." ${beforeClass} ${afterClass}`;
-    if (isElementUnavailable(attr, text)) {
-      continue; // Exclude out of stock
-    }
+    const tagAttrs = match[1] || '';
+    const text = match[2].replace(/<[^>]+>/g, '').trim();
+    if (isOutOfStockElement(tagAttrs, text)) continue;
+
     if (text && !isDummyOption(text) && text.length > 1 && text.length < 35) {
       const lowerText = text.toLowerCase();
       if (!lowerText.includes('select') && !lowerText.includes('choose') && !lowerText.includes('/') && !lowerText.includes('http') && isNaN(Number(text))) {
@@ -3055,9 +3050,13 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
         const matched = variantMatrixOptions.find(o => o.name === f && o.type === 'flavor');
         return {
           id: `flv-${idx}`,
+          label: f,
           name: f,
+          type: 'flavor',
+          price: (matched?.priceAed && matched.priceAed > 0) ? matched.priceAed : extractedPrice,
           priceAed: (matched?.priceAed && matched.priceAed > 0) ? matched.priceAed : extractedPrice,
           image: matched?.image || undefined,
+          imageUrl: matched?.image || undefined,
           inStock: true
         };
       })
@@ -3073,13 +3072,38 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
         const matched = variantMatrixOptions.find(o => o.name === s && o.type === 'size');
         return {
           id: `sz-${idx}`,
+          label: s,
           name: s,
+          type: 'size',
+          price: (matched?.priceAed && matched.priceAed > 0) ? matched.priceAed : extractedPrice,
           priceAed: (matched?.priceAed && matched.priceAed > 0) ? matched.priceAed : extractedPrice,
           image: matched?.image || undefined,
+          imageUrl: matched?.image || undefined,
           inStock: true
         };
       })
     });
+  }
+
+  // 8. Videos & Features
+  const extractedVideos: string[] = [];
+  const extractedFeatures: string[] = [];
+  const videoMatches = Array.from(rawHtmlText.matchAll(/<(?:video|source)[^>]*src=["']([^"']+\.(?:mp4|webm|m4v)[^"']*)["'][^>]*>/gi));
+  for (const vm of videoMatches) {
+    if (vm && vm[1]) {
+      const vUrl = sanitizeImageUrl(vm[1], targetUrl);
+      if (vUrl && !extractedVideos.includes(vUrl)) extractedVideos.push(vUrl);
+    }
+  }
+
+  const featureListMatches = Array.from(rawHtmlText.matchAll(/<li[^>]*class=["'][^"']*(?:feature|bullet|highlight|spec|item)[^"']*["'][^>]*>([\s\S]*?)<\/li>/gi));
+  for (const flm of featureListMatches) {
+    if (flm && flm[1]) {
+      const featText = flm[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+      if (featText.length > 5 && featText.length < 200 && !extractedFeatures.includes(featText)) {
+        extractedFeatures.push(featText);
+      }
+    }
   }
 
   const finalGallery = Array.from(new Set([extractedImage, ...extractedGallery].filter(Boolean)));
@@ -3089,6 +3113,8 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
     price: extractedPrice,
     image: extractedImage,
     galleryImages: finalGallery,
+    videos: extractedVideos,
+    features: extractedFeatures,
     description: extractedDesc,
     variantGroups,
     options: [...new Set([...flavors, ...sizes])],
@@ -3178,10 +3204,6 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
                 const sizeOptions: any[] = [];
 
                 rawVariants.forEach((v: any, vIdx: number) => {
-                  const isAvailable = v.available === true && (v.inventory_quantity === undefined || v.inventory_quantity > 0);
-                  if (!isAvailable) {
-                    return; // Exclude out of stock
-                  }
                   let vPrice = finalPrice;
                   if (v.price) {
                     let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
@@ -3196,12 +3218,12 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
                     if (isSize) {
                       if (!sizes.includes(vTitle)) {
                         sizes.push(vTitle);
-                        sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, priceAed: vPrice, image: vImg, inStock: true });
+                        sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, priceAed: vPrice, image: vImg, inStock: v.available !== false });
                       }
                     } else {
                       if (!flavors.includes(vTitle)) {
                         flavors.push(vTitle);
-                        flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, priceAed: vPrice, image: vImg, inStock: true });
+                        flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, priceAed: vPrice, image: vImg, inStock: v.available !== false });
                       }
                     }
                   }
@@ -3403,10 +3425,6 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
             const flavorOptions: any[] = [];
             const sizeOptions: any[] = [];
             rawVariants.forEach((v: any, vIdx: number) => {
-              const isAvailable = v.available === true && (v.inventory_quantity === undefined || v.inventory_quantity > 0);
-              if (!isAvailable) {
-                return; // Exclude out of stock
-              }
               let vPrice = Math.round(p * 100) / 100;
               if (v.price) {
                 let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
@@ -3419,12 +3437,12 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
                 if (isSize) {
                   if (!sizes.includes(vTitle)) {
                     sizes.push(vTitle);
-                    sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: true });
+                    sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: v.available !== false });
                   }
                 } else {
                   if (!flavors.includes(vTitle)) {
                     flavors.push(vTitle);
-                    flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: true });
+                    flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: v.available !== false });
                   }
                 }
               }
@@ -4181,26 +4199,31 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         gallery.unshift(mainImg);
       }
 
-      // Build unified variants array
-      const flatVariants: { id?: string; name: string; inStock: boolean; priceAED?: number; imageThumbnail?: string }[] = [];
+      // Build unified variants array with strict inStock and metadata
+      const flatVariants: { id: string; name: string; label: string; type: string; inStock: boolean; price: number; priceAED: number; priceAed: number; imageUrl?: string; imageThumbnail?: string }[] = [];
       const seenVariantNames = new Set<string>();
 
       if (Array.isArray(result.variantGroups)) {
         result.variantGroups.forEach((vg: any) => {
+          const groupType = vg.type || (vg.id === 'sizes' ? 'size' : (vg.id === 'flavors' ? 'flavor' : 'other'));
           (vg.options || []).forEach((opt: any, optIdx: number) => {
-            const optName = typeof opt === 'string' ? opt : (opt.name || opt.nameFa || '');
+            const optName = typeof opt === 'string' ? opt : (opt.name || opt.label || opt.nameFa || '');
             if (optName && !seenVariantNames.has(optName.trim().toLowerCase())) {
-              const isAvail = opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut;
-              if (!isAvail) {
-                return; // Exclude out of stock variants
-              }
               seenVariantNames.add(optName.trim().toLowerCase());
+              const optPrice = (typeof opt === 'object' && (opt.price ?? opt.priceAed ?? opt.priceAED)) ? Number(opt.price ?? opt.priceAed ?? opt.priceAED) : p;
+              const optImg = typeof opt === 'object' ? (opt.imageUrl || opt.imageThumbnail || opt.image) : undefined;
+              const isAvailable = typeof opt === 'object' ? (opt.inStock !== false && opt.available !== false) : true;
               flatVariants.push({
-                id: opt.id || `opt-${optIdx}`,
+                id: (typeof opt === 'object' && opt.id) ? opt.id : `${groupType}-${optIdx}`,
                 name: optName,
-                inStock: true,
-                priceAED: opt.priceAed !== undefined ? Number(opt.priceAed) : p,
-                imageThumbnail: opt.image ? sanitizeImageUrl(opt.image, normalizedUrl) : undefined
+                label: optName,
+                type: groupType,
+                inStock: isAvailable,
+                price: optPrice,
+                priceAED: optPrice,
+                priceAed: optPrice,
+                imageUrl: optImg ? sanitizeImageUrl(optImg, normalizedUrl) : undefined,
+                imageThumbnail: optImg ? sanitizeImageUrl(optImg, normalizedUrl) : undefined
               });
             }
           });
@@ -4213,8 +4236,12 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
           flatVariants.push({
             id: `flv-${idx}`,
             name: flv,
+            label: flv,
+            type: 'flavor',
             inStock: true,
-            priceAED: p
+            price: p,
+            priceAED: p,
+            priceAed: p
           });
         }
       });
@@ -4225,8 +4252,12 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
           flatVariants.push({
             id: `sz-${idx}`,
             name: sz,
+            label: sz,
+            type: 'size',
             inStock: true,
-            priceAED: p
+            price: p,
+            priceAED: p,
+            priceAed: p
           });
         }
       });
@@ -4242,6 +4273,8 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         sourceUrl: cleanUrl,
         mainImage: mainImg || gallery[0] || '',
         galleryImages: gallery,
+        videos: result.videos || [],
+        features: result.features || [],
         basePriceAED: p,
         inStock: true,
         variants: flatVariants,
@@ -4341,18 +4374,13 @@ async function startServer() {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      const targetPath = path.join(__dirname, 'dist', 'index.html');
-      if (fs.existsSync(targetPath)) {
-        res.sendFile(targetPath);
-      } else {
-        res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
-      }
+      res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
   if (!process.env.FUNCTION_TARGET && !process.env.FUNCTIONS_EMULATOR && process.env.IS_FIREBASE_FUNCTION !== 'true') {
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`OMEX Dubai Import Platform server listening on http://0.0.0.0:${PORT}`);
+      console.log(`OMEX Dubai Import Platform server listening on http://localhost:${PORT}`);
     });
   }
 }

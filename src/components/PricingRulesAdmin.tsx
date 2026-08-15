@@ -18,6 +18,8 @@ import {
   RefreshCw,
   Loader2,
   AlertTriangle,
+  AlertCircle,
+  ShoppingBag,
   X
 } from 'lucide-react';
 import { FinancialSettings, CmsConfig, PricingRulesConfig, CommissionRule, ShippingIncrementRule } from '../types';
@@ -38,6 +40,10 @@ interface PricingRulesAdminProps {
   onSaveSuccess?: () => void;
   onBackToMainAdmin?: () => void;
   onOpenStandalonePage?: () => void;
+  onUpdateSettings?: (settings: FinancialSettings) => void;
+  onUpdateCms?: (cms: CmsConfig) => void;
+  onSavePricingRules?: (newRules: any) => void;
+  onRefresh?: () => void;
 }
 
 export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
@@ -45,7 +51,11 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
   cms,
   onSaveSuccess,
   onBackToMainAdmin,
-  onOpenStandalonePage
+  onOpenStandalonePage,
+  onUpdateSettings,
+  onUpdateCms,
+  onSavePricingRules,
+  onRefresh
 }) => {
   const { aedRate: contextAedRate, setAedRate: setContextAedRate } = useSettings();
 
@@ -64,6 +74,22 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
 
   // Section 1: AED Rate Input
   const [aedRateInput, setAedRateInput] = useState<string>(String(initialAedRate));
+
+  // Section 1.5: Minimum Order Amount in Toman
+  const [minOrderAmountTomanInput, setMinOrderAmountTomanInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem('sirikfit_app_settings') || localStorage.getItem('sirikfit_financial_settings');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed.minOrderAmountToman !== undefined && !isNaN(Number(parsed.minOrderAmountToman))) {
+            return String(parsed.minOrderAmountToman);
+          }
+        } catch (_e) {}
+      }
+    }
+    return String(settings?.minOrderAmountToman ?? 0);
+  });
 
   // Section 2: Base Commission
   const [baseCommissionEnabled, setBaseCommissionEnabled] = useState<boolean>(true);
@@ -108,6 +134,12 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       if (data.aedRate && Number(data.aedRate) > 0) {
         setAedRateInput(String(data.aedRate));
         setSimAedRate(String(data.aedRate));
+      }
+
+      if (data.minOrderAmountToman !== undefined && !isNaN(Number(data.minOrderAmountToman))) {
+        setMinOrderAmountTomanInput(String(data.minOrderAmountToman));
+      } else if (data.minOrderToman !== undefined && !isNaN(Number(data.minOrderToman))) {
+        setMinOrderAmountTomanInput(String(data.minOrderToman));
       }
 
       if (data.baseCommission) {
@@ -179,6 +211,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
   // Current Active Rules Config Object
   const activePricingConfig = useMemo(() => {
     return {
+      minOrderAmountToman: Math.max(0, safeParseNumeric(minOrderAmountTomanInput, 0)),
       baseCommission: {
         percentage: Math.max(0, parseFloat(normalizeToEnglishDigits(baseCommissionPercent)) || 20),
         isEnabled: baseCommissionEnabled
@@ -191,7 +224,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       commissionRules,
       shippingIncrementRules
     };
-  }, [baseCommissionEnabled, baseCommissionPercent, baseShippingCostAed, minShippingCostAed, maxShippingCostAed, commissionRules, shippingIncrementRules]);
+  }, [minOrderAmountTomanInput, baseCommissionEnabled, baseCommissionPercent, baseShippingCostAed, minShippingCostAed, maxShippingCostAed, commissionRules, shippingIncrementRules]);
 
   // Live Simulator Calculation
   const simResult = useMemo(() => {
@@ -267,6 +300,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
 
     try {
       const parsedRate = safeParseNumeric(aedRateInput, 0);
+      const parsedMinOrderToman = safeParseNumeric(minOrderAmountTomanInput, 0);
       const cleanBasePercent = safeParseNumeric(baseCommissionPercent, 20);
       const cleanBaseShip = safeParseNumeric(baseShippingCostAed, 20);
       const cleanMinShip = safeParseNumeric(minShippingCostAed, 20);
@@ -275,6 +309,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       // Construct Clean Numeric AppSettings Object
       const appSettingsPayload = {
         aedRate: parsedRate,
+        minOrderAmountToman: parsedMinOrderToman,
         baseCommission: {
           enabled: baseCommissionEnabled,
           percentage: cleanBasePercent
@@ -311,6 +346,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         manualAedRate: parsedRate,
         cargoRatePerKg: cleanBaseShip,
         profitMargin: cleanBasePercent,
+        minOrderAmountToman: parsedMinOrderToman,
         autoUpdateRates: false
       }));
       localStorage.setItem('omex_pricing_rules', JSON.stringify(activePricingConfig));
@@ -326,11 +362,13 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       window.dispatchEvent(new CustomEvent('settingsUpdated', {
         detail: {
           aedRate: parsedRate,
+          minOrderAmountToman: parsedMinOrderToman,
           financialSettings: {
             aedRate: parsedRate,
             manualAedRate: parsedRate,
             cargoRatePerKg: cleanBaseShip,
-            profitMargin: cleanBasePercent
+            profitMargin: cleanBasePercent,
+            minOrderAmountToman: parsedMinOrderToman
           },
           appSettings: appSettingsPayload,
           pricingRules: activePricingConfig
@@ -347,6 +385,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           manualAedRate: parsedRate,
           cargoRatePerKg: cleanBaseShip,
           profitMargin: cleanBasePercent,
+          minOrderAmountToman: parsedMinOrderToman,
           ...appSettingsPayload
         },
         cms
@@ -358,10 +397,24 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         setDoc(doc(db, 'settings', 'financial'), {
           aedRate: parsedRate,
           manualAedRate: parsedRate,
+          minOrderAmountToman: parsedMinOrderToman,
           autoUpdateRates: false,
           currencyApiUrl: ''
         }, { merge: true })
       ]);
+
+      if (onUpdateSettings) {
+        onUpdateSettings({
+          aedRate: parsedRate,
+          manualAedRate: parsedRate,
+          cargoRatePerKg: cleanBaseShip,
+          profitMargin: cleanBasePercent,
+          minOrderAmountToman: parsedMinOrderToman
+        });
+      }
+      if (onSavePricingRules) {
+        onSavePricingRules(activePricingConfig);
+      }
 
       setSaveSuccess(true);
       setSaveMessage('تنظیمات با موفقیت ذخیره شد و در سراسر سیستم اعمال گردید.');
@@ -487,6 +540,90 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           <p className="text-[11px] font-medium text-slate-500 pt-1">
             تغییر این نرخ با ذخیره، فوراً در تمامی فرمول‌های محاسباتی فروشگاه و دیتابیس اعمال خواهد شد.
           </p>
+        </div>
+      </div>
+
+      {/* SECTION: حداقل مبلغ سفارش (تومان) */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+              <ShoppingBag className="w-5 h-5 stroke-[2.2]" />
+            </div>
+            <div>
+              <h2 className="font-extrabold text-sm text-slate-900">
+                حداقل مبلغ سفارش (تومان)
+              </h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                تعیین حداقل مبلغ سبد خرید به تومان جهت امکان ثبت و پرداخت نهایی (برای غیرفعالسازی ۰ وارد کنید)
+              </p>
+            </div>
+          </div>
+
+          {safeParseNumeric(minOrderAmountTomanInput, 0) > 0 ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              فعال ({safeParseNumeric(minOrderAmountTomanInput, 0).toLocaleString('fa-IR')} تومان)
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-full text-xs font-bold">
+              غیرفعال (بدون محدودیت)
+            </span>
+          )}
+        </div>
+
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
+          <label className="block text-xs font-bold text-slate-700">
+            حداقل مبلغ سفارش (تومان)
+          </label>
+          <div className="relative max-w-sm">
+            <input
+              type="text"
+              value={minOrderAmountTomanInput}
+              onChange={(e) => {
+                const val = normalizeToEnglishDigits(e.target.value.replace(/,/g, ''));
+                setMinOrderAmountTomanInput(val);
+              }}
+              placeholder="۰ (غیرفعال)"
+              className="w-full bg-white border border-slate-300 focus:border-slate-900 text-slate-900 font-black text-base px-4 py-3 rounded-xl focus:outline-none transition dir-ltr text-center font-mono"
+            />
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+              تومان
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <span className="text-[11px] font-bold text-slate-500">انتخاب سریع:</span>
+            {[
+              { label: 'غیرفعال (۰)', value: '0' },
+              { label: '۲ میلیون تومان', value: '2000000' },
+              { label: '۳ میلیون تومان', value: '3000000' },
+              { label: '۵ میلیون تومان', value: '5000000' },
+              { label: '۱۰ میلیون تومان', value: '10000000' }
+            ].map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => setMinOrderAmountTomanInput(preset.value)}
+                className={`text-xs px-2.5 py-1 rounded-lg border transition font-bold ${
+                  minOrderAmountTomanInput === preset.value
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                    : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          {safeParseNumeric(minOrderAmountTomanInput, 0) > 0 && (
+            <div className="p-3 bg-amber-50/80 border border-amber-200/80 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+              <span>
+                مشتریانی که مجموع سبد خریدشان کمتر از <strong>{safeParseNumeric(minOrderAmountTomanInput, 0).toLocaleString('fa-IR')} تومان</strong> باشد، پیام هشدار دریافت کرده و امکان ثبت نهایی سفارش را نخواهند داشت.
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

@@ -13,7 +13,8 @@ export interface FinancialSettings {
   currencyApiUrl?: string; // Rate API endpoint
   cargoRatePerKg: number; // e.g., 35 AED per KG
   profitMargin: number; // e.g., 15 (%)
-  minOrderAed?: number; // Minimum cart order in AED (e.g., 200)
+  minOrderAed?: number; // Deprecated: Minimum cart order in AED (e.g., 200)
+  minOrderAmountToman?: number; // Minimum cart order in Toman (e.g., 5000000 or 0)
 }
 
 export interface StoreCardItem {
@@ -170,6 +171,7 @@ export interface ShippingIncrementRule {
 }
 
 export interface PricingRulesConfig {
+  minOrderAmountToman?: number;
   baseCommission: {
     percentage: number;
     isEnabled: boolean;
@@ -352,22 +354,52 @@ export interface ScrapedProductResult {
   sourceUrl: string;
   mainImage: string;
   galleryImages: string[]; // Array of full-res and secondary photo URLs
+  videos?: string[];       // Product videos if available
   basePriceAED: number;
   calculatedPriceToman: number;
   inStock: boolean;
   variants: ProductVariantItem[];
+  variantGroups?: VariantGroupsStructure;
+  features?: string[];
   description?: string;
 }
 
 export interface VariantOption {
   id: string;
-  name: string;
+  label?: string; // e.g., "Double Rich Chocolate" or "5 lbs / 2.27 kg"
+  name: string;   // for backward compatibility & direct access
   nameFa?: string;
-  priceAed?: number;
+  type?: 'flavor' | 'size' | 'color' | 'general' | 'style' | 'generic';
+  inStock: boolean; // Strict in-stock validation
+  price?: number;
+  priceAed?: number; // for backward compatibility
+  originalPrice?: number;
   originalPriceAed?: number;
-  image?: string;
-  inStock?: boolean;
+  currency?: string;
+  imageUrl?: string;
+  image?: string; // for backward compatibility
   sku?: string;
+}
+
+export interface VariantGroupsStructure {
+  flavors?: VariantOption[];
+  sizes?: VariantOption[];
+  others?: VariantOption[];
+}
+
+export interface ProductData {
+  title: string;
+  brand?: string;
+  price: number;
+  originalPrice?: number;
+  currency: string;
+  description: string;
+  features?: string[];
+  images: string[];
+  videos?: string[];
+  variantGroups: VariantGroupsStructure;
+  isAvailable: boolean;
+  sourceUrl: string;
 }
 
 export interface VariantDimension {
@@ -389,6 +421,8 @@ export interface UniversalProduct {
   image: string;
   images: string[];
   galleryImages: string[];
+  videos?: string[];
+  features?: string[];
   storeName: string;
   storeOrigin?: string;
   brand?: string;

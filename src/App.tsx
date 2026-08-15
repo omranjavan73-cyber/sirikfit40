@@ -125,6 +125,8 @@ function MainApp() {
     let rate: number | null = null;
     let cargo = 35;
     let margin = 15;
+    let minOrderToman = 0;
+    let minOrderAed = 0;
 
     if (typeof window !== 'undefined') {
       try {
@@ -143,6 +145,8 @@ function MainApp() {
             }
             if (typeof parsed.cargoRatePerKg === 'number') cargo = parsed.cargoRatePerKg;
             if (typeof parsed.profitMargin === 'number') margin = parsed.profitMargin;
+            if (typeof parsed.minOrderAmountToman === 'number') minOrderToman = parsed.minOrderAmountToman;
+            if (typeof parsed.minOrderAed === 'number') minOrderAed = parsed.minOrderAed;
           }
         }
       } catch (_e) {}
@@ -152,7 +156,9 @@ function MainApp() {
       aedRate: rate,
       manualAedRate: rate,
       cargoRatePerKg: cargo,
-      profitMargin: margin
+      profitMargin: margin,
+      minOrderAmountToman: minOrderToman,
+      minOrderAed: minOrderAed
     };
   });
 
@@ -207,59 +213,31 @@ function MainApp() {
   };
 
   const addToCart = (product: any, selectedFlavor?: string, selectedSize?: string) => {
-    const flavorStr = (selectedFlavor || '').trim();
-    const sizeStr = (selectedSize || '').trim();
-    const id = product.id || product.title || 'item';
+    const flavorStr = selectedFlavor || product.selectedFlavor || '';
+    const sizeStr = selectedSize || product.selectedSize || '';
+    const id = product.id || product.url || product.title || 'item';
     const cartItemId = `${id}-${flavorStr}-${sizeStr}`;
-
-    const variantName = [flavorStr, sizeStr].filter(Boolean).join(' - ');
-    let finalPriceAed = Number(product.priceAed || product.price || 0);
-
-    if (variantName && Array.isArray(product.variants)) {
-      const matchedVar = product.variants.find((v: any) => {
-        const vName = String(v.name || v.title || '').trim().toLowerCase();
-        return vName === variantName.toLowerCase() || 
-               vName === flavorStr.toLowerCase() || 
-               vName === sizeStr.toLowerCase();
-      });
-      if (matchedVar) {
-        if (matchedVar.priceAED !== undefined && matchedVar.priceAED !== null) {
-          finalPriceAed = Number(matchedVar.priceAED);
-        } else if (matchedVar.priceAed !== undefined && matchedVar.priceAed !== null) {
-          finalPriceAed = Number(matchedVar.priceAed);
-        }
-      }
-    }
+    const qtyToAdd = typeof product.quantity === 'number' && product.quantity > 0 ? product.quantity : 1;
 
     setCartItems((prevCart: any[]) => {
       const existingItemIndex = prevCart.findIndex(
-        (item) => item.cartItemId === cartItemId || (item.id === product.id && item.selectedFlavor === selectedFlavor && item.selectedSize === selectedSize)
+        (item) => item.cartItemId === cartItemId || (item.id === id && item.selectedFlavor === selectedFlavor && item.selectedSize === selectedSize)
       );
 
       let updatedCart: any[];
       if (existingItemIndex > -1) {
         updatedCart = [...prevCart];
-        updatedCart[existingItemIndex].quantity += 1;
+        updatedCart[existingItemIndex].quantity += qtyToAdd;
       } else {
-        const newItem: any = {
+        const newItem = {
+          ...product,
           id: product.id || id,
           cartItemId,
-          title: product.title,
-          url: product.url,
-          priceAed: finalPriceAed,
-          weightKg: Number(product.weightKg) || 0.8,
-          image: product.image || product.mainImage || '',
-          storeName: product.storeName || '',
-          quantity: 1
+          product,
+          selectedFlavor: flavorStr || undefined,
+          selectedSize: sizeStr || undefined,
+          quantity: qtyToAdd
         };
-
-        if (variantName) {
-          newItem.selectedVariantName = variantName;
-          newItem.selectedFlavor = flavorStr;
-          newItem.selectedSize = sizeStr;
-          newItem.selectedOption = variantName;
-        }
-
         updatedCart = [...prevCart, newItem];
       }
 
@@ -866,7 +844,7 @@ function MainApp() {
                 settings={settings}
                 cms={cmsConfig}
                 selectedDealProduct={selectedDealProduct}
-                onAddToCart={handleProceedToOrder}
+                onAddToCart={addToCart}
                 onProceedToOrder={handleProceedToOrder}
               />
             </div>
@@ -929,6 +907,7 @@ function MainApp() {
               storeName: 'Dr. Nutrition'
             }}
             cartItems={cartItems}
+            onAddToCart={addToCart}
             onUpdateCartQuantity={handleUpdateCartQuantity}
             onRemoveCartItem={handleRemoveCartItem}
             onClearCart={handleClearCart}
@@ -1061,6 +1040,7 @@ function MainApp() {
         isOpen={isLocalInventoryModalOpen}
         onClose={() => setIsLocalInventoryModalOpen(false)}
         items={cmsConfig?.localInventory || []}
+        onAddToCart={addToCart}
         onSelectLocalProduct={(item) => {
           setIsLocalInventoryModalOpen(false);
           const effectiveRate = getEffectiveAedRate(settings, cmsConfig) || 1;

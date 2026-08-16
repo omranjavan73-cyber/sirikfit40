@@ -27,6 +27,9 @@ import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoi
 import { doc, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { Footer } from './components/Footer';
+import { getSafeItem, setSafeItem } from './utils/safeStorage';
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<TabType>('main');
@@ -34,38 +37,24 @@ function MainApp() {
 
   // User Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    try {
-      const saved = localStorage.getItem('omex_current_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
+    return getSafeItem<User | null>('omex_current_user', null);
   });
 
   const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('omex_cart_items');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    return getSafeItem<CartItem[]>('omex_cart_items', []);
   });
 
   useEffect(() => {
-    try {
-      localStorage.setItem('omex_cart_items', JSON.stringify(cartItems));
-    } catch (e) {
-      console.error('Error saving cart items:', e);
-    }
+    setSafeItem('omex_cart_items', cartItems);
   }, [cartItems]);
 
   // Analytics Visitor Tracking (resilient, never crashes)
   useEffect(() => {
     try {
-      let vid = localStorage.getItem('omex_visitor_id');
+      let vid = getSafeItem<string>('omex_visitor_id', '');
       if (!vid) {
         vid = 'v-' + Math.random().toString(36).substring(2, 11);
-        localStorage.setItem('omex_visitor_id', vid);
+        setSafeItem('omex_visitor_id', vid);
       }
       fetch('/api/analytics/track-visit', {
         method: 'POST',
@@ -99,7 +88,7 @@ function MainApp() {
     setCartItems((prev) => {
       return prev
         .map((item) => {
-          if (item.id === id) {
+          if (item.id === id || item.cartItemId === id) {
             const newQty = item.quantity + delta;
             return newQty > 0 ? { ...item, quantity: newQty } : null;
           }
@@ -110,7 +99,7 @@ function MainApp() {
   };
 
   const handleRemoveCartItem = (id: string) => {
-    setCartItems((prev) => prev.filter((item) => item.id !== id));
+    setCartItems((prev) => prev.filter((item) => item.id !== id && item.cartItemId !== id));
     showToast('محصول از سبد خرید حذف شد', 'success');
   };
 
@@ -128,28 +117,21 @@ function MainApp() {
     let minOrderToman = 0;
     let minOrderAed = 0;
 
-    if (typeof window !== 'undefined') {
-      try {
-        const directRate = localStorage.getItem('sirikfit_aed_rate');
-        if (directRate && !isNaN(Number(directRate)) && Number(directRate) > 0) {
-          rate = Number(directRate);
-        }
+    const directRate = getSafeItem<string>('sirikfit_aed_rate', '');
+    if (directRate && !isNaN(Number(directRate)) && Number(directRate) > 0) {
+      rate = Number(directRate);
+    }
 
-        const saved = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed) {
-            const exRate = Number(parsed.exchangeRate || parsed.aedRate || parsed.manualAedRate);
-            if (!isNaN(exRate) && exRate > 0 && !directRate) {
-              rate = exRate;
-            }
-            if (typeof parsed.cargoRatePerKg === 'number') cargo = parsed.cargoRatePerKg;
-            if (typeof parsed.profitMargin === 'number') margin = parsed.profitMargin;
-            if (typeof parsed.minOrderAmountToman === 'number') minOrderToman = parsed.minOrderAmountToman;
-            if (typeof parsed.minOrderAed === 'number') minOrderAed = parsed.minOrderAed;
-          }
-        }
-      } catch (_e) {}
+    const saved = getSafeItem<any>('sirikfit_financial_settings', null) || getSafeItem<any>('omex_financial_settings', null);
+    if (saved && typeof saved === 'object') {
+      const exRate = Number(saved.exchangeRate || saved.aedRate || saved.manualAedRate);
+      if (!isNaN(exRate) && exRate > 0 && !directRate) {
+        rate = exRate;
+      }
+      if (typeof saved.cargoRatePerKg === 'number') cargo = saved.cargoRatePerKg;
+      if (typeof saved.profitMargin === 'number') margin = saved.profitMargin;
+      if (typeof saved.minOrderAmountToman === 'number') minOrderToman = saved.minOrderAmountToman;
+      if (typeof saved.minOrderAed === 'number') minOrderAed = saved.minOrderAed;
     }
 
     return {
@@ -166,22 +148,15 @@ function MainApp() {
 
   // CMS State initialized from LocalStorage FIRST
   const [cmsConfig, setCmsConfig] = useState<CmsConfig | null>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('sirikfit_cms_config') || localStorage.getItem('omex_home_cms');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed) return parsed;
-        }
-      } catch (_e) {}
-    }
-    return null;
+    const saved = getSafeItem<any>('sirikfit_cms_config', null) || getSafeItem<any>('omex_home_cms', null);
+    return saved && typeof saved === 'object' ? saved : null;
   });
 
   const [isLocalInventoryModalOpen, setIsLocalInventoryModalOpen] = useState(false);
 
   // Active Selected Product for Order Form / Product Detail
   const [selectedProduct, setSelectedProduct] = useState<{
+    id?: string;
     title: string;
     url: string;
     priceAed: number;
@@ -189,6 +164,23 @@ function MainApp() {
     image?: string;
     storeName?: string;
     calculatedTomanOverride?: number;
+    brand?: string;
+    category?: string;
+    description?: string;
+    badge?: string;
+    inStock?: boolean;
+    isLocalInventory?: boolean;
+    flavors?: string[];
+    sizes?: string[];
+    originalPriceAed?: number;
+    priceToman?: number;
+    originalPriceToman?: number;
+    discountPercent?: number;
+    servings?: string;
+    origin?: string;
+    profitMargin?: number;
+    marginPercent?: number;
+    [key: string]: any;
   } | null>(null);
 
   // Selected Deal for Calculator Population
@@ -199,6 +191,7 @@ function MainApp() {
     weightKg: number;
     image?: string;
     storeName?: string;
+    [key: string]: any;
   } | null>(null);
 
   // Active Pending Order for Payment Gateway Modal
@@ -228,8 +221,19 @@ function MainApp() {
 
       let updatedCart: any[];
       if (existingItemIndex > -1) {
-        updatedCart = [...prevCart];
-        updatedCart[existingItemIndex].quantity += qtyToAdd;
+        // Move existing item to top (index 0) with updated quantity
+        const existingItem = prevCart[existingItemIndex];
+        const updatedItem = {
+          ...existingItem,
+          ...product,
+          id: existingItem.id || id,
+          cartItemId: existingItem.cartItemId || cartItemId,
+          selectedFlavor: flavorStr || existingItem.selectedFlavor,
+          selectedSize: sizeStr || existingItem.selectedSize,
+          quantity: (existingItem.quantity || 1) + qtyToAdd
+        };
+        const otherItems = prevCart.filter((_, idx) => idx !== existingItemIndex);
+        updatedCart = [updatedItem, ...otherItems];
       } else {
         const newItem = {
           ...product,
@@ -240,7 +244,8 @@ function MainApp() {
           selectedSize: sizeStr || undefined,
           quantity: qtyToAdd
         };
-        updatedCart = [...prevCart, newItem];
+        // Prepend brand-new item to the very top (index 0)
+        updatedCart = [newItem, ...prevCart];
       }
 
       try {
@@ -921,7 +926,9 @@ function MainApp() {
             </div>
 
             {/* Trust Badges Section (eNamad & Samandehi) */}
-            <TrustBadgesSection cms={cmsConfig} settings={settings} />
+            <ErrorBoundary name="Trust Badges">
+              <TrustBadgesSection cms={cmsConfig} settings={settings} />
+            </ErrorBoundary>
           </div>
         )}
 
@@ -1038,6 +1045,11 @@ function MainApp() {
         )}
       </main>
 
+      {/* Public Footer & Trust Badges */}
+      <ErrorBoundary name="Site Footer">
+        <Footer cms={cmsConfig} settings={settings} />
+      </ErrorBoundary>
+
       {/* Auth Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
@@ -1086,8 +1098,8 @@ function MainApp() {
             badge: '⚡ تحویل فوری ۲۴ ساعته',
             inStock: true,
             isLocalInventory: true,
-            flavors: item.flavors || [],
-            sizes: item.sizes || []
+            flavors: (item as any).flavors || [],
+            sizes: (item as any).sizes || []
           });
           setActiveTab('detail');
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1109,8 +1121,10 @@ function MainApp() {
 
 export default function App() {
   return (
-    <SettingsProvider>
-      <MainApp />
-    </SettingsProvider>
+    <ErrorBoundary name="SirikFit Application">
+      <SettingsProvider>
+        <MainApp />
+      </SettingsProvider>
+    </ErrorBoundary>
   );
 }

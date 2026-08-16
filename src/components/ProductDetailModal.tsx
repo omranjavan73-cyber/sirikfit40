@@ -13,9 +13,10 @@ import {
   Maximize2,
   ZoomIn,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Loader2
 } from 'lucide-react';
-import type { FinancialSettings } from '../types';
+import type { FinancialSettings, ProductVariantMatrix, ProductVariantItem } from '../types';
 import { formatToman, formatAed, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
 
 export interface ProductDetailModalProduct {
@@ -45,13 +46,20 @@ export interface ProductDetailModalProduct {
   sizes?: string[];
   selectedFlavor?: string;
   selectedSize?: string;
+  variantMatrix?: ProductVariantMatrix;
+  variantGroups?: any[];
   variants?: {
     id: string;
     flavor?: string;
     size?: string;
     priceAed?: number;
+    priceAED?: number;
     priceToman?: number;
     weightKg?: number;
+    image?: string;
+    imageThumbnail?: string;
+    inStock?: boolean;
+    url?: string;
   }[];
 }
 
@@ -70,12 +78,21 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   settings,
   onAddToCart
 }) => {
+  const [activeProduct, setActiveProduct] = useState<ProductDetailModalProduct | null>(product);
   const [selectedImage, setSelectedImage] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
   const [isAdded, setIsAdded] = useState<boolean>(false);
 
   const [selectedFlavor, setSelectedFlavor] = useState<string>('');
   const [selectedSize, setSelectedSize] = useState<string>('');
+  const [isVariantLoading, setIsVariantLoading] = useState<boolean>(false);
+
+  // Synchronize activeProduct when prop changes
+  useEffect(() => {
+    setActiveProduct(product);
+  }, [product]);
+
+  const currentProd = activeProduct || product;
 
   // Interactive Hover Zoom Lens States (Desktop)
   const [isHovered, setIsHovered] = useState<boolean>(false);
@@ -88,37 +105,43 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [lightboxZoom, setLightboxZoom] = useState<boolean>(false);
 
   // Gallery list construction
-  const rawList = product ? (product.images || product.galleryImages || (product.image ? [product.image] : [])) : [];
+  const rawList = currentProd ? (currentProd.images || currentProd.galleryImages || (currentProd.image ? [currentProd.image] : [])) : [];
   const fallbackImg = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
   
   const galleryList = Array.from(
     new Set(rawList.filter(Boolean))
   );
 
-  // Derive flavors and sizes from product.flavors/sizes or product.variantGroups/variants
+  // Derive flavors and sizes from currentProd.variantMatrix or currentProd.flavors/sizes or currentProd.variantGroups/variants
   const extractedFlavors = useMemo(() => {
-    if (!product) return [];
-    if (Array.isArray(product.flavors) && product.flavors.length > 0) {
-      return product.flavors.filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(f.trim().toLowerCase()));
+    if (!currentProd) return [];
+    if (currentProd.variantMatrix?.flavors && currentProd.variantMatrix.flavors.length > 0) {
+      return currentProd.variantMatrix.flavors.filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(f.trim().toLowerCase()));
     }
-    const flavorGroup = product.variantGroups?.find((g: any) => g.type === 'flavor' || g.id === 'flavors' || (g.name && (g.name.includes('طعم') || g.name.toLowerCase().includes('flavor'))));
+    if (Array.isArray(currentProd.flavors) && currentProd.flavors.length > 0) {
+      return currentProd.flavors.filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(f.trim().toLowerCase()));
+    }
+    const flavorGroup = currentProd.variantGroups?.find((g: any) => g.type === 'flavor' || g.id === 'flavors' || (g.name && (g.name.includes('طعم') || g.name.toLowerCase().includes('flavor'))));
     if (flavorGroup && Array.isArray(flavorGroup.options)) {
       return flavorGroup.options.map((opt: any) => typeof opt === 'string' ? opt : (opt.name || opt.label || '')).filter(Boolean);
     }
     return [];
-  }, [product]);
+  }, [currentProd]);
 
   const extractedSizes = useMemo(() => {
-    if (!product) return [];
-    if (Array.isArray(product.sizes) && product.sizes.length > 0) {
-      return product.sizes.filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(s.trim().toLowerCase()));
+    if (!currentProd) return [];
+    if (currentProd.variantMatrix?.sizes && currentProd.variantMatrix.sizes.length > 0) {
+      return currentProd.variantMatrix.sizes.filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(s.trim().toLowerCase()));
     }
-    const sizeGroup = product.variantGroups?.find((g: any) => g.type === 'size' || g.id === 'sizes' || (g.name && (g.name.includes('وزن') || g.name.includes('سایز') || g.name.toLowerCase().includes('size'))));
+    if (Array.isArray(currentProd.sizes) && currentProd.sizes.length > 0) {
+      return currentProd.sizes.filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(s.trim().toLowerCase()));
+    }
+    const sizeGroup = currentProd.variantGroups?.find((g: any) => g.type === 'size' || g.id === 'sizes' || (g.name && (g.name.includes('وزن') || g.name.includes('سایز') || g.name.toLowerCase().includes('size'))));
     if (sizeGroup && Array.isArray(sizeGroup.options)) {
       return sizeGroup.options.map((opt: any) => typeof opt === 'string' ? opt : (opt.name || opt.label || '')).filter(Boolean);
     }
     return [];
-  }, [product]);
+  }, [currentProd]);
 
   useEffect(() => {
     if (product) {
@@ -131,45 +154,69 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       setIsHovered(false);
       setIsLightboxOpen(false);
     }
-  }, [product, extractedFlavors, extractedSizes]);
+  }, [product]);
 
-  if (!isOpen || !product) return null;
+  if (!isOpen || !currentProd) return null;
 
-  const isLocal = product.isLocalInventory === true || product.storeName?.includes('انبار ایران') || product.brand?.includes('انبار ایران');
-  const basePriceAed = product.priceAed || 100;
-  const baseWeightKg = product.weightKg || 0.5;
-  const originalPriceAed = product.originalPriceAed;
+  const isLocal = currentProd.isLocalInventory === true || currentProd.storeName?.includes('انبار ایران') || currentProd.brand?.includes('انبار ایران');
+  const basePriceAed = currentProd.priceAed || 100;
+  const baseWeightKg = currentProd.weightKg || 0.5;
+  const originalPriceAed = currentProd.originalPriceAed;
   
   // Rate & Financial parameters
   const activeAedRate = getEffectiveAedRate(settings) || settings?.aedRate || 55000;
   const cargoRatePerKg = settings?.cargoRatePerKg || 35;
-  const effectiveMargin = (product.profitMargin !== undefined && product.profitMargin !== null && !isNaN(Number(product.profitMargin)))
-    ? Number(product.profitMargin)
-    : ((product.marginPercent !== undefined && product.marginPercent !== null && !isNaN(Number(product.marginPercent)))
-      ? Number(product.marginPercent)
+  const effectiveMargin = (currentProd.profitMargin !== undefined && currentProd.profitMargin !== null && !isNaN(Number(currentProd.profitMargin)))
+    ? Number(currentProd.profitMargin)
+    : ((currentProd.marginPercent !== undefined && currentProd.marginPercent !== null && !isNaN(Number(currentProd.marginPercent)))
+      ? Number(currentProd.marginPercent)
       : (settings?.profitMargin || 20));
 
-  // Find selected variant details if user selected specific size/flavor
-  const matchedVariant = product.variants?.find(v => 
-    (selectedSize && v.size === selectedSize) || 
-    (selectedFlavor && v.flavor === selectedFlavor) ||
-    (selectedSize && selectedFlavor && v.size === selectedSize && v.flavor === selectedFlavor)
-  );
+  // Find selected variant details from variantMatrix or currentProd.variants
+  const matchedVariant = useMemo(() => {
+    if (currentProd.variantMatrix?.items && currentProd.variantMatrix.items.length > 0) {
+      if (selectedSize && selectedFlavor) {
+        const exact = currentProd.variantMatrix.items.find(
+          v => (v.size === selectedSize || v.title?.toLowerCase().includes(selectedSize.toLowerCase())) &&
+               (v.flavor === selectedFlavor || v.title?.toLowerCase().includes(selectedFlavor.toLowerCase()))
+        );
+        if (exact) return exact;
+      }
+      if (selectedSize) {
+        const sizeMatch = currentProd.variantMatrix.items.find(
+          v => v.size === selectedSize || v.title === selectedSize || v.title?.toLowerCase().includes(selectedSize.toLowerCase())
+        );
+        if (sizeMatch) return sizeMatch;
+      }
+      if (selectedFlavor) {
+        const flavorMatch = currentProd.variantMatrix.items.find(
+          v => v.flavor === selectedFlavor || v.title === selectedFlavor || v.title?.toLowerCase().includes(selectedFlavor.toLowerCase())
+        );
+        if (flavorMatch) return flavorMatch;
+      }
+    }
 
-  const currentPriceAed = matchedVariant?.priceAed || basePriceAed;
-  const currentWeightKg = matchedVariant?.weightKg || baseWeightKg;
+    return currentProd.variants?.find(v => 
+      (selectedSize && selectedFlavor && v.size === selectedSize && v.flavor === selectedFlavor) ||
+      (selectedSize && v.size === selectedSize) || 
+      (selectedFlavor && v.flavor === selectedFlavor)
+    );
+  }, [currentProd, selectedSize, selectedFlavor]);
+
+  const currentPriceAed = (matchedVariant as any)?.priceAED ?? (matchedVariant as any)?.priceAed ?? basePriceAed;
+  const currentWeightKg = (matchedVariant as any)?.weightKg || baseWeightKg;
 
   // Single Source of Truth for Unit Price (Toman):
   let unitToman: number;
-  if (matchedVariant?.priceToman && matchedVariant.priceToman > 0) {
-    unitToman = matchedVariant.priceToman;
-  } else if (matchedVariant?.priceAed && matchedVariant.priceAed !== basePriceAed) {
+  if ((matchedVariant as any)?.priceToman && (matchedVariant as any).priceToman > 0) {
+    unitToman = (matchedVariant as any).priceToman;
+  } else if ((matchedVariant as any)?.priceAed && (matchedVariant as any).priceAed !== basePriceAed) {
     const shippingFee = (currentWeightKg * cargoRatePerKg) * activeAedRate;
     unitToman = Math.round((currentPriceAed * activeAedRate * (1 + effectiveMargin / 100) + shippingFee) / 1000) * 1000;
-  } else if (product.priceToman && product.priceToman > 0) {
-    unitToman = product.priceToman;
-  } else if (product.calculatedTomanOverride && product.calculatedTomanOverride > 0) {
-    unitToman = product.calculatedTomanOverride;
+  } else if (currentProd.priceToman && currentProd.priceToman > 0) {
+    unitToman = currentProd.priceToman;
+  } else if (currentProd.calculatedTomanOverride && currentProd.calculatedTomanOverride > 0) {
+    unitToman = currentProd.calculatedTomanOverride;
   } else {
     const shippingFee = (baseWeightKg * cargoRatePerKg) * activeAedRate;
     unitToman = Math.round((basePriceAed * activeAedRate * (1 + effectiveMargin / 100) + shippingFee) / 1000) * 1000;
@@ -177,9 +224,104 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   const discountVal = (originalPriceAed && originalPriceAed > currentPriceAed)
     ? Math.round(((originalPriceAed - currentPriceAed) / originalPriceAed) * 100)
-    : (product.discountPercent || 0);
+    : (currentProd.discountPercent || 0);
 
   const totalToman = unitToman * quantity;
+
+  // Handler to fetch on-demand variant when user clicks a variant with a distinct URL
+  const handleVariantSelect = async (newFlavor?: string, newSize?: string) => {
+    const targetFlavor = newFlavor !== undefined ? newFlavor : selectedFlavor;
+    const targetSize = newSize !== undefined ? newSize : selectedSize;
+
+    if (newFlavor !== undefined) setSelectedFlavor(newFlavor);
+    if (newSize !== undefined) setSelectedSize(newSize);
+
+    // Look for target variant item with a distinct url
+    let targetVariantUrl: string | undefined;
+
+    if (currentProd.variantMatrix?.items && currentProd.variantMatrix.items.length > 0) {
+      const match = currentProd.variantMatrix.items.find(v => {
+        const matchSize = !targetSize || v.size === targetSize || v.title?.toLowerCase().includes(targetSize.toLowerCase());
+        const matchFlavor = !targetFlavor || v.flavor === targetFlavor || v.title?.toLowerCase().includes(targetFlavor.toLowerCase());
+        return matchSize && matchFlavor;
+      }) || currentProd.variantMatrix.items.find(v => {
+        if (targetSize && (v.size === targetSize || v.title === targetSize)) return true;
+        if (targetFlavor && (v.flavor === targetFlavor || v.title === targetFlavor)) return true;
+        return false;
+      });
+
+      if (match?.url) {
+        targetVariantUrl = match.url;
+      }
+    }
+
+    if (!targetVariantUrl && Array.isArray(currentProd.variants)) {
+      const vMatch = currentProd.variants.find(v => {
+        const matchSize = !targetSize || v.size === targetSize;
+        const matchFlavor = !targetFlavor || v.flavor === targetFlavor;
+        return matchSize && matchFlavor;
+      });
+      if (vMatch?.url) {
+        targetVariantUrl = vMatch.url;
+      }
+    }
+
+    // Also check dimensions options for url
+    if (!targetVariantUrl && Array.isArray((currentProd as any).dimensions)) {
+      for (const dim of (currentProd as any).dimensions) {
+        for (const opt of dim.options || []) {
+          if ((opt.name === targetFlavor || opt.name === targetSize) && opt.url) {
+            targetVariantUrl = opt.url;
+            break;
+          }
+        }
+        if (targetVariantUrl) break;
+      }
+    }
+
+    if (targetVariantUrl && targetVariantUrl !== currentProd.url && targetVariantUrl.startsWith('http')) {
+      try {
+        setIsVariantLoading(true);
+        const res = await fetch('/api/parse-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: targetVariantUrl })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const parsed = data.product || data;
+          if (parsed && (parsed.priceAed || parsed.priceAED)) {
+            const newPrice = parsed.priceAed || parsed.priceAED;
+            const newOrig = parsed.originalPriceAed || parsed.originalPriceAED;
+            const newImg = parsed.image || (parsed.images && parsed.images[0]) || (parsed.galleryImages && parsed.galleryImages[0]);
+            
+            setActiveProduct(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                ...parsed,
+                url: targetVariantUrl,
+                priceAed: newPrice,
+                originalPriceAed: newOrig || prev.originalPriceAed,
+                image: newImg || prev.image,
+                images: parsed.images || parsed.galleryImages || prev.images,
+                galleryImages: parsed.galleryImages || prev.galleryImages,
+                variantMatrix: parsed.variantMatrix || prev.variantMatrix
+              };
+            });
+
+            if (newImg) {
+              setSelectedImage(newImg);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Could not lazy-load variant URL:', err);
+      } finally {
+        setIsVariantLoading(false);
+      }
+    }
+  };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!imageContainerRef.current) return;
@@ -527,12 +669,21 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     قیمت پایه در دبی:
                   </span>
                   <div className="font-black text-slate-900 dir-ltr flex items-center gap-1.5">
-                    {originalPriceAed && originalPriceAed > currentPriceAed && (
-                      <span className="line-through text-slate-400 text-[11px]">
-                        {formatAed(originalPriceAed)}
+                    {isVariantLoading ? (
+                      <span className="flex items-center gap-1 text-slate-400 text-xs animate-pulse">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                        <span>در حال استعلام...</span>
                       </span>
+                    ) : (
+                      <>
+                        {originalPriceAed && originalPriceAed > currentPriceAed && (
+                          <span className="line-through text-slate-400 text-[11px]">
+                            {formatAed(originalPriceAed)}
+                          </span>
+                        )}
+                        <span className="text-emerald-700 font-black">{formatAed(currentPriceAed)}</span>
+                      </>
                     )}
-                    <span className="text-emerald-700 font-black">{formatAed(currentPriceAed)}</span>
                   </div>
                 </div>
 
@@ -550,8 +701,15 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <span className="font-extrabold text-xs text-slate-900">
                 قیمت نهایی تحویل فوری:
               </span>
-              <span className="font-black text-sm sm:text-base text-[#D31027]">
-                {formatToman(totalToman)}
+              <span className="font-black text-sm sm:text-base text-[#D31027] flex items-center gap-1.5">
+                {isVariantLoading ? (
+                  <span className="flex items-center gap-1 text-slate-400 text-xs animate-pulse font-normal">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#D31027]" />
+                    <span>محاسبه مجدد...</span>
+                  </span>
+                ) : (
+                  formatToman(totalToman)
+                )}
               </span>
             </div>
           </div>
@@ -626,8 +784,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         <button
                           key={flv}
                           type="button"
-                          onClick={() => setSelectedFlavor(flv)}
+                          disabled={isVariantLoading}
+                          onClick={() => handleVariantSelect(flv, undefined)}
                           className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition cursor-pointer ${
+                            isVariantLoading ? 'opacity-60 cursor-wait' : ''
+                          } ${
                             selectedFlavor === flv
                               ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
                               : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-400'
@@ -651,8 +812,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         <button
                           key={sz}
                           type="button"
-                          onClick={() => setSelectedSize(sz)}
+                          disabled={isVariantLoading}
+                          onClick={() => handleVariantSelect(undefined, sz)}
                           className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition cursor-pointer ${
+                            isVariantLoading ? 'opacity-60 cursor-wait' : ''
+                          } ${
                             selectedSize === sz
                               ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
                               : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-400'

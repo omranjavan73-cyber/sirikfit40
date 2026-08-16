@@ -8,196 +8,331 @@ interface TrustBadgesSectionProps {
 }
 
 /**
- * Safe HTML render container that injects HTML and executes embedded <script> tags
- * required for official eNamad & Samandehi verification popups.
+ * Bulletproof Enamad Badge Component
+ * Parses raw settings inputs safely, extracting `id` and `Code` via Regex inside try-catch.
  */
-const SafeHtmlBadgeContainer: React.FC<{
-  html: string;
-  defaultTitle: string;
-  badgeType: 'enamad' | 'samandehi' | 'custom';
-  defaultImage?: string;
-  linkUrl?: string;
-}> = ({ html, defaultTitle, badgeType, defaultImage, linkUrl }) => {
+const SmartEnamadBadge: React.FC<{
+  settings?: any;
+  cms?: CmsConfig | null;
+}> = ({ settings, cms }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!containerRef.current || !html || !html.trim()) return;
+  let enamadId = '';
+  let enamadCode = '';
+  let rawBadge = '';
 
-    // Clear previous contents
-    containerRef.current.innerHTML = '';
+  try {
+    const potentialRaw =
+      settings?.enamadCode ||
+      settings?.enamadUrl ||
+      settings?.enamadHtml ||
+      cms?.enamadCode ||
+      cms?.enamadUrl ||
+      cms?.enamadHtml ||
+      cms?.homeContent?.enamadCode ||
+      cms?.homeContent?.enamadUrl ||
+      cms?.homeContent?.enamadHtml ||
+      '';
 
-    // Create wrapper
-    const wrapper = document.createElement('div');
-    wrapper.className = "flex items-center justify-center";
-    wrapper.innerHTML = html.trim();
-
-    // Extract and re-execute scripts so eNamad/Samandehi popup functions properly
-    const scripts = wrapper.querySelectorAll('script');
-    scripts.forEach((oldScript) => {
-      const newScript = document.createElement('script');
-      Array.from(oldScript.attributes).forEach((attr) => {
-        newScript.setAttribute(attr.name, attr.value);
-      });
-      newScript.appendChild(document.createTextNode(oldScript.innerHTML));
-      oldScript.parentNode?.replaceChild(newScript, oldScript);
-    });
-
-    containerRef.current.appendChild(wrapper);
-  }, [html]);
-
-  const rawHtml = (html || '').trim();
-  const hasContent = rawHtml.length > 0;
-
-  // Case A: User provided custom HTML/Script/Iframe
-  if (hasContent) {
-    // If it's a direct URL to an image or link
-    if ((rawHtml.startsWith('http://') || rawHtml.startsWith('https://')) && !rawHtml.includes('<')) {
-      return (
-        <a
-          href={linkUrl || rawHtml}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex flex-col items-center justify-center p-3.5 bg-white border border-slate-200/90 hover:border-slate-800 rounded-2xl transition-all duration-200 shadow-2xs hover:shadow-md cursor-pointer w-full sm:w-44 text-center group active:scale-[0.98]"
-        >
-          <img
-            src={rawHtml}
-            alt={defaultTitle}
-            className="w-16 h-16 sm:w-20 sm:h-20 object-contain mb-1.5 group-hover:scale-105 transition-transform"
-          />
-          <span className="text-[11px] sm:text-xs font-black text-slate-800">{defaultTitle}</span>
-          <span className="text-[10px] text-slate-500 font-semibold mt-0.5">جهت اطمینان کلیک کنید</span>
-        </a>
-      );
+    if (typeof potentialRaw === 'string') {
+      rawBadge = potentialRaw.trim();
+    } else if (potentialRaw) {
+      rawBadge = String(potentialRaw).trim();
     }
 
-    // Render innerHTML container with script execution support
-    return (
-      <div className="flex items-center justify-center p-2 bg-white border border-slate-200/90 rounded-2xl shadow-2xs hover:shadow-xs transition w-full sm:w-44 min-h-[120px]">
-        <div ref={containerRef} />
-      </div>
-    );
+    if (rawBadge && rawBadge.length > 0) {
+      const idMatch = rawBadge.match(/id=([a-zA-Z0-9]+)/i);
+      const codeMatch = rawBadge.match(/Code=([a-zA-Z0-9]+)/i);
+      if (idMatch && idMatch[1]) enamadId = idMatch[1];
+      if (codeMatch && codeMatch[1]) enamadCode = codeMatch[1];
+    }
+  } catch (e) {
+    console.warn('Failed to parse Enamad safely', e);
   }
 
-  // Case B: Default visual badges when no HTML is set yet
-  if (badgeType === 'enamad') {
-    return (
-      <a
-        href={linkUrl || "https://trustseal.enamad.ir"}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex flex-col items-center justify-center p-3.5 bg-white border border-slate-200/90 hover:border-slate-800 rounded-2xl transition-all duration-200 shadow-2xs hover:shadow-md cursor-pointer w-full sm:w-44 text-center group active:scale-[0.98]"
-      >
-        <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center mb-1 group-hover:scale-105 transition-transform">
-          {/* Custom eNamad Badge Graphic */}
-          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-sky-50 border border-sky-100 flex flex-col items-center justify-center p-1 relative">
-            <span className="text-2xl font-black text-sky-600 tracking-tighter">e</span>
-            <div className="flex items-center justify-center gap-0.5 text-amber-400 text-[8px] mt-0.5">
-              <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
-            </div>
-            <span className="absolute -bottom-1 text-[8px] font-black bg-sky-600 text-white px-1.5 py-0.2 rounded-full">
-              اینماد
-            </span>
-          </div>
-        </div>
-        <span className="text-[11px] sm:text-xs font-black text-slate-900">{defaultTitle}</span>
-        <span className="text-[10px] text-slate-500 font-semibold mt-0.5">جهت اطمینان کلیک کنید</span>
-      </a>
-    );
-  }
+  // Fallback defaults if no custom ID/Code is provided
+  const finalId = enamadId || '774774';
+  const finalCode = enamadCode || 'QLX3GJJuDLNIXNEEocH7c14ry1CHCK1T';
 
-  if (badgeType === 'samandehi') {
-    return (
-      <a
-        href={linkUrl || "https://samandehi.ir"}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex flex-col items-center justify-center p-3.5 bg-white border border-slate-200/90 hover:border-slate-800 rounded-2xl transition-all duration-200 shadow-2xs hover:shadow-md cursor-pointer w-full sm:w-44 text-center group active:scale-[0.98]"
-      >
-        <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center mb-1 group-hover:scale-105 transition-transform">
-          {/* Custom Samandehi Emblem Graphic */}
-          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-amber-50 border border-amber-200/80 flex flex-col items-center justify-center p-1 relative">
-            <span className="text-xl font-extrabold text-amber-700">رسانه</span>
-            <span className="text-[8px] font-bold text-amber-800 mt-0.5">دیجیتال</span>
-            <span className="absolute -bottom-1 text-[8px] font-black bg-amber-600 text-white px-1.5 py-0.2 rounded-full">
-              ساماندهی
-            </span>
-          </div>
-        </div>
-        <span className="text-[11px] sm:text-xs font-black text-slate-900">{defaultTitle}</span>
-        <span className="text-[10px] text-slate-500 font-semibold mt-0.5">نشان ملی ثبت</span>
-      </a>
-    );
-  }
+  useEffect(() => {
+    // If raw HTML contains script/iframe tags and wasn't extracted as standard ID/Code
+    if (!enamadId && !enamadCode && rawBadge && rawBadge.includes('<') && containerRef.current) {
+      try {
+        containerRef.current.innerHTML = '';
+        const wrapper = document.createElement('div');
+        wrapper.className = 'flex items-center justify-center';
+        wrapper.innerHTML = rawBadge;
 
-  if (defaultImage) {
+        const scripts = wrapper.querySelectorAll('script');
+        scripts.forEach((oldScript) => {
+          const newScript = document.createElement('script');
+          Array.from(oldScript.attributes).forEach((attr) => {
+            newScript.setAttribute(attr.name, attr.value);
+          });
+          newScript.appendChild(document.createTextNode(oldScript.innerHTML));
+          oldScript.parentNode?.replaceChild(newScript, oldScript);
+        });
+
+        const imgs = wrapper.querySelectorAll('img');
+        imgs.forEach((img) => {
+          img.onerror = () => {
+            img.src = 'https://cdn.zarinpal.com/badges/trust-logos/enamad.png';
+          };
+        });
+
+        containerRef.current.appendChild(wrapper);
+      } catch (_e) {}
+    }
+  }, [rawBadge, enamadId, enamadCode]);
+
+  // Case A: ID & Code exist (custom or default fallback)
+  if (finalId && finalCode) {
+    const sealUrl = `https://trustseal.enamad.ir/?id=${finalId}&Code=${finalCode}`;
+    const logoUrl = `https://trustseal.enamad.ir/logo.aspx?id=${finalId}&Code=${finalCode}`;
+
     return (
       <a
-        href={linkUrl || "#"}
+        id="enamad-trust-badge"
+        referrerPolicy="origin"
         target="_blank"
         rel="noopener noreferrer"
-        className="flex flex-col items-center justify-center p-3.5 bg-white border border-slate-200/90 hover:border-slate-800 rounded-2xl transition-all duration-200 shadow-2xs hover:shadow-md cursor-pointer w-full sm:w-44 text-center group active:scale-[0.98]"
+        href={sealUrl}
+        className="flex flex-col items-center justify-center p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs hover:shadow-md transition-all h-full w-full sm:w-52 text-center group active:scale-[0.98]"
       >
         <img
-          src={defaultImage}
-          alt={defaultTitle}
-          className="w-16 h-16 sm:w-20 sm:h-20 object-contain mb-1 group-hover:scale-105 transition-transform"
+          referrerPolicy="origin"
+          src={logoUrl}
+          alt="نماد تجارت الکترونیکی اینماد"
+          className="w-20 h-20 object-contain cursor-pointer mb-1 group-hover:scale-105 transition-transform"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/enamad.png';
+          }}
         />
-        <span className="text-[11px] sm:text-xs font-black text-slate-900">{defaultTitle}</span>
+        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-2">اینماد (نماد اعتماد الکترونیکی)</span>
+        <span className="text-[10px] text-slate-400 font-medium mt-0.5">احراز هویت کسب‌وکار</span>
       </a>
+    );
+  }
+
+  // Case B: Direct Image URL
+  if (rawBadge && (rawBadge.startsWith('http://') || rawBadge.startsWith('https://')) && !rawBadge.includes('<')) {
+    return (
+      <a
+        id="enamad-image-badge"
+        referrerPolicy="origin"
+        href={rawBadge}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex flex-col items-center justify-center p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs hover:shadow-md transition-all h-full w-full sm:w-52 text-center group active:scale-[0.98]"
+      >
+        <img
+          referrerPolicy="origin"
+          src={rawBadge}
+          alt="نماد تجارت الکترونیکی اینماد"
+          className="w-20 h-20 object-contain cursor-pointer mb-1 group-hover:scale-105 transition-transform"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/enamad.png';
+          }}
+        />
+        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-2">اینماد (نماد اعتماد الکترونیکی)</span>
+        <span className="text-[10px] text-slate-400 font-medium mt-0.5">احراز هویت کسب‌وکار</span>
+      </a>
+    );
+  }
+
+  // Case C: Raw HTML container
+  if (rawBadge && rawBadge.includes('<')) {
+    return (
+      <div className="flex items-center justify-center p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs hover:shadow-md transition-all h-full w-full sm:w-52 min-h-[140px]">
+        <div ref={containerRef} />
+      </div>
     );
   }
 
   return null;
 };
 
+/**
+ * Bulletproof Samandehi Badge Component
+ */
+const SmartSamandehiBadge: React.FC<{
+  settings?: any;
+  cms?: CmsConfig | null;
+}> = ({ settings, cms }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  let rawSamandehi = '';
+
+  try {
+    const potential =
+      settings?.samandehiHtml ||
+      settings?.samandehiCode ||
+      cms?.samandehiHtml ||
+      cms?.samandehiCode ||
+      cms?.homeContent?.samandehiHtml ||
+      '';
+
+    if (typeof potential === 'string') {
+      rawSamandehi = potential.trim();
+    } else if (potential) {
+      rawSamandehi = String(potential).trim();
+    }
+  } catch (e) {
+    console.warn('Failed to parse Samandehi safely', e);
+  }
+
+  useEffect(() => {
+    if (rawSamandehi && rawSamandehi.includes('<') && containerRef.current) {
+      try {
+        containerRef.current.innerHTML = '';
+        const wrapper = document.createElement('div');
+        wrapper.className = 'flex items-center justify-center';
+        wrapper.innerHTML = rawSamandehi;
+
+        const scripts = wrapper.querySelectorAll('script');
+        scripts.forEach((oldScript) => {
+          const newScript = document.createElement('script');
+          Array.from(oldScript.attributes).forEach((attr) => {
+            newScript.setAttribute(attr.name, attr.value);
+          });
+          newScript.appendChild(document.createTextNode(oldScript.innerHTML));
+          oldScript.parentNode?.replaceChild(newScript, oldScript);
+        });
+
+        const imgs = wrapper.querySelectorAll('img');
+        imgs.forEach((img) => {
+          img.onerror = () => {
+            img.src = 'https://cdn.zarinpal.com/badges/trust-logos/samandehi.png';
+          };
+        });
+
+        containerRef.current.appendChild(wrapper);
+      } catch (_e) {}
+    }
+  }, [rawSamandehi]);
+
+  if (rawSamandehi && (rawSamandehi.startsWith('http://') || rawSamandehi.startsWith('https://')) && !rawSamandehi.includes('<')) {
+    return (
+      <a
+        id="samandehi-trust-badge"
+        referrerPolicy="origin"
+        href="https://samandehi.ir"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex flex-col items-center justify-center p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs hover:shadow-md transition-all h-full w-full sm:w-52 text-center group active:scale-[0.98]"
+      >
+        <img
+          referrerPolicy="origin"
+          src={rawSamandehi}
+          alt="ساماندهی پایگاه‌های اینترنتی"
+          className="w-20 h-20 object-contain cursor-pointer mb-1 group-hover:scale-105 transition-transform"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/samandehi.png';
+          }}
+        />
+        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-2">ساماندهی (نشان ملی ثبت)</span>
+        <span className="text-[10px] text-slate-400 font-medium mt-0.5">ثبت رسمی در رسانه‌های دیجیتال</span>
+      </a>
+    );
+  }
+
+  if (rawSamandehi && rawSamandehi.includes('<')) {
+    return (
+      <div className="flex items-center justify-center p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs hover:shadow-md transition-all h-full w-full sm:w-52 min-h-[140px]">
+        <div ref={containerRef} />
+      </div>
+    );
+  }
+
+  // Standard Samandehi Badge
+  return (
+    <a
+      id="samandehi-default-badge"
+      referrerPolicy="origin"
+      href="https://samandehi.ir"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex flex-col items-center justify-center p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs hover:shadow-md transition-all h-full w-full sm:w-52 text-center group active:scale-[0.98]"
+    >
+      <img
+        referrerPolicy="origin"
+        src="https://cdn.zarinpal.com/badges/trust-logos/samandehi.png"
+        alt="ساماندهی پایگاه‌های اینترنتی"
+        className="w-20 h-20 object-contain cursor-pointer mb-1 group-hover:scale-105 transition-transform"
+        onError={(e) => {
+          (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/samandehi.png';
+        }}
+      />
+      <span className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-2">ساماندهی (نشان ملی ثبت)</span>
+      <span className="text-[10px] text-slate-400 font-medium mt-0.5">ثبت رسمی در رسانه‌های دیجیتال</span>
+    </a>
+  );
+};
+
 export const TrustBadgesSection: React.FC<TrustBadgesSectionProps> = ({ cms, settings }) => {
-  const home = cms?.homeContent;
-  const showTrust = cms?.features?.showTrustBadges ?? cms?.showTrustBadges ?? home?.showTrustBadges ?? settings?.showTrustBadges ?? true;
+  let showTrust = true;
+  try {
+    const home = cms?.homeContent;
+    const resolvedVal = cms?.features?.showTrustBadges ?? cms?.showTrustBadges ?? home?.showTrustBadges ?? settings?.showTrustBadges;
+    if (resolvedVal !== undefined && resolvedVal !== null) {
+      showTrust = Boolean(resolvedVal);
+    }
+  } catch (e) {
+    console.warn('Error reading showTrustBadges setting:', e);
+  }
 
   if (showTrust === false) return null;
 
-  const enamadHtml = cms?.enamadHtml || home?.enamadHtml || settings?.enamadHtml || '';
-  const samandehiHtml = cms?.samandehiHtml || home?.samandehiHtml || settings?.samandehiHtml || '';
-  const customBadgeImg = cms?.customBadgeImg || home?.customBadgeImg || settings?.customBadgeImg || '';
-  const customBadgeLink = cms?.customBadgeLink || home?.customBadgeLink || settings?.customBadgeLink || '';
+  let customBadgeImg = '';
+  let customBadgeLink = '';
+
+  try {
+    const imgPotential = cms?.customBadgeImg || cms?.homeContent?.customBadgeImg || settings?.customBadgeImg;
+    if (typeof imgPotential === 'string') customBadgeImg = imgPotential.trim();
+
+    const linkPotential = cms?.customBadgeLink || cms?.homeContent?.customBadgeLink || settings?.customBadgeLink;
+    if (typeof linkPotential === 'string') customBadgeLink = linkPotential.trim();
+  } catch (_e) {}
 
   return (
-    <div id="trust-badges-section" className="bg-white border border-slate-200/90 rounded-3xl p-5 md:p-6 shadow-2xs space-y-4 text-center font-['Vazirmatn',sans-serif]">
-      <div className="flex items-center justify-center gap-2 border-b border-slate-100 pb-3">
+    <div
+      id="trust-badges-section"
+      className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-5 md:p-6 shadow-2xs space-y-4 text-center font-['Vazirmatn',sans-serif]"
+    >
+      <div className="flex items-center justify-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
         <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
-        <h3 className="font-black text-sm md:text-base text-slate-900 tracking-tight">نمادهای اعتماد (اینماد و ساماندهی)</h3>
+        <h3 className="font-black text-sm md:text-base text-slate-900 dark:text-white tracking-tight">
+          نمادهای اعتماد (اینماد و ساماندهی)
+        </h3>
       </div>
 
-      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center justify-center gap-3 sm:gap-6 pt-1">
-        {/* eNamad Badge */}
-        <SafeHtmlBadgeContainer
-          html={enamadHtml}
-          defaultTitle="نماد اعتماد الکترونیکی"
-          badgeType="enamad"
-          linkUrl="https://trustseal.enamad.ir"
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap items-center justify-center gap-4 pt-1">
+        {/* eNamad Badge with Safe Smart Parser */}
+        <SmartEnamadBadge settings={settings} cms={cms} />
 
         {/* Samandehi Badge */}
-        <SafeHtmlBadgeContainer
-          html={samandehiHtml}
-          defaultTitle="ساماندهی رسانه‌های دیجیتال"
-          badgeType="samandehi"
-          linkUrl="https://samandehi.ir"
-        />
+        <SmartSamandehiBadge settings={settings} cms={cms} />
 
         {/* Optional Custom Badge */}
         {customBadgeImg && (
-          <SafeHtmlBadgeContainer
-            html=""
-            defaultTitle="نماد اختصاصی"
-            badgeType="custom"
-            defaultImage={customBadgeImg}
-            linkUrl={customBadgeLink || '#'}
-          />
+          <a
+            id="custom-trust-badge"
+            href={customBadgeLink || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col items-center justify-center p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs hover:shadow-md transition-all h-full w-full sm:w-52 text-center group active:scale-[0.98]"
+          >
+            <img
+              src={customBadgeImg}
+              alt="نماد اختصاصی"
+              className="w-20 h-20 object-contain cursor-pointer mb-1 group-hover:scale-105 transition-transform"
+            />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-2">نماد اختصاصی</span>
+            <span className="text-[10px] text-slate-400 font-medium mt-0.5">جهت اطمینان کلیک کنید</span>
+          </a>
         )}
       </div>
 
-      <p className="text-[11px] text-slate-500 font-medium">
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
         تمامی فعالیت‌های این مجموعه دارای مجوز رسمی و تحت نظارت مراجع ذی‌صلاح می‌باشند.
       </p>
     </div>

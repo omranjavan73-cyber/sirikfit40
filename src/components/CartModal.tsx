@@ -251,7 +251,7 @@ export const CartModal: React.FC<CartModalProps> = ({
 
                 return (
                   <div
-                    key={item.id}
+                    key={item.cartItemId || item.id}
                     className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200/80 rounded-2xl"
                   >
                     <img
@@ -277,7 +277,7 @@ export const CartModal: React.FC<CartModalProps> = ({
                         <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-1.5 py-0.5">
                           <button
                             type="button"
-                            onClick={() => onUpdateQuantity(item.id, -1)}
+                            onClick={() => onUpdateQuantity(item.cartItemId || item.id, -1)}
                             className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100"
                           >
                             <Minus className="w-3 h-3" />
@@ -287,7 +287,7 @@ export const CartModal: React.FC<CartModalProps> = ({
                           </span>
                           <button
                             type="button"
-                            onClick={() => onUpdateQuantity(item.id, 1)}
+                            onClick={() => onUpdateQuantity(item.cartItemId || item.id, 1)}
                             className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100"
                           >
                             <Plus className="w-3 h-3" />
@@ -298,7 +298,7 @@ export const CartModal: React.FC<CartModalProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => onRemoveItem(item.id)}
+                      onClick={() => onRemoveItem(item.cartItemId || item.id)}
                       className="p-2 text-slate-400 hover:text-rose-600 rounded-xl transition"
                       title="حذف"
                     >

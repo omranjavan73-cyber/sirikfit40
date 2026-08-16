@@ -1085,6 +1085,42 @@ async function saveAdminSecurity(secData: Partial<AdminSecuritySettings>) {
   }
 }
 
+// In-memory / cached Backup Schedule settings
+let cachedBackupSchedule: any = {
+  enabled: false,
+  frequency: '24h',
+  intervalHours: 24,
+  preferredTime: '02:00',
+  keepMaxBackups: 10,
+  notifyOnBackup: true,
+  notifyEmail: 'omran.javan73@gmail.com',
+  lastRunTimestamp: new Date().toISOString()
+};
+
+async function getBackupSchedule(): Promise<any> {
+  try {
+    const schedDoc = await getDoc(doc(db, 'settings', 'backupSchedule'));
+    if (schedDoc.exists()) {
+      cachedBackupSchedule = { ...cachedBackupSchedule, ...schedDoc.data() };
+      return cachedBackupSchedule;
+    }
+  } catch (_e) {
+    // Graceful fallback to memory/local cache
+  }
+  return cachedBackupSchedule;
+}
+
+async function saveBackupSchedule(scheduleConfig: any): Promise<boolean> {
+  cachedBackupSchedule = { ...cachedBackupSchedule, ...scheduleConfig };
+  try {
+    await setDoc(doc(db, 'settings', 'backupSchedule'), scheduleConfig, { merge: true });
+    return true;
+  } catch (_err) {
+    // Graceful fallback when running in restricted environments
+    return true;
+  }
+}
+
 async function createBackupSnapshot(type: 'MANUAL' | 'AUTOMATIC' | 'EMAIL_BACKUP' = 'MANUAL', createdBy = 'Admin') {
   const store = await getStoreData(true);
   const snapshotData = {
@@ -1126,12 +1162,12 @@ async function createBackupSnapshot(type: 'MANUAL' | 'AUTOMATIC' | 'EMAIL_BACKUP
 
   try {
     await setDoc(doc(db, 'backups', snapshotId), backupRecord);
-  } catch (err) {
-    console.warn('Firestore backup save error:', err);
+  } catch (_err) {
+    // Gracefully handle Firestore environment limits
   }
 
   try {
-    const backupFolder = path.join(process.cwd(), 'data', 'backups');
+    const backupFolder = path.join(DATA_DIR, 'backups');
     if (!fs.existsSync(backupFolder)) fs.mkdirSync(backupFolder, { recursive: true });
     fs.writeFileSync(path.join(backupFolder, `${snapshotId}.json`), JSON.stringify(backupRecord, null, 2));
   } catch (_e) {}
@@ -1146,27 +1182,24 @@ async function createBackupSnapshot(type: 'MANUAL' | 'AUTOMATIC' | 'EMAIL_BACKUP
   return backupRecord;
 }
 
-// Background Scheduled Backup Timer (checks every 30 minutes)
+// Background Scheduled Backup Timer (checks every 30 minutes with graceful error handling)
 setInterval(async () => {
   try {
-    const schedSnap = await getDoc(doc(db, 'settings', 'backupSchedule'));
-    if (schedSnap.exists()) {
-      const sched = schedSnap.data() as any;
-      if (sched && sched.enabled) {
-        const intervalMs = (sched.intervalHours || 24) * 3600 * 1000;
-        const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
-        if (Date.now() - lastRun >= intervalMs) {
-          console.log('[Auto-Backup] Executing scheduled backup...');
-          await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبان‌گیر خودکار (Cron)');
-          await setDoc(doc(db, 'settings', 'backupSchedule'), {
-            lastRunTimestamp: new Date().toISOString(),
-            nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
-          }, { merge: true });
-        }
+    const sched = await getBackupSchedule();
+    if (sched && sched.enabled) {
+      const intervalMs = (Number(sched.intervalHours) || 24) * 3600 * 1000;
+      const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
+      if (Date.now() - lastRun >= intervalMs) {
+        console.log('[Auto-Backup] Executing scheduled backup...');
+        await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبان‌گیر خودکار (Cron)');
+        await saveBackupSchedule({
+          lastRunTimestamp: new Date().toISOString(),
+          nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
+        });
       }
     }
-  } catch (err) {
-    console.warn('Scheduled backup runner error:', err);
+  } catch (_err) {
+    // Gracefully catch any unexpected background timer issue
   }
 }, 30 * 60 * 1000);
 
@@ -1340,32 +1373,14 @@ app.delete('/api/admin/backups/:id', async (req, res) => {
 });
 
 app.get('/api/admin/backup-schedule', async (req, res) => {
-  try {
-    const schedDoc = await getDoc(doc(db, 'settings', 'backupSchedule'));
-    if (schedDoc.exists()) {
-      return res.json({ success: true, schedule: schedDoc.data() });
-    }
-  } catch (_e) {}
-
-  res.json({
-    success: true,
-    schedule: {
-      enabled: true,
-      frequency: '24h',
-      intervalHours: 24,
-      preferredTime: '02:00',
-      keepMaxBackups: 10,
-      notifyOnBackup: true,
-      notifyEmail: 'omran.javan73@gmail.com',
-      lastRunTimestamp: new Date().toISOString()
-    }
-  });
+  const schedule = await getBackupSchedule();
+  res.json({ success: true, schedule });
 });
 
 app.post('/api/admin/backup-schedule', async (req, res) => {
   const scheduleConfig = req.body;
   try {
-    await setDoc(doc(db, 'settings', 'backupSchedule'), scheduleConfig, { merge: true });
+    await saveBackupSchedule(scheduleConfig);
     await addAuditLog('BACKUP_SCHEDULE_UPDATED', 'BACKUP', `تنظیمات زمان‌بندی پشتیبان‌گیری خودکار به‌روزرسانی شد (دوره: ${scheduleConfig.intervalHours || 24} ساعته)`);
     res.json({ success: true, message: 'تنظیمات زمان‌بندی پشتیبان‌گیری خودکار ذخیره گردید.' });
   } catch (err: any) {
@@ -2677,6 +2692,7 @@ export interface ParseAdapterResult {
   category?: string;
   variantGroups?: any[];
   variants?: any;
+  variantMatrix?: any;
   options?: string[];
   flavors?: string[];
   sizes?: string[];
@@ -3241,6 +3257,7 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
 
   let title = '';
   let price = 0;
+  let originalPrice: number | undefined;
   let description = '';
   let mainImage = '';
   const galleryImages: string[] = [];
@@ -3248,6 +3265,8 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
   const sizes: string[] = [];
   const flavorOptions: any[] = [];
   const sizeOptions: any[] = [];
+  const variantItems: any[] = [];
+  const seenVariantKeys = new Set<string>();
 
   const isInvalidOption = (s: string) => {
     if (!s || typeof s !== 'string') return true;
@@ -3256,6 +3275,31 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
       'default title', 'default', 'standard', 'select option', 'choose', 'undefined', 'null',
       'select', 'none', 'n/a', 'please select'
     ].includes(l) || l.length < 2 || l.length > 70;
+  };
+
+  const isSizeStr = (s: string) => {
+    const l = (s || '').toLowerCase();
+    return l.includes('kg') || l.includes('g') || l.includes('lb') || l.includes('serving') ||
+           l.includes('capsule') || l.includes('tablet') || l.includes('count') || l.includes('سروینگ') ||
+           l.includes('عددی') || l.includes('سایز') || l.includes('وزن') || l.includes('حجم');
+  };
+
+  const cleanP = (raw: any): number => {
+    if (raw === undefined || raw === null) return 0;
+    if (typeof raw === 'number') {
+      if (isNaN(raw) || raw < 0) return 0;
+      if (raw >= 2000 && !String(raw).includes('.')) return Math.round((raw / 100) * 100) / 100;
+      return Math.round(raw * 100) / 100;
+    }
+    const str = String(raw)
+      .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString())
+      .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+      .replace(/,/g, '')
+      .replace(/[^0-9.]/g, '');
+    let num = parseFloat(str);
+    if (isNaN(num) || num < 0) return 0;
+    if (num >= 2000 && !String(raw).includes('.')) num = num / 100;
+    return Math.round(num * 100) / 100;
   };
 
   // Helper to add clean image
@@ -3306,11 +3350,8 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
           const rawP = pObj.final_price ?? pObj.special_price ?? pObj.sale_price ?? pObj.price ?? pObj.offer_price ??
                        pObj.price_range?.minimum_price?.final_price?.value ?? pObj.price_range?.minimum_price?.regular_price?.value ??
                        pObj.offers?.price ?? pObj.regular_price ?? pObj.metaPrice;
-          if (rawP !== undefined && rawP !== null) {
-            let p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-            if (p > 1000 || (!String(rawP).includes('.') && p >= 1000)) p = p / 100;
-            if (!isNaN(p) && p > 0) price = Math.round(p * 100) / 100;
-          }
+          const parsedP = cleanP(rawP);
+          if (parsedP > 0) price = parsedP;
         }
 
         // Images
@@ -3347,8 +3388,7 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
                     flavorOptions.push({ id: `flv-${vIdx}`, name: cleanLabel, label: cleanLabel, inStock: true });
                   }
                 } else {
-                  const lowerL = cleanLabel.toLowerCase();
-                  if (lowerL.includes('kg') || lowerL.includes('g') || lowerL.includes('lb') || lowerL.includes('serving') || lowerL.includes('capsule') || lowerL.includes('tablet') || lowerL.includes('عددی') || lowerL.includes('سروینگ')) {
+                  if (isSizeStr(cleanLabel)) {
                     if (!sizes.includes(cleanLabel)) {
                       sizes.push(cleanLabel);
                       sizeOptions.push({ id: `sz-${vIdx}`, name: cleanLabel, label: cleanLabel, inStock: true });
@@ -3366,23 +3406,34 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
         }
 
         // Flat variants list
-        if (Array.isArray(pObj.variants)) {
-          pObj.variants.forEach((v: any, vIdx: number) => {
+        const vList = Array.isArray(pObj.variants) ? pObj.variants : (Array.isArray(pObj.variants_matrix) ? pObj.variants_matrix : (Array.isArray(pObj.items) ? pObj.items : []));
+        if (Array.isArray(vList) && vList.length > 0) {
+          vList.forEach((v: any, vIdx: number) => {
             const vTitle = String(v.title || v.name || v.product?.name || '').trim();
-            if (vTitle && !isInvalidOption(vTitle)) {
-              const lowerV = vTitle.toLowerCase();
-              const isSize = lowerV.includes('kg') || lowerV.includes('g') || lowerV.includes('lb') || lowerV.includes('serving') || lowerV.includes('عددی') || lowerV.includes('سروینگ');
-              if (isSize) {
-                if (!sizes.includes(vTitle)) {
-                  sizes.push(vTitle);
-                  sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, label: vTitle, inStock: true });
-                }
-              } else {
-                if (!flavors.includes(vTitle)) {
-                  flavors.push(vTitle);
-                  flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, label: vTitle, inStock: true });
-                }
-              }
+            const vp = cleanP(v.price ?? v.priceAED ?? v.priceAed ?? v.final_price) || price;
+            const vOp = cleanP(v.originalPrice ?? v.compare_at_price ?? v.regular_price);
+            const vSize = v.size || v.weight || v.serving;
+            const vFlavor = v.flavor || v.flavour || v.taste;
+            if (vSize && !sizes.includes(vSize)) sizes.push(vSize);
+            if (vFlavor && !flavors.includes(vFlavor)) flavors.push(vFlavor);
+
+            const displayTitle = vTitle && !isInvalidOption(vTitle) ? vTitle : ([vSize, vFlavor].filter(Boolean).join(' - ') || `گزینه ${vIdx + 1}`);
+            const vKey = `${vSize || ''}_${vFlavor || ''}_${displayTitle}`.toLowerCase();
+            if (!seenVariantKeys.has(vKey)) {
+              seenVariantKeys.add(vKey);
+              variantItems.push({
+                id: String(v.id || v.sku || `v-next-${vIdx}`),
+                title: displayTitle,
+                name: displayTitle,
+                size: vSize,
+                flavor: vFlavor,
+                priceAED: vp,
+                priceAed: vp,
+                originalPriceAED: vOp > vp ? vOp : undefined,
+                originalPriceAed: vOp > vp ? vOp : undefined,
+                image: v.image || v.imageUrl,
+                inStock: v.inStock !== false && v.available !== false
+              });
             }
           });
         }
@@ -3416,13 +3467,10 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
             for (const offer of offersList) {
               if (!offer) continue;
               const pVal = offer.price ?? offer.lowPrice ?? offer.highPrice ?? offer.priceSpecification?.price;
-              if (pVal !== undefined && pVal !== null) {
-                let p = parseFloat(normalizeToEnglishDigits(String(pVal)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                if (p > 2000) p = p / 100;
-                if (!isNaN(p) && p > 0) {
-                  price = Math.round(p * 100) / 100;
-                  break;
-                }
+              const parsedP = cleanP(pVal);
+              if (parsedP > 0) {
+                price = parsedP;
+                break;
               }
             }
           }
@@ -3431,9 +3479,7 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
             vList.forEach((vObj: any, vIdx: number) => {
               const vName = String(vObj.name || vObj.description || '').trim();
               if (vName && !isInvalidOption(vName)) {
-                const lowerV = vName.toLowerCase();
-                const isSize = lowerV.includes('kg') || lowerV.includes('g') || lowerV.includes('lb') || lowerV.includes('serving') || lowerV.includes('عددی') || lowerV.includes('سروینگ');
-                if (isSize) {
+                if (isSizeStr(vName)) {
                   if (!sizes.includes(vName)) {
                     sizes.push(vName);
                     sizeOptions.push({ id: `sz-${vIdx}`, name: vName, label: vName, inStock: true });
@@ -3464,60 +3510,134 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
                         parsed['*']?.['Magento_ConfigurableProduct/js/configurable']?.spConfig;
       
       if (swatchObj && typeof swatchObj === 'object') {
-        // Attributes / Swatches
-        if (swatchObj.attributes && typeof swatchObj.attributes === 'object') {
-          Object.values(swatchObj.attributes).forEach((attr: any) => {
-            const attrLabel = String(attr.label || attr.code || '').toLowerCase();
-            const isFlavor = attrLabel.includes('flavor') || attrLabel.includes('flavour') || attrLabel.includes('طعم') || attrLabel.includes('taste');
-            const isSize = attrLabel.includes('size') || attrLabel.includes('weight') || attrLabel.includes('serving') || attrLabel.includes('سایز') || attrLabel.includes('وزن') || attrLabel.includes('حجم');
-
-            if (Array.isArray(attr.options)) {
-              attr.options.forEach((opt: any, oIdx: number) => {
-                const optLabel = String(opt.label || opt.admin_label || opt.name || '').trim();
-                if (optLabel && !isInvalidOption(optLabel)) {
-                  if (isSize) {
-                    if (!sizes.includes(optLabel)) {
-                      sizes.push(optLabel);
-                      sizeOptions.push({ id: `sz-mag-${oIdx}`, name: optLabel, label: optLabel, inStock: true });
-                    }
-                  } else if (isFlavor) {
-                    if (!flavors.includes(optLabel)) {
-                      flavors.push(optLabel);
-                      flavorOptions.push({ id: `flv-mag-${oIdx}`, name: optLabel, label: optLabel, inStock: true });
-                    }
-                  } else {
-                    const lowerO = optLabel.toLowerCase();
-                    if (lowerO.includes('kg') || lowerO.includes('g') || lowerO.includes('lb') || lowerO.includes('serving') || lowerO.includes('capsule') || lowerO.includes('tablet')) {
-                      if (!sizes.includes(optLabel)) {
-                        sizes.push(optLabel);
-                        sizeOptions.push({ id: `sz-mag-${oIdx}`, name: optLabel, label: optLabel, inStock: true });
-                      }
-                    } else {
-                      if (!flavors.includes(optLabel)) {
-                        flavors.push(optLabel);
-                        flavorOptions.push({ id: `flv-mag-${oIdx}`, name: optLabel, label: optLabel, inStock: true });
-                      }
-                    }
-                  }
-                }
-              });
-            }
-          });
-        }
+        const attributes = swatchObj.attributes || {};
+        const optionPrices = swatchObj.optionPrices || {};
+        const indexMap = swatchObj.index || {};
+        const imagesMap = swatchObj.images || {};
+        const salableMap = swatchObj.salable || swatchObj.stock || {};
 
         // Prices in Magento jsonConfig
-        if (price === 0 && swatchObj.prices) {
+        if (swatchObj.prices) {
           const rawMagP = swatchObj.prices.finalPrice?.amount ?? swatchObj.prices.basePrice?.amount;
-          if (rawMagP !== undefined && rawMagP !== null) {
-            let p = parseFloat(normalizeToEnglishDigits(String(rawMagP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-            if (!isNaN(p) && p > 0) price = Math.round(p * 100) / 100;
-          }
+          const p = cleanP(rawMagP);
+          if (p > 0 && price === 0) price = p;
+          const op = cleanP(swatchObj.prices.oldPrice?.amount);
+          if (op > p) originalPrice = op;
         }
 
         // Images in Magento jsonConfig
         if (swatchObj.images && typeof swatchObj.images === 'object') {
           Object.values(swatchObj.images).forEach((imgList: any) => {
             if (Array.isArray(imgList)) imgList.forEach(addImage);
+          });
+        }
+
+        // Parse attributes mapping
+        const flavorAttrOptions = new Map<string, { label: string; products: string[] }>();
+        const sizeAttrOptions = new Map<string, { label: string; products: string[] }>();
+
+        Object.values(attributes).forEach((attr: any) => {
+          const attrLabel = String(attr.label || attr.code || '').toLowerCase();
+          const isFlavor = attrLabel.includes('flavor') || attrLabel.includes('flavour') || attrLabel.includes('طعم') || attrLabel.includes('taste');
+          const isSize = attrLabel.includes('size') || attrLabel.includes('weight') || attrLabel.includes('serving') || attrLabel.includes('سایز') || attrLabel.includes('وزن') || attrLabel.includes('حجم');
+
+          if (Array.isArray(attr.options)) {
+            attr.options.forEach((opt: any, oIdx: number) => {
+              const optLabel = String(opt.label || opt.admin_label || opt.name || '').trim();
+              if (optLabel && !isInvalidOption(optLabel)) {
+                const optId = String(opt.id);
+                const prods = Array.isArray(opt.products) ? opt.products.map(String) : [];
+
+                if (isSize || (!isFlavor && isSizeStr(optLabel))) {
+                  sizeAttrOptions.set(optId, { label: optLabel, products: prods });
+                  if (!sizes.includes(optLabel)) {
+                    sizes.push(optLabel);
+                    sizeOptions.push({ id: `sz-mag-${oIdx}`, name: optLabel, label: optLabel, inStock: true });
+                  }
+                } else {
+                  flavorAttrOptions.set(optId, { label: optLabel, products: prods });
+                  if (!flavors.includes(optLabel)) {
+                    flavors.push(optLabel);
+                    flavorOptions.push({ id: `flv-mag-${oIdx}`, name: optLabel, label: optLabel, inStock: true });
+                  }
+                }
+              }
+            });
+          }
+        });
+
+        // Map child product options with exact prices from optionPrices!
+        const allProductIds = new Set<string>([
+          ...Object.keys(optionPrices),
+          ...Object.keys(indexMap)
+        ]);
+
+        if (allProductIds.size > 0) {
+          allProductIds.forEach(prodId => {
+            const pData = optionPrices[prodId] || {};
+            let vp = cleanP(pData.finalPrice?.amount ?? pData.basePrice?.amount ?? pData.price);
+            if (vp === 0) vp = price;
+
+            let vOp: number | undefined = cleanP(pData.oldPrice?.amount ?? pData.regularPrice?.amount);
+            if (vOp && vOp <= vp) vOp = undefined;
+
+            let sizeLabel: string | undefined;
+            let flavorLabel: string | undefined;
+
+            const selectedIndices = indexMap[prodId];
+            if (selectedIndices && typeof selectedIndices === 'object') {
+              Object.entries(selectedIndices).forEach(([_attrId, optId]) => {
+                const strOptId = String(optId);
+                if (sizeAttrOptions.has(strOptId)) sizeLabel = sizeAttrOptions.get(strOptId)?.label;
+                else if (flavorAttrOptions.has(strOptId)) flavorLabel = flavorAttrOptions.get(strOptId)?.label;
+              });
+            }
+
+            if (!sizeLabel) {
+              for (const [_optId, optData] of sizeAttrOptions.entries()) {
+                if (optData.products.includes(prodId)) {
+                  sizeLabel = optData.label;
+                  break;
+                }
+              }
+            }
+            if (!flavorLabel) {
+              for (const [_optId, optData] of flavorAttrOptions.entries()) {
+                if (optData.products.includes(prodId)) {
+                  flavorLabel = optData.label;
+                  break;
+                }
+              }
+            }
+
+            let vImg: string | undefined;
+            const imgList = imagesMap[prodId];
+            if (Array.isArray(imgList) && imgList[0]) {
+              const candidate = imgList[0].full || imgList[0].img || imgList[0].thumb;
+              if (candidate) vImg = sanitizeImageUrl(candidate, targetUrl);
+            }
+
+            const inStock = salableMap[prodId] !== false && pData.isSalable !== false;
+            const vTitle = [sizeLabel, flavorLabel].filter(Boolean).join(' - ') || `گزینه ${variantItems.length + 1}`;
+            const vKey = `${sizeLabel || ''}_${flavorLabel || ''}_${vTitle}`.toLowerCase();
+
+            if (!seenVariantKeys.has(vKey)) {
+              seenVariantKeys.add(vKey);
+              variantItems.push({
+                id: prodId,
+                title: vTitle,
+                name: vTitle,
+                size: sizeLabel,
+                flavor: flavorLabel,
+                priceAED: vp > 0 ? vp : price,
+                priceAed: vp > 0 ? vp : price,
+                originalPriceAED: vOp || originalPrice,
+                originalPriceAed: vOp || originalPrice,
+                image: vImg,
+                imageThumbnail: vImg,
+                inStock
+              });
+            }
           });
         }
       }
@@ -3533,10 +3653,8 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
         if (!title && (spJson.name || spJson.title)) title = cleanTitleStr(spJson.name || spJson.title);
         if (price === 0) {
           const rawP = spJson.price || spJson.final_price || spJson.basePrice;
-          if (rawP !== undefined) {
-            let p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-            if (!isNaN(p) && p > 0) price = Math.round(p * 100) / 100;
-          }
+          const parsedP = cleanP(rawP);
+          if (parsedP > 0) price = parsedP;
         }
       }
     } catch (_spErr) {}
@@ -3600,9 +3718,7 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
       const tagHtml = sm[0];
       const optVal = (sm[1] || '').trim();
       if (optVal && !isInvalidOption(optVal) && !isOutOfStockElement(tagHtml, optVal)) {
-        const lowerVal = optVal.toLowerCase();
-        const isSize = lowerVal.includes('serving') || lowerVal.includes('kg') || lowerVal.includes('g') || lowerVal.includes('lb') || lowerVal.includes('capsule') || lowerVal.includes('tablet') || lowerVal.includes('سروینگ');
-        if (isSize) {
+        if (isSizeStr(optVal)) {
           if (!sizes.includes(optVal)) {
             sizes.push(optVal);
             sizeOptions.push({ id: `sz-sw-${sizeOptions.length}`, name: optVal, label: optVal, inStock: true });
@@ -3622,38 +3738,120 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
     mainImage = galleryImages[0];
   }
 
-  // Build clean variantGroups
+  // Populate fallback variant items if none were generated from json
+  if (variantItems.length === 0) {
+    if (sizes.length > 0 || flavors.length > 0) {
+      sizes.forEach((s, sIdx) => {
+        variantItems.push({
+          id: `sz-opt-${sIdx}`,
+          title: s,
+          name: s,
+          size: s,
+          priceAED: price,
+          priceAed: price,
+          inStock: true
+        });
+      });
+      flavors.forEach((f, fIdx) => {
+        variantItems.push({
+          id: `flv-opt-${fIdx}`,
+          title: f,
+          name: f,
+          flavor: f,
+          priceAED: price,
+          priceAed: price,
+          inStock: true
+        });
+      });
+    } else if (title && price > 0) {
+      variantItems.push({
+        id: 'default-v',
+        title: title,
+        name: title,
+        priceAED: price,
+        priceAed: price,
+        inStock: true
+      });
+    }
+  }
+
+  // Build clean variantGroups with dynamic prices
   const variantGroups: any[] = [];
-  if (flavorOptions.length > 0) {
+  if (flavorOptions.length > 0 || flavors.length > 0) {
+    const flvs = flavors.length > 0 ? flavors : flavorOptions.map(f => f.name || f.label);
+    const flvOpts = flvs.map((f, idx) => {
+      const match = variantItems.find(it => it.flavor === f);
+      return {
+        id: `flv-${idx}`,
+        name: f,
+        label: f,
+        type: 'flavor',
+        priceAed: match?.priceAED || price,
+        priceAED: match?.priceAED || price,
+        originalPriceAED: match?.originalPriceAED,
+        image: match?.image,
+        inStock: match?.inStock !== false
+      };
+    });
     variantGroups.push({
       id: 'flavors',
       name: 'طعم (Flavor)',
       type: 'flavor',
-      options: flavorOptions
+      options: flvOpts
     });
   }
-  if (sizeOptions.length > 0) {
+
+  if (sizeOptions.length > 0 || sizes.length > 0) {
+    const szs = sizes.length > 0 ? sizes : sizeOptions.map(s => s.name || s.label);
+    const szOpts = szs.map((s, idx) => {
+      const match = variantItems.find(it => it.size === s);
+      return {
+        id: `sz-${idx}`,
+        name: s,
+        label: s,
+        type: 'size',
+        priceAed: match?.priceAED || price,
+        priceAED: match?.priceAED || price,
+        originalPriceAED: match?.originalPriceAED,
+        image: match?.image,
+        inStock: match?.inStock !== false
+      };
+    });
     variantGroups.push({
       id: 'sizes',
       name: 'وزن / سایز (Size)',
       type: 'size',
-      options: sizeOptions
+      options: szOpts
     });
   }
 
-  if (title && price > 0) {
+  const variantMatrix = {
+    sizes,
+    flavors,
+    items: variantItems,
+    selectedVariant: variantItems[0]
+  };
+
+  const finalPrimaryPrice = variantItems[0]?.priceAED || price;
+  const finalOrigPrice = variantItems[0]?.originalPriceAED || originalPrice;
+
+  if (title && finalPrimaryPrice > 0) {
     return {
       ok: true,
-      title,
-      price,
+      title: cleanTitleStr(title),
+      price: finalPrimaryPrice,
+      originalPriceAED: finalOrigPrice,
+      originalPriceAed: finalOrigPrice,
       currency: "AED",
       image: mainImage,
       galleryImages,
       images: galleryImages,
       variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
+      variants: variantItems,
+      variantMatrix,
       flavors: flavors.length > 0 ? flavors : undefined,
       sizes: sizes.length > 0 ? sizes : undefined,
-      options: [...flavors, ...sizes],
+      options: variantItems.map(it => it.title),
       description: description || undefined,
       storeName: "Dr. Nutrition"
     };
@@ -4114,96 +4312,182 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
   const storeName = "GNC Store";
   const headers = getStandardScraperHeaders(targetUrl);
 
-  // 1. Shopify .json Endpoint
+  // 1. Shopify .js / .json Endpoints (The Shopify Matrix Extraction)
   try {
-    const cleanJsUrl = targetUrl.split('?')[0].replace(/\.js$/i, '').replace(/\.json$/i, '') + '.json';
-    const controller = new AbortController();
-    const tId = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(cleanJsUrl, {
-      headers: { ...headers, 'Accept': 'application/json' },
-      signal: controller.signal
-    });
-    clearTimeout(tId);
+    const cleanUrl = targetUrl.split('?')[0].replace(/\.js$/i, '').replace(/\.json$/i, '');
+    const jsUrl = `${cleanUrl}.js`;
+    const jsonUrl = `${cleanUrl}.json`;
 
-    if (res.ok) {
-      const json = await res.json();
-      const pObj = json?.product || json;
-      const t = pObj?.title || pObj?.name;
-      const primaryVar = Array.isArray(pObj?.variants) ? pObj.variants[0] : null;
-      let rawP = primaryVar?.price ?? pObj?.price;
-      if (t && rawP) {
-        let p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-        if (p > 2000) p = p / 100;
-        if (!isNaN(p) && p > 0) {
-          const galleryImages: string[] = [];
-          if (Array.isArray(pObj.images)) {
-            pObj.images.forEach((img: any) => {
-              const src = typeof img === 'string' ? img : (img?.src || img?.url);
-              if (src) {
-                const s = sanitizeImageUrl(src, targetUrl);
-                if (s && !galleryImages.includes(s)) galleryImages.push(s);
-              }
-            });
-          }
-          const img = pObj.image?.src || (galleryImages.length > 0 ? galleryImages[0] : pObj.featured_image);
-          const mainImg = sanitizeImageUrl(String(img || ''), targetUrl);
-          if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+    let productData: any = null;
 
-          const flavors: string[] = [];
-          const sizes: string[] = [];
-          const variantGroups: any[] = [];
-          const rawVariants = Array.isArray(pObj?.variants) ? pObj.variants : [];
+    // Try .js endpoint first (Fastest and native on Shopify)
+    try {
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch(jsUrl, {
+        headers: { ...headers, 'Accept': 'application/json, text/javascript, */*; q=0.01' },
+        signal: controller.signal
+      });
+      clearTimeout(tId);
+      if (res.ok) {
+        productData = await res.json();
+      }
+    } catch (_jsErr) {}
 
-          if (rawVariants.length > 0) {
-            const flavorOptions: any[] = [];
-            const sizeOptions: any[] = [];
-            rawVariants.forEach((v: any, vIdx: number) => {
-              let vPrice = Math.round(p * 100) / 100;
-              if (v.price) {
-                let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                if (vp > 2000) vp = vp / 100;
-                if (!isNaN(vp) && vp > 0) vPrice = Math.round(vp * 100) / 100;
-              }
-              const vTitle = String(v.title || v.option1 || '').trim();
-              if (vTitle && !['default title', 'default', '1'].includes(vTitle.toLowerCase())) {
-                const isSize = vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('count') || vTitle.toLowerCase().includes('عددی') || vTitle.toLowerCase().includes('سروینگ');
-                if (isSize) {
-                  if (!sizes.includes(vTitle)) {
-                    sizes.push(vTitle);
-                    sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: v.available !== false });
-                  }
-                } else {
-                  if (!flavors.includes(vTitle)) {
-                    flavors.push(vTitle);
-                    flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: v.available !== false });
-                  }
-                }
-              }
-            });
-
-            if (flavorOptions.length > 0) {
-              variantGroups.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorOptions });
-            }
-            if (sizeOptions.length > 0) {
-              variantGroups.push({ id: 'sizes', name: 'تعداد / بسته‌بندی (Size)', type: 'size', options: sizeOptions });
-            }
-          }
-
-          return {
-            ok: true,
-            title: cleanTitleStr(t),
-            price: Math.round(p * 100) / 100,
-            currency: "AED",
-            image: mainImg,
-            galleryImages,
-            images: galleryImages,
-            variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
-            flavors,
-            sizes,
-            options: [...flavors, ...sizes],
-            storeName
-          };
+    // Fallback to .json endpoint
+    if (!productData) {
+      try {
+        const controller = new AbortController();
+        const tId = setTimeout(() => controller.abort(), 3500);
+        const res = await fetch(jsonUrl, {
+          headers: { ...headers, 'Accept': 'application/json' },
+          signal: controller.signal
+        });
+        clearTimeout(tId);
+        if (res.ok) {
+          const json = await res.json();
+          productData = json?.product || json;
         }
+      } catch (_jsonErr) {}
+    }
+
+    if (productData) {
+      const pObj = productData.product || productData;
+      const t = pObj?.title || pObj?.name;
+      const rawVariants = Array.isArray(pObj?.variants) ? pObj.variants : [];
+
+      // Extract images
+      const galleryImages: string[] = [];
+      if (Array.isArray(pObj.images)) {
+        pObj.images.forEach((img: any) => {
+          const src = typeof img === 'string' ? img : (img?.src || img?.url);
+          if (src) {
+            const s = sanitizeImageUrl(src, targetUrl);
+            if (s && !galleryImages.includes(s)) galleryImages.push(s);
+          }
+        });
+      }
+      const img = pObj.image?.src || pObj.featured_image?.src || (galleryImages.length > 0 ? galleryImages[0] : pObj.featured_image);
+      const mainImg = sanitizeImageUrl(String(img || ''), targetUrl);
+      if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+
+      // Build complete Variant Matrix with individual pricing
+      const matrixItems: any[] = [];
+      const flavors: string[] = [];
+      const sizes: string[] = [];
+      const flavorOptions: any[] = [];
+      const sizeOptions: any[] = [];
+
+      rawVariants.forEach((v: any, vIdx: number) => {
+        // Shopify stores prices in cents (e.g., 38990 -> 389.90 AED)
+        let vPrice: number = 0;
+        if (typeof v.price === 'number') {
+          vPrice = v.price >= 1000 ? v.price / 100 : v.price;
+        } else if (typeof v.price === 'string') {
+          const vp = parseFloat(normalizeToEnglishDigits(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+          vPrice = vp >= 1000 ? vp / 100 : vp;
+        }
+        vPrice = Math.round(Number(vPrice || 0) * 100) / 100;
+
+        let origPrice: number | undefined;
+        if (v.compare_at_price) {
+          if (typeof v.compare_at_price === 'number') {
+            origPrice = v.compare_at_price >= 1000 ? v.compare_at_price / 100 : v.compare_at_price;
+          } else if (typeof v.compare_at_price === 'string') {
+            const op = parseFloat(normalizeToEnglishDigits(v.compare_at_price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+            origPrice = op >= 1000 ? op / 100 : op;
+          }
+          origPrice = origPrice ? Math.round(Number(origPrice) * 100) / 100 : undefined;
+        }
+
+        const opts = [v.option1, v.option2, v.option3].filter(Boolean).map(String);
+        let size: string | undefined;
+        let flavor: string | undefined;
+
+        opts.forEach(opt => {
+          const s = opt.trim();
+          if (['default title', 'default', '1'].includes(s.toLowerCase())) return;
+
+          const isSize = s.toLowerCase().includes('serving') ||
+                         s.toLowerCase().includes('count') ||
+                         s.toLowerCase().includes('kg') ||
+                         s.toLowerCase().includes('lb') ||
+                         s.toLowerCase().includes('g') ||
+                         s.toLowerCase().includes('capsule') ||
+                         s.toLowerCase().includes('tablet') ||
+                         s.toLowerCase().includes('سروینگ') ||
+                         s.toLowerCase().includes('عددی');
+          if (isSize) {
+            size = s;
+            if (!sizes.includes(s)) {
+              sizes.push(s);
+              sizeOptions.push({ id: `sz-${vIdx}`, name: s, label: s, priceAed: vPrice, priceAED: vPrice, inStock: v.available !== false });
+            }
+          } else {
+            flavor = s;
+            if (!flavors.includes(s)) {
+              flavors.push(s);
+              flavorOptions.push({ id: `flv-${vIdx}`, name: s, label: s, priceAed: vPrice, priceAED: vPrice, inStock: v.available !== false });
+            }
+          }
+        });
+
+        const vTitle = v.title && !['default title', 'default', '1'].includes(String(v.title).toLowerCase())
+          ? String(v.title)
+          : ([flavor, size].filter(Boolean).join(' / ') || `گزینه ${vIdx + 1}`);
+
+        let vImg = v.featured_image?.src ? sanitizeImageUrl(v.featured_image.src, targetUrl) : undefined;
+
+        matrixItems.push({
+          id: String(v.id || `v-${vIdx}`),
+          title: vTitle,
+          name: vTitle,
+          size,
+          flavor,
+          priceAED: vPrice,
+          priceAed: vPrice,
+          originalPriceAED: origPrice,
+          originalPriceAed: origPrice,
+          image: vImg,
+          imageThumbnail: vImg,
+          inStock: v.available !== false
+        });
+      });
+
+      const primaryPrice = matrixItems[0]?.priceAED || (typeof pObj.price === 'number' && pObj.price >= 1000 ? pObj.price / 100 : Number(pObj.price || 0));
+      const variantGroups: any[] = [];
+      if (flavorOptions.length > 0) {
+        variantGroups.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorOptions });
+      }
+      if (sizeOptions.length > 0) {
+        variantGroups.push({ id: 'sizes', name: 'تعداد سروینگ / بسته‌بندی (Size)', type: 'size', options: sizeOptions });
+      }
+
+      const variantMatrix = {
+        sizes,
+        flavors,
+        items: matrixItems,
+        selectedVariant: matrixItems[0]
+      };
+
+      if (t && primaryPrice > 0) {
+        return {
+          ok: true,
+          title: cleanTitleStr(t),
+          price: primaryPrice,
+          currency: "AED",
+          image: mainImg,
+          galleryImages,
+          images: galleryImages,
+          variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
+          variants: matrixItems,
+          variantMatrix,
+          flavors,
+          sizes,
+          options: matrixItems.map(it => it.title),
+          description: pObj.body_html ? String(pObj.body_html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500) : undefined,
+          storeName
+        };
       }
     }
   } catch (_e) {}
@@ -5051,6 +5335,27 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         }
       });
 
+      // Build unified ProductVariantMatrix
+      const matrixItems: any[] = flatVariants.map(v => ({
+        id: v.id,
+        title: v.name || v.label,
+        name: v.name || v.label,
+        size: v.type === 'size' ? v.name : undefined,
+        flavor: v.type === 'flavor' ? v.name : undefined,
+        priceAED: v.priceAED ?? v.priceAed ?? v.price ?? p,
+        priceAed: v.priceAed ?? v.priceAED ?? v.price ?? p,
+        image: v.imageUrl || v.imageThumbnail,
+        imageThumbnail: v.imageThumbnail || v.imageUrl,
+        inStock: v.inStock !== false
+      }));
+
+      const variantMatrix = {
+        sizes,
+        flavors,
+        items: matrixItems,
+        selectedVariant: matrixItems[0]
+      };
+
       return res.status(200).json({
         ok: true,
         success: true,
@@ -5067,6 +5372,7 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         basePriceAED: p,
         inStock: true,
         variants: flatVariants,
+        variantMatrix,
         price: p,
         currency: result.currency || 'AED',
         priceAed: p,

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link2, Sparkles, ArrowLeft, Weight, Coins, PackageCheck, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Info, ShieldCheck, ShoppingCart, CheckCircle2, Trash2, X } from 'lucide-react';
-import { FinancialSettings, ParsedProduct, CmsConfig } from '../types';
+import { FinancialSettings, ParsedProduct, CmsConfig, ProductVariantMatrix, ProductVariantItem } from '../types';
 import { formatToman, formatAed, toPersianDigits, extractCleanUrl, getEffectiveAedRate } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { getEffectiveGeminiKeysList, extractProductWithGeminiAI } from '../utils/geminiKey';
@@ -91,6 +91,8 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
   );
   const [productGallery, setProductGallery] = useState<string[]>([]);
   const [productVariantGroups, setProductVariantGroups] = useState<any[]>([]);
+  const [productVariantMatrix, setProductVariantMatrix] = useState<ProductVariantMatrix | null>(null);
+  const [productVariantItems, setProductVariantItems] = useState<ProductVariantItem[]>([]);
   const [productFlavors, setProductFlavors] = useState<string[]>([]);
   const [productSizes, setProductSizes] = useState<string[]>([]);
   const [storeName, setStoreName] = useState<string>('Dr. Nutrition');
@@ -236,6 +238,35 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
           setProductSizes(result.sizes);
         }
 
+        // Store variant matrix & flat items
+        if (result.variantMatrix) {
+          setProductVariantMatrix(result.variantMatrix);
+          setProductVariantItems(result.variantMatrix.items || []);
+        } else if (Array.isArray(result.variants) && result.variants.length > 0) {
+          const vItems: ProductVariantItem[] = result.variants.map((v: any, idx: number) => ({
+            id: v.id || `var-${idx}`,
+            title: v.name || v.label || `گزینه ${idx + 1}`,
+            name: v.name || v.label,
+            flavor: v.flavor || (v.type === 'flavor' ? v.name : undefined),
+            size: v.size || (v.type === 'size' ? v.name : undefined),
+            priceAED: v.priceAED ?? v.priceAed ?? v.price ?? result.priceAed ?? 0,
+            priceAed: v.priceAed ?? v.priceAED ?? v.price ?? result.priceAed ?? 0,
+            originalPriceAED: v.originalPriceAED ?? v.originalPriceAed,
+            image: v.imageUrl || v.imageThumbnail || v.image,
+            inStock: v.inStock !== false
+          }));
+          setProductVariantItems(vItems);
+          setProductVariantMatrix({
+            sizes: result.sizes || [],
+            flavors: result.flavors || [],
+            items: vItems,
+            selectedVariant: vItems[0]
+          });
+        } else {
+          setProductVariantMatrix(null);
+          setProductVariantItems([]);
+        }
+
         const validExtractedOptions = (result.options || []).filter(
           (opt) => opt && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(opt.trim().toLowerCase())
         );
@@ -270,6 +301,58 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
       setErrorMessage('در حال حاضر امکان استخراج خودکار اطلاعات این لینک وجود ندارد. لطفاً چند لحظه بعد مجدداً تلاش فرمایید.');
     } finally {
       setIsParsing(false);
+    }
+  };
+
+  // Helper to handle dynamic variant selection and price mapping
+  const handleSelectOption = (optName: string) => {
+    setSelectedOption(optName);
+
+    // Look for matching variant item in productVariantItems or productVariantMatrix
+    const matched = productVariantItems.find(v => 
+      v.title?.toLowerCase() === optName.toLowerCase() ||
+      v.name?.toLowerCase() === optName.toLowerCase() ||
+      v.size?.toLowerCase() === optName.toLowerCase() ||
+      v.flavor?.toLowerCase() === optName.toLowerCase() ||
+      optName.toLowerCase().includes(v.title?.toLowerCase() || '') ||
+      (v.title && optName.toLowerCase().includes(v.title.toLowerCase()))
+    );
+
+    if (matched) {
+      const vPrice = matched.priceAED ?? matched.priceAed;
+      if (vPrice && vPrice > 0) {
+        setPriceAed(vPrice);
+        setPriceInput(String(vPrice));
+      }
+      if (matched.originalPriceAED ?? matched.originalPriceAed) {
+        setOriginalPriceAed(matched.originalPriceAED ?? matched.originalPriceAed);
+      }
+      if (matched.weightKg && matched.weightKg > 0) {
+        setWeightKg(matched.weightKg);
+        setWeightInput(String(matched.weightKg));
+      }
+      if (matched.image) {
+        setProductImage(matched.image);
+      }
+    } else {
+      // Check in productVariantGroups options
+      for (const vg of productVariantGroups) {
+        const foundOpt = (vg.options || []).find((o: any) => {
+          const name = typeof o === 'string' ? o : (o.name || o.label || '');
+          return name.toLowerCase() === optName.toLowerCase();
+        });
+        if (foundOpt && typeof foundOpt === 'object') {
+          const optPrice = foundOpt.priceAED ?? foundOpt.priceAed ?? foundOpt.price;
+          if (optPrice && Number(optPrice) > 0) {
+            setPriceAed(Number(optPrice));
+            setPriceInput(String(optPrice));
+          }
+          if (foundOpt.image || foundOpt.imageUrl || foundOpt.imageThumbnail) {
+            setProductImage(foundOpt.image || foundOpt.imageUrl || foundOpt.imageThumbnail);
+          }
+          break;
+        }
+      }
     }
   };
 
@@ -321,6 +404,8 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
       selectedOption: selectedOption || undefined,
       options: productOptions,
       variantGroups: productVariantGroups.length > 0 ? productVariantGroups : undefined,
+      variants: productVariantItems.length > 0 ? productVariantItems : undefined,
+      variantMatrix: productVariantMatrix || undefined,
       flavors: productFlavors.length > 0 ? productFlavors : undefined,
       sizes: productSizes.length > 0 ? productSizes : undefined,
       description: productDescription
@@ -543,18 +628,35 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                   <div className="flex flex-wrap gap-2 pt-0.5 dir-ltr">
                     {validOptions.map((opt) => {
                       const isSelected = selectedOption === opt;
+                      // Check if this option has a specific price in productVariantItems
+                      const matchedItem = productVariantItems.find(v =>
+                        v.title?.toLowerCase() === opt.toLowerCase() ||
+                        v.name?.toLowerCase() === opt.toLowerCase() ||
+                        v.size?.toLowerCase() === opt.toLowerCase() ||
+                        v.flavor?.toLowerCase() === opt.toLowerCase()
+                      );
+                      const optPrice = matchedItem ? (matchedItem.priceAED ?? matchedItem.priceAed) : null;
+                      const hasDifferentPrice = optPrice && optPrice > 0;
+
                       return (
                         <button
                           key={opt}
                           type="button"
-                          onClick={() => setSelectedOption(opt)}
-                          className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer ${
+                          onClick={() => handleSelectOption(opt)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer inline-flex items-center gap-1.5 ${
                             isSelected
                               ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02]'
                               : 'bg-slate-50 text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100'
                           }`}
                         >
-                          {opt}
+                          <span>{opt}</span>
+                          {hasDifferentPrice && (
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${
+                              isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-800'
+                            }`}>
+                              {optPrice} AED
+                            </span>
+                          )}
                         </button>
                       );
                     })}

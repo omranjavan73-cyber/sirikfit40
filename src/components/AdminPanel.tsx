@@ -315,6 +315,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [activeAdminSubTab]);
 
   // Orders State
+  const [ordersActiveTab, setOrdersActiveTab] = useState<'list' | 'settings'>('list');
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -2251,7 +2252,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (showToast) showToast('محصول با موفقیت از لیست پرطرفدارها حذف شد', 'success');
     } catch (err) {
       console.error('Error persisting popular item removal:', err);
-      if (showToast) showToast('تغییر در حافظه محلی ذخیره شد.', 'info');
+      if (showToast) showToast('تغییر در حافظه محلی ذخیره شد.', 'success');
     }
   };
 
@@ -3488,10 +3489,143 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* SUB-TAB 2: FULL ORDERS MANAGEMENT (#admin-orders) */}
-      {activeAdminSubTab === 'orders' && (
-        <div id="admin-orders" className="space-y-4 font-['Vazirmatn',sans-serif]">
-          {/* Top Filter & Search Bar */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-2xs space-y-4">
+      {activeAdminSubTab === 'orders' && (() => {
+        const totalOrdersCount = orders.length;
+        const totalRevenueToman = (orders || [])
+          .filter(o => o.paymentStatus === 'PAID')
+          .reduce((sum, o) => sum + (o.calculatedToman || 0), 0);
+        const pendingOrdersCount = (orders || []).filter(o => o.paymentStatus !== 'PAID' || o.shippingStatus === 'PENDING_BUY' || o.shippingStatus === 'PURCHASED' || o.shippingStatus === 'DUBAI_WAREHOUSE').length;
+        const shippedOrdersCount = (orders || []).filter(o => o.shippingStatus === 'SHIPPED_IRAN' || o.shippingStatus === 'SHIPPED').length;
+        const completedOrdersCount = (orders || []).filter(o => o.shippingStatus === 'COMPLETED' || o.shippingStatus === 'DELIVERED').length;
+
+        return (
+          <div id="admin-orders" className="space-y-6 font-['Vazirmatn',sans-serif]">
+            {/* Master Orders Header & Sub-Tab Pill Navigation */}
+            <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-2xs space-y-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-slate-900 text-amber-400 flex items-center justify-center shrink-0 shadow-xs">
+                    <ShoppingBag className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="font-extrabold text-base sm:text-lg text-slate-900 tracking-tight">
+                      سفارشات مشتریان
+                    </h2>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                      مدیریت سفارشات، پیگیری چرخه خرید و لاجستیک، و اتوماسیون گوگل شیت و تلگرام
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sub-Navigation Segmented Pills Bar */}
+              <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl overflow-x-auto no-scrollbar">
+                <button
+                  type="button"
+                  onClick={() => setOrdersActiveTab('list')}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
+                    ordersActiveTab === 'list'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>لیست و پیگیری سفارشات</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                    ordersActiveTab === 'list' ? 'bg-amber-500 text-slate-950' : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {toPersianDigits(orders.length)}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOrdersActiveTab('settings')}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
+                    ordersActiveTab === 'settings'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  <span>تنظیمات و اتوماسیون سفارشات</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                    ordersActiveTab === 'settings' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    Google Sheet & Telegram
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* SUB-TAB 1: ORDERS LIST & TRACKING */}
+            {ordersActiveTab === 'list' && (
+              <div className="space-y-4">
+                {/* Bento Metrics Row */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Total Orders Card */}
+                  <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs space-y-1">
+                    <div className="flex items-center justify-between text-slate-500 text-[11px] font-bold">
+                      <span>کل سفارشات</span>
+                      <ShoppingBag className="w-4 h-4 text-slate-400" />
+                    </div>
+                    <div className="text-xl font-black text-slate-900">
+                      {toPersianDigits(totalOrdersCount)}
+                      <span className="text-xs font-bold text-slate-400 mr-1">عدد</span>
+                    </div>
+                    <div className="text-[10px] font-bold text-emerald-600 truncate">
+                      فروش کل: {formatToman(totalRevenueToman)}
+                    </div>
+                  </div>
+
+                  {/* Pending / In-Progress Card */}
+                  <div className="bg-white border border-amber-200/80 rounded-2xl p-4 shadow-2xs space-y-1 bg-amber-50/20">
+                    <div className="flex items-center justify-between text-amber-700 text-[11px] font-bold">
+                      <span>در انتظار خرید/پرداخت</span>
+                      <Clock className="w-4 h-4 text-amber-500" />
+                    </div>
+                    <div className="text-xl font-black text-amber-900">
+                      {toPersianDigits(pendingOrdersCount)}
+                      <span className="text-xs font-bold text-amber-600/70 mr-1">سفارش</span>
+                    </div>
+                    <div className="text-[10px] font-bold text-amber-700">
+                      نیازمند پیگیری در دبی
+                    </div>
+                  </div>
+
+                  {/* Shipped Card */}
+                  <div className="bg-white border border-sky-200/80 rounded-2xl p-4 shadow-2xs space-y-1 bg-sky-50/20">
+                    <div className="flex items-center justify-between text-sky-700 text-[11px] font-bold">
+                      <span>ارسال شده به ایران</span>
+                      <Truck className="w-4 h-4 text-sky-500" />
+                    </div>
+                    <div className="text-xl font-black text-sky-900">
+                      {toPersianDigits(shippedOrdersCount)}
+                      <span className="text-xs font-bold text-sky-600/70 mr-1">سفارش</span>
+                    </div>
+                    <div className="text-[10px] font-bold text-sky-700">
+                      در مسیر ترانزیت
+                    </div>
+                  </div>
+
+                  {/* Completed / Delivered Card */}
+                  <div className="bg-white border border-emerald-200/80 rounded-2xl p-4 shadow-2xs space-y-1 bg-emerald-50/20">
+                    <div className="flex items-center justify-between text-emerald-700 text-[11px] font-bold">
+                      <span>تکمیل و تحویل شده</span>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    </div>
+                    <div className="text-xl font-black text-emerald-900">
+                      {toPersianDigits(completedOrdersCount)}
+                      <span className="text-xs font-bold text-emerald-600/70 mr-1">سفارش</span>
+                    </div>
+                    <div className="text-[10px] font-bold text-emerald-700">
+                      تحویل موفق به خریدار
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top Filter & Search Bar */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-2xs space-y-4">
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
               <div className="relative flex-1">
                 <input
@@ -3897,6 +4031,277 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
+      {/* SUB-TAB 2: ORDERS AUTOMATION & WEBHOOK SETTINGS */}
+      {ordersActiveTab === 'settings' && (
+        <div className="space-y-6">
+          {/* Card 1: Google Sheets & Webhook Automation */}
+          <div className="bg-gradient-to-br from-slate-900 to-emerald-950 text-white rounded-3xl p-6 shadow-xs space-y-4 border border-emerald-900/40">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-800/40 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-xs">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-white flex items-center gap-2">
+                    <span>اتوماسیون گوگل شیت (Google Sheets Real-time Sync)</span>
+                    <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                      Real-time
+                    </span>
+                  </h3>
+                  <p className="text-xs text-emerald-200/80 mt-0.5">
+                    ارسال خودکار و بلادرنگ مشخصات سفارشات و تغییرات وضعیت به شیت Orders_Log
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="font-bold text-emerald-100 block mb-1.5">
+                  آدرس وب‌هوک گوگل شیت (Google Sheet AppScript / Webhook URL):
+                </label>
+                <input
+                  type="url"
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  placeholder="https://script.google.com/macros/s/.../exec"
+                  className="w-full bg-slate-950/90 border border-emerald-700/60 text-white p-3 rounded-xl focus:outline-none focus:border-emerald-400 dir-ltr font-mono text-xs placeholder:text-slate-500"
+                  dir="ltr"
+                />
+                <p className="text-[11px] text-emerald-300/70 mt-1.5 leading-relaxed">
+                  💡 با وارد کردن این آدرس، به محض ثبت سفارش جدید یا تغییر هر یک از مراحل وضعیت ۴ مرحله‌ای، اطلاعات با ساختار استاندارد ستون‌ها به برگه <strong className="text-white font-mono">Orders_Log</strong> در گوگل شیت ارسال و لاگ می‌شود.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <div className="flex items-center gap-2 text-[11px] text-emerald-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>پشتیبانی از فرمت استاندارد JSON، تب هدف Orders_Log و اجرای پس‌زمینه (Non-blocking)</span>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isTestingWebhook || !webhookUrl.trim()}
+                  onClick={async () => {
+                    if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+                      alert('لطفاً ابتدا آدرس معتبر وب‌هوک را وارد کنید.');
+                      return;
+                    }
+                    setIsTestingWebhook(true);
+                    try {
+                      const testOrderPayload = {
+                        targetTab: 'Orders_Log',
+                        orderId: 'TEST-ORD-' + Date.now().toString().slice(-4),
+                        timestamp: new Date().toISOString(),
+                        persianDate: new Intl.DateTimeFormat('fa-IR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date()),
+                        customerName: 'کاربر تستی سیریک فیت',
+                        customerPhone: '09120000000',
+                        sourceStore: 'دبی (Dr Nutrition)',
+                        productTitle: 'مکمل تست پروتئین وی گلد استاندارد',
+                        variant: 'طعم دابل چاکلت ۲.۲ کیلوگرم',
+                        sourceUrl: 'https://drnutrition.com',
+                        totalPriceToman: 14500000,
+                        status: 'PURCHASED (PAID)'
+                      };
+
+                      await fetch(webhookUrl.trim(), {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(testOrderPayload)
+                      });
+
+                      safeFetchJson('/api/sync-order-sheet', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          webhookUrl: webhookUrl.trim(),
+                          orderData: testOrderPayload
+                        })
+                      }).catch(() => {});
+
+                      alert('✅ درخواست داده تستی سفارش (Orders_Log) به وب‌هوک گوگل شیت ارسال شد!');
+                    } catch (err: any) {
+                      alert('❌ خطا در ارسال تست: ' + (err.message || 'خطای شبکه'));
+                    } finally {
+                      setIsTestingWebhook(false);
+                    }
+                  }}
+                  className="bg-emerald-500 hover:bg-emerald-600 active:scale-95 disabled:opacity-50 text-slate-950 font-black text-xs px-4 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm shrink-0"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingWebhook ? 'animate-spin' : ''}`} />
+                  <span>ارسال داده تستی سفارش (Orders_Log) به شیت</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Telegram Order Notifications */}
+          <div className="bg-slate-900 text-white border border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-black text-sm text-white flex items-center gap-2">
+                <Send className="w-4 h-4 text-sky-400" />
+                <span>اطلاع‌رسانی ربات تلگرام (Telegram Order Notifications)</span>
+              </h3>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={telegramNotifyEnabled}
+                  onChange={(e) => setTelegramNotifyEnabled(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500"></div>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="font-bold text-slate-300 block mb-1.5">Telegram Bot Token:</label>
+                <div className="relative">
+                  <input
+                    type={showTelegramToken ? 'text' : 'password'}
+                    value={telegramBotToken}
+                    onChange={(e) => setTelegramBotToken(e.target.value)}
+                    placeholder="123456789:AA...xyz"
+                    className="w-full bg-slate-950 border border-slate-700 text-slate-100 p-2.5 rounded-xl focus:outline-none focus:border-sky-500 dir-ltr font-mono pr-9"
+                    dir="ltr"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowTelegramToken(!showTelegramToken)}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 text-xs p-1 cursor-pointer"
+                  >
+                    {showTelegramToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-300 block mb-1.5">Admin Chat ID:</label>
+                <input
+                  type="text"
+                  value={adminChatId}
+                  onChange={(e) => setAdminChatId(e.target.value)}
+                  placeholder="123456789 یا @group_id"
+                  className="w-full bg-slate-950 border border-slate-700 text-slate-100 p-2.5 rounded-xl focus:outline-none focus:border-sky-500 dir-ltr font-mono"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!telegramBotToken || !adminChatId) {
+                    alert('لطفاً ابتدا توکن ربات تلگرام و شناسه چت را وارد کنید.');
+                    return;
+                  }
+                  try {
+                    const testOrder = {
+                      id: 'test-' + Date.now(),
+                      customerName: 'خریدار تست سیستم',
+                      phoneNumber: '09120000000',
+                      deliveryAddress: 'تهران، خیابان ولیعصر، پلاک ۱۰۰',
+                      productTitle: 'مکمل پروتئین وی اپتیموم نوتریشن ON 5lbs',
+                      selectedOption: 'طعم دبل شکلات',
+                      quantity: 1,
+                      priceAed: 320,
+                      calculatedToman: 18500000,
+                      productUrl: 'https://drnutrition.com/test'
+                    };
+                    const res = await fetch('/api/notify/telegram', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        orderData: testOrder,
+                        botToken: telegramBotToken,
+                        chatId: adminChatId
+                      })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                      alert('✅ پیام تست با موفقیت به ربات تلگرام ادمین ارسال شد!');
+                    } else {
+                      alert('❌ خطا در ارسال تست تلگرام: ' + (data.error || 'پاسخ ناموفق'));
+                    }
+                  } catch (e) {
+                    alert('خطا در ارتباط با سرور.');
+                  }
+                }}
+                className="bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>ارسال پیام تست تلگرام</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Card 3: Email Order Notifications */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                <Mail className="w-4 h-4 text-emerald-600" />
+                <span>اطلاع‌رسانی ایمیل سفارشات (Email Order Notifications)</span>
+              </h3>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={emailNotifyEnabled}
+                  onChange={(e) => setEmailNotifyEnabled(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1.5">ایمیل مقصد جهت دریافت سفارشات:</label>
+                <input
+                  type="email"
+                  value={adminDestinationEmail}
+                  onChange={(e) => setAdminDestinationEmail(e.target.value)}
+                  placeholder="admin@example.com"
+                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 p-2.5 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr font-mono"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Direct Save Action Bar for Automation & Settings */}
+          <div className="flex items-center justify-end gap-3 bg-slate-50 border border-slate-200/90 rounded-2xl p-4">
+            <button
+              type="button"
+              disabled={isSavingCms}
+              onClick={handleDirectCmsSave}
+              className="bg-slate-900 hover:bg-black text-white font-extrabold text-xs px-6 py-3 rounded-xl transition cursor-pointer flex items-center gap-2 shadow-xs"
+            >
+              {isSavingCms ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                  <span>در حال ذخیره تنظیمات...</span>
+                </>
+              ) : saveCmsSuccess ? (
+                <>
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>تنظیمات اتوماسیون با موفقیت ذخیره شد</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 text-amber-400" />
+                  <span>ذخیره تنظیمات و اتوماسیون سفارشات</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+})()}
+
 
 
       {/* MASTER SUB-TAB: PRODUCTS MANAGEMENT (مدیریت محصولات) */}
@@ -4049,7 +4454,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         const newVal = e.target.checked;
                         setShowLocalInventory(newVal);
                         try {
-                          const currentCms = cms || {};
+                          const currentCms: Partial<CmsConfig> = cms || {};
                           const updatedCms = {
                             ...currentCms,
                             showLocalInventory: newVal,
@@ -6600,220 +7005,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     {showGeminiApiKey3 ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 4: Telegram Notifications */}
-          <div className="bg-slate-900 text-white border border-slate-800 rounded-3xl p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="font-black text-sm text-white flex items-center gap-2">
-                <Send className="w-4 h-4 text-sky-400" />
-                <span>تنظیمات اطلاع‌رسانی تلگرام (Telegram Notifications)</span>
-              </h3>
-              <span className="text-[10px] font-bold bg-sky-500/20 text-sky-300 px-2.5 py-1 rounded-full border border-sky-500/30">
-                ارسال خودکار سفارشات به تلگرام
-              </span>
-            </div>
-
-            {/* Telegram Bot Box */}
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Send className="w-4 h-4 text-sky-400" />
-                  <span className="font-bold text-xs text-slate-200">فعالسازی ارسال سفارشات به تلگرام</span>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={telegramNotifyEnabled}
-                    onChange={(e) => setTelegramNotifyEnabled(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500"></div>
-                </label>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                <div>
-                  <label className="font-bold text-slate-300 block mb-1">Telegram Bot Token:</label>
-                  <div className="relative">
-                    <input
-                      type={showTelegramToken ? 'text' : 'password'}
-                      value={telegramBotToken}
-                      onChange={(e) => setTelegramBotToken(e.target.value)}
-                      placeholder="123456789:AA...xyz"
-                      className="w-full bg-slate-950 border border-slate-700 text-slate-100 p-2.5 rounded-xl focus:outline-none focus:border-sky-500 dir-ltr font-mono pr-9"
-                      dir="ltr"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowTelegramToken(!showTelegramToken)}
-                      className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 text-xs p-1 cursor-pointer"
-                    >
-                      {showTelegramToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="font-bold text-slate-300 block mb-1">Admin Chat ID:</label>
-                  <input
-                    type="text"
-                    value={adminChatId}
-                    onChange={(e) => setAdminChatId(e.target.value)}
-                    placeholder="123456789 یا @group_id"
-                    className="w-full bg-slate-950 border border-slate-700 text-slate-100 p-2.5 rounded-xl focus:outline-none focus:border-sky-500 dir-ltr font-mono"
-                    dir="ltr"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-1">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!telegramBotToken || !adminChatId) {
-                      alert('لطفاً ابتدا توکن ربات تلگرام و شناسه چت را وارد کنید.');
-                      return;
-                    }
-                    try {
-                      const testOrder = {
-                        id: 'test-' + Date.now(),
-                        customerName: 'خریدار تست سیستم',
-                        phoneNumber: '09120000000',
-                        deliveryAddress: 'تهران، خیابان ولیعصر، پلاک ۱۰۰',
-                        productTitle: 'مکمل پروتئین وی اپتیموم نوتریشن ON 5lbs',
-                        selectedOption: 'طعم دبل شکلات',
-                        quantity: 1,
-                        priceAed: 320,
-                        calculatedToman: 18500000,
-                        productUrl: 'https://drnutrition.com/test'
-                      };
-                      const res = await fetch('/api/notify/telegram', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          orderData: testOrder,
-                          botToken: telegramBotToken,
-                          chatId: adminChatId
-                        })
-                      });
-                      const data = await res.json();
-                      if (res.ok && data.success) {
-                        alert('✅ پیام تست با موفقیت به ربات تلگرام ادمین ارسال شد!');
-                      } else {
-                        alert('❌ خطا در ارسال تست تلگرام: ' + (data.error || 'پاسخ ناموفق'));
-                      }
-                    } catch (e) {
-                      alert('خطا در ارتباط با سرور.');
-                    }
-                  }}
-                  className="bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>ارسال پیام تست تلگرام</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 5: Webhook & Google Sheets Integration (اتصال وب‌هوک و گوگل شیت) */}
-          <div className="bg-gradient-to-br from-slate-900 to-emerald-950 text-white rounded-3xl p-5 shadow-xs space-y-4 border border-emerald-900/40">
-            <div className="flex items-center justify-between border-b border-emerald-800/40 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center text-white">
-                  <ExternalLink className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-black text-sm text-white flex items-center gap-1.5">
-                    <span>وب‌هوک هوشمند سفارشات (Google Sheets & Webhook Automation)</span>
-                    <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
-                      Real-time Sync
-                    </span>
-                  </h3>
-                  <p className="text-[11px] text-emerald-200/80">
-                    ارسال خودکار و بلادرنگ اطلاعات هر سفارش و تغییرات وضعیت ۴ مرحله‌ای به وب‌هوک گوگل شیت یا Zapier/Make
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="font-bold text-emerald-100 block mb-1">
-                  آدرس وب‌هوک اختصاصی (Google Sheet AppScript / Webhook URL):
-                </label>
-                <input
-                  type="url"
-                  value={webhookUrl}
-                  onChange={(e) => setWebhookUrl(e.target.value)}
-                  placeholder="https://script.google.com/macros/s/.../exec یا https://webhook.site/..."
-                  className="w-full bg-slate-950/80 border border-emerald-700/60 text-white p-3 rounded-xl focus:outline-none focus:border-emerald-400 dir-ltr font-mono text-xs placeholder:text-slate-500"
-                  dir="ltr"
-                />
-                <p className="text-[10px] text-emerald-300/70 mt-1">
-                  💡 با وارد کردن این آدرس، در هنگام ثبت یا تغییر وضعیت هر مرحله از سفارش، یک درخواست POST با جزئیات کامل سفارش به این آدرس ارسال می‌شود.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                <div className="flex items-center gap-2 text-[11px] text-emerald-300">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>پشتیبانی از فرمت استاندارد JSON و اجرای پس‌زمینه (Non-blocking)</span>
-                </div>
-
-                <button
-                  type="button"
-                  disabled={isTestingWebhook || !webhookUrl.trim()}
-                  onClick={async () => {
-                    if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
-                      alert('لطفاً ابتدا آدرس معتبر وب‌هوک را وارد کنید.');
-                      return;
-                    }
-                    setIsTestingWebhook(true);
-                    try {
-                      const testOrderPayload = {
-                        targetTab: 'Orders_Log',
-                        orderId: 'TEST-ORD-' + Date.now().toString().slice(-4),
-                        timestamp: new Date().toISOString(),
-                        persianDate: new Intl.DateTimeFormat('fa-IR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date()),
-                        customerName: 'کاربر تستی سیریک فیت',
-                        customerPhone: '09120000000',
-                        sourceStore: 'دبی (Dr Nutrition)',
-                        productTitle: 'مکمل تست پروتئین وی گلد استاندارد',
-                        variant: 'طعم دابل چاکلت ۲.۲ کیلوگرم',
-                        sourceUrl: 'https://drnutrition.com',
-                        totalPriceToman: 14500000,
-                        status: 'PURCHASED (PAID)'
-                      };
-
-                      await fetch(webhookUrl.trim(), {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(testOrderPayload)
-                      });
-
-                      // Also hit the backend sync endpoint
-                      safeFetchJson('/api/sync-order-sheet', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...testOrderPayload, webhookUrl: webhookUrl.trim() })
-                      }).catch(() => {});
-
-                      alert('✅ پکت تست با ساختار استاندارد Orders_Log با موفقیت به وب‌هوک گوگل شیت ارسال شد!');
-                    } catch (err: any) {
-                      alert('⚠️ ارسال تست انجام شد: ' + (err.message || ''));
-                    } finally {
-                      setIsTestingWebhook(false);
-                    }
-                  }}
-                  className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingWebhook ? 'animate-spin' : ''}`} />
-                  <span>{isTestingWebhook ? 'در حال ارسال تست...' : 'ارسال داده تستی سفارش (Orders_Log) به شیت'}</span>
-                </button>
               </div>
             </div>
           </div>

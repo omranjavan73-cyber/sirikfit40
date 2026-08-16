@@ -14,6 +14,7 @@ interface OrderFormProps {
     storeName?: string;
     calculatedTomanOverride?: number;
     brand?: string;
+    badge?: string;
     discountPercent?: number;
     originalPriceAed?: number;
     servings?: string;
@@ -50,10 +51,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  const effectiveRate = getEffectiveAedRate(settings);
   const pricingResult = calculateOrderPricing(
     product.priceAed * qty,
     qty,
-    getEffectiveAedRate(settings)
+    effectiveRate
   );
 
   const totalToman = product.calculatedTomanOverride
@@ -96,8 +98,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     setIsSubmitting(true);
 
     try {
-      const orderPayload = {
+      const trackingCode = `SF-${Date.now().toString().slice(-6)}`;
+      const orderPayload: Omit<Order, 'id'> = {
         userId: currentUser?.id,
+        trackingCode,
         customerName,
         phoneNumber,
         deliveryAddress,
@@ -108,14 +112,17 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         storeName: product.storeName,
         priceAed: product.priceAed * qty,
         weightKg: (product.weightKg || 0.5) * qty,
-        totalToman,
+        aedRate: effectiveRate,
+        cargoRatePerKg: settings.cargoRatePerKg || 35,
+        profitMargin: settings.profitMargin || 15,
+        calculatedToman: totalToman,
         createdAt: new Date().toISOString(),
         paymentStatus: 'PENDING',
-        shippingStatus: 'PROCESSING'
+        shippingStatus: 'PENDING_BUY'
       };
 
       const createdOrderId = await saveOrderToFirestore(orderPayload);
-      const createdOrder = { ...orderPayload, id: createdOrderId, orderId: createdOrderId };
+      const createdOrder: Order = { ...orderPayload, id: createdOrderId };
       onOrderCreated(createdOrder);
     } catch (e: any) {
       console.error('Error submitting order:', e);

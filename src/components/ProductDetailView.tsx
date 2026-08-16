@@ -19,9 +19,10 @@ import {
   ShieldCheck,
   Maximize2,
   Zap,
-  ZoomIn
+  ZoomIn,
+  Loader2
 } from 'lucide-react';
-import type { FinancialSettings, Order, User, CartItem, CmsConfig, VariantDimension, VariantOption } from '../types';
+import type { FinancialSettings, Order, User, CartItem, CmsConfig, VariantDimension, VariantOption, ProductVariantMatrix, ProductVariantItem } from '../types';
 import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
@@ -75,6 +76,7 @@ interface ProductDetailViewProps {
     dimensions?: VariantDimension[];
     variantGroups?: any[];
     variants?: any[];
+    variantMatrix?: ProductVariantMatrix;
     description?: string;
     descriptionFa?: string;
     isLocalInventory?: boolean;
@@ -104,6 +106,15 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   onBackToMain,
   onOrderCreated
 }) => {
+  const [localProduct, setLocalProduct] = useState<any>(product);
+  const [isVariantLoading, setIsVariantLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    setLocalProduct(product);
+  }, [product]);
+
+  const activeProd = localProduct || product;
+
   // Step 1: Product / Cart detail view. Step 2: Recipient details & order checkout
   const [step, setStep] = useState<1 | 2>(1);
   const [qty, setQty] = useState<number>(1);
@@ -112,19 +123,19 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   // Strictly reset quantity to 1 when active product changes
   useEffect(() => {
     setQty(1);
-  }, [product?.title, product?.url, (product as any)?.id]);
+  }, [activeProd?.title, activeProd?.url, (activeProd as any)?.id]);
 
   // Gallery and Image States
-  const rawGalleryList = product
-    ? (Array.isArray(product.galleryImages) && product.galleryImages.length > 0
-        ? product.galleryImages
-        : (Array.isArray(product.images) && product.images.length > 0
-          ? product.images
-          : (product.image ? [product.image] : [])))
+  const rawGalleryList: string[] = activeProd
+    ? (Array.isArray((activeProd as any).galleryImages) && (activeProd as any).galleryImages.length > 0
+        ? (activeProd as any).galleryImages
+        : (Array.isArray((activeProd as any).images) && (activeProd as any).images.length > 0
+          ? (activeProd as any).images
+          : (activeProd.image ? [String(activeProd.image)] : [])))
     : [];
-  const galleryList = Array.from(new Set(rawGalleryList.filter(Boolean)));
+  const galleryList: string[] = Array.from(new Set(rawGalleryList.filter(Boolean).map(String)));
 
-  const [activeImage, setActiveImage] = useState<string>(galleryList[0] || product?.image || '');
+  const [activeImage, setActiveImage] = useState<string>(galleryList[0] || activeProd?.image || '');
 
   useEffect(() => {
     if (galleryList.length > 0) {
@@ -132,7 +143,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         setActiveImage(galleryList[0]);
       }
     }
-  }, [product?.image, galleryList]);
+  }, [activeProd?.image, galleryList]);
 
   // Interactive Hover Zoom Lens States (Desktop)
   const [isHovered, setIsHovered] = useState<boolean>(false);
@@ -173,17 +184,61 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   // Variant selector states
   const [selectedVariants, setSelectedVariants] = useState<Record<string, VariantOption>>({});
-  const [selectedOptionFallback] = useState<string>(product?.selectedOption || product?.options?.[0] || '');
+  const [selectedOptionFallback] = useState<string>(activeProd?.selectedOption || activeProd?.options?.[0] || '');
 
-  // Extract dimensions or fallback to flavors/sizes
+  // Extract dimensions or fallback to variantMatrix / flavors / sizes
   const dimensions: VariantDimension[] = React.useMemo(() => {
-    if (!product) return [];
+    if (!activeProd) return [];
 
-    if (Array.isArray(product.dimensions) && product.dimensions.length > 0) {
-      return product.dimensions;
+    if (Array.isArray(activeProd.dimensions) && activeProd.dimensions.length > 0) {
+      return activeProd.dimensions;
     }
-    if (Array.isArray(product.variantGroups) && product.variantGroups.length > 0) {
-      return product.variantGroups.map((vg: any) => ({
+
+    if (activeProd.variantMatrix?.items && activeProd.variantMatrix.items.length > 0) {
+      const flavorItems: VariantOption[] = [];
+      const sizeItems: VariantOption[] = [];
+      const genericItems: VariantOption[] = [];
+
+      activeProd.variantMatrix.items.forEach((item: any, idx: number) => {
+        const itemPrice = item.priceAED ?? item.priceAed ?? activeProd.priceAed ?? 0;
+        const opt: VariantOption = {
+          id: item.id || `matrix-${idx}`,
+          name: item.title || item.name || `گزینه ${idx + 1}`,
+          priceAed: itemPrice,
+          image: item.image,
+          inStock: item.inStock !== false,
+          url: item.url
+        };
+
+        if (item.size) {
+          sizeItems.push({ ...opt, name: item.size });
+        } else if (item.flavor) {
+          flavorItems.push({ ...opt, name: item.flavor });
+        } else {
+          const lower = (item.title || item.name || '').toLowerCase();
+          if (lower.includes('serving') || lower.includes('count') || lower.includes('kg') || lower.includes('lb') || lower.includes('g') || lower.includes('عددی') || lower.includes('سروینگ')) {
+            sizeItems.push(opt);
+          } else {
+            flavorItems.push(opt);
+          }
+        }
+      });
+
+      const matrixDims: VariantDimension[] = [];
+      if (flavorItems.length > 0) {
+        matrixDims.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorItems });
+      }
+      if (sizeItems.length > 0) {
+        matrixDims.push({ id: 'sizes', name: 'وزن / سایز (Size)', type: 'size', options: sizeItems });
+      }
+      if (matrixDims.length === 0 && genericItems.length > 0) {
+        matrixDims.push({ id: 'variants', name: 'انتخاب نوع کالا', type: 'generic', options: genericItems });
+      }
+      if (matrixDims.length > 0) return matrixDims;
+    }
+
+    if (Array.isArray(activeProd.variantGroups) && activeProd.variantGroups.length > 0) {
+      return activeProd.variantGroups.map((vg: any) => ({
         id: vg.id || 'group',
         name: vg.name || 'انتخاب گزینه',
         type: vg.type || 'generic',
@@ -191,55 +246,57 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
           id: opt.id || `opt-${idx}`,
           name: opt.name || String(opt),
           nameFa: opt.nameFa,
-          priceAed: opt.priceAed !== undefined ? Number(opt.priceAed) : (product?.priceAed || 0),
+          priceAed: opt.priceAed !== undefined ? Number(opt.priceAed) : (activeProd?.priceAed || 0),
           image: opt.image,
-          inStock: opt.inStock !== false
+          inStock: opt.inStock !== false,
+          url: opt.url
         }))
       }));
     }
 
     const dims: VariantDimension[] = [];
-    if (Array.isArray(product.flavors) && product.flavors.length > 0) {
+    if (Array.isArray(activeProd.flavors) && activeProd.flavors.length > 0) {
       dims.push({
         id: 'flavors',
         name: 'طعم (Flavor)',
         type: 'flavor',
-        options: product.flavors.map((f, idx) => ({
+        options: activeProd.flavors.map((f: string, idx: number) => ({
           id: `flv-${idx}`,
           name: f,
-          priceAed: product.priceAed || 0,
+          priceAed: activeProd.priceAed || 0,
           inStock: true
         }))
       });
     }
-    if (Array.isArray(product.sizes) && product.sizes.length > 0) {
+    if (Array.isArray(activeProd.sizes) && activeProd.sizes.length > 0) {
       dims.push({
         id: 'sizes',
         name: 'وزن / سایز (Size)',
         type: 'size',
-        options: product.sizes.map((s, idx) => ({
+        options: activeProd.sizes.map((s: string, idx: number) => ({
           id: `sz-${idx}`,
           name: s,
-          priceAed: product.priceAed || 0,
+          priceAed: activeProd.priceAed || 0,
           inStock: true
         }))
       });
     }
-    if (dims.length === 0 && Array.isArray(product.variants) && product.variants.length > 0) {
+    if (dims.length === 0 && Array.isArray(activeProd.variants) && activeProd.variants.length > 0) {
       const flavorItems: VariantOption[] = [];
       const sizeItems: VariantOption[] = [];
       const genericItems: VariantOption[] = [];
 
-      product.variants.forEach((v: any, idx: number) => {
+      activeProd.variants.forEach((v: any, idx: number) => {
         const vName = typeof v === 'string' ? v : (v.name || '');
         if (!vName) return;
-        const vPrice = v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : (product?.priceAed || 0));
+        const vPrice = v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : (activeProd?.priceAed || 0));
         const vOpt: VariantOption = {
           id: v.id || `var-${idx}`,
           name: vName,
           priceAed: vPrice,
           image: v.imageThumbnail || v.image,
-          inStock: v.inStock !== false
+          inStock: v.inStock !== false,
+          url: v.url
         };
 
         const lower = vName.toLowerCase();
@@ -263,24 +320,24 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       }
     }
 
-    if (dims.length === 0 && Array.isArray(product.options) && product.options.length > 0) {
-      const validOpts = product.options.filter(o => o && !['default', 'standard', 'پیش‌فرض'].includes(o.toLowerCase()));
+    if (dims.length === 0 && Array.isArray(activeProd.options) && activeProd.options.length > 0) {
+      const validOpts = activeProd.options.filter((o: string) => o && !['default', 'standard', 'پیش‌فرض'].includes(o.toLowerCase()));
       if (validOpts.length > 0) {
         dims.push({
           id: 'options',
           name: 'گزینه‌های کالا',
           type: 'generic',
-          options: validOpts.map((o, idx) => ({
+          options: validOpts.map((o: string, idx: number) => ({
             id: `opt-${idx}`,
             name: o,
-            priceAed: product?.priceAed || 0,
+            priceAed: activeProd?.priceAed || 0,
             inStock: true
           }))
         });
       }
     }
     return dims;
-  }, [product]);
+  }, [activeProd]);
 
   // Initialize selected variants
   useEffect(() => {
@@ -813,7 +870,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
                 return (
                   <div
-                    key={item.id}
+                    key={item.cartItemId || item.id}
                     className="bg-white border border-slate-200/90 rounded-[20px] p-4 shadow-2xs space-y-3 relative transition hover:border-slate-300"
                   >
                     <div className="flex items-start gap-3">
@@ -829,7 +886,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                           </span>
                           {/* TRASH / DELETE BUTTON */}
                           <button
-                            onClick={() => onRemoveCartItem && onRemoveCartItem(item.id)}
+                            onClick={() => onRemoveCartItem && onRemoveCartItem(item.cartItemId || item.id)}
                             className="text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 p-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 shrink-0"
                             title="حذف از سبد خرید"
                           >
@@ -1066,8 +1123,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                               <button
                                 key={opt.id}
                                 type="button"
-                                disabled={!isAvailable}
-                                onClick={() => {
+                                disabled={!isAvailable || isVariantLoading}
+                                onClick={async () => {
                                   if (!isAvailable) return;
                                   setSelectedVariants(prev => ({
                                     ...prev,
@@ -1076,10 +1133,53 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                   if (opt.image) {
                                     setActiveImage(opt.image);
                                   }
+
+                                  // If the variant has a distinct URL for on-demand lazy loading:
+                                  if (opt.url && opt.url !== activeProd?.url && opt.url.startsWith('http')) {
+                                    try {
+                                      setIsVariantLoading(true);
+                                      const res = await fetch('/api/parse-link', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ url: opt.url })
+                                      });
+                                      if (res.ok) {
+                                        const data = await res.json();
+                                        const parsed = data.product || data;
+                                        if (parsed && (parsed.priceAed || parsed.priceAED)) {
+                                          const newPrice = parsed.priceAed || parsed.priceAED;
+                                          const newOrig = parsed.originalPriceAed || parsed.originalPriceAED;
+                                          const newImg = parsed.image || (parsed.images && parsed.images[0]) || (parsed.galleryImages && parsed.galleryImages[0]);
+                                          
+                                          setLocalProduct((prev: any) => ({
+                                            ...(prev || activeProd),
+                                            ...parsed,
+                                            url: opt.url,
+                                            priceAed: newPrice,
+                                            originalPriceAed: newOrig || prev?.originalPriceAed,
+                                            image: newImg || prev?.image,
+                                            images: parsed.images || parsed.galleryImages || prev?.images,
+                                            galleryImages: parsed.galleryImages || prev?.galleryImages,
+                                            variantMatrix: parsed.variantMatrix || prev?.variantMatrix
+                                          }));
+
+                                          if (newImg) {
+                                            setActiveImage(newImg);
+                                          }
+                                        }
+                                      }
+                                    } catch (err) {
+                                      console.warn('Could not lazy load variant in detail view:', err);
+                                    } finally {
+                                      setIsVariantLoading(false);
+                                    }
+                                  }
                                 }}
                                 className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all flex items-center gap-1.5 ${
                                   !isAvailable
                                     ? 'bg-slate-100/80 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50 line-through'
+                                    : isVariantLoading
+                                    ? 'opacity-60 cursor-wait bg-slate-50 text-slate-500 border border-slate-200'
                                     : isSelected
                                     ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02] cursor-pointer'
                                     : 'bg-white text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100 cursor-pointer'
@@ -1092,7 +1192,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                     (ناموجود)
                                   </span>
                                 )}
-                                {isAvailable && opt.priceAed && opt.priceAed !== (product?.priceAed || 0) && (
+                                {isAvailable && opt.priceAed && opt.priceAed !== (activeProd?.priceAed || 0) && (
                                   <span className={`text-[10px] ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
                                     ({opt.priceAed} د.إ)
                                   </span>
@@ -1111,15 +1211,29 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div className="bg-[#F0FDF4] border border-emerald-100 rounded-[20px] p-3.5 text-center space-y-0.5">
                   <span className="text-[11px] text-slate-500 font-semibold block">تحویل ایران</span>
-                  <span className="font-black text-emerald-600 text-base md:text-lg block">
-                    {formatToman(singleToman)}
+                  <span className="font-black text-emerald-600 text-base md:text-lg block flex items-center justify-center gap-1.5">
+                    {isVariantLoading ? (
+                      <span className="flex items-center gap-1 text-slate-400 text-xs animate-pulse font-normal">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                        <span>محاسبه مجدد...</span>
+                      </span>
+                    ) : (
+                      formatToman(singleToman)
+                    )}
                   </span>
                 </div>
 
                 <div className="bg-[#F8FAFC] border border-slate-200 rounded-[20px] p-3.5 text-center space-y-0.5">
                   <span className="text-[11px] text-slate-500 font-semibold block">قیمت درهم (دبی)</span>
-                  <span className="font-black text-slate-900 text-base md:text-lg block dir-ltr">
-                    {formatAed(priceAed)}
+                  <span className="font-black text-slate-900 text-base md:text-lg block dir-ltr flex items-center justify-center gap-1.5">
+                    {isVariantLoading ? (
+                      <span className="flex items-center gap-1 text-slate-400 text-xs animate-pulse font-normal">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />
+                        <span>استعلام...</span>
+                      </span>
+                    ) : (
+                      formatAed(priceAed)
+                    )}
                   </span>
                 </div>
               </div>

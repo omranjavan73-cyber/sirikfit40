@@ -1,11 +1,26 @@
+export interface ProductVariantItem {
+  id: string;
+  title: string;        // e.g. "120 Servings" or "Chocolate / 5 lbs"
+  size?: string;
+  flavor?: string;
+  name?: string;
+  url?: string;         // Sibling product URL for URL-based variant stores (e.g. Dr. Nutrition)
+  priceAED: number;     // Variant-specific price
+  priceAed?: number;
+  originalPriceAED?: number;
+  originalPriceAed?: number;
+  priceToman?: number;
+  weightKg?: number;
+  image?: string;
+  imageThumbnail?: string;
+  inStock: boolean;
+}
+
 export interface ProductVariantMatrix {
   sizes: string[];      // e.g., ["1 kg", "1.8 kg", "5 lbs", "32 Servings"]
   flavors: string[];    // e.g., ["Chocolate Caramel", "Green Apple", "Vanilla"]
-  selectedVariant?: {
-    size?: string;
-    flavor?: string;
-    priceAED?: number;
-  };
+  items: ProductVariantItem[]; // Full matrix of options with individual pricing
+  selectedVariant?: ProductVariantItem;
 }
 
 export interface NormalizedProduct {
@@ -35,6 +50,7 @@ export interface User {
   name: string;
   phoneNumber: string;
   email?: string;
+  address?: string;
   createdAt: string;
 }
 
@@ -164,9 +180,13 @@ export interface HomePageSettings {
   trustBadge3: string;
   showTrustBadges?: boolean;
   enamadHtml?: string;
+  enamadCode?: string;
+  enamadUrl?: string;
   samandehiHtml?: string;
+  samandehiCode?: string;
   customBadgeImg?: string;
   customBadgeLink?: string;
+  supportPhone?: string;
   headerPillSlogan?: string;
   heroMainHeadline?: string;
   heroHighlightWord?: string;
@@ -255,14 +275,14 @@ export interface DomainItem {
 }
 
 export interface FeatureToggles {
-  showReviews: boolean;
+  showReviews?: boolean;
   showComments?: boolean;
-  showStores: boolean;
-  showBreakdown: boolean;
-  showLocalInventory: boolean;
-  showAnnouncementBanner: boolean;
-  showSupportSection: boolean;
-  showTopPromo: boolean;
+  showStores?: boolean;
+  showBreakdown?: boolean;
+  showLocalInventory?: boolean;
+  showAnnouncementBanner?: boolean;
+  showSupportSection?: boolean;
+  showTopPromo?: boolean;
   showTrustBadges?: boolean;
   showFaqSection?: boolean;
 }
@@ -285,9 +305,13 @@ export interface CmsConfig {
   showTopPromo?: boolean;
   showTrustBadges?: boolean;
   enamadHtml?: string;
+  enamadCode?: string;
+  enamadUrl?: string;
   samandehiHtml?: string;
+  samandehiCode?: string;
   customBadgeImg?: string;
   customBadgeLink?: string;
+  popularSamplesOrder?: string[];
   announcementText?: string;
   announcementBadge?: string;
   announcementSlogans?: string[];
@@ -383,14 +407,7 @@ export interface Order {
   selectedOption?: string;
   discountCode?: string;
   discountAmountToman?: number;
-}
-
-export interface ProductVariantItem {
-  id?: string;
-  name: string; // e.g. "Strawberry", "Chocolate", "5 LBS", "60 Servings"
-  inStock: boolean;
-  priceAED?: number;
-  imageThumbnail?: string;
+  isLocalInventory?: boolean;
 }
 
 export interface ScrapedProductResult {
@@ -406,6 +423,7 @@ export interface ScrapedProductResult {
   calculatedPriceToman: number;
   inStock: boolean;
   variants: ProductVariantItem[];
+  variantMatrix?: ProductVariantMatrix;
   variantGroups?: VariantGroupsStructure;
   features?: string[];
   description?: string;
@@ -420,12 +438,15 @@ export interface VariantOption {
   inStock: boolean; // Strict in-stock validation
   price?: number;
   priceAed?: number; // for backward compatibility
+  priceAED?: number;
   originalPrice?: number;
   originalPriceAed?: number;
+  originalPriceAED?: number;
   currency?: string;
   imageUrl?: string;
   image?: string; // for backward compatibility
   sku?: string;
+  url?: string;
 }
 
 export interface VariantGroupsStructure {
@@ -479,6 +500,7 @@ export interface UniversalProduct {
   dimensions?: VariantDimension[];
   variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
+  variantMatrix?: ProductVariantMatrix;
   options?: string[];
   flavors?: string[];
   sizes?: string[];
@@ -492,10 +514,13 @@ export interface ProductVariantOption {
   name: string;        // e.g. "وانیل / Vanilla", "2.27 kg (5 lbs)"
   nameFa?: string;     // Persian translated or cleaned name
   priceAed?: number;   // Specific price if variant has a different price
+  priceAED?: number;
   originalPriceAed?: number;
+  originalPriceAED?: number;
   image?: string;      // Image specific to this variant/flavor
   inStock?: boolean;
   sku?: string;
+  url?: string;
 }
 
 export interface ProductVariantGroup {
@@ -520,6 +545,7 @@ export interface ScrapedProduct {
   description?: string;
   variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
+  variantMatrix?: ProductVariantMatrix;
   options?: string[];
   flavors?: string[];
   sizes?: string[];
@@ -547,17 +573,24 @@ export interface ParsedProduct {
   fallback?: boolean;
   variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
+  variantMatrix?: ProductVariantMatrix;
 }
 
 export interface ProductVariant {
   id: string;
+  title?: string;
   flavor?: string; // e.g., "Green Apple", "Blue Raspberry", "Chocolate"
   size?: string;   // e.g., "50 Servings", "1 kg", "2.3 kg"
   name?: string;
   priceAed?: number;
+  priceAED?: number;
+  originalPriceAed?: number;
+  originalPriceAED?: number;
   priceToman?: number;
   inStock?: boolean;
   image?: string;
+  imageThumbnail?: string;
+  url?: string;
 }
 
 export interface CartItem {
@@ -582,13 +615,14 @@ export interface CartItem {
   selectedOption?: string;
   selectedFlavor?: string;
   selectedSize?: string;
-  selectedVariant?: ProductVariant;
+  selectedVariant?: ProductVariant | ProductVariantItem;
   selectedVariants?: Record<string, ProductVariantOption>;
   options?: string[];
   flavors?: string[];
   sizes?: string[];
   variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
+  variantMatrix?: ProductVariantMatrix;
   description?: string;
   isLocalInventory?: boolean;
   isIranWarehouse?: boolean;

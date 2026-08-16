@@ -111,7 +111,30 @@ The scraper pipeline in `server.ts` extracts product information, gallery images
 
 ---
 
-## 5. Cart Quantity Enforcement
+## 5. Multi-Variant Dynamic Price Matrix Architecture
+
+### The Problem Solved
+When e-commerce stores have multiple sizes or flavors with distinct pricing (e.g. 29 Servings = AED 199 vs. 68 Servings = AED 389.90), basic DOM scrapers often only capture the initial displayed price and assign it to all variant tags.
+
+### The Solution: Embedded JSON Extraction & Store-Specific Adapters
+1. **GNC & Shopify Stores:**
+   - Any Shopify product URL (e.g. `https://gnc-mena.com/products/on-gold-standard`) is queried via its native `.js` endpoint: `url.split('?')[0] + '.js'`.
+   - Returns a structured JSON payload containing `product.variants` with exact prices in cents (e.g. `38990` -> `389.90 AED`) and `compare_at_price`.
+2. **Dr. Nutrition (Next.js Hydration & Sibling Products):**
+   - Dr. Nutrition uses URL-based variants where changing size/flavor navigates between sibling URL slugs.
+   - `DrNutritionAdapter.ts` traverses `<script id="__NEXT_DATA__">` deeply to extract linked sibling products, configurable options, and prices.
+   - Sibling `<a>` selectors and swatches are extracted with their relative URLs, allowing full matrix navigation and accurate dynamic pricing.
+3. **Unified `ProductVariantMatrix` Schema:**
+   - `matrix.sizes`: String array of unique size names (e.g. `["2 LB", "5 LB"]` or `["29 Servings", "68 Servings"]`).
+   - `matrix.flavors`: String array of unique flavor names (e.g. `["Vanilla Cream", "Milk Chocolate"]`).
+   - `matrix.items`: Array of `ProductVariantItem` holding individual variant-specific `priceAED`, `originalPriceAED`, `image`, `url`, and `inStock`.
+4. **Frontend Dynamic Reaction:**
+   - `HeroCalculator`, `ProductDetailView`, and `ProductDetailModal` use `useMemo` to match the active flavor and size combination against `variantMatrix.items`.
+   - The price updates instantly in real-time as the user clicks between variant pills or selects from dropdowns.
+
+---
+
+## 6. Cart Quantity Enforcement
 
 - When a product is selected or added, the quantity strictly defaults to `1`.
 - Any addition payload is bounded via `Math.max(1, Math.floor(product.quantity || 1))`.
@@ -131,7 +154,22 @@ The scraper pipeline in `server.ts` extracts product information, gallery images
 
 ---
 
-## 7. Developer Cheatsheet
+## 7. Global Error Boundary & Defensive Null-Safety
+
+### Global Error Boundary & Corrupt State Recovery
+To completely prevent blank/white screen crashes in the React preview and production environments, the application is wrapped in `<ErrorBoundary>` components:
+- **Root Level (`main.tsx` & `App.tsx`):** Catches any unhandled React component lifecycle or render-time errors, rendering an informative fallback UI with error details, stack traces, and a one-click **"پاک‌سازی حافظه محلی و بازیابی (Reset App Data)"** button (`localStorage.clear(); window.location.reload();`) to recover from corrupt cached states.
+- **Section Level (`TrustBadgesSection`, `Footer`, etc.):** Isolates volatile dynamic CMS/HTML parser sections so an error in a single section never unmounts the rest of the application.
+
+### Defensive Null Safety & Regex Protection
+1. **Bulletproof Enamad / Samandehi Parsers (`TrustBadgesSection.tsx` & `Footer.tsx`):** All regex operations (`.match()`, `.replace()`) are wrapped inside strict `try...catch` blocks and guarded with explicit `typeof === 'string' && length > 0` validation checks.
+2. **Safe LocalStorage Engine (`src/utils/safeStorage.ts`):** `getSafeItem` and `setSafeItem` wrap all `JSON.parse` operations in `try...catch`, auto-clearing corrupt keys if unparseable and returning clean defaults.
+3. **Formatters (`formatters.ts`):** `formatToman` and `formatAed` always coerce inputs safely via `Number(val) || 0` and return valid formatted strings for `null`, `undefined`, or `NaN`.
+4. **Dynamic Rates (`Header.tsx`):** Safe casting ensures calculation properties like `dynamicRate` always resolve to positive numbers with fallback values.
+
+---
+
+## 8. Developer Cheatsheet
 
 ### Emitting Settings Update from any Component:
 ```ts

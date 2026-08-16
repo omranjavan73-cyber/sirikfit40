@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { FinancialSettings, ProductVariantMatrix, ProductVariantItem } from '../types';
 import { formatToman, formatAed, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
+import { TouchImageMagnifier } from './TouchImageMagnifier';
 
 export interface ProductDetailModalProduct {
   id?: string;
@@ -143,37 +144,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     return [];
   }, [currentProd]);
 
-  useEffect(() => {
-    if (product) {
-      setSelectedFlavor(product.selectedFlavor || extractedFlavors[0] || '');
-      setSelectedSize(product.selectedSize || extractedSizes[0] || '');
-      const initialImg = galleryList[0] || product.image || fallbackImg;
-      setSelectedImage(initialImg);
-      setQuantity(1);
-      setIsAdded(false);
-      setIsHovered(false);
-      setIsLightboxOpen(false);
-    }
-  }, [product]);
-
-  if (!isOpen || !currentProd) return null;
-
-  const isLocal = currentProd.isLocalInventory === true || currentProd.storeName?.includes('انبار ایران') || currentProd.brand?.includes('انبار ایران');
-  const basePriceAed = currentProd.priceAed || 100;
-  const baseWeightKg = currentProd.weightKg || 0.5;
-  const originalPriceAed = currentProd.originalPriceAed;
-  
-  // Rate & Financial parameters
-  const activeAedRate = getEffectiveAedRate(settings) || settings?.aedRate || 55000;
-  const cargoRatePerKg = settings?.cargoRatePerKg || 35;
-  const effectiveMargin = (currentProd.profitMargin !== undefined && currentProd.profitMargin !== null && !isNaN(Number(currentProd.profitMargin)))
-    ? Number(currentProd.profitMargin)
-    : ((currentProd.marginPercent !== undefined && currentProd.marginPercent !== null && !isNaN(Number(currentProd.marginPercent)))
-      ? Number(currentProd.marginPercent)
-      : (settings?.profitMargin || 20));
-
   // Find selected variant details from variantMatrix or currentProd.variants
   const matchedVariant = useMemo(() => {
+    if (!currentProd) return null;
     if (currentProd.variantMatrix?.items && currentProd.variantMatrix.items.length > 0) {
       if (selectedSize && selectedFlavor) {
         const exact = currentProd.variantMatrix.items.find(
@@ -202,6 +175,36 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       (selectedFlavor && v.flavor === selectedFlavor)
     );
   }, [currentProd, selectedSize, selectedFlavor]);
+
+  useEffect(() => {
+    if (product) {
+      setSelectedFlavor(product.selectedFlavor || extractedFlavors[0] || '');
+      setSelectedSize(product.selectedSize || extractedSizes[0] || '');
+      const initialImg = galleryList[0] || product.image || fallbackImg;
+      setSelectedImage(initialImg);
+      setQuantity(1);
+      setIsAdded(false);
+      setIsHovered(false);
+      setIsLightboxOpen(false);
+    }
+  }, [product]);
+
+  // ALL hooks are declared unconditionally above! Now handle conditional render check:
+  if (!isOpen || !currentProd) return null;
+
+  const isLocal = currentProd.isLocalInventory === true || currentProd.storeName?.includes('انبار ایران') || currentProd.brand?.includes('انبار ایران');
+  const basePriceAed = currentProd.priceAed || 100;
+  const baseWeightKg = currentProd.weightKg || 0.5;
+  const originalPriceAed = currentProd.originalPriceAed;
+  
+  // Rate & Financial parameters
+  const activeAedRate = getEffectiveAedRate(settings) || settings?.aedRate || 55000;
+  const cargoRatePerKg = settings?.cargoRatePerKg || 35;
+  const effectiveMargin = (currentProd.profitMargin !== undefined && currentProd.profitMargin !== null && !isNaN(Number(currentProd.profitMargin)))
+    ? Number(currentProd.profitMargin)
+    : ((currentProd.marginPercent !== undefined && currentProd.marginPercent !== null && !isNaN(Number(currentProd.marginPercent)))
+      ? Number(currentProd.marginPercent)
+      : (settings?.profitMargin || 20));
 
   const currentPriceAed = (matchedVariant as any)?.priceAED ?? (matchedVariant as any)?.priceAed ?? basePriceAed;
   const currentWeightKg = (matchedVariant as any)?.weightKg || baseWeightKg;
@@ -543,59 +546,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           </div>
 
           {/* ------------------------------------------------------------------ */}
-          {/* INTERACTIVE GALLERY & HOVER ZOOM LENS */}
+          {/* INTERACTIVE GALLERY & TOUCH/HOVER MAGNIFIER */}
           {/* ------------------------------------------------------------------ */}
           <div className="space-y-3 select-none">
-            {/* Main Stage with Hover Zoom Lens (Desktop) & Tap-to-Expand (Mobile) */}
-            <div
-              ref={imageContainerRef}
-              onMouseEnter={() => setIsHovered(true)}
-              onMouseLeave={() => setIsHovered(false)}
-              onMouseMove={handleMouseMove}
-              onClick={() => openLightbox()}
-              className="relative w-full h-56 sm:h-64 bg-slate-50 rounded-[22px] border border-slate-200/90 overflow-hidden flex items-center justify-center p-2 shadow-inner group cursor-zoom-in"
-            >
-              <img
-                src={selectedImage || fallbackImg}
-                alt={product.title}
-                referrerPolicy="no-referrer"
-                style={{
-                  transformOrigin: `${zoomPos.x}% ${zoomPos.y}%`,
-                  transform: isHovered ? 'scale(2.2)' : 'scale(1)'
-                }}
-                className="w-full h-full object-contain object-center rounded-[18px] transition-transform duration-100 ease-out will-change-transform"
-                onError={(e) => {
-                  const target = e.currentTarget;
-                  const currentSrc = target.src || '';
-                  if (selectedImage && !currentSrc.includes('images.weserv.nl') && !selectedImage.startsWith('data:')) {
-                    target.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(selectedImage);
-                  } else {
-                    target.src = fallbackImg;
-                  }
-                }}
-              />
-
-              {/* Desktop Hover Hint Pill */}
-              <div className={`absolute bottom-2.5 right-2.5 hidden sm:flex items-center gap-1.5 bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1 rounded-full pointer-events-none transition-opacity duration-200 ${
-                isHovered ? 'opacity-20' : 'opacity-90'
-              }`}>
-                <ZoomIn className="w-3 h-3 text-amber-400" />
-                <span>بزرگنمایی با حرکت موس</span>
-              </div>
-
-              {/* Maximize Button */}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openLightbox();
-                }}
-                className="absolute top-2.5 left-2.5 bg-white/90 hover:bg-white text-slate-800 p-1.5 rounded-xl shadow-xs border border-slate-200 transition cursor-pointer z-10"
-                title="مشاهده تمام صفحه"
-              >
-                <Maximize2 className="w-3.5 h-3.5 text-slate-700" />
-              </button>
-            </div>
+            {/* Main Stage with Interactive Touch Magnifier & Desktop Hover Lens */}
+            <TouchImageMagnifier
+              src={selectedImage || fallbackImg}
+              alt={product.title}
+              fallbackSrc={fallbackImg}
+              onExpandFullscreen={() => openLightbox()}
+              zoomScale={2.4}
+              className="h-56 sm:h-64 bg-slate-50 rounded-[22px] border border-slate-200/90 p-2 shadow-inner"
+              imageClassName="rounded-[18px]"
+            />
 
             {/* Interactive Thumbnails Row (3-5 items) */}
             {galleryList.length > 1 && (

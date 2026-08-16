@@ -24,6 +24,8 @@ export interface SiteSettings {
   mobileBannerUrl?: string;
   desktopBannerUrl?: string;
   showTrustBadges?: boolean;
+  showEnamad?: boolean;
+  showSamandehi?: boolean;
   enamadHtml?: string;
   samandehiHtml?: string;
   customBadgeImg?: string;
@@ -88,6 +90,9 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
       showPriceDetails: true,
       isStoreActive: true,
       showContactNumber: true,
+      showTrustBadges: true,
+      showEnamad: true,
+      showSamandehi: true,
       slogans: [],
       minOrderAmountToman: minOrderToman,
       ...savedData,
@@ -161,6 +166,9 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
         showPriceDetails: fetchedData.showPriceDetails ?? prev.showPriceDetails ?? true,
         isStoreActive: fetchedData.isStoreActive ?? prev.isStoreActive ?? true,
         showContactNumber: fetchedData.showContactNumber ?? prev.showContactNumber ?? true,
+        showTrustBadges: fetchedData.showTrustBadges !== undefined ? Boolean(fetchedData.showTrustBadges) : (prev.showTrustBadges ?? true),
+        showEnamad: fetchedData.showEnamad !== undefined ? Boolean(fetchedData.showEnamad) : (prev.showEnamad ?? true),
+        showSamandehi: fetchedData.showSamandehi !== undefined ? Boolean(fetchedData.showSamandehi) : (prev.showSamandehi ?? true),
         slogans: Array.isArray(fetchedData.slogans) ? fetchedData.slogans : prev.slogans
       }));
     }

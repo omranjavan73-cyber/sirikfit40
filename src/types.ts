@@ -85,6 +85,7 @@ export interface FeaturedDeal {
   title: string;
   brand?: string;
   category: string;
+  categoryKey?: string;
   priceAed: number;
   originalPriceAed?: number;
   discountPercent?: number;
@@ -121,6 +122,7 @@ export interface LocalInventoryItem {
   stockQuantity: number;
   stockCount?: number;
   category: string;
+  categoryKey?: string;
   description?: string;
   deliveryBadge?: string;
   inStock: boolean;
@@ -179,6 +181,8 @@ export interface HomePageSettings {
   trustBadge2: string;
   trustBadge3: string;
   showTrustBadges?: boolean;
+  showEnamad?: boolean;
+  showSamandehi?: boolean;
   enamadHtml?: string;
   enamadCode?: string;
   enamadUrl?: string;
@@ -255,7 +259,9 @@ export interface PricingRulesConfig {
 export interface WarehouseCategory {
   id: string;
   label: string;
+  name?: string;
   iconUrl?: string;
+  imageUrl?: string;
   filterKey: string;
   englishLabel?: string;
   isPinned?: boolean;
@@ -284,6 +290,8 @@ export interface FeatureToggles {
   showSupportSection?: boolean;
   showTopPromo?: boolean;
   showTrustBadges?: boolean;
+  showEnamad?: boolean;
+  showSamandehi?: boolean;
   showFaqSection?: boolean;
 }
 
@@ -304,6 +312,8 @@ export interface CmsConfig {
   showFaqSection?: boolean;
   showTopPromo?: boolean;
   showTrustBadges?: boolean;
+  showEnamad?: boolean;
+  showSamandehi?: boolean;
   enamadHtml?: string;
   enamadCode?: string;
   enamadUrl?: string;

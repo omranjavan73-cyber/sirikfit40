@@ -4,6 +4,7 @@ import type { FeaturedDeal, FinancialSettings, WarehouseCategory } from '../type
 import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 import { ProductDetailModal } from './ProductDetailModal';
 import { CategoryGridSection } from './CategoryGridSection';
+import { isCategoryMatch, DEFAULT_UNIFIED_CATEGORIES } from '../utils/categoryHelper';
 
 interface FeaturedDealsProps {
   deals?: FeaturedDeal[];
@@ -13,14 +14,7 @@ interface FeaturedDealsProps {
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
 }
 
-const DEFAULT_CATEGORY_TILES: WarehouseCategory[] = [
-  { id: 'all', label: 'همه پیشنهادها', filterKey: 'all', iconUrl: '' },
-  { id: 'protein', label: 'پروتئین', filterKey: 'protein', iconUrl: '' },
-  { id: 'vitamin', label: 'ویتامین', filterKey: 'vitamin', iconUrl: '' },
-  { id: 'pre', label: 'قبل تمرین', filterKey: 'pre', iconUrl: '' },
-  { id: 'omega', label: 'امگا ۳', filterKey: 'omega', iconUrl: '' },
-  { id: 'hot', label: 'پرفروش', filterKey: 'hot', iconUrl: '' },
-];
+const DEFAULT_CATEGORY_TILES: WarehouseCategory[] = DEFAULT_UNIFIED_CATEGORIES;
 
 const DEFAULT_DEALS: FeaturedDeal[] = [
   {
@@ -122,14 +116,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
     const store = (deal.storeName || '').toLowerCase();
 
     const matchesSearch = !q || title.includes(q) || cat.includes(q) || brand.includes(q) || store.includes(q);
-
-    let matchesCat = true;
-    if (selectedCat !== 'all' && selectedCat !== 'همه') {
-      const matchedTile = categoryList.find(c => c.id === selectedCat || (c.filterKey && c.filterKey === selectedCat));
-      const filterTerm = (matchedTile?.filterKey || matchedTile?.label || selectedCat).toLowerCase();
-
-      matchesCat = cat.includes(filterTerm) || filterTerm.includes(cat) || title.includes(filterTerm) || brand.includes(filterTerm);
-    }
+    const matchesCat = isCategoryMatch(deal, selectedCat, categoryList);
 
     return matchesSearch && matchesCat;
   });

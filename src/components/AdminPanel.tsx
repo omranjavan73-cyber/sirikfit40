@@ -128,6 +128,7 @@ import {
 import { formatToman, formatAed, formatPersianDate, toPersianDigits, getEffectiveAedRate, normalizeToEnglishDigits } from '../utils/formatters';
 import { getEffectiveGeminiKeysList, setEffectiveGeminiKeysList } from '../utils/geminiKey';
 import { parseProductLinkUniversal } from '../utils/parseLink';
+import { getCanonicalCategoryKey, DEFAULT_UNIFIED_CATEGORIES } from '../utils/categoryHelper';
 import { PricingRulesAdmin } from './PricingRulesAdmin';
 import { AdminDiscounts } from './AdminDiscounts';
 import { AdminAccounting } from './AdminAccounting';
@@ -397,7 +398,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Trust Badges State
   const [showTrustBadges, setShowTrustBadges] = useState<boolean>(() => {
-    const val = cms?.features?.showTrustBadges ?? cms?.showTrustBadges ?? cms?.homeContent?.showTrustBadges;
+    const val = cms?.features?.showTrustBadges ?? cms?.showTrustBadges ?? cms?.homeContent?.showTrustBadges ?? (settings as any)?.showTrustBadges;
+    return val !== undefined ? Boolean(val) : true;
+  });
+  const [showEnamad, setShowEnamad] = useState<boolean>(() => {
+    const val = cms?.features?.showEnamad ?? cms?.showEnamad ?? cms?.homeContent?.showEnamad ?? (settings as any)?.showEnamad;
+    return val !== undefined ? Boolean(val) : true;
+  });
+  const [showSamandehi, setShowSamandehi] = useState<boolean>(() => {
+    const val = cms?.features?.showSamandehi ?? cms?.showSamandehi ?? cms?.homeContent?.showSamandehi ?? (settings as any)?.showSamandehi;
     return val !== undefined ? Boolean(val) : true;
   });
   const [enamadHtml, setEnamadHtml] = useState<string>(
@@ -1931,10 +1940,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Auto-Extract New Deal State
   const [newDealUrlInput, setNewDealUrlInput] = useState('');
+  const [newDealCategory, setNewDealCategory] = useState<string>('مکمل‌های ورزشی');
   const [isExtractingNewDeal, setIsExtractingNewDeal] = useState(false);
 
   // Auto-Extract New Local Inventory Item State
   const [newLocalUrlInput, setNewLocalUrlInput] = useState('');
+  const [newLocalCategory, setNewLocalCategory] = useState<string>('مکمل‌های ورزشی');
   const [isExtractingNewLocalItem, setIsExtractingNewLocalItem] = useState(false);
 
   // Products & Inventory Specific Save State
@@ -2018,6 +2029,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const originalPriceAed = Number(data?.originalPriceAed) || 0;
       const originalPriceToman = originalPriceAed > 0 ? Math.round(((originalPriceAed * currentAedRate) + (shippingFeeAed * currentAedRate)) * (1 + (marginPercent / 100))) : 0;
 
+      const assignedCategory = newLocalCategory || data?.category || 'مکمل‌های ورزشی';
+      const assignedCategoryKey = getCanonicalCategoryKey(assignedCategory);
+
       const newItem: LocalInventoryItem = {
         id: 'local-' + Date.now(),
         title: data?.title || 'محصول جدید انبار ایران',
@@ -2026,7 +2040,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         originalPriceToman: (originalPriceToman && originalPriceToman > calculatedPriceToman) ? originalPriceToman : 0,
         stockQuantity: 5,
         stockCount: 5,
-        category: data?.category || 'مکمل‌های ورزشی',
+        category: assignedCategory,
+        categoryKey: assignedCategoryKey,
         description: data?.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
         deliveryBadge: '⚡ تحویل فوری ۲۴ ساعته',
         inStock: true,
@@ -2100,11 +2115,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
       const badgeText = discountPercent > 0 ? `-${discountPercent}%` : '🔥 پیشنهاد ویژه';
 
+      const assignedCategory = newDealCategory || data?.category || 'مکمل‌های ورزشی';
+      const assignedCategoryKey = getCanonicalCategoryKey(assignedCategory);
+
       const newDeal: FeaturedDeal = {
         id: 'deal-' + Date.now(),
         title: data?.title || 'محصول جدید پیشنهاد ویژه',
         brand: data?.brand || data?.storeName || 'برند معتبر',
-        category: data?.category || 'مکمل‌های ورزشی',
+        category: assignedCategory,
+        categoryKey: assignedCategoryKey,
         priceAed,
         originalPriceAed: (originalPriceAed > priceAed) ? originalPriceAed : 0,
         discountPercent: discountPercent > 0 ? discountPercent : 0,
@@ -2272,6 +2291,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       title: 'محصول جدید دبی - پیشنهاد ویژه',
       brand: 'برند معتبر',
       category: 'مکمل‌های ورزشی',
+      categoryKey: getCanonicalCategoryKey('مکمل‌های ورزشی'),
       priceAed,
       originalPriceAed,
       discountPercent: 18,
@@ -2304,10 +2324,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (d.id !== id) return d;
       const updated = { ...d, [field]: value };
 
+      if (field === 'category') {
+        updated.categoryKey = getCanonicalCategoryKey(value);
+      }
+
       // Sync isPopular & isPopularSample
       if (field === 'isPopular' || field === 'isPopularSample') {
         updated.isPopular = Boolean(value);
         updated.isPopularSample = Boolean(value);
+        if (Boolean(value)) {
+          setPopularSamplesOrder(prev => [`deal-${id}`, ...prev.filter(x => x !== `deal-${id}` && x !== id)]);
+        }
       }
 
       // Sync profitMargin & marginPercent
@@ -2367,6 +2394,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       originalPriceToman: 4000000,
       stockQuantity: 10,
       category: 'مکمل‌های ورزشی',
+      categoryKey: getCanonicalCategoryKey('مکمل‌های ورزشی'),
       description: 'تحویل ۱ تا ۲ روزه در سراسر کشور - پلمپ اورجینال',
       deliveryBadge: '⚡ تحویل فوری ۲۴ ساعته',
       inStock: true
@@ -2379,10 +2407,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (item.id === id) {
         const updated = { ...item, [field]: value };
         
+        if (field === 'category') {
+          updated.categoryKey = getCanonicalCategoryKey(value);
+        }
+
         // Sync isPopular & isPopularSample
         if (field === 'isPopular' || field === 'isPopularSample') {
           updated.isPopular = Boolean(value);
           updated.isPopularSample = Boolean(value);
+          if (Boolean(value)) {
+            setPopularSamplesOrder(prev => [`local-${id}`, ...prev.filter(x => x !== `local-${id}` && x !== id)]);
+          }
         }
 
         // Dynamic Toman price calculation in real-time
@@ -2407,7 +2442,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleUpdateWarehouseCategoryField = (id: string, field: keyof WarehouseCategory, value: any) => {
-    setWarehouseCategories(prev => prev.map(cat => cat.id === id ? { ...cat, [field]: value } : cat));
+    setWarehouseCategories(prev => prev.map(cat => {
+      if (cat.id !== id) return cat;
+      const updated: WarehouseCategory = { ...cat, [field]: value };
+      if (field === 'iconUrl') {
+        updated.imageUrl = value;
+      } else if (field === 'imageUrl') {
+        updated.iconUrl = value;
+      } else if (field === 'label') {
+        updated.name = value;
+      } else if (field === 'name') {
+        updated.label = value;
+      }
+      return updated;
+    }));
   };
 
   const handleAddWarehouseCategory = (label: string, englishLabel: string, filterKey: string, iconUrl: string) => {
@@ -2416,9 +2464,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const newCat: WarehouseCategory = {
       id: newId,
       label: label.trim(),
+      name: label.trim(),
       englishLabel: englishLabel.trim().toUpperCase() || 'CATEGORY',
       filterKey: filterKey.trim() || newId,
       iconUrl: iconUrl.trim(),
+      imageUrl: iconUrl.trim(),
       isPinned: false
     };
     setWarehouseCategories(prev => [...prev, newCat]);
@@ -2601,7 +2651,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         trustBadge1,
         trustBadge2,
         trustBadge3,
-        showTrustBadges,
+        showTrustBadges: Boolean(showTrustBadges),
+        showEnamad: Boolean(showEnamad),
+        showSamandehi: Boolean(showSamandehi),
         enamadHtml,
         samandehiHtml,
         customBadgeImg,
@@ -2649,6 +2701,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         enableReviews: Boolean(showReviewsSection),
         showAnnouncementBanner: Boolean(showAnnouncementBanner),
         showLocalInventory: Boolean(showLocalInventory),
+        showTrustBadges: Boolean(showTrustBadges),
+        showEnamad: Boolean(showEnamad),
+        showSamandehi: Boolean(showSamandehi),
         slogans: announcementSlogans || [],
         deviceViewMode: 'laptop',
         isStoreActive: true,
@@ -2664,6 +2719,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         showReviewsSection: Boolean(showReviewsSection),
         showFaqSection: Boolean(showFaqSection),
         showTrustBadges: Boolean(showTrustBadges),
+        showEnamad: Boolean(showEnamad),
+        showSamandehi: Boolean(showSamandehi),
         enamadHtml,
         samandehiHtml,
         customBadgeImg,
@@ -2688,6 +2745,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           showAnnouncementBanner: Boolean(showAnnouncementBanner),
           showLocalInventory: Boolean(showLocalInventory),
           showTrustBadges: Boolean(showTrustBadges),
+          showEnamad: Boolean(showEnamad),
+          showSamandehi: Boolean(showSamandehi),
           showFaqSection: Boolean(showFaqSection)
         },
         updatedAt: Date.now()
@@ -4543,6 +4602,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       className="flex-1 bg-white border border-purple-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-purple-600 dir-ltr font-mono"
                       dir="ltr"
                     />
+                    <select
+                      value={newLocalCategory}
+                      onChange={(e) => setNewLocalCategory(e.target.value)}
+                      className="bg-white border border-purple-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl focus:outline-none focus:border-purple-600 font-bold shrink-0"
+                    >
+                      {warehouseCategories.map((c) => (
+                        <option key={c.id} value={c.label}>
+                          {c.label} ({c.englishLabel || c.filterKey})
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={handleAutoExtractAndAddLocalItem}
@@ -4563,7 +4633,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </button>
                   </div>
                   <p className="text-[11px] text-purple-800 font-medium leading-relaxed">
-                    پس از استخراج، تمامی اطلاعات (عنوان، عکس، قیمت به تومان، موجودی، دسته‌بندی و توضیحات) به‌طور کامل قابل ویرایش دستی می‌باشند.
+                    دسته‌بندی انتخابی به‌طور خودکار به محصول متصل شده و پس از استخراج نیز تمامی اطلاعات به‌طور کامل قابل ویرایش دستی می‌باشند.
                   </p>
                 </div>
 
@@ -5073,6 +5143,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       className="flex-1 bg-white border border-amber-300 text-slate-900 text-xs px-3 py-2.5 rounded-xl focus:outline-none focus:border-amber-600 dir-ltr font-mono"
                       dir="ltr"
                     />
+                    <select
+                      value={newDealCategory}
+                      onChange={(e) => setNewDealCategory(e.target.value)}
+                      className="bg-white border border-amber-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl focus:outline-none focus:border-amber-600 font-bold shrink-0"
+                    >
+                      {warehouseCategories.map((c) => (
+                        <option key={c.id} value={c.label}>
+                          {c.label} ({c.englishLabel || c.filterKey})
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={handleAutoExtractAndAddDeal}
@@ -5959,23 +6040,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
-          {/* Section 0.8: Trust Badges Management (eNamad & Samandehi) */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-3">
+          {/* Section 0.8: Trust Badges Management (نمادهای اعتماد و مجوزها) */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-xs space-y-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
               <div>
-                <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
-                  <ShieldCheck className="w-4.5 h-4.5 text-emerald-600 shrink-0" />
-                  <span>مدیریت نمادهای اعتماد (اینماد و ساماندهی)</span>
+                <h3 className="font-black text-sm md:text-base text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span>نمادهای اعتماد و مجوزها (Trust Badges & Licenses)</span>
                 </h3>
-                <p className="text-xs text-slate-600 font-medium mt-0.5">
-                  تنظیم کدهای iframe، اسکریپت یا لینک تصویر اینماد و ساماندهی جهت نمایش در فوتر سایت
+                <p className="text-xs text-slate-600 font-medium mt-1">
+                  مدیریت فعال/غیرفعال بودن کل بخش نمادها و تنظیم تکی نمایش اینماد و ساماندهی در فوتر سایت
                 </p>
               </div>
 
-              {/* Toggle Switch */}
-              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                <span className="text-xs font-bold text-slate-700">
-                  {showTrustBadges ? 'فعال (در حال نمایش)' : 'غیرفعال (مخفی)'}
+              {/* Master Toggle Switch */}
+              <div className="flex items-center gap-3 shrink-0 self-end sm:self-center bg-slate-50 p-2 rounded-2xl border border-slate-200">
+                <span className={`text-xs font-bold ${showTrustBadges ? 'text-emerald-700' : 'text-slate-500'}`}>
+                  {showTrustBadges ? 'بخش نمادها: فعال' : 'بخش نمادها: غیرفعال'}
                 </span>
                 <label className="relative inline-flex items-center cursor-pointer shrink-0">
                   <input
@@ -5984,79 +6065,153 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     onChange={(e) => setShowTrustBadges(e.target.checked)}
                     className="sr-only peer"
                   />
-                  <div className="w-12 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-slate-900"></div>
+                  <div className="w-12 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                 </label>
               </div>
             </div>
 
-            {/* Form Fields */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-              {/* Field 1: eNamad Code / Link */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-                  <span>کد یا لینک اینماد (eNamad HTML / Script / Image Link):</span>
-                </label>
-                <textarea
-                  rows={3}
-                  value={enamadHtml}
-                  onChange={(e) => setEnamadHtml(e.target.value)}
-                  placeholder="کد اسکریپت یا آی‌فریم دریافت شده از اینماد یا لینک تصویر..."
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-mono text-xs p-3 rounded-2xl focus:outline-none focus:border-slate-900 focus:bg-white transition"
-                  dir="ltr"
-                />
-                <p className="text-[11px] text-slate-500 font-medium">
-                  میتوانید کد کامل HTML/Script اینماد یا آدرس تصویر لوگوی آن را قرار دهید.
+            {showTrustBadges ? (
+              <div className="space-y-4">
+                {/* Sub-toggles Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Sub-toggle 1: Enamad */}
+                  <div className={`p-4 rounded-2xl border transition-all ${showEnamad ? 'bg-emerald-50/40 border-emerald-200' : 'bg-slate-50 border-slate-200 opacity-75'}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          referrerPolicy="origin"
+                          src="https://cdn.zarinpal.com/badges/trust-logos/enamad.png"
+                          alt="Enamad"
+                          className="w-8 h-8 object-contain shrink-0"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900">نمایش نماد تجارت الکترونیکی (اینماد)</h4>
+                          <p className="text-[11px] text-slate-500 font-medium mt-0.5">مجوز رسمی کسب‌وکار اینترنتی</p>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={showEnamad}
+                          onChange={(e) => setShowEnamad(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Sub-toggle 2: Samandehi */}
+                  <div className={`p-4 rounded-2xl border transition-all ${showSamandehi ? 'bg-blue-50/40 border-blue-200' : 'bg-slate-50 border-slate-200 opacity-75'}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          referrerPolicy="origin"
+                          src="https://cdn.zarinpal.com/badges/trust-logos/samandehi.png"
+                          alt="Samandehi"
+                          className="w-8 h-8 object-contain shrink-0"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900">نمایش نماد ساماندهی (نشان ملی)</h4>
+                          <p className="text-[11px] text-slate-500 font-medium mt-0.5">ثبت رسانه‌های دیجیتال ارشاد</p>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={showSamandehi}
+                          onChange={(e) => setShowSamandehi(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Optional Custom Badges & Advanced Code Inputs */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <span>تصویر نماد اختصاصی (اختیاری - Custom Badge Image URL):</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={customBadgeImg}
+                      onChange={(e) => setCustomBadgeImg(e.target.value)}
+                      placeholder="https://example.com/badge.png"
+                      className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2.5 rounded-2xl focus:outline-none focus:border-slate-900 focus:bg-white transition"
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <span>لینک نماد اختصاصی (اختیاری - Custom Badge Link URL):</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={customBadgeLink}
+                      onChange={(e) => setCustomBadgeLink(e.target.value)}
+                      placeholder="https://example.com/certificate"
+                      className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2.5 rounded-2xl focus:outline-none focus:border-slate-900 focus:bg-white transition"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+
+                {/* Quick Save Row */}
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  <p className="text-[11px] text-slate-500">
+                    در صورت غیرفعال بودن یک نماد، نماد دیگر به‌صورت خودکار در مرکز فوتر قرار می‌گیرد.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleDirectCmsSave}
+                    disabled={isSavingCms}
+                    className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-xs active:scale-95 disabled:opacity-50"
+                  >
+                    {isSavingCms ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>در حال ذخیره...</span>
+                      </>
+                    ) : saveCmsSuccess ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>ذخیره شد</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-3.5 h-3.5" />
+                        <span>ذخیره تغییرات نمادها</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
+                <p className="text-xs text-slate-600 font-medium text-center sm:text-right">
+                  بخش نمادهای اعتماد در صفحه اصلی و فوتر سایت پنهان شده است.
                 </p>
+                <button
+                  type="button"
+                  onClick={handleDirectCmsSave}
+                  disabled={isSavingCms}
+                  className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-xs active:scale-95 disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>ذخیره وضعیت</span>
+                </button>
               </div>
-
-              {/* Field 2: Samandehi Code / Link */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-                  <span>کد یا لینک ساماندهی (Samandehi HTML / Script / Image Link):</span>
-                </label>
-                <textarea
-                  rows={3}
-                  value={samandehiHtml}
-                  onChange={(e) => setSamandehiHtml(e.target.value)}
-                  placeholder="کد اسکریپت یا آی‌فریم دریافت شده از ساماندهی یا لینک تصویر..."
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-mono text-xs p-3 rounded-2xl focus:outline-none focus:border-slate-900 focus:bg-white transition"
-                  dir="ltr"
-                />
-                <p className="text-[11px] text-slate-500 font-medium">
-                  میتوانید کد کامل HTML/Script ساماندهی یا آدرس تصویر لوگوی آن را قرار دهید.
-                </p>
-              </div>
-
-              {/* Field 3: Custom Badge Image */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-                  <span>تصویر نماد اختصاصی (اختیاری - Custom Badge Image URL):</span>
-                </label>
-                <input
-                  type="text"
-                  value={customBadgeImg}
-                  onChange={(e) => setCustomBadgeImg(e.target.value)}
-                  placeholder="https://example.com/badge.png"
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2.5 rounded-2xl focus:outline-none focus:border-slate-900 focus:bg-white transition"
-                  dir="ltr"
-                />
-              </div>
-
-              {/* Field 4: Custom Badge Link */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-                  <span>لینک نماد اختصاصی (اختیاری - Custom Badge Link URL):</span>
-                </label>
-                <input
-                  type="text"
-                  value={customBadgeLink}
-                  onChange={(e) => setCustomBadgeLink(e.target.value)}
-                  placeholder="https://example.com/certificate"
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2.5 rounded-2xl focus:outline-none focus:border-slate-900 focus:bg-white transition"
-                  dir="ltr"
-                />
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Section 0: Rotating Slogan Announcement Banner Management */}
@@ -6897,6 +7052,155 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-medium"
                     />
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section D: Trust Badges & Licenses Management */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900">نمادهای اعتماد و مجوزها (Trust Badges & Licenses)</h3>
+                  <p className="text-xs text-slate-500 font-medium">مدیریت نمایش نشان‌های اینماد، ساماندهی و مجوزهای رسمی در انتهای سایت</p>
+                </div>
+              </div>
+
+              {/* Master Toggle */}
+              <button
+                type="button"
+                onClick={() => setShowTrustBadges(!showTrustBadges)}
+                className={`flex items-center gap-2 text-xs font-bold px-3.5 py-1.5 rounded-xl border transition cursor-pointer shrink-0 ${
+                  showTrustBadges
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                    : 'bg-rose-50 border-rose-200 text-rose-700'
+                }`}
+              >
+                {showTrustBadges ? (
+                  <>
+                    <ToggleRight className="w-5 h-5 text-emerald-600" />
+                    <span>کل بخش نمادها فعال است</span>
+                  </>
+                ) : (
+                  <>
+                    <ToggleLeft className="w-5 h-5 text-rose-500" />
+                    <span>بخش نمادها مخفی شد</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Enamad Toggle Card */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <img
+                    src="https://trustseal.enamad.ir/logo.aspx?id=774774&Code=QLX3GJJuDLNIXNEEocH7c14ry1CHCK1T"
+                    alt="اینماد"
+                    className="w-10 h-10 object-contain rounded-lg bg-white p-1 border border-slate-200"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/enamad.png';
+                    }}
+                  />
+                  <div>
+                    <span className="font-extrabold text-xs text-slate-900 block">نماد تجارت الکترونیکی (اینماد)</span>
+                    <span className="text-[11px] text-slate-500 font-medium block">کد رهگیری: 774774 - وزارت صمت</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowEnamad(!showEnamad)}
+                  className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition cursor-pointer shrink-0 ${
+                    showEnamad
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      : 'bg-rose-50 border-rose-200 text-rose-700'
+                  }`}
+                >
+                  {showEnamad ? (
+                    <>
+                      <ToggleRight className="w-4 h-4 text-emerald-600" />
+                      <span>نمایش</span>
+                    </>
+                  ) : (
+                    <>
+                      <ToggleLeft className="w-4 h-4 text-rose-500" />
+                      <span>مخفی</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Samandehi Toggle Card */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <img
+                    src="https://samandehi.ir/assets/images/logo.png"
+                    alt="ساماندهی"
+                    className="w-10 h-10 object-contain rounded-lg bg-white p-1 border border-slate-200"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/samandehi.png';
+                    }}
+                  />
+                  <div>
+                    <span className="font-extrabold text-xs text-slate-900 block">نشان ملی ثبت رسانه‌های دیجیتال (ساماندهی)</span>
+                    <span className="text-[11px] text-slate-500 font-medium block">وزارت فرهنگ و ارشاد اسلامی</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSamandehi(!showSamandehi)}
+                  className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition cursor-pointer shrink-0 ${
+                    showSamandehi
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      : 'bg-rose-50 border-rose-200 text-rose-700'
+                  }`}
+                >
+                  {showSamandehi ? (
+                    <>
+                      <ToggleRight className="w-4 h-4 text-emerald-600" />
+                      <span>نمایش</span>
+                    </>
+                  ) : (
+                    <>
+                      <ToggleLeft className="w-4 h-4 text-rose-500" />
+                      <span>مخفی</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Optional Custom Badge URL inputs */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+              <h5 className="font-extrabold text-xs text-slate-800">نشان یا مجوز دلخواه اختیاری (Custom Badge):</h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">آدرس تصویر نشان (Image URL):</label>
+                  <input
+                    type="text"
+                    value={customBadgeImg}
+                    onChange={(e) => setCustomBadgeImg(e.target.value)}
+                    placeholder="https://example.com/license-badge.png"
+                    className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr font-mono"
+                    dir="ltr"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">لینک اعتبارسنجی نشان (Redirect URL):</label>
+                  <input
+                    type="text"
+                    value={customBadgeLink}
+                    onChange={(e) => setCustomBadgeLink(e.target.value)}
+                    placeholder="https://trust-authority.ir/verify/..."
+                    className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr font-mono"
+                    dir="ltr"
+                  />
                 </div>
               </div>
             </div>

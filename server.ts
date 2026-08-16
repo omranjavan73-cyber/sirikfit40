@@ -5452,6 +5452,9 @@ export const api = onRequest(
   app
 );
 
+export { app };
+export default app;
+
 // ----------------------------------------------------
 // VITE MIDDLEWARE & STANDALONE SERVER
 // ----------------------------------------------------
@@ -5473,13 +5476,13 @@ async function startServer() {
     });
   }
 
-  if (!process.env.FUNCTION_TARGET && !process.env.FUNCTIONS_EMULATOR && process.env.IS_FIREBASE_FUNCTION !== 'true') {
+  if (process.env.IS_FIREBASE_FUNCTION !== 'true') {
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`OMEX Dubai Import Platform server listening on http://localhost:${PORT}`);
     });
   }
 }
 
-if (!process.env.FUNCTION_TARGET && !process.env.FUNCTIONS_EMULATOR && process.env.IS_FIREBASE_FUNCTION !== 'true') {
+if (process.env.IS_FIREBASE_FUNCTION !== 'true') {
   startServer();
 }

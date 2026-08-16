@@ -1,4 +1,5 @@
 // Firebase Cloud Functions entry point re-exporting Express app function 'api'
+process.env.IS_FIREBASE_FUNCTION = 'true';
 process.env.FUNCTION_TARGET = process.env.FUNCTION_TARGET || 'api';
 const fs = require('fs');
 const path = require('path');

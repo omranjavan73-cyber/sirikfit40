@@ -3,6 +3,7 @@ import type { LocalInventoryItem, WarehouseCategory, FinancialSettings } from '.
 import { formatToman, getEffectiveAedRate } from '../utils/formatters';
 import { CategoryGridSection } from './CategoryGridSection';
 import { ProductDetailModal } from './ProductDetailModal';
+import { isCategoryMatch } from '../utils/categoryHelper';
 
 interface InventoryPageProps {
   items: LocalInventoryItem[];
@@ -32,27 +33,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
     const desc = (item.description || '').toLowerCase();
 
     const matchesSearch = !q || title.includes(q) || cat.includes(q) || desc.includes(q);
-
-    let matchesCat = true;
-    if (selectedCat !== 'all' && selectedCat !== 'همه') {
-      const catObj = (categories || []).find(c => c.filterKey === selectedCat || c.id === selectedCat);
-      const term = (catObj?.filterKey || catObj?.label || selectedCat).toLowerCase();
-      
-      // Fallback matching logic for standard key terms
-      if (selectedCat === 'protein' || term.includes('پروتئین')) {
-        matchesCat = cat.includes('پروتئین') || title.includes('وی') || title.includes('ایزوله') || title.includes('whey') || title.includes('protein');
-      } else if (selectedCat === 'vitamin' || term.includes('ویتامین')) {
-        matchesCat = cat.includes('ویتامین') || title.includes('مولتی') || title.includes('daily') || title.includes('سی') || title.includes('c') || title.includes('vitamin');
-      } else if (selectedCat === 'pre' || term.includes('قبل')) {
-        matchesCat = cat.includes('تمرین') || title.includes('پمپ') || title.includes('c4') || title.includes('کراتین') || title.includes('pre') || title.includes('پرفروش');
-      } else if (selectedCat === 'omega' || term.includes('امگا')) {
-        matchesCat = cat.includes('امگا') || title.includes('امگا') || title.includes('fish') || title.includes('omega');
-      } else if (selectedCat === 'hot' || term.includes('فروش')) {
-        matchesCat = true;
-      } else {
-        matchesCat = cat.includes(term) || term.includes(cat) || title.includes(term) || desc.includes(term);
-      }
-    }
+    const matchesCat = isCategoryMatch(item, selectedCat, categories);
 
     return matchesSearch && matchesCat;
   });

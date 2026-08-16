@@ -67,6 +67,15 @@ interface PopularProductsCarouselProps {
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
 }
 
+function getCleanShortTitle(title: string): string {
+  if (!title) return '';
+  // Remove parenthesized and bracketed content
+  let cleaned = title.split('(')[0].split('（')[0].split('[')[0].trim();
+  // Strip redundant leading "مکمل" for concise chip display
+  cleaned = cleaned.replace(/^مکمل\s+/, '');
+  return cleaned || title;
+}
+
 export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = ({
   onSelectCategory,
   onSelectProduct,
@@ -117,59 +126,70 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
         </h3>
       </div>
 
-      {/* Horizontal Row with Subtle Hover-Only Side Arrows and White Circular Product Badges */}
-      <div className="relative flex items-center w-full">
+      {/* Horizontal Row with Subtle Navigation Arrows and White Circular Product Badges */}
+      <div className="relative flex items-center w-full group">
         {/* Right Nav Arrow */}
         <button
           type="button"
           onClick={() => scroll('right')}
-          className="absolute right-0 z-20 w-7 h-7 rounded-full bg-white/90 border border-slate-200/80 text-slate-400 hover:text-slate-900 hover:bg-white shadow-2xs flex items-center justify-center transition-all opacity-20 group-hover/carousel:opacity-80 hover:!opacity-100 cursor-pointer active:scale-95 shrink-0"
+          className="absolute z-10 -right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full bg-white/80 shadow-sm border border-gray-200 text-slate-400 opacity-40 hover:opacity-100 hover:bg-white hover:text-slate-700 hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95 shrink-0"
           title="بعدی"
+          aria-label="بعدی"
         >
-          <ChevronRight className="w-4 h-4 stroke-[2]" />
+          <ChevronRight className="w-4 h-4 stroke-[2.5]" />
         </button>
 
-        {/* Scrollable Container with Pure White Circular Badges & Thick Borders */}
+        {/* Scrollable Container (Forces exactly 4 items on mobile screens) */}
         <div
           ref={scrollRef}
-          className="flex flex-row justify-start items-center gap-3 sm:gap-4 overflow-x-auto no-scrollbar py-1 px-1 dir-rtl scroll-smooth w-full"
+          className="flex items-start justify-between gap-2 overflow-x-auto no-scrollbar px-3 py-2 w-full select-none dir-rtl scroll-smooth"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {list.map((prod) => (
-            <div
-              key={prod.id}
-              onClick={() => handleItemClick(prod)}
-              className="flex flex-col items-center shrink-0 cursor-pointer group select-none transition-transform duration-200 hover:-translate-y-0.5 w-[72px] sm:w-[80px]"
-            >
-              {/* Enlarged Circular Badge Frame (~68px / w-16 h-16 / md:w-20 md:h-20) */}
-              <div className="relative w-16 h-16 sm:w-[68px] sm:h-[68px] md:w-20 md:h-20 rounded-full p-0.5 border border-slate-200/90 bg-white shadow-xs hover:shadow-md group-hover:border-slate-600 flex items-center justify-center overflow-hidden transition-all duration-200 shrink-0">
-                <img
-                  src={prod.image}
-                  alt={prod.title}
-                  className="w-full h-full object-cover rounded-full group-hover:scale-105 transition-transform duration-300"
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
-                  }}
-                />
-              </div>
+          {list.map((prod) => {
+            const rawTitle = prod.title || (prod as any).name || '';
+            const shortTitle = (prod as any).shortName || getCleanShortTitle(rawTitle);
+            const imgSrc = prod.image || (prod as any).imageUrl || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
 
-              {/* Centered Product Persian Title Below Circle */}
-              <span className="text-[11px] sm:text-xs font-medium text-slate-700 group-hover:text-slate-900 mt-1 text-center truncate w-full max-w-[72px] md:max-w-[80px]">
-                {prod.title}
-              </span>
-            </div>
-          ))}
+            return (
+              <div
+                key={prod.id}
+                onClick={() => handleItemClick(prod)}
+                className="flex flex-col items-center flex-shrink-0 w-[72px] sm:w-[80px] cursor-pointer group select-none"
+              >
+                {/* 1. THE THICK WHITE FRAME (This creates the white padding and outer shadow) */}
+                <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full bg-white p-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.08)] border border-slate-100 flex items-center justify-center transition-all duration-300 group-hover:shadow-md group-hover:-translate-y-0.5">
+                  {/* 2. THE INNER IMAGE (Clipped perfectly inside the white frame) */}
+                  <div className="w-full h-full rounded-full overflow-hidden bg-slate-50 flex items-center justify-center">
+                    <img
+                      src={imgSrc}
+                      alt={rawTitle}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* 3. TRUNCATED TITLE (Ensures 4 items fit perfectly on mobile) */}
+                <span className="text-[10px] sm:text-[11px] font-medium text-slate-700 mt-2 text-center w-full truncate px-0.5 block leading-tight">
+                  {shortTitle}
+                </span>
+              </div>
+            );
+          })}
         </div>
 
         {/* Left Nav Arrow */}
         <button
           type="button"
           onClick={() => scroll('left')}
-          className="absolute left-0 z-20 w-7 h-7 rounded-full bg-white/90 border border-slate-200/80 text-slate-400 hover:text-slate-900 hover:bg-white shadow-2xs flex items-center justify-center transition-all opacity-20 group-hover/carousel:opacity-80 hover:!opacity-100 cursor-pointer active:scale-95 shrink-0"
+          className="absolute z-10 -left-1.5 top-1/2 -translate-y-1/2 w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full bg-white/80 shadow-sm border border-gray-200 text-slate-400 opacity-40 hover:opacity-100 hover:bg-white hover:text-slate-700 hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95 shrink-0"
           title="قبلی"
+          aria-label="قبلی"
         >
-          <ChevronLeft className="w-4 h-4 stroke-[2]" />
+          <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
         </button>
       </div>
 

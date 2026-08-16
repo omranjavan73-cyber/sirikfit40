@@ -28,7 +28,6 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Footer } from './components/Footer';
 import { getSafeItem, setSafeItem } from './utils/safeStorage';
 
 function MainApp() {
@@ -1044,11 +1043,6 @@ function MainApp() {
           />
         )}
       </main>
-
-      {/* Public Footer & Trust Badges */}
-      <ErrorBoundary name="Site Footer">
-        <Footer cms={cmsConfig} settings={settings} />
-      </ErrorBoundary>
 
       {/* Auth Modal */}
       <AuthModal

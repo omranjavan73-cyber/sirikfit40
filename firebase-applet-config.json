@@ -1,11 +1,12 @@
 {
-  "projectId": "sirikfit40",
-  "appId": "1:532757567852:web:01f36071e84c96b4933b49",
-  "storageBucket": "sirikfit40.firebasestorage.app",
-  "apiKey": "AIzaSyBAB1TsbUTwgLcHxFAeIMVECS9zqGP7Zk0",
-  "authDomain": "sirikfit40.firebaseapp.com",
-  "messagingSenderId": "532757567852",
-  "measurementId": "G-QFR8G0QFNH",
-  "firestoreDatabaseId": "(default)",
+  "projectId": "gen-lang-client-0611125196",
+  "appId": "1:957535196365:web:27a58566900e93a499c584",
+  "apiKey": "AIzaSyDZPU-my77caF7ixl3_IZI-29nt9y06E8I",
+  "authDomain": "gen-lang-client-0611125196.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-remixsirikfit404-be8ff904-f00e-4732-92db-9c03f4e2bf6f",
+  "storageBucket": "gen-lang-client-0611125196.firebasestorage.app",
+  "messagingSenderId": "957535196365",
+  "measurementId": "",
+  "oAuthClientId": "957535196365-s8uo4ql063a8d771oeoig5kgigtdgtug.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

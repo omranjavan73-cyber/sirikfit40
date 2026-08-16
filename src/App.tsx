@@ -22,7 +22,7 @@ import { CircularCategoryRow } from './components/CircularCategoryRow';
 import { ReviewsSection } from './components/ReviewsSection';
 import { FAQView } from './components/FAQView';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
-import { toPersianDigits, getEffectiveAedRate } from './utils/formatters';
+import { toPersianDigits, getEffectiveAedRate, calculateFinalToman } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
@@ -213,11 +213,13 @@ function MainApp() {
   };
 
   const addToCart = (product: any, selectedFlavor?: string, selectedSize?: string) => {
-    const flavorStr = selectedFlavor || product.selectedFlavor || '';
-    const sizeStr = selectedSize || product.selectedSize || '';
-    const id = product.id || product.url || product.title || 'item';
+    const flavorStr = selectedFlavor || product?.selectedFlavor || '';
+    const sizeStr = selectedSize || product?.selectedSize || '';
+    const id = product?.id || product?.url || product?.title || 'item';
     const cartItemId = `${id}-${flavorStr}-${sizeStr}`;
-    const qtyToAdd = typeof product.quantity === 'number' && product.quantity > 0 ? product.quantity : 1;
+    const qtyToAdd = (typeof product?.quantity === 'number' && Number.isFinite(product.quantity) && product.quantity > 0)
+      ? Math.max(1, Math.floor(product.quantity))
+      : 1;
 
     setCartItems((prevCart: any[]) => {
       const existingItemIndex = prevCart.findIndex(
@@ -573,7 +575,20 @@ function MainApp() {
   };
 
   const handleSelectDeal = (deal: FeaturedDeal) => {
+    const effectiveRate = getEffectiveAedRate(settings, cmsConfig) || 1;
+    const dealMargin = deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : settings.profitMargin);
+    const finalToman = (deal.priceToman && deal.priceToman > 0)
+      ? deal.priceToman
+      : calculateFinalToman(
+          deal.priceAed || 100,
+          deal.weightKg || 0.5,
+          settings.cargoRatePerKg,
+          dealMargin,
+          effectiveRate
+        );
+
     setSelectedProduct({
+      id: deal.id,
       title: deal.title,
       url: deal.url,
       priceAed: deal.priceAed,
@@ -586,6 +601,11 @@ function MainApp() {
       category: deal.category,
       description: deal.description || 'پیشنهاد ویژه خرید مستقیم از دبی با بهترین قیمت',
       badge: deal.badge || '🔥 پیشنهاد ویژه',
+      priceToman: finalToman,
+      calculatedTomanOverride: finalToman,
+      profitMargin: dealMargin,
+      flavors: deal.flavors || [],
+      sizes: deal.sizes || [],
       inStock: true
     });
     setActiveTab('detail');
@@ -674,6 +694,7 @@ function MainApp() {
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
         onOpenCart={() => {
+          setSelectedProduct(null);
           setActiveTab('detail');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
@@ -703,8 +724,8 @@ function MainApp() {
 
             {/* Popular Samples Section (نمونه‌های محبوب) */}
             {(() => {
-              const popularDeals = (cmsConfig?.deals || []).filter(d => d && (d.isPopularSample || d.isFeaturedInCalculator) && d.isActive !== false);
-              const popularLocal = (cmsConfig?.localInventory || []).filter(i => i && i.isPopularSample && i.inStock !== false);
+              const popularDeals = (cmsConfig?.deals || []).filter(d => d && (d.isPopular === true || d.isPopularSample === true) && d.isActive !== false);
+              const popularLocal = (cmsConfig?.localInventory || []).filter(i => i && (i.isPopular === true || i.isPopularSample === true) && i.inStock !== false);
 
               let popularList: PopularProductItem[] = [
                 ...popularLocal.map(item => ({
@@ -724,24 +745,7 @@ function MainApp() {
               ];
 
               if (popularList.length === 0) {
-                const fallbackLocal = (cmsConfig?.localInventory || []).slice(0, 3);
-                const fallbackDeals = (cmsConfig?.deals || []).slice(0, 3);
-                popularList = [
-                  ...fallbackLocal.map(item => ({
-                    id: `local-${item.id}`,
-                    title: item.title,
-                    image: item.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
-                    rawItem: item,
-                    type: 'local' as const
-                  })),
-                  ...fallbackDeals.map(deal => ({
-                    id: `deal-${deal.id}`,
-                    title: deal.title,
-                    image: deal.image || 'https://images.unsplash.com/photo-1546483875-ad9014c88eba?w=500&auto=format&fit=crop&q=80',
-                    rawItem: deal,
-                    type: 'deal' as const
-                  }))
-                ];
+                return null;
               }
 
               const popularOrder = (cmsConfig as any)?.popularSamplesOrder || [];
@@ -765,6 +769,7 @@ function MainApp() {
               return (
                 <PopularProductsCarousel
                   items={popularList}
+                  settings={settings}
                   onAddToCart={addToCart}
                   onSelectProduct={(item) => {
                     const effectiveRate = getEffectiveAedRate(settings, cmsConfig) || 1;
@@ -772,15 +777,18 @@ function MainApp() {
                       const local = item.rawItem;
                       const calcAed = Math.round((local.priceToman || 0) / effectiveRate);
                       setSelectedProduct({
+                        id: local.id,
                         title: `${local.title} (موجودی انبار ایران)`,
                         url: 'https://omex.ir/stock/' + local.id,
                         priceAed: calcAed > 0 ? calcAed : 100,
                         originalPriceAed: local.originalPriceToman ? Math.round(local.originalPriceToman / effectiveRate) : 0,
-                        weightKg: 0.5,
+                        priceToman: local.priceToman,
+                        originalPriceToman: local.originalPriceToman,
+                        calculatedTomanOverride: local.priceToman,
+                        weightKg: local.weightKg || 0.5,
                         image: local.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
                         storeName: 'انبار ایران (تحویل فوری)',
                         brand: 'انبار ایران',
-                        calculatedTomanOverride: local.priceToman,
                         category: local.category || 'موجودی ایران',
                         description: local.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
                         badge: local.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته',
@@ -793,7 +801,22 @@ function MainApp() {
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     } else if (item.type === 'deal' && item.rawItem) {
                       const deal = item.rawItem;
+                      const dealMargin = deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : settings.profitMargin);
+                      const finalToman = (deal.priceToman && deal.priceToman > 0)
+                        ? deal.priceToman
+                        : (deal.calculatedTomanOverride && deal.calculatedTomanOverride > 0
+                            ? deal.calculatedTomanOverride
+                            : (deal.calculatedToman && deal.calculatedToman > 0
+                                ? deal.calculatedToman
+                                : calculateFinalToman(
+                                    deal.priceAed || 100,
+                                    deal.weightKg || 0.5,
+                                    settings.cargoRatePerKg,
+                                    dealMargin,
+                                    effectiveRate
+                                  )));
                       setSelectedProduct({
+                        id: deal.id,
                         title: deal.title || 'پیشنهاد ویژه دبی',
                         url: deal.url || 'https://drnutrition.com',
                         priceAed: deal.priceAed || 100,
@@ -806,6 +829,9 @@ function MainApp() {
                         category: deal.category || 'پیشنهاد ویژه',
                         description: deal.description || 'پیشنهاد ویژه خرید مستقیم از دبی با بهترین قیمت',
                         badge: deal.badge || '🔥 پیشنهاد ویژه',
+                        priceToman: finalToman,
+                        calculatedTomanOverride: finalToman,
+                        profitMargin: dealMargin,
                         inStock: true,
                         flavors: deal.flavors || [],
                         sizes: deal.sizes || []
@@ -813,6 +839,7 @@ function MainApp() {
                       setActiveTab('detail');
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     } else {
+                      const finalToman = calculateFinalToman(150, 0.5, settings.cargoRatePerKg, settings.profitMargin, effectiveRate);
                       setSelectedProduct({
                         title: item.title || 'محصول نمونه محبوب',
                         url: 'https://drnutrition.com',
@@ -824,6 +851,9 @@ function MainApp() {
                         category: 'مکمل‌های ورزشی',
                         description: 'ضمانت اصالت ۱۰۰٪، کیفیت اورجینال و ارسال مستقیم از دبی',
                         badge: '⭐ محبوب',
+                        priceToman: finalToman,
+                        calculatedTomanOverride: finalToman,
+                        profitMargin: settings.profitMargin,
                         inStock: true
                       });
                       setActiveTab('detail');
@@ -895,17 +925,10 @@ function MainApp() {
           </div>
         )}
 
-        {/* DEDICATED PRODUCT DETAIL & CHECKOUT SCREEN (#detail) */}
-        {activeTab === 'detail' && (
+        {/* DEDICATED PRODUCT DETAIL & CHECKOUT SCREEN (#detail or #cart) */}
+        {(activeTab === 'detail' || (activeTab as any) === 'cart') && (
           <ProductDetailView
-            product={selectedProduct || {
-              title: 'مکمل پروتئین وی ON Gold Standard 100% (۵ پوندی)',
-              url: 'https://www.drnutrition.com',
-              priceAed: 320,
-              weightKg: 2.3,
-              image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
-              storeName: 'Dr. Nutrition'
-            }}
+            product={selectedProduct}
             cartItems={cartItems}
             onAddToCart={addToCart}
             onUpdateCartQuantity={handleUpdateCartQuantity}
@@ -915,6 +938,7 @@ function MainApp() {
             cms={cmsConfig}
             currentUser={currentUser}
             onBackToMain={() => {
+              setSelectedProduct(null);
               setActiveTab('main');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
@@ -927,16 +951,20 @@ function MainApp() {
           <InventoryPage
             items={cmsConfig?.localInventory || []}
             categories={cmsConfig?.warehouseCategories}
+            settings={settings}
             onAddToCart={addToCart}
             onSelectLocalProduct={(item) => {
               const effectiveRate = getEffectiveAedRate(settings, cmsConfig) || 1;
               const calcAed = Math.round((item.priceToman || 0) / effectiveRate);
               setSelectedProduct({
+                id: item.id,
                 title: `${item.title} (موجودی انبار ایران)`,
                 url: 'https://omex.ir/stock/' + item.id,
                 priceAed: calcAed > 0 ? calcAed : 100,
                 originalPriceAed: item.originalPriceToman ? Math.round(item.originalPriceToman / effectiveRate) : 0,
-                weightKg: 0.5,
+                priceToman: item.priceToman,
+                originalPriceToman: item.originalPriceToman,
+                weightKg: item.weightKg || 0.5,
                 image: item.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
                 storeName: 'انبار ایران (تحویل فوری)',
                 brand: 'انبار ایران',

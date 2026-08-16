@@ -89,12 +89,9 @@ import {
 import StickyBottomSaveBar from './StickyBottomSaveBar';
 import { AdminSupportTickets } from './AdminSupportTickets';
 import { AdminFAQManager } from './AdminFAQManager';
-import { saveAdminSettingsPayload, safeParseNumeric } from '../utils/adminSaveHelper';
+import { safeParseNumeric, sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
 
-export const sanitizePayloadForFirestore = (obj: any): any => {
-  if (obj === undefined || obj === null) return null;
-  return JSON.parse(JSON.stringify(obj, (key, value) => (value === undefined ? null : value)));
-};
+export { sanitizePayloadForFirestore };
 
 // 🟢 [GOLD STANDARD] Save to Firestore helper pattern for all Admin Panel sections
 export const saveToFirestore = async (payload: any, sectionName: string) => {
@@ -1722,7 +1719,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
 
     try {
-      await setDoc(doc(db, 'settings', 'cms'), updatedCms, { merge: true });
+      await setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true });
       setSaveGatewaySuccess(true);
       if (showToast) showToast('تنظیمات درگاه پرداخت با موفقیت ذخیره شد', 'success');
       if (onRefresh) onRefresh();
@@ -1887,14 +1884,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       onUpdateSettings({ ...settings, ...financialPayload });
 
       // ---------------------------------------------------------------
-      // STEP 3: Async Firestore & REST Sync
+      // STEP 3: Async Direct Firestore Sync
       // ---------------------------------------------------------------
       await Promise.all([
-        setDoc(doc(db, 'settings', 'financial'), financialPayload, { merge: true }),
-        setDoc(doc(db, 'settings', 'app'), financialPayload, { merge: true }) // Legacy support
+        setDoc(doc(db, 'settings', 'financial'), sanitizePayloadForFirestore(financialPayload), { merge: true }),
+        setDoc(doc(db, 'settings', 'app'), sanitizePayloadForFirestore(financialPayload), { merge: true }),
+        setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore(financialPayload), { merge: true })
       ]);
-
-      await saveAdminSettingsPayload(financialPayload, cms);
 
       setSaveSettingsSuccess(true);
       if (showToast) showToast('تنظیمات مالی با موفقیت ذخیره شد', 'success');
@@ -1940,7 +1936,66 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newLocalUrlInput, setNewLocalUrlInput] = useState('');
   const [isExtractingNewLocalItem, setIsExtractingNewLocalItem] = useState(false);
 
-  const handleAutoExtractAndAddLocalItem = async () => {
+  // Products & Inventory Specific Save State
+  const [isSavingProducts, setIsSavingProducts] = useState(false);
+  const [saveProductsSuccess, setSaveProductsSuccess] = useState(false);
+
+  const handleSaveProductsAndInventory = async (e?: React.MouseEvent | React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setIsSavingProducts(true);
+    setSaveProductsSuccess(false);
+
+    try {
+      const updatedCms = {
+        ...(cms || {}),
+        localInventory: localInventoryList,
+        deals: dealsList,
+        popularSamplesOrder: popularSamplesOrder.length > 0 ? popularSamplesOrder : getPopularSamplesList().map(i => i.id),
+        warehouseCategories,
+        showLocalInventory: Boolean(showLocalInventory),
+        features: {
+          ...(cms?.features || {}),
+          showLocalInventory: Boolean(showLocalInventory)
+        },
+        updatedAt: Date.now()
+      };
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+        localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+        localStorage.setItem('sirikfit_features_config', JSON.stringify({ showLocalInventory: Boolean(showLocalInventory) }));
+        window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+        window.dispatchEvent(new Event('storage'));
+      }
+
+      onUpdateCms(updatedCms as any);
+
+      await Promise.all([
+        setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
+        setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore({ showLocalInventory: Boolean(showLocalInventory) }), { merge: true }),
+        setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
+      ]);
+
+      setSaveProductsSuccess(true);
+      if (showToast) showToast('محصولات و تنظیمات انبار ایران با موفقیت در دیتابیس ذخیره شدند', 'success');
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error('Error saving products and inventory:', err);
+      if (showToast) showToast('خطا در ذخیره محصولات: ' + (err?.message || 'مشکل در ارتباط'), 'error');
+    } finally {
+      setIsSavingProducts(false);
+      setTimeout(() => setSaveProductsSuccess(false), 3500);
+    }
+  };
+
+  const handleAutoExtractAndAddLocalItem = async (e?: React.MouseEvent | React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (!newLocalUrlInput.trim()) return;
     setIsExtractingNewLocalItem(true);
     try {
@@ -1969,22 +2024,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         priceToman: calculatedPriceToman,
         originalPriceToman: (originalPriceToman && originalPriceToman > calculatedPriceToman) ? originalPriceToman : 0,
         stockQuantity: 5,
+        stockCount: 5,
         category: data?.category || 'مکمل‌های ورزشی',
         description: data?.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
         deliveryBadge: '⚡ تحویل فوری ۲۴ ساعته',
         inStock: true,
+        isIranWarehouse: true,
+        isLocalInventory: true,
         isPopularSample: false,
         priceAed: priceAed,
         weightKg: weightKg,
         marginPercent: marginPercent,
         flavors: data?.flavors || [],
-        sizes: data?.sizes || []
+        sizes: data?.sizes || [],
+        url: newLocalUrlInput.trim()
       };
 
-      setLocalInventoryList(prev => [newItem, ...prev]);
+      const updatedLocalList = [newItem, ...localInventoryList];
+      setLocalInventoryList(updatedLocalList);
       setNewLocalUrlInput('');
-    } catch (err) {
+
+      // Immediate synchronized persistence
+      const updatedCms = {
+        ...(cms || {}),
+        localInventory: updatedLocalList
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+        localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+        window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+      }
+      onUpdateCms(updatedCms as any);
+      await setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true });
+      if (showToast) showToast('محصول جدید با موفقیت استخراج و به انبار ایران اضافه شد', 'success');
+    } catch (err: any) {
       console.error('Error auto extracting local item:', err);
+      if (showToast) showToast('خطا در استخراج خودکار محصول. یک کالا به‌صورت دستی اضافه می‌شود.', 'error');
       handleAddLocalItem();
     } finally {
       setIsExtractingNewLocalItem(false);
@@ -1992,7 +2067,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // CMS Deal Handlers
-  const handleAutoExtractAndAddDeal = async () => {
+  const handleAutoExtractAndAddDeal = async (e?: React.MouseEvent | React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (!newDealUrlInput.trim()) return;
     setIsExtractingNewDeal(true);
     try {
@@ -2005,6 +2084,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       const priceAed = Number(data?.priceAed) || 150;
       const originalPriceAed = Number(data?.originalPriceAed) || 0;
+      const weightKg = Number(data?.weightKg) || 0.8;
+      const marginPercent = 20; // Default profit margin = 20%
+      const currentAedRate = getEffectiveAedRate(settings, cms) || 0;
+      const cargoRate = settings?.cargoRatePerKg || 35;
+      const shippingFeeAed = (weightKg * cargoRate) || 20;
+      const calculatedPriceToman = Math.round(((priceAed * currentAedRate) + (shippingFeeAed * currentAedRate)) * (1 + (marginPercent / 100)));
+
+      const originalPriceToman = originalPriceAed > 0 ? Math.round(((originalPriceAed * currentAedRate) + (shippingFeeAed * currentAedRate)) * (1 + (marginPercent / 100))) : 0;
+
       let discountPercent = Number(data?.discountPercent) || 0;
       if (!discountPercent && originalPriceAed > priceAed) {
         discountPercent = Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100);
@@ -2015,28 +2103,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         id: 'deal-' + Date.now(),
         title: data?.title || 'محصول جدید پیشنهاد ویژه',
         brand: data?.brand || data?.storeName || 'برند معتبر',
-        category: data?.category || '💊 مکمل‌های ورزشی',
+        category: data?.category || 'مکمل‌های ورزشی',
         priceAed,
         originalPriceAed: (originalPriceAed > priceAed) ? originalPriceAed : 0,
         discountPercent: discountPercent > 0 ? discountPercent : 0,
-        weightKg: Number(data?.weightKg) || 0.8,
+        weightKg,
+        marginPercent,
+        profitMargin: marginPercent,
+        priceToman: calculatedPriceToman,
+        originalPriceToman: (originalPriceToman && originalPriceToman > calculatedPriceToman) ? originalPriceToman : 0,
+        stockQuantity: 10,
+        stockCount: 10,
         image: data?.image || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
         url: newDealUrlInput.trim(),
         storeName: data?.storeName || 'دبی',
         badge: badgeText,
         description: data?.description || 'پیشنهاد ویژه خرید مستقیم از دبی با بهترین قیمت',
         section: 'featured',
-        isFeaturedInCalculator: true,
-        isActive: true,
+        isFeaturedInCalculator: false,
         isPopularSample: false,
+        isPopular: false,
+        isActive: true,
+        inStock: true,
         flavors: data?.flavors || [],
         sizes: data?.sizes || []
       };
 
-      setDealsList(prev => [newDeal, ...prev]);
+      const updatedDealsList = [newDeal, ...dealsList];
+      setDealsList(updatedDealsList);
       setNewDealUrlInput('');
-    } catch (err) {
+
+      // Immediate synchronized persistence
+      const updatedCms = {
+        ...(cms || {}),
+        deals: updatedDealsList
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+        localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+        window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+        window.dispatchEvent(new Event('storage'));
+      }
+      onUpdateCms(updatedCms as any);
+      await setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true });
+      if (showToast) showToast('پیشنهاد ویژه جدید با موفقیت استخراج و ذخیره شد', 'success');
+    } catch (err: any) {
       console.error('Error auto extracting deal:', err);
+      if (showToast) showToast('خطا در استخراج پیشنهاد ویژه. یک مورد به‌صورت دستی اضافه می‌شود.', 'error');
       handleAddDeal();
     } finally {
       setIsExtractingNewDeal(false);
@@ -2044,8 +2157,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const getPopularSamplesList = () => {
-    const popularDeals = (dealsList || []).filter(d => d && (d.isPopularSample || d.isFeaturedInCalculator) && d.isActive !== false);
-    const popularLocal = (localInventoryList || []).filter(i => i && i.isPopularSample && i.inStock !== false);
+    const popularDeals = (dealsList || []).filter(d => d && (d.isPopular === true || d.isPopularSample === true) && d.isActive !== false);
+    const popularLocal = (localInventoryList || []).filter(i => i && (i.isPopular === true || i.isPopularSample === true) && i.inStock !== false);
 
     let items = [
       ...popularLocal.map(item => ({
@@ -2091,31 +2204,131 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setPopularSamplesOrder(newOrderIds);
   };
 
+  const handleRemovePopularSample = async (sample: { id: string; originalId: string; type: 'local' | 'deal' }) => {
+    let updatedLocalList = [...localInventoryList];
+    let updatedDealsList = [...dealsList];
+
+    if (sample.type === 'local') {
+      updatedLocalList = updatedLocalList.map(item => {
+        if (item.id === sample.originalId || `local-${item.id}` === sample.id) {
+          return { ...item, isPopular: false, isPopularSample: false };
+        }
+        return item;
+      });
+      setLocalInventoryList(updatedLocalList);
+    } else if (sample.type === 'deal') {
+      updatedDealsList = updatedDealsList.map(deal => {
+        if (deal.id === sample.originalId || `deal-${deal.id}` === sample.id) {
+          return { ...deal, isPopular: false, isPopularSample: false, isFeaturedInCalculator: false };
+        }
+        return deal;
+      });
+      setDealsList(updatedDealsList);
+    }
+
+    const updatedOrder = popularSamplesOrder.filter(id => id !== sample.id && id !== sample.originalId);
+    setPopularSamplesOrder(updatedOrder);
+
+    // Immediate state synchronization & persistence
+    const updatedCms: any = {
+      ...(cms || {}),
+      localInventory: updatedLocalList,
+      deals: updatedDealsList,
+      popularSamplesOrder: updatedOrder
+    };
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+      localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+      window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+      window.dispatchEvent(new Event('storage'));
+    }
+
+    onUpdateCms(updatedCms);
+
+    try {
+      await setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true });
+      if (showToast) showToast('محصول با موفقیت از لیست پرطرفدارها حذف شد', 'success');
+    } catch (err) {
+      console.error('Error persisting popular item removal:', err);
+      if (showToast) showToast('تغییر در حافظه محلی ذخیره شد.', 'info');
+    }
+  };
+
   const handleAddDeal = () => {
+    const priceAed = 180;
+    const weightKg = 1.0;
+    const marginPercent = 20;
+    const currentAedRate = getEffectiveAedRate(settings, cms) || 0;
+    const cargoRate = settings?.cargoRatePerKg || 35;
+    const shippingFeeAed = (weightKg * cargoRate) || 20;
+    const calculatedPriceToman = Math.round(((priceAed * currentAedRate) + (shippingFeeAed * currentAedRate)) * (1 + (marginPercent / 100)));
+    const originalPriceAed = 220;
+    const originalPriceToman = Math.round(((originalPriceAed * currentAedRate) + (shippingFeeAed * currentAedRate)) * (1 + (marginPercent / 100)));
+
     const newDeal: FeaturedDeal = {
       id: 'deal-' + Date.now(),
       title: 'محصول جدید دبی - پیشنهاد ویژه',
       brand: 'برند معتبر',
-      category: '💊 مکمل‌های ورزشی',
-      priceAed: 180,
-      originalPriceAed: 220,
+      category: 'مکمل‌های ورزشی',
+      priceAed,
+      originalPriceAed,
       discountPercent: 18,
-      weightKg: 1.2,
+      weightKg,
+      marginPercent,
+      profitMargin: marginPercent,
+      priceToman: calculatedPriceToman,
+      originalPriceToman,
+      stockQuantity: 10,
+      stockCount: 10,
       image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
       url: 'https://www.drnutrition.com',
       storeName: 'Dr. Nutrition',
       badge: '🔥 پیشنهاد ویژه',
       section: 'featured',
-      isFeaturedInCalculator: true,
-      isActive: true
+      isFeaturedInCalculator: false,
+      isPopularSample: false,
+      isPopular: false,
+      isActive: true,
+      inStock: true,
+      description: 'پیشنهاد ویژه خرید مستقیم از دبی با بهترین قیمت و ضمانت اصالت ۱۰۰٪',
+      flavors: [],
+      sizes: []
     };
-    setDealsList(prev => [...prev, newDeal]);
+    setDealsList(prev => [newDeal, ...prev]);
   };
 
   const handleUpdateDealField = (id: string, field: keyof FeaturedDeal, value: any) => {
     setDealsList(prev => prev.map(d => {
       if (d.id !== id) return d;
       const updated = { ...d, [field]: value };
+
+      // Sync isPopular & isPopularSample
+      if (field === 'isPopular' || field === 'isPopularSample') {
+        updated.isPopular = Boolean(value);
+        updated.isPopularSample = Boolean(value);
+      }
+
+      // Sync profitMargin & marginPercent
+      if (field === 'profitMargin') {
+        updated.marginPercent = value;
+      } else if (field === 'marginPercent') {
+        updated.profitMargin = value;
+      }
+
+      // Real-time dynamic Toman price calculation
+      if (field === 'priceAed' || field === 'weightKg' || field === 'profitMargin' || field === 'marginPercent') {
+        const aedRate = getEffectiveAedRate(settings, cms) || 0;
+        const cargoRate = settings?.cargoRatePerKg || 35;
+        const baseAed = Number(updated.priceAed) || 0;
+        const weight = Number(updated.weightKg) || 0.8;
+        const margin = typeof updated.profitMargin === 'number' ? updated.profitMargin : (typeof updated.marginPercent === 'number' ? updated.marginPercent : 20);
+        const shippingFeeAed = (weight * cargoRate) || 20;
+
+        updated.priceToman = Math.round(((baseAed * aedRate) + (shippingFeeAed * aedRate)) * (1 + (margin / 100)));
+      }
+
+      // Discount % and Original Price Toman sync
       if (field === 'priceAed' || field === 'originalPriceAed') {
         const pAed = Number(updated.priceAed) || 0;
         const origAed = Number(updated.originalPriceAed) || 0;
@@ -2125,6 +2338,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           if (!updated.badge || updated.badge.startsWith('-') || updated.badge.includes('پیشنهاد')) {
             updated.badge = `-${disc}%`;
           }
+        }
+        if (origAed > 0 && field === 'originalPriceAed') {
+          const aedRate = getEffectiveAedRate(settings, cms) || 0;
+          const cargoRate = settings?.cargoRatePerKg || 35;
+          const weight = Number(updated.weightKg) || 0.8;
+          const margin = typeof updated.profitMargin === 'number' ? updated.profitMargin : (typeof updated.marginPercent === 'number' ? updated.marginPercent : 20);
+          const shippingFeeAed = (weight * cargoRate) || 20;
+          updated.originalPriceToman = Math.round(((origAed * aedRate) + (shippingFeeAed * aedRate)) * (1 + (margin / 100)));
         }
       }
       return updated;
@@ -2157,6 +2378,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (item.id === id) {
         const updated = { ...item, [field]: value };
         
+        // Sync isPopular & isPopularSample
+        if (field === 'isPopular' || field === 'isPopularSample') {
+          updated.isPopular = Boolean(value);
+          updated.isPopularSample = Boolean(value);
+        }
+
         // Dynamic Toman price calculation in real-time
         if (field === 'priceAed' || field === 'weightKg' || field === 'marginPercent') {
           const aedRate = getEffectiveAedRate(settings, cms) || 0;
@@ -2492,14 +2719,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       onUpdateCms(cleanCmsPayload as any);
 
       // ---------------------------------------------------------------
-      // STEP 3: Write DIRECTLY to Firestore in parallel & saveAdminSettingsPayload
+      // STEP 3: Write DIRECTLY to Firestore in parallel
       // ---------------------------------------------------------------
       await Promise.all([
-        setDoc(doc(db, 'settings', 'general'), cleanGeneralPayload, { merge: true }),
-        setDoc(doc(db, 'settings', 'cms'), cleanCmsPayload, { merge: true })
+        setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore(cleanGeneralPayload), { merge: true }),
+        setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(cleanCmsPayload), { merge: true }),
+        setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(cleanCmsPayload), { merge: true })
       ]);
-
-      await saveAdminSettingsPayload(null, cleanCmsPayload);
 
       // D. Only show success AFTER the promise resolves
       setSaveCmsSuccess(true);
@@ -2600,13 +2826,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       await handleDirectCmsSave();
     } else if (activeAdminSubTab === 'accounting' || activeAdminSubTab === 'dashboard') {
       await handleDirectFinancialSave();
+    } else if (activeAdminSubTab === 'products' || activeAdminSubTab === 'inventory' || activeAdminSubTab === 'deals') {
+      await handleSaveProductsAndInventory();
     } else {
       await handleMasterSaveAllAdminSettings();
     }
   };
 
-  const isAnySaving = isMasterSaving || isSavingCms || isSavingSettings || isSavingGateway || isSavingSchedule || isChangingPass;
-  const isAnySuccess = masterSaveSuccess || saveCmsSuccess || saveSettingsSuccess || saveGatewaySuccess || (passMessage?.type === 'success');
+  const isAnySaving = isMasterSaving || isSavingCms || isSavingSettings || isSavingGateway || isSavingSchedule || isChangingPass || isSavingProducts;
+  const isAnySuccess = masterSaveSuccess || saveCmsSuccess || saveSettingsSuccess || saveGatewaySuccess || saveProductsSuccess || (passMessage?.type === 'success');
 
   // Stats for Dashboard
   const totalRevenueToman = (orders || [])
@@ -2737,6 +2965,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
 
         <button
+          type="button"
           onClick={handleLogout}
           className="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer shrink-0"
         >
@@ -3288,6 +3517,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </select>
 
                 <button
+                  type="button"
                   onClick={fetchAdminOrders}
                   className="bg-slate-100 hover:bg-slate-200 border border-slate-300 p-2.5 rounded-xl transition text-slate-700 cursor-pointer flex items-center gap-1 text-xs font-bold shrink-0"
                   title="به‌روزرسانی لیست سفارشات"
@@ -3598,6 +3828,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </a>
 
                             <button
+                              type="button"
                               onClick={async () => {
                                 try {
                                   const res = await fetch('/api/notify/telegram', {
@@ -3622,6 +3853,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </button>
 
                             <button
+                              type="button"
                               onClick={async () => {
                                 try {
                                   const res = await fetch('/api/notify/email', {
@@ -3646,6 +3878,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </button>
 
                             <button
+                              type="button"
                               onClick={() => handleDeleteOrder(order.id)}
                               className="p-1.5 text-rose-500 hover:bg-rose-50 border border-rose-200 rounded-lg transition cursor-pointer"
                               title="حذف سفارش"
@@ -3766,7 +3999,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {/* SUB-VIEW 1: INVENTORY (انبار ایران) */}
           {activeProductSubTab === 'inventory' && (
             <div className="space-y-6">
-              {saveCmsSuccess && (
+              {(saveCmsSuccess || saveProductsSuccess) && (
                 <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-bold flex items-center gap-2 shadow-2xs">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>تنظیمات و اطلاعات انبار ایران با موفقیت ذخیره شدند.</span>
@@ -3812,7 +4045,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <input
                       type="checkbox"
                       checked={showLocalInventory}
-                      onChange={(e) => setShowLocalInventory(e.target.checked)}
+                      onChange={async (e) => {
+                        const newVal = e.target.checked;
+                        setShowLocalInventory(newVal);
+                        try {
+                          const currentCms = cms || {};
+                          const updatedCms = {
+                            ...currentCms,
+                            showLocalInventory: newVal,
+                            features: {
+                              ...(currentCms.features || {}),
+                              showLocalInventory: newVal
+                            }
+                          };
+                          if (typeof window !== 'undefined') {
+                            localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+                            localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+                            localStorage.setItem('sirikfit_features_config', JSON.stringify({ showLocalInventory: newVal }));
+                            window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+                            window.dispatchEvent(new Event('storage'));
+                          }
+                          onUpdateCms(updatedCms as any);
+                          await Promise.all([
+                            setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore({ showLocalInventory: newVal }), { merge: true }),
+                            setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true })
+                          ]);
+                        } catch (_err) {}
+                      }}
                       className="sr-only peer"
                     />
                     <div className="w-14 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-[#E11D48]"></div>
@@ -3822,14 +4081,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
               {/* 2. MANAGEMENT HEADER & ADD NEW ITEM BUTTON CARD */}
               <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-2xs space-y-4">
-                <div className="space-y-1">
-                  <h3 className="font-black text-base text-slate-900 flex items-center gap-2">
-                    <PackageCheck className="w-5 h-5 text-amber-600" />
-                    <span>مدیریت کالاهای موجود در انبار ایران ({localInventoryList.length})</span>
-                  </h3>
-                  <p className="text-xs text-slate-500 font-medium leading-relaxed">
-                    کالاهایی که فیزیک آن‌ها در ایران موجود است و برای تحویل فوری ۱ الی ۲ روزه به کاربران ارائه می‌شود
-                  </p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div className="space-y-1">
+                    <h3 className="font-black text-base text-slate-900 flex items-center gap-2">
+                      <PackageCheck className="w-5 h-5 text-amber-600" />
+                      <span>مدیریت کالاهای موجود در انبار ایران ({localInventoryList.length})</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                      کالاهایی که فیزیک آن‌ها در ایران موجود است و برای تحویل فوری ۱ الی ۲ روزه به کاربران ارائه می‌شود
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleSaveProductsAndInventory(e)}
+                    disabled={isSavingProducts}
+                    className={`px-5 py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition shadow-sm cursor-pointer shrink-0 ${
+                      saveProductsSuccess
+                        ? 'bg-emerald-600 text-white'
+                        : isSavingProducts
+                        ? 'bg-slate-800 text-slate-300 cursor-not-allowed opacity-90'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+                    }`}
+                  >
+                    {isSavingProducts ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>در حال ذخیره...</span>
+                      </>
+                    ) : saveProductsSuccess ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                        <span>تغییرات ذخیره شد ✓</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 text-emerald-200" />
+                        <span>ذخیره تغییرات انبار ایران</span>
+                      </>
+                    )}
+                  </button>
                 </div>
 
                 {/* Auto-Extract via URL Section */}
@@ -4313,7 +4604,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div>
                     <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
                       <Sparkles className="w-4.5 h-4.5 text-amber-500" />
-                      <span>مدیریت پیشنهادهای ویژه و پرفروش‌ترین‌ها</span>
+                      <span>مدیریت پیشنهادهای ویژه و پرفروش‌ترین‌ها ({dealsList.length})</span>
                     </h3>
                     <p className="text-xs text-slate-500 font-medium mt-0.5">
                       محصولاتی که در بخش «پیشنهادهای ویژه و پرفروش‌ترین‌ها» در صفحه اصلی نمایش داده می‌شوند
@@ -4321,6 +4612,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => handleSaveProductsAndInventory(e)}
+                      disabled={isSavingProducts}
+                      className={`px-4 py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer shrink-0 ${
+                        saveProductsSuccess
+                          ? 'bg-emerald-600 text-white'
+                          : isSavingProducts
+                          ? 'bg-slate-800 text-slate-300 cursor-not-allowed opacity-90'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+                      }`}
+                    >
+                      {isSavingProducts ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>در حال ذخیره...</span>
+                        </>
+                      ) : saveProductsSuccess ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                          <span>ذخیره شد ✓</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4 text-emerald-200" />
+                          <span>ذخیره تغییرات پیشنهادها</span>
+                        </>
+                      )}
+                    </button>
+
                     <button
                       type="button"
                       onClick={handleAddDeal}
@@ -4373,53 +4694,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 {dealsList.length === 0 ? (
                   <div className="text-center py-8 text-slate-400 text-xs font-semibold">
-                    هیچ پیشنهادی ثبت نشده است. روی «افزودن پیشنهاد جدید» کلیک کنید.
+                    هیچ پیشنهادی ثبت نشده است. روی «افزودن دستی پیشنهاد» یا «استخراج با لینک» کلیک کنید.
                   </div>
                 ) : (
                   <div className="space-y-4">
                     {(dealsList || []).map((deal, index) => (
                       <div
                         key={deal.id}
-                        className={`p-4 rounded-2xl border transition space-y-3 ${
+                        className={`bg-white border rounded-2xl p-4 shadow-2xs space-y-3 transition ${
                           deal.isActive !== false
-                            ? 'bg-slate-50 border-slate-200'
-                            : 'bg-slate-100/70 border-slate-200/80 opacity-75'
+                            ? 'border-slate-200'
+                            : 'border-slate-200/70 bg-slate-50/60 opacity-80'
                         }`}
                       >
-                        {/* Top Row: Thumbnail, Title, Active Toggle & Delete */}
-                        <div className="flex items-center gap-3 border-b border-slate-200 pb-2.5">
-                          <img
-                            src={deal.image}
-                            alt={deal.title}
-                            className="w-12 h-12 rounded-xl border border-slate-200 object-contain bg-white shrink-0"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none';
-                            }}
-                          />
-
-                          <div className="flex-1">
-                            <label className="text-[10px] font-extrabold text-slate-500 block mb-0.5">
-                              عنوان محصول {index + 1}:
-                            </label>
+                        {/* TOP ROW: Index, Thumb, Title, Toggles & Actions */}
+                        <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100">
+                          <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+                            <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-800 font-black text-xs flex items-center justify-center shrink-0 border border-slate-200">
+                              {index + 1}
+                            </div>
+                            {deal.image ? (
+                              <img
+                                src={deal.image}
+                                alt="thumb"
+                                className="w-8 h-8 rounded-lg object-contain border border-slate-200 shrink-0 bg-white p-0.5"
+                                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                              />
+                            ) : null}
                             <input
                               type="text"
                               value={deal.title}
                               onChange={(e) => handleUpdateDealField(deal.id, 'title', e.target.value)}
-                              placeholder="عنوان کامل محصول"
-                              className="w-full bg-white border border-slate-300 text-slate-900 font-extrabold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900"
+                              placeholder="عنوان کامل محصول (مثال: پروتئین وی گلد استاندارد)"
+                              className="w-full bg-slate-50/80 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
                             />
                           </div>
 
-                          {/* Active Toggle Switch */}
+                          {/* Toggles & Delete Button */}
                           <div className="flex items-center gap-2 shrink-0">
-                            <label className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5 cursor-pointer">
+                            <label className="text-[11px] font-bold cursor-pointer flex items-center gap-1.5 bg-amber-50 text-amber-900 px-2.5 py-1.5 rounded-lg border border-amber-200 hover:bg-amber-100 transition">
                               <input
                                 type="checkbox"
-                                checked={deal.isActive !== false}
-                                onChange={(e) => handleUpdateDealField(deal.id, 'isActive', e.target.checked)}
-                                className="w-4 h-4 text-slate-900 rounded focus:ring-slate-900"
+                                checked={Boolean(deal.isPopular || deal.isPopularSample)}
+                                onChange={(e) => handleUpdateDealField(deal.id, 'isPopular', e.target.checked)}
+                                className="w-3.5 h-3.5 text-amber-600 rounded focus:ring-amber-500 cursor-pointer"
                               />
-                              <span className={deal.isActive !== false ? 'text-emerald-700' : 'text-slate-400'}>
+                              <span>نمونه محبوب</span>
+                            </label>
+
+                            <label className="text-[11px] font-extrabold cursor-pointer flex items-center gap-1.5 bg-emerald-50 text-emerald-800 px-2.5 py-1.5 rounded-lg border border-emerald-200">
+                              <input
+                                type="checkbox"
+                                checked={deal.isActive !== false && deal.inStock !== false}
+                                onChange={(e) => {
+                                  handleUpdateDealField(deal.id, 'isActive', e.target.checked);
+                                  handleUpdateDealField(deal.id, 'inStock', e.target.checked);
+                                }}
+                                className="w-3.5 h-3.5 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
+                              />
+                              <span className={deal.isActive !== false ? 'text-emerald-700 font-black' : 'text-slate-400'}>
                                 {deal.isActive !== false ? 'فعال' : 'غیرفعال'}
                               </span>
                             </label>
@@ -4427,7 +4760,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <button
                               type="button"
                               onClick={() => handleDeleteDeal(deal.id)}
-                              className="p-1.5 text-rose-500 hover:bg-rose-100 rounded-lg transition cursor-pointer"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                               title="حذف پیشنهاد"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -4435,158 +4768,189 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </div>
                         </div>
 
-                        {/* Grid Inputs: Section, Calculator toggle, Badge/Label */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3 rounded-xl border border-slate-200">
+                        {/* Dynamic Pricing Formula Inputs (Purchase AED, Weight KG, Profit Margin %) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50/50 p-2.5 rounded-xl border border-slate-200/60">
                           <div>
-                            <label className="text-[11px] font-extrabold text-slate-800 block mb-1">بخش در صفحه پیشنهادها:</label>
+                            <label className="text-[11px] font-black text-slate-700 block mb-1">
+                              قیمت خرید (درهم - AED):
+                            </label>
+                            <input
+                              type="number"
+                              value={deal.priceAed || ''}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
+                                handleUpdateDealField(deal.id, 'priceAed', val);
+                              }}
+                              onFocus={(e) => e.target.select()}
+                              placeholder="مثال: 180"
+                              className="w-full bg-white border border-slate-200 text-slate-900 font-mono font-bold text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-black text-slate-700 block mb-1">
+                              وزن کالا (کیلوگرم - KG):
+                            </label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={deal.weightKg || ''}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? 0.8 : parseFloat(e.target.value) || 0.8;
+                                handleUpdateDealField(deal.id, 'weightKg', val);
+                              }}
+                              onFocus={(e) => e.target.select()}
+                              placeholder="مثال: 0.8"
+                              className="w-full bg-white border border-slate-200 text-slate-900 font-mono font-bold text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-black text-slate-700 block mb-1">
+                              درصد سود (پیشفرض ۲۰٪):
+                            </label>
+                            <input
+                              type="number"
+                              value={deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : 20)}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? 20 : parseFloat(e.target.value) || 0;
+                                handleUpdateDealField(deal.id, 'profitMargin', val);
+                              }}
+                              onFocus={(e) => e.target.select()}
+                              placeholder="۲۰"
+                              className="w-full bg-white border border-slate-200 text-slate-900 font-mono font-bold text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                            />
+                          </div>
+                        </div>
+
+                        {/* GRID ROW 1: Selling Price Toman, Old Price Toman, Stock Quantity */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                              قیمت فروش (تومان):
+                            </label>
+                            <input
+                              type="number"
+                              value={deal.priceToman || ''}
+                              onChange={(e) => {
+                                const clean = e.target.value.replace(/^0+(?=\d)/, '');
+                                handleUpdateDealField(deal.id, 'priceToman', clean === '' ? 0 : parseFloat(clean) || 0);
+                              }}
+                              onFocus={(e) => e.target.select()}
+                              placeholder="محاسبه خودکار..."
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-mono font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                              قیمت قبل (تومان):
+                            </label>
+                            <input
+                              type="number"
+                              value={deal.originalPriceToman || ''}
+                              onChange={(e) => {
+                                const clean = e.target.value.replace(/^0+(?=\d)/, '');
+                                handleUpdateDealField(deal.id, 'originalPriceToman', clean === '' ? undefined : parseFloat(clean) || undefined);
+                              }}
+                              onFocus={(e) => e.target.select()}
+                              placeholder="اختیاری (مثال: 7800000)"
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-mono font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                              موجودی عددی:
+                            </label>
+                            <input
+                              type="number"
+                              value={deal.stockQuantity !== undefined ? deal.stockQuantity : (deal.stockCount !== undefined ? deal.stockCount : 10)}
+                              onChange={(e) => {
+                                const clean = e.target.value.replace(/^0+(?=\d)/, '');
+                                const parsed = clean === '' ? 0 : parseInt(clean, 10) || 0;
+                                handleUpdateDealField(deal.id, 'stockQuantity', parsed);
+                                handleUpdateDealField(deal.id, 'stockCount', parsed);
+                              }}
+                              onFocus={(e) => e.target.select()}
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-mono font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                            />
+                          </div>
+                        </div>
+
+                        {/* GRID ROW 2: Category, Brand/Store, Section */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                              دسته‌بندی:
+                            </label>
+                            <select
+                              value={deal.category || 'مکمل‌های ورزشی'}
+                              onChange={(e) => handleUpdateDealField(deal.id, 'category', e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition cursor-pointer"
+                            >
+                              <option value="مکمل‌های ورزشی">مکمل‌های ورزشی</option>
+                              <option value="پروتئین‌ها">پروتئین‌ها</option>
+                              <option value="ویتامین‌ها">ویتامین‌ها</option>
+                              <option value="قبل تمرین">قبل تمرین</option>
+                              <option value="امگا ۳">امگا ۳</option>
+                              <option value="پرفروش‌ها">پرفروش‌ها</option>
+                              <option value="سایر">سایر</option>
+                              {deal.category && !['مکمل‌های ورزشی', 'پروتئین‌ها', 'ویتامین‌ها', 'قبل تمرین', 'امگا ۳', 'پرفروش‌ها', 'سایر'].includes(deal.category) && (
+                                <option value={deal.category}>
+                                  {deal.category}
+                                </option>
+                              )}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                              برند / فروشگاه دبی:
+                            </label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <input
+                                type="text"
+                                value={deal.brand || ''}
+                                onChange={(e) => handleUpdateDealField(deal.id, 'brand', e.target.value)}
+                                placeholder="برند (مثلا: ON)"
+                                className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                              />
+                              <input
+                                type="text"
+                                value={deal.storeName || ''}
+                                onChange={(e) => handleUpdateDealField(deal.id, 'storeName', e.target.value)}
+                                placeholder="فروشگاه (Dr. Nutrition)"
+                                className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                              بخش در صفحه پیشنهادها:
+                            </label>
                             <select
                               value={deal.section || 'featured'}
                               onChange={(e) => handleUpdateDealField(deal.id, 'section', e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900"
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition cursor-pointer"
                             >
                               <option value="featured">⭐ پیشنهادهای ویژه (بخش ۱)</option>
                               <option value="bestseller">🔥 پرفروش‌ترین‌ها (بخش ۲)</option>
                               <option value="discount">🏷️ تخفیف‌دار و ویژه (بخش ۳)</option>
                             </select>
                           </div>
-
-                          <div>
-                            <label className="text-[11px] font-extrabold text-slate-800 block mb-1">عنوان دکمه دایره‌ای ماشین حساب:</label>
-                            <input
-                              type="text"
-                              value={deal.badge || ''}
-                              onChange={(e) => handleUpdateDealField(deal.id, 'badge', e.target.value)}
-                              placeholder="مثلا: 💪 وی ۵ پوندی ON"
-                              className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none font-bold"
-                            />
-                          </div>
-
-                          <div className="flex items-center pt-5">
-                            <label className="text-xs font-extrabold text-slate-800 flex items-center gap-2 cursor-pointer bg-slate-50 p-2 rounded-lg border border-slate-200 w-full">
-                              <input
-                                type="checkbox"
-                                checked={deal.isFeaturedInCalculator !== false}
-                                onChange={(e) => handleUpdateDealField(deal.id, 'isFeaturedInCalculator', e.target.checked)}
-                                className="w-4 h-4 text-slate-900 rounded focus:ring-slate-900"
-                              />
-                              <span className={deal.isFeaturedInCalculator !== false ? 'text-indigo-700 font-bold' : 'text-slate-500'}>
-                                نمایش در نمونه‌های محبوب ماشین حساب
-                              </span>
-                            </label>
-                          </div>
                         </div>
 
-                        {/* Grid Inputs: Brand, Category, Store Name */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <div>
-                            <label className="text-[11px] font-bold text-slate-600 block mb-1">برند / کمپانی:</label>
-                            <input
-                              type="text"
-                              value={deal.brand || ''}
-                              onChange={(e) => handleUpdateDealField(deal.id, 'brand', e.target.value)}
-                              placeholder="مثلا: Optimum Nutrition"
-                              className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[11px] font-bold text-slate-600 block mb-1">دسته‌بندی:</label>
-                            <select
-                              value={deal.category || '💊 مکمل‌های ورزشی'}
-                              onChange={(e) => handleUpdateDealField(deal.id, 'category', e.target.value)}
-                              className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none"
-                            >
-                              <option value="💊 مکمل‌های ورزشی">💊 مکمل‌های ورزشی</option>
-                              <option value="✨ ویتامین و سلامت">✨ ویتامین و سلامت</option>
-                              <option value="🔥 پرفروش‌ها">🔥 پرفروش‌ها</option>
-                              <option value="🏷️ تخفیف ویژه">🏷️ تخفیف ویژه</option>
-                              <option value="سایر">سایر</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="text-[11px] font-bold text-slate-600 block mb-1">فروشگاه دبی:</label>
-                            <input
-                              type="text"
-                              value={deal.storeName || ''}
-                              onChange={(e) => handleUpdateDealField(deal.id, 'storeName', e.target.value)}
-                              placeholder="مثلا: Dr. Nutrition"
-                              className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Grid Inputs: Price AED, Original Price, Discount %, Weight */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                          <div>
-                            <label className="text-[11px] font-bold text-slate-600 block mb-1">قیمت ویژه (درهم):</label>
-                            <input
-                              type="number"
-                              value={deal.priceAed}
-                              onChange={(e) => {
-                                const clean = e.target.value.replace(/^0+(?=\d)/, '');
-                                handleUpdateDealField(deal.id, 'priceAed', clean === '' ? 0 : parseFloat(clean) || 0);
-                              }}
-                              onFocus={(e) => e.target.select()}
-                              className="w-full bg-white border border-slate-300 text-slate-900 font-mono font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[11px] font-bold text-slate-600 block mb-1">قیمت قبلی (درهم):</label>
-                            <input
-                              type="number"
-                              value={deal.originalPriceAed || ''}
-                              onChange={(e) => {
-                                const clean = e.target.value.replace(/^0+(?=\d)/, '');
-                                handleUpdateDealField(deal.id, 'originalPriceAed', clean === '' ? undefined : parseFloat(clean) || undefined);
-                              }}
-                              onFocus={(e) => e.target.select()}
-                              placeholder="اختیاری"
-                              className="w-full bg-white border border-slate-300 text-slate-900 font-mono font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[11px] font-bold text-slate-600 block mb-1">تخفیف (٪):</label>
-                            <input
-                              type="number"
-                              value={deal.discountPercent || ''}
-                              onChange={(e) => {
-                                const clean = e.target.value.replace(/^0+(?=\d)/, '');
-                                handleUpdateDealField(deal.id, 'discountPercent', clean === '' ? undefined : parseFloat(clean) || undefined);
-                              }}
-                              onFocus={(e) => e.target.select()}
-                              placeholder="مثلا 20"
-                              className="w-full bg-white border border-slate-300 text-slate-900 font-mono font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[11px] font-bold text-slate-600 block mb-1">وزن (کیلوگرم):</label>
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={deal.weightKg || 0.5}
-                              onChange={(e) => {
-                                const clean = e.target.value.replace(/^0+(?=\d)/, '');
-                                handleUpdateDealField(deal.id, 'weightKg', clean === '' ? 0.5 : parseFloat(clean) || 0.5);
-                              }}
-                              onFocus={(e) => e.target.select()}
-                              className="w-full bg-white border border-slate-300 text-slate-900 font-mono font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Image URL & Product URL */}
+                        {/* GRID ROW 3: Image URL & Dubai Product URL */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="text-[11px] font-bold text-slate-600 block mb-1">لینک تصویر عکس:</label>
                             <input
                               type="text"
-                              value={deal.image}
+                              value={deal.image || ''}
                               onChange={(e) => handleUpdateDealField(deal.id, 'image', e.target.value)}
-                              className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none dir-ltr font-mono"
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition dir-ltr font-mono"
                               dir="ltr"
                             />
                           </div>
@@ -4595,15 +4959,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <label className="text-[11px] font-bold text-slate-600 block mb-1">لینک خرید محصول در دبی:</label>
                             <input
                               type="text"
-                              value={deal.url}
+                              value={deal.url || ''}
                               onChange={(e) => handleUpdateDealField(deal.id, 'url', e.target.value)}
-                              className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none dir-ltr font-mono"
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition dir-ltr font-mono"
                               dir="ltr"
                             />
                           </div>
                         </div>
 
-                        {/* Variant Edit Row (Flavors & Sizes) */}
+                        {/* GRID ROW 4: Flavors & Sizes */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="text-[11px] font-bold text-slate-600 block mb-1">
@@ -4617,7 +4981,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 handleUpdateDealField(deal.id, 'flavors', arr);
                               }}
                               placeholder="مثال: Double Chocolate, Vanilla, Strawberry"
-                              className="w-full bg-white border border-slate-300 text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
                             />
                           </div>
 
@@ -4633,11 +4997,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 handleUpdateDealField(deal.id, 'sizes', arr);
                               }}
                               placeholder="مثال: 5 lbs, 2 lbs, 60 Servings"
-                              className="w-full bg-white border border-slate-300 text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
                             />
                           </div>
                         </div>
 
+                        {/* GRID ROW 5: Description */}
                         <div>
                           <label className="text-[11px] font-bold text-slate-600 block mb-1">توضیحات و ویژگی‌های کالا:</label>
                           <textarea
@@ -4645,7 +5010,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             value={deal.description || ''}
                             onChange={(e) => handleUpdateDealField(deal.id, 'description', e.target.value)}
                             placeholder="توضیحات کوتاه، مشخصات یا ویژگی‌های محصول..."
-                            className="w-full bg-white border border-slate-300 text-slate-900 text-xs p-2.5 rounded-lg focus:outline-none leading-relaxed"
+                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 text-xs p-2.5 rounded-lg focus:outline-none focus:border-slate-900 leading-relaxed transition"
                           />
                         </div>
                       </div>
@@ -4679,9 +5044,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </p>
                   </div>
 
-                  <span className="text-xs font-black px-3.5 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl shrink-0 self-start sm:self-center">
-                    {warehouseCategories.length} دسته‌بندی کل • {warehouseCategories.filter(c => c.isPinned).length}/6 سنجاق‌شده
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => handleSaveProductsAndInventory(e)}
+                      disabled={isSavingProducts}
+                      className={`px-4 py-2 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer shrink-0 ${
+                        saveProductsSuccess
+                          ? 'bg-emerald-600 text-white'
+                          : isSavingProducts
+                          ? 'bg-slate-800 text-slate-300 cursor-not-allowed opacity-90'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+                      }`}
+                    >
+                      {isSavingProducts ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>در حال ذخیره...</span>
+                        </>
+                      ) : saveProductsSuccess ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                          <span>ذخیره شد ✓</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4 text-emerald-200" />
+                          <span>ذخیره دسته‌بندی‌ها</span>
+                        </>
+                      )}
+                    </button>
+
+                    <span className="text-xs font-black px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl shrink-0">
+                      {warehouseCategories.length} دسته‌بندی • {warehouseCategories.filter(c => c.isPinned).length}/6 سنجاق‌شده
+                    </span>
+                  </div>
                 </div>
 
                 {/* Add New Category Form */}
@@ -4927,9 +5324,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       با استفاده از دکمه‌های «بالا» و «پایین»، جابه‌جایی و ترتیب دقیق دایره‌های «پرطرفدارها» در بالای صفحه اصلی را مشخص کنید.
                     </p>
                   </div>
-                  <span className="text-xs font-black px-3.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl shrink-0 self-start sm:self-center">
-                    {toPersianDigits(getPopularSamplesList().length)} نمونه فعال
-                  </span>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => handleSaveProductsAndInventory(e)}
+                      disabled={isSavingProducts}
+                      className={`px-4 py-2 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer shrink-0 ${
+                        saveProductsSuccess
+                          ? 'bg-emerald-600 text-white'
+                          : isSavingProducts
+                          ? 'bg-slate-800 text-slate-300 cursor-not-allowed opacity-90'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+                      }`}
+                    >
+                      {isSavingProducts ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>در حال ذخیره...</span>
+                        </>
+                      ) : saveProductsSuccess ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                          <span>ذخیره شد ✓</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4 text-emerald-200" />
+                          <span>ذخیره ترتیب پرطرفدارها</span>
+                        </>
+                      )}
+                    </button>
+
+                    <span className="text-xs font-black px-3.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl shrink-0 self-start sm:self-center">
+                      {toPersianDigits(getPopularSamplesList().length)} نمونه فعال
+                    </span>
+                  </div>
                 </div>
 
                 <div className="space-y-2.5 pt-2">
@@ -4983,6 +5413,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           >
                             <ArrowDown className="w-3.5 h-3.5" />
                             <span className="hidden sm:inline">پایین</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePopularSample(sample)}
+                            className="px-3 py-1.5 rounded-xl bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 hover:text-red-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
+                            title="حذف از لیست پرطرفدارها"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                            <span className="text-[11px] font-bold">حذف</span>
                           </button>
                         </div>
                       </div>

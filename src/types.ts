@@ -1,3 +1,35 @@
+export interface ProductVariantMatrix {
+  sizes: string[];      // e.g., ["1 kg", "1.8 kg", "5 lbs", "32 Servings"]
+  flavors: string[];    // e.g., ["Chocolate Caramel", "Green Apple", "Vanilla"]
+  selectedVariant?: {
+    size?: string;
+    flavor?: string;
+    priceAED?: number;
+  };
+}
+
+export interface NormalizedProduct {
+  id: string;
+  source: 'drnutrition' | 'gnc' | 'lifepharmacy' | 'generic';
+  sourceUrl: string;
+  canonicalUrl?: string;
+  title: string;
+  brand: string;
+  currentPriceAED: number;
+  originalPriceAED?: number;
+  discountPercentage?: number;
+  currency: 'AED';
+  mainImage: string;
+  galleryImages: string[];
+  inStock: boolean;
+  variants: ProductVariantMatrix;
+  description: string;
+  nutritionFacts?: Record<string, string>;
+  ingredients?: string[];
+  category?: string;
+  scrapedAt: string;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -41,14 +73,23 @@ export interface FeaturedDeal {
   originalPriceAed?: number;
   discountPercent?: number;
   weightKg?: number;
+  profitMargin?: number;
+  marginPercent?: number;
+  priceToman?: number;
+  originalPriceToman?: number;
+  stockQuantity?: number;
+  stockCount?: number;
   image?: string;
   url: string;
   storeName?: string;
   badge?: string;
+  deliveryBadge?: string;
   section?: 'featured' | 'bestseller' | 'discount';
   isFeaturedInCalculator?: boolean;
   isPopularSample?: boolean;
+  isPopular?: boolean;
   isActive: boolean;
+  inStock?: boolean;
   description?: string;
   flavors?: string[];
   sizes?: string[];
@@ -60,17 +101,23 @@ export interface LocalInventoryItem {
   image: string;
   priceToman: number;
   originalPriceToman?: number;
+  calculatedTomanOverride?: number;
   stockQuantity: number;
+  stockCount?: number;
   category: string;
   description?: string;
   deliveryBadge?: string;
   inStock: boolean;
+  isIranWarehouse?: boolean;
+  isLocalInventory?: boolean;
   isPopularSample?: boolean;
+  isPopular?: boolean;
   priceAed?: number;
   weightKg?: number;
   marginPercent?: number;
   flavors?: string[];
   sizes?: string[];
+  url?: string;
 }
 
 export interface HomePageSettings {
@@ -527,6 +574,8 @@ export interface CartItem {
   galleryImages?: string[];
   storeName?: string;
   calculatedToman?: number;
+  calculatedTomanOverride?: number;
+  priceToman?: number;
   quantity: number;
   category?: string;
   brand?: string;
@@ -542,6 +591,7 @@ export interface CartItem {
   variants?: ProductVariant[];
   description?: string;
   isLocalInventory?: boolean;
+  isIranWarehouse?: boolean;
   isDeal?: boolean;
 }
 

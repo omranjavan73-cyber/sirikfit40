@@ -1,83 +1,154 @@
-# SIRIKFIT Architectural & State Synchronization Guide
+# Sirikfit System Architecture & Debugging Guide
 
-## 1. Overview & Core Architecture
-SIRIKFIT operates on a resilient **Offline-First & LocalStorage-Primary** state management model paired with **Realtime Firebase Firestore SDK Synchronization** and a **Serverless/Cloud Function-Safe Express Backend**.
+Welcome to the definitive architecture and operational reference for **Sirikfit** (Dubai-to-Iran E-Commerce & Supplement Forwarding Platform). This document details data flows, persistence mechanisms, serverless safety guidelines, and step-by-step troubleshooting procedures.
+
+---
+
+## 1. System Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      ADMIN PANEL / UI                       │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-               1. Save to LocalStorage (Instant)
-                               │
-               2. window.dispatchEvent('settingsUpdated')
-                               │
-            ┌──────────────────┴──────────────────┐
-            ▼                                     ▼
-┌───────────────────────┐             ┌───────────────────────┐
-│     Global State      │             │     Async Network     │
-│   (React / Header)    │             │ (Firestore & Backend) │
-└───────────────────────┘             └───────────────────────┘
+ ┌─────────────────────────────────────────────────────────────┐
+ │                      Client (React SPA)                     │
+ │                                                             │
+ │  ┌──────────────────┐    CustomEvent     ┌───────────────┐  │
+ │  │   Admin Panel    │ ─────────────────> │ Global Header │  │
+ │  │ / Pricing Rules  │  'settingsUpdated' │   & Modals    │  │
+ │  └────────┬─────────┘                    └───────────────┘  │
+ │           │                                                 │
+ │           ▼ LocalStorage First                              │
+ │  ┌───────────────────────────────────────────────────────┐  │
+ │  │ Keys: 'sirikfit_aed_rate', 'sirikfit_financial_...',  │  │
+ │  │       'sirikfit_cms_config', 'omex_cart_items'        │  │
+ │  └────────────────────────┬──────────────────────────────┘  │
+ └───────────────────────────┼─────────────────────────────────┘
+                             │ Direct Firebase SDK / REST
+                             ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │               Backend & Cloud Infrastructure                │
+ │                                                             │
+ │   Firestore Database         Serverless API (server.ts)     │
+ │   - settings/aed_rate        - /api/parse-link              │
+ │   - settings/pricing_rules   - /api/scrape-product          │
+ │   - settings/cms_config      - /api/analytics/track-visit   │
+ │   - scraped_products_cache                                  │
+ └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. The 3-Step Save Sequence (Bulletproof Pattern)
-Whenever settings, AED exchange rates, pricing rules, or CMS items are saved in the Admin Panel (`adminSaveHelper.ts` / `PricingRulesAdmin.tsx` / `AdminPanel.tsx`), the application strictly executes in this order:
+## 2. Global State & Settings Synchronization
 
-1. **Step 1: Synchronous LocalStorage Persistence (Immediate Source of Truth)**
-   - All string numeric values are sanitized using `safeParseNumeric(val)` to prevent `NaN` or type comparison bugs.
-   - Values are immediately stored in keys:
-     - `sirikfit_aed_rate`
-     - `sirikfit_financial_settings`
-     - `sirikfit_app_settings`
-     - `sirikfit_cms_config`
-     - `omex_pricing_rules`
-2. **Step 2: Synchronous Event Dispatch (Zero UI Lag)**
-   - Dispatches `window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: payload }))` and `window.dispatchEvent(new Event('storage'))`.
-   - `App.tsx` and all consumers instantly re-render with new values without waiting for network requests.
-3. **Step 3: Asynchronous Firebase Firestore & Non-Blocking REST Sync**
-   - Calls Firestore SDK `setDoc(doc(db, 'settings', 'app'), ...)` and `setDoc(doc(db, 'settings', 'general'), ...)`.
-   - Fires a non-blocking background fetch to `/api/settings`.
+### The Problem Solved
+Previously, settings like the AED exchange rate or Iran warehouse display toggles were prone to being overwritten upon page reload when the server API took too long or timed out. Furthermore, settings input forms frequently stored numbers as strings, preventing calculation arithmetic from functioning.
 
----
-
-## 3. Application Initialization (`src/App.tsx`)
-On initial page load or hard refresh:
-1. `useState` initializers read from `localStorage` **FIRST**.
-2. If `localStorage` contains an AED rate or financial configuration, it is used immediately.
-3. Hardcoded defaults (e.g., `55,000` Tomans) are ONLY used if `localStorage` and Firestore are completely empty.
-4. Active Firestore `onSnapshot` listeners update the state if remote database changes occur.
+### The Solution: LocalStorage-First Source of Truth
+1. **Immediate Hydration:** `src/App.tsx` reads directly from `localStorage` before any network requests complete:
+   - `sirikfit_aed_rate`
+   - `sirikfit_financial_settings`
+   - `sirikfit_cms_config`
+2. **Synchronous Reactivity:**
+   When an admin updates a setting, the sequence is:
+   1. **Sanitize Types:** Coerce all numeric inputs via `parseFloat(String(val).replace(/,/g, '')) || defaultValue`.
+   2. **Persist to LocalStorage:** Write to browser local storage synchronously.
+   3. **Dispatch Unified Event:** Dispatch `window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { aedRate, settings, cms } }))`.
+   4. **Update React State:** Listeners in `App.tsx` and header components update instantly without needing a page refresh.
+   5. **Asynchronous Cloud Sync:** Directly write to Firestore or server API in the background.
 
 ---
 
-## 4. Serverless & Cloud Function Safety (`server.ts`)
-Firebase Cloud Functions and Cloud Run run in a **Read-Only** environment:
-- `server.ts` checks `isCloudEnv` (`process.env.K_SERVICE || process.env.FUNCTION_TARGET`).
-- In Cloud environments, write operations do NOT write to `./data` (which throws `EROFS` 500 errors).
-- All analytics tracking (`/api/analytics/track-visit`) writes in-memory or directly to Firestore with silent fallbacks, ensuring 200 OK responses.
+## 3. Serverless & Cloud Functions Safety (`server.ts`)
+
+### Read-Only Filesystem Guarantee
+In Firebase Cloud Functions and Google Cloud Run environments (`process.env.K_SERVICE` or serverless containers), the filesystem root `./` is strictly read-only.
+- **Never** write to `./data/settings.json` or local folders in production.
+- All dynamic analytics (`/api/analytics/track-visit`) execute in-memory and return a clean `200 OK` JSON response.
+- Product caching uses Firestore collection `scraped_products_cache` with MD5 URL hashing.
 
 ---
 
-## 5. Troubleshooting & Debugging Guide
+## 4. Multi-Tier Universal & Domain-Specific Scraper Pipeline
 
-### Issue: "AED rate or settings did not update on the homepage after saving in Admin"
-**Checks:**
-1. Open Chrome DevTools > Application > Local Storage > inspect `sirikfit_aed_rate` and `sirikfit_financial_settings`.
-2. Verify that the rate in LocalStorage is a valid positive number.
-3. In Console, test event dispatch manually:
-   ```javascript
-   window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { aedRate: 54000 } }));
-   ```
-4. Verify Firestore document: Check the collection `settings` > doc `app` or `general` in Firebase Console.
+The scraper pipeline in `server.ts` extracts product information, gallery images, prices in AED, and variants (Flavors, Sizes, Servings) through five tiered stages:
 
-### Issue: "500 Internal Server Error on API requests in Cloud Functions"
-**Checks:**
-1. Ensure the function does not attempt disk writes to relative paths like `./data`. Use `/tmp` or Firestore.
-2. Check Cloud Function logs in Google Cloud Console / Firebase Console for `EROFS: read-only file system`.
+```
+  User Enters URL (Dr. Nutrition, Noon, Amazon, GNC, etc.)
+                          │
+                          ▼
+            [ Check Domain & Normalization ]
+                          │
+                          ▼
+        [ Firestore Cache: scraped_products_cache ] ──(Hit)──> Return Cached Product
+                          │ (Miss)
+                          ▼
+      [ Tier 1: Direct SSR Fetch with Chrome 115 Headers ]
+                          │
+                          ├─> Extract Next.js __NEXT_DATA__ embedded JSON
+                          ├─> Extract Schema.org JSON-LD (<script type="application/ld+json">)
+                          └─> Extract Configurable Swatches & DOM
+                          │
+                          ▼ (If blocked or 0 price)
+      [ Tier 2: Domain-Specific Adapters & JSON Endpoints ]
+                          │ (.json / .js / catalog APIs)
+                          ▼ (If protected)
+      [ Tier 3: ScraperAPI Proxy Fallback ]
+                          │
+                          ▼ (If fails)
+      [ Tier 4: Jina Reader Proxy Fallback (r.jina.ai) ]
+                          │
+                          ▼ (If raw text only)
+      [ Tier 5: Gemini Flash AI Schema Extractor ]
+                          │
+                          ▼
+             [ Sanitize & Save to Firestore Cache ]
+                          │
+                          ▼
+               Return Clean JSON to Client
+```
 
-### Issue: "FAQ or user inquiry not appearing in Firestore"
-**Checks:**
-1. Check `faqs` and `user_inquiries` collections in Firestore.
-2. Verify `firestore.rules` allows read/write access for `faqs` and `user_inquiries`.
-3. Check browser network tab for any blocked Firestore gRPC requests.
+### Supported Scraper Headers
+- **User-Agent:** `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36`
+- **Accept-Language:** `en-US,en;q=0.9`
+
+---
+
+## 5. Cart Quantity Enforcement
+
+- When a product is selected or added, the quantity strictly defaults to `1`.
+- Any addition payload is bounded via `Math.max(1, Math.floor(product.quantity || 1))`.
+- When users switch between products in `ProductDetailView` or open `ProductDetailModal`, the internal quantity state resets immediately to `1`.
+
+---
+
+## 6. Troubleshooting & Diagnostics Guide
+
+| Issue | Root Cause | Solution Step |
+|---|---|---|
+| **AED Rate resets to 55,000 on refresh** | Server API timeout or missing LocalStorage key | Open DevTools -> Application -> Local Storage. Verify `sirikfit_aed_rate` is set. If not, update rate in Admin Panel once. |
+| **Dr. Nutrition scraper returns "Require Manual Entry"** | Cloudflare / bot-protection blocking direct IP | Ensure `SCRAPER_API_KEY` is configured in Admin Panel -> API Keys or environment variables. |
+| **Variants (Flavors / Sizes) not appearing** | Script tags sanitized or missing swatch attributes | Verify site uses Next.js `__NEXT_DATA__` or Shopify JSON. The parser will fallback to DOM regex scanning. |
+| **500 Error on API route in Cloud Functions** | Writing to disk (`fs.writeFileSync`) in read-only environment | Ensure `server.ts` uses Firestore for persistent data or in-memory fallback. |
+| **Cart opens with unexpected item quantity** | Unsanitized quantity payload from modal | Inspect `addToCart` payload in `App.tsx` and ensure `qtyToAdd` is strictly numeric. |
+
+---
+
+## 7. Developer Cheatsheet
+
+### Emitting Settings Update from any Component:
+```ts
+window.dispatchEvent(
+  new CustomEvent('settingsUpdated', {
+    detail: {
+      aedRate: 58500,
+      financialSettings: { /* ... */ },
+      cmsConfig: { /* ... */ }
+    }
+  })
+);
+```
+
+### Scraping a Link via API:
+```bash
+curl -X POST http://localhost:3000/api/parse-link \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.drnutrition.com/en-ae/product/optimum-nutrition-gold-standard-100-whey-protein"}'
+```

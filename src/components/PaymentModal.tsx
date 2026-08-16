@@ -152,6 +152,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               {toPersianDigits(minutes)}:{seconds < 10 ? '۰' : ''}{toPersianDigits(seconds)}
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="text-neutral-400 hover:text-neutral-700 p-1 rounded-lg transition cursor-pointer"
             >
@@ -237,6 +238,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             </div>
 
             <button
+              type="button"
               onClick={onClose}
               className="w-full bg-black hover:bg-neutral-800 text-white font-extrabold text-sm py-3 rounded-xl transition shadow-md cursor-pointer mt-2"
             >
@@ -368,6 +370,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             </div>
 
             <button
+              type="button"
               onClick={handlePay}
               disabled={isProcessing}
               className="w-full purple-gradient hover:opacity-95 text-white font-extrabold text-sm py-3.5 rounded-2xl transition shadow-lg shadow-[#7C3AED]/25 flex items-center justify-center gap-2 mt-4 cursor-pointer"

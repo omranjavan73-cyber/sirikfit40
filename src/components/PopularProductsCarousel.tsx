@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { ProductDetailModal } from './ProductDetailModal';
 import type { FinancialSettings } from '../types';
+import { getEffectiveAedRate, calculateFinalToman } from '../utils/formatters';
 
 export interface PopularProductItem {
   id: string;
@@ -85,7 +86,11 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
   };
 
   const rawList = items || products;
-  const list = (rawList && rawList.length > 0) ? rawList : DEFAULT_POPULAR_PRODUCTS;
+  const list = rawList !== undefined ? rawList : DEFAULT_POPULAR_PRODUCTS;
+
+  if (!list || list.length === 0) {
+    return null;
+  }
 
   const handleItemClick = (prod: PopularProductItem) => {
     setSelectedPopularForModal(prod);
@@ -127,15 +132,14 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
         {/* Scrollable Container with Pure White Circular Badges & Thick Borders */}
         <div
           ref={scrollRef}
-          className="flex items-center justify-between sm:justify-start gap-1.5 sm:gap-4 overflow-x-auto no-scrollbar py-1 px-1 dir-rtl scroll-smooth w-full"
+          className="flex flex-row justify-start items-center gap-3 sm:gap-4 overflow-x-auto no-scrollbar py-1 px-1 dir-rtl scroll-smooth w-full"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {list.map((prod) => (
             <div
               key={prod.id}
               onClick={() => handleItemClick(prod)}
-              className="flex flex-col items-center shrink-0 cursor-pointer group select-none transition-transform duration-200 hover:-translate-y-0.5"
-              style={{ width: 'calc((100% - 1.125rem) / 4)', minWidth: '68px', maxWidth: '84px' }}
+              className="flex flex-col items-center shrink-0 cursor-pointer group select-none transition-transform duration-200 hover:-translate-y-0.5 w-[72px] sm:w-[80px]"
             >
               {/* Enlarged Circular Badge Frame (~68px / w-16 h-16 / md:w-20 md:h-20) */}
               <div className="relative w-16 h-16 sm:w-[68px] sm:h-[68px] md:w-20 md:h-20 rounded-full p-0.5 border border-slate-200/90 bg-white shadow-xs hover:shadow-md group-hover:border-slate-600 flex items-center justify-center overflow-hidden transition-all duration-200 shrink-0">
@@ -151,7 +155,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
               </div>
 
               {/* Centered Product Persian Title Below Circle */}
-              <span className="text-[11px] sm:text-xs font-medium text-slate-700 group-hover:text-slate-900 mt-1 text-center truncate w-full max-w-[72px] md:max-w-[88px]">
+              <span className="text-[11px] sm:text-xs font-medium text-slate-700 group-hover:text-slate-900 mt-1 text-center truncate w-full max-w-[72px] md:max-w-[80px]">
                 {prod.title}
               </span>
             </div>
@@ -170,36 +174,82 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
       </div>
 
       {/* Embedded Product Details Modal (Matching Featured Deals) */}
-      <ProductDetailModal
-        isOpen={!!selectedPopularForModal}
-        onClose={() => setSelectedPopularForModal(null)}
-        product={selectedPopularForModal ? {
+      {(() => {
+        if (!selectedPopularForModal) return null;
+        const effectiveRate = getEffectiveAedRate(settings) || defaultSettings.aedRate || 55000;
+        const cargoRate = defaultSettings.cargoRatePerKg || 35;
+        const isLocal = selectedPopularForModal.type === 'local';
+        const raw = selectedPopularForModal.rawItem || {};
+        
+        let priceTomanVal: number | undefined = undefined;
+        let profitMarginVal: number = defaultSettings.profitMargin || 20;
+
+        if (raw.priceToman && raw.priceToman > 0) {
+          priceTomanVal = raw.priceToman;
+        } else if (raw.calculatedTomanOverride && raw.calculatedTomanOverride > 0) {
+          priceTomanVal = raw.calculatedTomanOverride;
+        } else if (raw.calculatedToman && raw.calculatedToman > 0) {
+          priceTomanVal = raw.calculatedToman;
+        } else if (isLocal) {
+          priceTomanVal = raw.priceToman;
+        } else if (selectedPopularForModal.type === 'deal') {
+          profitMarginVal = raw.profitMargin !== undefined ? raw.profitMargin : (raw.marginPercent !== undefined ? raw.marginPercent : (defaultSettings.profitMargin || 20));
+          priceTomanVal = calculateFinalToman(
+            raw.priceAed || 100,
+            raw.weightKg || 0.5,
+            cargoRate,
+            profitMarginVal,
+            effectiveRate
+          );
+        } else {
+          priceTomanVal = calculateFinalToman(
+            150,
+            0.5,
+            cargoRate,
+            profitMarginVal,
+            effectiveRate
+          );
+        }
+
+        const modalProduct = {
+          id: raw.id || selectedPopularForModal.id,
           title: selectedPopularForModal.title,
-          url: selectedPopularForModal.rawItem?.url || 'https://drnutrition.com',
-          priceAed: selectedPopularForModal.rawItem?.priceAed || (selectedPopularForModal.type === 'local' ? Math.round((selectedPopularForModal.rawItem?.priceToman || 0) / defaultSettings.aedRate) : 150),
-          originalPriceAed: selectedPopularForModal.rawItem?.originalPriceAed || 0,
-          weightKg: selectedPopularForModal.rawItem?.weightKg || 0.5,
+          url: raw.url || 'https://drnutrition.com',
+          priceAed: raw.priceAed || (isLocal ? Math.round((raw.priceToman || 0) / effectiveRate) : 150),
+          originalPriceAed: raw.originalPriceAed || 0,
+          priceToman: priceTomanVal,
+          originalPriceToman: raw.originalPriceToman,
+          calculatedTomanOverride: priceTomanVal,
+          profitMargin: profitMarginVal,
+          weightKg: raw.weightKg || 0.5,
           image: selectedPopularForModal.image,
-          storeName: selectedPopularForModal.type === 'local' ? 'انبار ایران (تحویل فوری)' : (selectedPopularForModal.rawItem?.storeName || 'فروشگاه دبی'),
-          brand: selectedPopularForModal.type === 'local' ? 'انبار ایران' : (selectedPopularForModal.rawItem?.brand || 'دبی'),
-          category: selectedPopularForModal.rawItem?.category || (selectedPopularForModal.type === 'local' ? 'موجودی ایران' : 'پرطرفدارها'),
-          description: selectedPopularForModal.rawItem?.description || '',
-          badge: selectedPopularForModal.type === 'local' ? 'موجودی در ایران (تحویل فوری ۲۴ الی ۴۸ ساعته)' : 'ارسال سفارشی از دبی (تحویل ۷ الی ۱۴ روز کاری درب منزل)',
-          calculatedTomanOverride: selectedPopularForModal.type === 'local' ? selectedPopularForModal.rawItem?.priceToman : undefined,
-          isLocalInventory: selectedPopularForModal.type === 'local',
-          flavors: selectedPopularForModal.rawItem?.flavors || [],
-          sizes: selectedPopularForModal.rawItem?.sizes || []
-        } : null}
-        settings={defaultSettings}
-        onAddToCart={(productPayload, flavor, size) => {
-          if (onAddToCart) {
-            onAddToCart(productPayload, flavor, size);
-          } else if (onSelectProduct && selectedPopularForModal) {
-            onSelectProduct(selectedPopularForModal);
-          }
-          setSelectedPopularForModal(null);
-        }}
-      />
+          storeName: isLocal ? 'انبار ایران (تحویل فوری)' : (raw.storeName || 'فروشگاه دبی'),
+          brand: isLocal ? 'انبار ایران' : (raw.brand || 'دبی'),
+          category: raw.category || (isLocal ? 'موجودی ایران' : 'پرطرفدارها'),
+          description: raw.description || '',
+          badge: isLocal ? 'موجودی در ایران (تحویل فوری ۲۴ الی ۴۸ ساعته)' : 'ارسال سفارشی از دبی (تحویل ۷ الی ۱۴ روز کاری درب منزل)',
+          isLocalInventory: isLocal,
+          flavors: raw.flavors || [],
+          sizes: raw.sizes || []
+        };
+
+        return (
+          <ProductDetailModal
+            isOpen={!!selectedPopularForModal}
+            onClose={() => setSelectedPopularForModal(null)}
+            product={modalProduct}
+            settings={settings || defaultSettings}
+            onAddToCart={(productPayload, flavor, size) => {
+              if (onAddToCart) {
+                onAddToCart(productPayload, flavor, size);
+              } else if (onSelectProduct && selectedPopularForModal) {
+                onSelectProduct(selectedPopularForModal);
+              }
+              setSelectedPopularForModal(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };

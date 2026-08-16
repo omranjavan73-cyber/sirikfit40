@@ -138,6 +138,30 @@ export const db = firestoreDb;
 export const auth = getAuth(app);
 export const isFirebaseConfigured = true;
 
+export function sanitizePayloadForFirestore<T = any>(obj: T): T {
+  if (obj === undefined || obj === null) return null as unknown as T;
+  if (typeof obj !== 'object') return obj;
+
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizePayloadForFirestore(item)) as unknown as T;
+  }
+
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj as Record<string, any>)) {
+    if (value === undefined) {
+      continue;
+    }
+    if (value !== null && typeof value === 'object') {
+      clean[key] = sanitizePayloadForFirestore(value);
+    } else {
+      clean[key] = value;
+    }
+  }
+  return clean as T;
+}
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -197,7 +221,7 @@ export async function saveUserProfileToFirestore(userData: {
 }) {
   try {
     const userRef = doc(db, 'users', userData.id);
-    await setDoc(userRef, { ...userData, updatedAt: new Date().toISOString() }, { merge: true });
+    await setDoc(userRef, sanitizePayloadForFirestore({ ...userData, updatedAt: new Date().toISOString() }), { merge: true });
     
     if (typeof window !== 'undefined') {
       const key = `sirikfit_user_${userData.id}`;
@@ -214,7 +238,7 @@ export async function saveUserProfileToFirestore(userData: {
 // ----------------------------------------------------
 export async function saveOrderToFirestore(orderData: any) {
   const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
-  const payload = { ...orderData, id: orderId, orderId, updatedAt: new Date().toISOString() };
+  const payload = sanitizePayloadForFirestore({ ...orderData, id: orderId, orderId, updatedAt: new Date().toISOString() });
   
   try {
     // 1. Direct write to Firestore
@@ -332,15 +356,16 @@ export async function deleteOrderFromFirestore(orderId: string): Promise<boolean
 // ----------------------------------------------------
 export async function saveSettingsToFirestore(settingsData: any): Promise<boolean> {
   try {
+    const cleanSettings = sanitizePayloadForFirestore(settingsData);
     // 1. Write to Firestore 'settings/app' and 'settings/financial'
-    await setDoc(doc(db, 'settings', 'app'), settingsData, { merge: true });
-    await setDoc(doc(db, 'settings', 'financial'), settingsData, { merge: true });
+    await setDoc(doc(db, 'settings', 'app'), cleanSettings, { merge: true });
+    await setDoc(doc(db, 'settings', 'financial'), cleanSettings, { merge: true });
 
     // 2. LocalStorage sync
     if (typeof window !== 'undefined') {
       const existing = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
       const parsed = existing ? JSON.parse(existing) : {};
-      const updated = { ...parsed, ...settingsData };
+      const updated = { ...parsed, ...cleanSettings };
       localStorage.setItem('sirikfit_financial_settings', JSON.stringify(updated));
       localStorage.setItem('omex_financial_settings', JSON.stringify(updated));
 
@@ -353,7 +378,7 @@ export async function saveSettingsToFirestore(settingsData: any): Promise<boolea
     await safeFetchJson('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settingsData)
+      body: JSON.stringify(cleanSettings)
     });
 
     return true;
@@ -413,14 +438,15 @@ export const getSettingsFromFirestore = fetchSettingsFromFirestore;
 // ----------------------------------------------------
 export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
   try {
+    const cleanCms = sanitizePayloadForFirestore(cmsData);
     // 1. Save to Firestore
-    await setDoc(doc(db, 'settings', 'cms'), cmsData, { merge: true });
+    await setDoc(doc(db, 'settings', 'cms'), cleanCms, { merge: true });
 
     // 2. LocalStorage sync
     if (typeof window !== 'undefined') {
       const existing = localStorage.getItem('sirikfit_cms_config');
       const parsed = existing ? JSON.parse(existing) : {};
-      const updated = { ...parsed, ...cmsData };
+      const updated = { ...parsed, ...cleanCms };
       localStorage.setItem('sirikfit_cms_config', JSON.stringify(updated));
     }
 
@@ -428,7 +454,7 @@ export async function saveCmsToFirestore(cmsData: any): Promise<boolean> {
     await safeFetchJson('/api/cms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cmsData)
+      body: JSON.stringify(cleanCms)
     });
 
     return true;

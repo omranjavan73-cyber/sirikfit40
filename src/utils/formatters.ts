@@ -57,7 +57,9 @@ export function calculateFinalToman(
   const cargoCostAed = weightKg * cargoRatePerKg;
   const subtotalAed = priceAed + cargoCostAed;
   const withProfitAed = subtotalAed * (1 + profitMarginPercent / 100);
-  return Math.round(withProfitAed * aedRate);
+  const rawToman = withProfitAed * aedRate;
+  if (!rawToman || rawToman <= 0) return 0;
+  return Math.floor(rawToman / 1000) * 1000;
 }
 
 /**

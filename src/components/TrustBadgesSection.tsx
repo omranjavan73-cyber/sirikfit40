@@ -57,20 +57,9 @@ export const TrustBadgesSection: React.FC<TrustBadgesSectionProps> = ({ cms, set
     }
   } catch (_e) {}
 
-  let customBadgeImg = '';
-  let customBadgeLink = '';
-
-  try {
-    const imgPotential = cms?.customBadgeImg || home?.customBadgeImg || effectiveSettings?.customBadgeImg;
-    if (typeof imgPotential === 'string') customBadgeImg = imgPotential.trim();
-
-    const linkPotential = cms?.customBadgeLink || home?.customBadgeLink || effectiveSettings?.customBadgeLink;
-    if (typeof linkPotential === 'string') customBadgeLink = linkPotential.trim();
-  } catch (_e) {}
-
   // If master toggle is off, or no badges are enabled, return null
   if (showTrust === false) return null;
-  if (!showEnamad && !showSamandehi && !customBadgeImg) return null;
+  if (!showEnamad && !showSamandehi) return null;
 
   return (
     <div className="w-full bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 sm:p-5 my-4 font-['Vazirmatn',sans-serif]">
@@ -88,76 +77,58 @@ export const TrustBadgesSection: React.FC<TrustBadgesSectionProps> = ({ cms, set
       <div className={`grid ${showEnamad && showSamandehi ? 'grid-cols-2 gap-3 max-w-md mx-auto' : 'grid-cols-1 max-w-[220px] mx-auto'} w-full`}>
         {/* Enamad Badge */}
         {showEnamad && (
-          <a
-            id="enamad-trust-badge"
-            referrerPolicy="origin"
-            target="_blank"
-            rel="noopener noreferrer"
-            href="https://trustseal.enamad.ir/?id=774774&Code=QLX3GJJuDLNIXNEEocH7c14ry1CHCK1T"
-            className="bg-slate-50 border border-slate-200/70 rounded-xl p-4 flex flex-col items-center justify-center hover:shadow-md hover:border-slate-300 transition-all text-center group active:scale-[0.98]"
-          >
-            <div className="w-16 h-16 bg-white rounded-lg border border-slate-200 shadow-xs flex items-center justify-center p-2 mb-2 group-hover:scale-105 transition-transform">
-              <img
-                referrerPolicy="origin"
-                src="https://trustseal.enamad.ir/logo.aspx?id=774774&Code=QLX3GJJuDLNIXNEEocH7c14ry1CHCK1T"
-                alt="اینماد (نماد اعتماد)"
-                className="w-full h-full object-contain cursor-pointer"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/enamad.png';
-                }}
-              />
+          <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-4 flex flex-col items-center justify-center">
+            <div className="w-20 h-20 bg-white rounded-lg border border-slate-200 shadow-xs flex items-center justify-center p-1.5 mb-2 overflow-hidden hover:border-blue-400 transition-colors">
+              {/* Official Enamad Badge Link & Authentic Logo */}
+              <a 
+                href="https://trustseal.enamad.ir/?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full h-full flex items-center justify-center"
+                title="مشاهده نماد اعتماد الکترونیکی معتبر"
+              >
+                <img 
+                  src="https://upload.wikimedia.org/wikipedia/commons/1/1b/Enamad_Logo.png" 
+                  alt="نماد اعتماد الکترونیکی (اینماد)" 
+                  loading="lazy"
+                  className="w-full h-full object-contain cursor-pointer"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/enamad.png';
+                  }}
+                />
+              </a>
             </div>
-            <span className="text-slate-800 font-semibold text-xs sm:text-sm">اینماد (نماد اعتماد)</span>
-            <span className="text-slate-500 text-[11px] mt-0.5">احراز هویت و مجوز رسمی</span>
-          </a>
+            <span className="text-slate-800 font-semibold text-xs sm:text-sm text-center">اینماد (نماد اعتماد)</span>
+            <span className="text-slate-500 text-[11px] mt-0.5 text-center">احراز هویت و مجوز رسمی</span>
+          </div>
         )}
 
         {/* Samandehi Badge */}
         {showSamandehi && (
-          <a
-            id="samandehi-trust-badge"
-            referrerPolicy="origin"
-            target="_blank"
-            rel="noopener noreferrer"
-            href="https://samandehi.ir"
-            className="bg-slate-50 border border-slate-200/70 rounded-xl p-4 flex flex-col items-center justify-center hover:shadow-md hover:border-slate-300 transition-all text-center group active:scale-[0.98]"
-          >
-            <div className="w-16 h-16 bg-white rounded-lg border border-slate-200 shadow-xs flex items-center justify-center p-2 mb-2 group-hover:scale-105 transition-transform">
-              <img
+          <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-4 flex flex-col items-center justify-center">
+            <div className="w-20 h-20 bg-white rounded-lg border border-slate-200 shadow-sm flex items-center justify-center p-1 mb-2 overflow-hidden">
+              <a
                 referrerPolicy="origin"
-                src="https://samandehi.ir/assets/images/logo.png"
-                alt="ساماندهی (نشان ملی)"
-                className="w-full h-full object-contain cursor-pointer"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/samandehi.png';
-                }}
-              />
+                target="_blank"
+                rel="noopener noreferrer"
+                href="https://samandehi.ir"
+                className="w-full h-full flex items-center justify-center"
+              >
+                <img
+                  referrerPolicy="origin"
+                  src="https://samandehi.ir/assets/images/logo.png"
+                  alt="ساماندهی (نشان ملی)"
+                  style={{ cursor: 'pointer' }}
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/samandehi.png';
+                  }}
+                />
+              </a>
             </div>
-            <span className="text-slate-800 font-semibold text-xs sm:text-sm">ساماندهی (نشان ملی)</span>
-            <span className="text-slate-500 text-[11px] mt-0.5">ثبت رسانه‌های دیجیتال</span>
-          </a>
-        )}
-
-        {/* Optional Custom Badge if provided */}
-        {customBadgeImg && (
-          <a
-            id="custom-trust-badge"
-            href={customBadgeLink || '#'}
-            target="_blank"
-            rel="noopener noreferrer"
-            referrerPolicy="origin"
-            className="bg-slate-50 border border-slate-200/70 rounded-xl p-4 flex flex-col items-center justify-center hover:shadow-md hover:border-slate-300 transition-all text-center group active:scale-[0.98]"
-          >
-            <div className="w-16 h-16 bg-white rounded-lg border border-slate-200 shadow-xs flex items-center justify-center p-2 mb-2 group-hover:scale-105 transition-transform">
-              <img
-                src={customBadgeImg}
-                alt="نماد اختصاصی"
-                className="w-full h-full object-contain cursor-pointer"
-              />
-            </div>
-            <span className="text-slate-800 font-semibold text-xs sm:text-sm">نماد اختصاصی</span>
-            <span className="text-slate-500 text-[11px] mt-0.5">جهت اطمینان کلیک کنید</span>
-          </a>
+            <span className="text-slate-800 font-semibold text-xs sm:text-sm text-center">ساماندهی (نشان ملی)</span>
+            <span className="text-slate-500 text-[11px] mt-0.5 text-center">ثبت رسانه‌های دیجیتال</span>
+          </div>
         )}
       </div>
 
@@ -168,3 +139,4 @@ export const TrustBadgesSection: React.FC<TrustBadgesSectionProps> = ({ cms, set
     </div>
   );
 };
+

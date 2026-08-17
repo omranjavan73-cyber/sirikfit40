@@ -6135,37 +6135,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 </div>
 
-                {/* Optional Custom Badges & Advanced Code Inputs */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                      <span>تصویر نماد اختصاصی (اختیاری - Custom Badge Image URL):</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={customBadgeImg}
-                      onChange={(e) => setCustomBadgeImg(e.target.value)}
-                      placeholder="https://example.com/badge.png"
-                      className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2.5 rounded-2xl focus:outline-none focus:border-slate-900 focus:bg-white transition"
-                      dir="ltr"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                      <span>لینک نماد اختصاصی (اختیاری - Custom Badge Link URL):</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={customBadgeLink}
-                      onChange={(e) => setCustomBadgeLink(e.target.value)}
-                      placeholder="https://example.com/certificate"
-                      className="w-full bg-slate-50 border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2.5 rounded-2xl focus:outline-none focus:border-slate-900 focus:bg-white transition"
-                      dir="ltr"
-                    />
-                  </div>
-                </div>
-
                 {/* Quick Save Row */}
                 <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                   <p className="text-[11px] text-slate-500">

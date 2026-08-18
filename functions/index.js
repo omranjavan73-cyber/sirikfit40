@@ -561,53 +561,50 @@ const verifyPaymentTransaction = onRequest(
   }
 );
 
-// Backward compatible aliases
-const requestPayment = createPaymentRequest;
-const verifyPayment = verifyPaymentTransaction;
-const requestBitpayPayment = createPaymentRequest;
-const verifyBitpayPayment = verifyPaymentTransaction;
-
-// Re-export full Express app as 'api'
-const localDist = path.join(__dirname, './dist/server.cjs');
-const parentDist = path.join(__dirname, '../dist/server.cjs');
-const distPath = fs.existsSync(localDist) ? localDist : parentDist;
-
-let apiFunction;
-
-try {
-  const serverModule = require(distPath);
-
-  if (serverModule && serverModule.api && typeof serverModule.api === 'function') {
-    apiFunction = serverModule.api;
-  } else {
-    const expressApp = (serverModule && (serverModule.app || serverModule.default)) || serverModule;
-    if (typeof expressApp === 'function') {
-      apiFunction = onRequest(
-        {
-          cors: true,
-          memory: '1GiB',
-          timeoutSeconds: 60
-        },
-        expressApp
-      );
+/**
+ * Cloud Function: api
+ * Non-blocking standard HTTPS entry point for general API requests and health checks
+ */
+const api = onRequest(
+  {
+    cors: true,
+    memory: '512MiB',
+    timeoutSeconds: 60
+  },
+  async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.set('Access-Control-Allow-Origin', '*');
+      res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      return res.status(204).send('');
     }
-  }
-} catch (err) {
-  console.warn('functions/index.js: Note inspecting dist/server.cjs:', err.message);
-}
 
-if (!apiFunction) {
-  apiFunction = onRequest({ cors: true }, (req, res) => {
-    res.status(500).json({ error: 'Server API module not loaded. Please run "npm run build".' });
-  });
-}
+    if (req.path === '/health' || req.path === '/api/health') {
+      return res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    }
+
+    return res.json({
+      service: 'SIRIK FIT Backend Cloud Functions API',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+      availableEndpoints: [
+        'createPaymentRequest',
+        'verifyPaymentTransaction',
+        'requestPayment',
+        'verifyPayment',
+        'requestBitpayPayment',
+        'verifyBitpayPayment'
+      ]
+    });
+  }
+);
 
 module.exports = {
-  api: apiFunction,
+  api,
   createPaymentRequest,
   verifyPaymentTransaction,
-  requestPayment,
-  verifyPayment,
-  requestBitpayPayment,
-  verifyBitpayPayment
+  requestPayment: createPaymentRequest,
+  verifyPayment: verifyPaymentTransaction,
+  requestBitpayPayment: createPaymentRequest,
+  verifyBitpayPayment: verifyPaymentTransaction
 };

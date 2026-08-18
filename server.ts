@@ -4881,7 +4881,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   next();
 });
 
-// Export 2nd Generation Cloud Function
+// Export Express app and 2nd Generation Cloud Function
 export const api = onRequest(
   {
     cors: true,
@@ -4891,9 +4891,14 @@ export const api = onRequest(
   app
 );
 
+export { app };
+export default app;
+
 // ----------------------------------------------------
 // VITE MIDDLEWARE & STANDALONE SERVER
 // ----------------------------------------------------
+const isFirebaseFunction = process.env.IS_FIREBASE_FUNCTION === 'true';
+
 async function startServer() {
   await getStoreData().catch(e => console.warn('Initial store hydrate warn:', e));
 
@@ -4912,13 +4917,17 @@ async function startServer() {
     });
   }
 
-  if (!process.env.FUNCTION_TARGET && !process.env.FUNCTIONS_EMULATOR && process.env.IS_FIREBASE_FUNCTION !== 'true') {
+  // Only listen when running as standalone server, NEVER when required inside Firebase Cloud Functions
+  if (!isFirebaseFunction) {
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`OMEX Dubai Import Platform server listening on http://localhost:${PORT}`);
     });
   }
 }
 
-if (!process.env.FUNCTION_TARGET && !process.env.FUNCTIONS_EMULATOR && process.env.IS_FIREBASE_FUNCTION !== 'true') {
+// Launch server unless explicitly imported within Firebase Functions
+if (!isFirebaseFunction) {
   startServer();
 }
+
+

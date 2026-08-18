@@ -2,12 +2,13 @@ import React, { useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { ProductDetailModal } from './ProductDetailModal';
 import type { FinancialSettings } from '../types';
-import { getEffectiveAedRate, calculateFinalToman } from '../utils/formatters';
 
 export interface PopularProductItem {
   id: string;
   title: string;
   image: string;
+  price?: number | string;
+  discountedPrice?: number | string;
   filterKey?: string;
   rawItem?: any;
   type?: 'local' | 'deal' | 'custom';
@@ -17,6 +18,7 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'whey-protein',
     title: 'پروتئین وی طعم‌دار',
+    price: 3450000,
     filterKey: 'whey',
     image: 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -24,6 +26,7 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'creatine-monohydrate',
     title: 'کراتین مونوهیدرات',
+    price: 1850000,
     filterKey: 'creatine',
     image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -31,6 +34,7 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'multivitamin-men',
     title: 'مولتی ویتامین',
+    price: 980000,
     filterKey: 'vitamin',
     image: 'https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -38,6 +42,7 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'c4-preworkout',
     title: 'پمپ C4 Extreme',
+    price: 2150000,
     filterKey: 'pre',
     image: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -45,6 +50,7 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'omega-gnc',
     title: 'امگا ۳ فشرده GNC',
+    price: 1290000,
     filterKey: 'omega',
     image: 'https://images.unsplash.com/photo-1526947425960-945c6e72858f?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -52,6 +58,7 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'gainer-weight',
     title: 'گینر افزایش وزن',
+    price: 2890000,
     filterKey: 'gainer',
     image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -65,15 +72,6 @@ interface PopularProductsCarouselProps {
   items?: PopularProductItem[];
   settings?: FinancialSettings;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
-}
-
-function getCleanShortTitle(title: string): string {
-  if (!title) return '';
-  // Remove parenthesized and bracketed content
-  let cleaned = title.split('(')[0].split('（')[0].split('[')[0].trim();
-  // Strip redundant leading "مکمل" for concise chip display
-  cleaned = cleaned.replace(/^مکمل\s+/, '');
-  return cleaned || title;
 }
 
 export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = ({
@@ -95,11 +93,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
   };
 
   const rawList = items || products;
-  const list = rawList !== undefined ? rawList : DEFAULT_POPULAR_PRODUCTS;
-
-  if (!list || list.length === 0) {
-    return null;
-  }
+  const list = (rawList && rawList.length > 0) ? rawList : DEFAULT_POPULAR_PRODUCTS;
 
   const handleItemClick = (prod: PopularProductItem) => {
     setSelectedPopularForModal(prod);
@@ -109,6 +103,28 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
     cargoRatePerKg: 35,
     profitMargin: 20,
     aedRate: 23000
+  };
+
+  const resolveItemPrice = (item: PopularProductItem): number | null => {
+    const p = item.price || item.discountedPrice;
+    if (p !== undefined && p !== null && !isNaN(Number(p)) && Number(p) > 0) {
+      return Number(p);
+    }
+    if (item.rawItem) {
+      if (item.rawItem.priceToman && Number(item.rawItem.priceToman) > 0) {
+        return Number(item.rawItem.priceToman);
+      }
+      if (item.rawItem.calculatedToman && Number(item.rawItem.calculatedToman) > 0) {
+        return Number(item.rawItem.calculatedToman);
+      }
+      if (item.rawItem.priceAed && Number(item.rawItem.priceAed) > 0) {
+        const rate = defaultSettings.aedRate || 23000;
+        const cargoCost = (item.rawItem.weightKg || 0.5) * (defaultSettings.cargoRatePerKg || 35);
+        const subtotal = item.rawItem.priceAed + cargoCost;
+        return Math.round(subtotal * (1 + (defaultSettings.profitMargin || 20) / 100) * rate);
+      }
+    }
+    return null;
   };
 
   return (
@@ -126,55 +142,60 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
         </h3>
       </div>
 
-      {/* Horizontal Row with Subtle Navigation Arrows and White Circular Product Badges */}
-      <div className="relative flex items-center w-full group">
+      {/* Horizontal Row with Subtle Hover-Only Side Arrows and White Circular Product Badges */}
+      <div className="relative flex items-center w-full">
         {/* Right Nav Arrow */}
         <button
           type="button"
           onClick={() => scroll('right')}
-          className="absolute z-10 -right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full bg-white/80 shadow-sm border border-gray-200 text-slate-400 opacity-40 hover:opacity-100 hover:bg-white hover:text-slate-700 hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95 shrink-0"
+          className="absolute right-0 z-20 w-7 h-7 rounded-full bg-white/90 border border-slate-200/80 text-slate-400 hover:text-slate-900 hover:bg-white shadow-2xs flex items-center justify-center transition-all opacity-20 group-hover/carousel:opacity-80 hover:!opacity-100 cursor-pointer active:scale-95 shrink-0"
           title="بعدی"
-          aria-label="بعدی"
         >
-          <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+          <ChevronRight className="w-4 h-4 stroke-[2]" />
         </button>
 
-        {/* Scrollable Container (Forces exactly 4 items on mobile screens) */}
+        {/* Scrollable Container with Story Cards */}
         <div
           ref={scrollRef}
-          className="flex items-start justify-between gap-2 overflow-x-auto no-scrollbar px-3 py-2 w-full select-none dir-rtl scroll-smooth"
+          className="flex items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar py-1 px-1 dir-rtl scroll-smooth w-full"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {list.map((prod) => {
-            const rawTitle = prod.title || (prod as any).name || '';
-            const shortTitle = (prod as any).shortName || getCleanShortTitle(rawTitle);
-            const imgSrc = prod.image || (prod as any).imageUrl || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
-
+          {list.map((item) => {
+            const numericPrice = resolveItemPrice(item);
             return (
               <div
-                key={prod.id}
-                onClick={() => handleItemClick(prod)}
-                className="flex flex-col items-center flex-shrink-0 w-[72px] sm:w-[80px] cursor-pointer group select-none"
+                key={item.id}
+                onClick={() => handleItemClick(item)}
+                className="flex flex-col items-center text-center shrink-0 w-20 sm:w-24 gap-1 select-none cursor-pointer group transition-transform duration-200 hover:-translate-y-0.5 overflow-hidden"
               >
-                {/* 1. THE THICK WHITE FRAME (This creates the white padding and outer shadow) */}
-                <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full bg-white p-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.08)] border border-slate-100 flex items-center justify-center transition-all duration-300 group-hover:shadow-md group-hover:-translate-y-0.5">
-                  {/* 2. THE INNER IMAGE (Clipped perfectly inside the white frame) */}
-                  <div className="w-full h-full rounded-full overflow-hidden bg-slate-50 flex items-center justify-center">
-                    <img
-                      src={imgSrc}
-                      alt={rawTitle}
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
-                      }}
-                    />
-                  </div>
+                {/* Story Avatar Frame */}
+                <div className="relative w-16 h-16 sm:w-[68px] sm:h-[68px] rounded-full p-0.5 border border-slate-200/90 bg-white shadow-xs hover:shadow-md group-hover:border-slate-600 flex items-center justify-center overflow-hidden transition-all duration-200 shrink-0">
+                  <img
+                    src={item.image}
+                    alt={item.title}
+                    className="w-full h-full object-cover rounded-full group-hover:scale-105 transition-transform duration-300"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
+                    }}
+                  />
                 </div>
 
-                {/* 3. TRUNCATED TITLE (Ensures 4 items fit perfectly on mobile) */}
-                <span className="text-[10px] sm:text-[11px] font-medium text-slate-700 mt-2 text-center w-full truncate px-0.5 block leading-tight">
-                  {shortTitle}
+                {/* Product Title */}
+                <span className="text-slate-800 font-semibold text-[11px] truncate w-full text-center px-1">
+                  {item.title}
+                </span>
+
+                {/* Product Price */}
+                <span className="text-[11px] font-bold text-red-600 dark:text-red-500 dir-rtl tracking-tight mt-0.5 flex items-center justify-center">
+                  {numericPrice ? (
+                    <>
+                      <span>{Number(numericPrice).toLocaleString('fa-IR')}</span>
+                      <span className="text-[10px] font-semibold text-red-500/80 mr-0.5">تومان</span>
+                    </>
+                  ) : (
+                    <span className="text-[10px] font-medium text-slate-500">استعلام قیمت</span>
+                  )}
                 </span>
               </div>
             );
@@ -185,91 +206,45 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
         <button
           type="button"
           onClick={() => scroll('left')}
-          className="absolute z-10 -left-1.5 top-1/2 -translate-y-1/2 w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full bg-white/80 shadow-sm border border-gray-200 text-slate-400 opacity-40 hover:opacity-100 hover:bg-white hover:text-slate-700 hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95 shrink-0"
+          className="absolute left-0 z-20 w-7 h-7 rounded-full bg-white/90 border border-slate-200/80 text-slate-400 hover:text-slate-900 hover:bg-white shadow-2xs flex items-center justify-center transition-all opacity-20 group-hover/carousel:opacity-80 hover:!opacity-100 cursor-pointer active:scale-95 shrink-0"
           title="قبلی"
-          aria-label="قبلی"
         >
-          <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
+          <ChevronLeft className="w-4 h-4 stroke-[2]" />
         </button>
       </div>
 
       {/* Embedded Product Details Modal (Matching Featured Deals) */}
-      {(() => {
-        if (!selectedPopularForModal) return null;
-        const effectiveRate = getEffectiveAedRate(settings) || defaultSettings.aedRate || 55000;
-        const cargoRate = defaultSettings.cargoRatePerKg || 35;
-        const isLocal = selectedPopularForModal.type === 'local';
-        const raw = selectedPopularForModal.rawItem || {};
-        
-        let priceTomanVal: number | undefined = undefined;
-        let profitMarginVal: number = defaultSettings.profitMargin || 20;
-
-        if (raw.priceToman && raw.priceToman > 0) {
-          priceTomanVal = raw.priceToman;
-        } else if (raw.calculatedTomanOverride && raw.calculatedTomanOverride > 0) {
-          priceTomanVal = raw.calculatedTomanOverride;
-        } else if (raw.calculatedToman && raw.calculatedToman > 0) {
-          priceTomanVal = raw.calculatedToman;
-        } else if (isLocal) {
-          priceTomanVal = raw.priceToman;
-        } else if (selectedPopularForModal.type === 'deal') {
-          profitMarginVal = raw.profitMargin !== undefined ? raw.profitMargin : (raw.marginPercent !== undefined ? raw.marginPercent : (defaultSettings.profitMargin || 20));
-          priceTomanVal = calculateFinalToman(
-            raw.priceAed || 100,
-            raw.weightKg || 0.5,
-            cargoRate,
-            profitMarginVal,
-            effectiveRate
-          );
-        } else {
-          priceTomanVal = calculateFinalToman(
-            150,
-            0.5,
-            cargoRate,
-            profitMarginVal,
-            effectiveRate
-          );
-        }
-
-        const modalProduct = {
-          id: raw.id || selectedPopularForModal.id,
+      <ProductDetailModal
+        isOpen={!!selectedPopularForModal}
+        onClose={() => setSelectedPopularForModal(null)}
+        product={selectedPopularForModal ? {
           title: selectedPopularForModal.title,
-          url: raw.url || 'https://drnutrition.com',
-          priceAed: raw.priceAed || (isLocal ? Math.round((raw.priceToman || 0) / effectiveRate) : 150),
-          originalPriceAed: raw.originalPriceAed || 0,
-          priceToman: priceTomanVal,
-          originalPriceToman: raw.originalPriceToman,
-          calculatedTomanOverride: priceTomanVal,
-          profitMargin: profitMarginVal,
-          weightKg: raw.weightKg || 0.5,
+          url: selectedPopularForModal.rawItem?.url || 'https://drnutrition.com',
+          priceAed: selectedPopularForModal.rawItem?.priceAed || (selectedPopularForModal.type === 'local' ? Math.round((selectedPopularForModal.rawItem?.priceToman || 0) / defaultSettings.aedRate) : 150),
+          originalPriceAed: selectedPopularForModal.rawItem?.originalPriceAed || 0,
+          weightKg: selectedPopularForModal.rawItem?.weightKg || 0.5,
           image: selectedPopularForModal.image,
-          storeName: isLocal ? 'انبار ایران (تحویل فوری)' : (raw.storeName || 'فروشگاه دبی'),
-          brand: isLocal ? 'انبار ایران' : (raw.brand || 'دبی'),
-          category: raw.category || (isLocal ? 'موجودی ایران' : 'پرطرفدارها'),
-          description: raw.description || '',
-          badge: isLocal ? 'موجودی در ایران (تحویل فوری ۲۴ الی ۴۸ ساعته)' : 'ارسال سفارشی از دبی (تحویل ۷ الی ۱۴ روز کاری درب منزل)',
-          isLocalInventory: isLocal,
-          flavors: raw.flavors || [],
-          sizes: raw.sizes || []
-        };
-
-        return (
-          <ProductDetailModal
-            isOpen={!!selectedPopularForModal}
-            onClose={() => setSelectedPopularForModal(null)}
-            product={modalProduct}
-            settings={settings || defaultSettings}
-            onAddToCart={(productPayload, flavor, size) => {
-              if (onAddToCart) {
-                onAddToCart(productPayload, flavor, size);
-              } else if (onSelectProduct && selectedPopularForModal) {
-                onSelectProduct(selectedPopularForModal);
-              }
-              setSelectedPopularForModal(null);
-            }}
-          />
-        );
-      })()}
+          storeName: selectedPopularForModal.type === 'local' ? 'انبار ایران (تحویل فوری)' : (selectedPopularForModal.rawItem?.storeName || 'فروشگاه دبی'),
+          brand: selectedPopularForModal.type === 'local' ? 'انبار ایران' : (selectedPopularForModal.rawItem?.brand || 'دبی'),
+          category: selectedPopularForModal.rawItem?.category || (selectedPopularForModal.type === 'local' ? 'موجودی ایران' : 'پرطرفدارها'),
+          description: selectedPopularForModal.rawItem?.description || '',
+          badge: selectedPopularForModal.type === 'local' ? 'موجودی در ایران (تحویل فوری ۲۴ الی ۴۸ ساعته)' : 'ارسال سفارشی از دبی (تحویل ۷ الی ۱۴ روز کاری درب منزل)',
+          calculatedTomanOverride: selectedPopularForModal.type === 'local' ? selectedPopularForModal.rawItem?.priceToman : undefined,
+          isLocalInventory: selectedPopularForModal.type === 'local',
+          flavors: selectedPopularForModal.rawItem?.flavors || [],
+          sizes: selectedPopularForModal.rawItem?.sizes || []
+        } : null}
+        settings={defaultSettings}
+        onAddToCart={(productPayload, flavor, size) => {
+          if (onAddToCart) {
+            onAddToCart(productPayload, flavor, size);
+          } else if (onSelectProduct && selectedPopularForModal) {
+            onSelectProduct(selectedPopularForModal);
+          }
+          setSelectedPopularForModal(null);
+        }}
+      />
     </div>
   );
 };
+

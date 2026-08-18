@@ -4,7 +4,6 @@ import type { FeaturedDeal, FinancialSettings, WarehouseCategory } from '../type
 import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 import { ProductDetailModal } from './ProductDetailModal';
 import { CategoryGridSection } from './CategoryGridSection';
-import { isCategoryMatch, DEFAULT_UNIFIED_CATEGORIES } from '../utils/categoryHelper';
 
 interface FeaturedDealsProps {
   deals?: FeaturedDeal[];
@@ -14,7 +13,14 @@ interface FeaturedDealsProps {
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
 }
 
-const DEFAULT_CATEGORY_TILES: WarehouseCategory[] = DEFAULT_UNIFIED_CATEGORIES;
+const DEFAULT_CATEGORY_TILES: WarehouseCategory[] = [
+  { id: 'all', label: 'همه پیشنهادها', filterKey: 'all', iconUrl: '' },
+  { id: 'protein', label: 'پروتئین', filterKey: 'protein', iconUrl: '' },
+  { id: 'vitamin', label: 'ویتامین', filterKey: 'vitamin', iconUrl: '' },
+  { id: 'pre', label: 'قبل تمرین', filterKey: 'pre', iconUrl: '' },
+  { id: 'omega', label: 'امگا ۳', filterKey: 'omega', iconUrl: '' },
+  { id: 'hot', label: 'پرفروش', filterKey: 'hot', iconUrl: '' },
+];
 
 const DEFAULT_DEALS: FeaturedDeal[] = [
   {
@@ -29,9 +35,7 @@ const DEFAULT_DEALS: FeaturedDeal[] = [
     storeName: 'Dr. Nutrition',
     isActive: true,
     section: 'featured',
-    isFeaturedInCalculator: false,
-    isPopular: false,
-    isPopularSample: false,
+    isFeaturedInCalculator: true,
     badge: '💪 وی ۵ پوندی ON',
     url: 'https://www.drnutrition.com'
   },
@@ -47,9 +51,7 @@ const DEFAULT_DEALS: FeaturedDeal[] = [
     storeName: 'Dr. Nutrition',
     isActive: true,
     section: 'discount',
-    isFeaturedInCalculator: false,
-    isPopular: false,
-    isPopularSample: false,
+    isFeaturedInCalculator: true,
     badge: '⚡ پمپ C4',
     url: 'https://www.drnutrition.com'
   },
@@ -65,9 +67,7 @@ const DEFAULT_DEALS: FeaturedDeal[] = [
     storeName: 'Life Pharmacy',
     isActive: true,
     section: 'bestseller',
-    isFeaturedInCalculator: false,
-    isPopular: false,
-    isPopularSample: false,
+    isFeaturedInCalculator: true,
     badge: '🐟 امگا ۳ GNC',
     url: 'https://www.lifepharmacy.com'
   },
@@ -83,9 +83,7 @@ const DEFAULT_DEALS: FeaturedDeal[] = [
     storeName: 'GNC UAE',
     isActive: true,
     section: 'featured',
-    isFeaturedInCalculator: false,
-    isPopular: false,
-    isPopularSample: false,
+    isFeaturedInCalculator: true,
     badge: '💊 مولتی GNC',
     url: 'https://gnc-mena.com'
   }
@@ -116,7 +114,14 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
     const store = (deal.storeName || '').toLowerCase();
 
     const matchesSearch = !q || title.includes(q) || cat.includes(q) || brand.includes(q) || store.includes(q);
-    const matchesCat = isCategoryMatch(deal, selectedCat, categoryList);
+
+    let matchesCat = true;
+    if (selectedCat !== 'all' && selectedCat !== 'همه') {
+      const matchedTile = categoryList.find(c => c.id === selectedCat || (c.filterKey && c.filterKey === selectedCat));
+      const filterTerm = (matchedTile?.filterKey || matchedTile?.label || selectedCat).toLowerCase();
+
+      matchesCat = cat.includes(filterTerm) || filterTerm.includes(cat) || title.includes(filterTerm) || brand.includes(filterTerm);
+    }
 
     return matchesSearch && matchesCat;
   });
@@ -168,7 +173,6 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
         isOpen={!!selectedDealForModal}
         onClose={() => setSelectedDealForModal(null)}
         product={selectedDealForModal ? {
-          id: selectedDealForModal.id,
           title: selectedDealForModal.title,
           url: selectedDealForModal.url,
           priceAed: selectedDealForModal.priceAed,
@@ -179,28 +183,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
           storeName: selectedDealForModal.storeName,
           brand: selectedDealForModal.brand,
           category: selectedDealForModal.category,
-          badge: selectedDealForModal.badge,
-          profitMargin: selectedDealForModal.profitMargin ?? selectedDealForModal.marginPercent,
-          priceToman: (selectedDealForModal.priceToman && selectedDealForModal.priceToman > 0)
-            ? selectedDealForModal.priceToman
-            : calculateFinalToman(
-                selectedDealForModal.priceAed,
-                selectedDealForModal.weightKg || 0.5,
-                settings.cargoRatePerKg,
-                (selectedDealForModal.profitMargin !== undefined ? selectedDealForModal.profitMargin : (selectedDealForModal.marginPercent !== undefined ? selectedDealForModal.marginPercent : settings.profitMargin)),
-                getEffectiveAedRate(settings)
-              ),
-          calculatedTomanOverride: (selectedDealForModal.priceToman && selectedDealForModal.priceToman > 0)
-            ? selectedDealForModal.priceToman
-            : calculateFinalToman(
-                selectedDealForModal.priceAed,
-                selectedDealForModal.weightKg || 0.5,
-                settings.cargoRatePerKg,
-                (selectedDealForModal.profitMargin !== undefined ? selectedDealForModal.profitMargin : (selectedDealForModal.marginPercent !== undefined ? selectedDealForModal.marginPercent : settings.profitMargin)),
-                getEffectiveAedRate(settings)
-              ),
-          flavors: selectedDealForModal.flavors,
-          sizes: selectedDealForModal.sizes
+          badge: selectedDealForModal.badge
         } : null}
         settings={settings}
         onAddToCart={(productPayload, flavor, size) => {
@@ -216,10 +199,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
               storeName: productPayload.storeName,
               url: productPayload.url || 'https://www.drnutrition.com',
               isActive: true,
-              category: selectedDealForModal?.category || 'محصول دبی',
-              profitMargin: selectedDealForModal?.profitMargin ?? selectedDealForModal?.marginPercent,
-              priceToman: productPayload.priceToman || selectedDealForModal?.priceToman,
-              originalPriceToman: selectedDealForModal?.originalPriceToman
+              category: selectedDealForModal?.category || 'محصول دبی'
             });
           }
           setSelectedDealForModal(null);
@@ -240,15 +220,13 @@ const ProductCard: React.FC<{
   const [isAdded, setIsAdded] = useState(false);
   const weight = deal.weightKg || 0.5;
 
-  const finalToman = (deal.priceToman && deal.priceToman > 0)
-    ? deal.priceToman
-    : calculateFinalToman(
-        deal.priceAed,
-        weight,
-        settings.cargoRatePerKg,
-        (deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : settings.profitMargin)),
-        getEffectiveAedRate(settings)
-      );
+  const finalToman = calculateFinalToman(
+    deal.priceAed,
+    weight,
+    settings.cargoRatePerKg,
+    settings.profitMargin,
+    getEffectiveAedRate(settings)
+  );
 
   const computedDiscount = (deal.originalPriceAed && deal.originalPriceAed > deal.priceAed)
     ? Math.round(((deal.originalPriceAed - deal.priceAed) / deal.originalPriceAed) * 100)

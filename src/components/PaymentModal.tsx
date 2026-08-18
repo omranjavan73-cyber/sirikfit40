@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { CreditCard, Lock, ShieldCheck, CheckCircle2, AlertTriangle, RefreshCw, X } from 'lucide-react';
+import { CreditCard, Lock, ShieldCheck, CheckCircle2, AlertTriangle, RefreshCw, X, ExternalLink, ArrowLeft } from 'lucide-react';
 import { Order } from '../types';
 import { formatToman, toPersianDigits } from '../utils/formatters';
 import { saveOrderToFirestore } from '../firebase';
+import { initiateZibalPayment, initiateBitpayPayment } from '../services/paymentService';
 
 interface PaymentModalProps {
   order: Order;
@@ -17,6 +18,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   onClose,
   onPaymentSuccess
 }) => {
+  const [paymentMode, setPaymentMode] = useState<'zibal' | 'bitpay' | 'simulate'>('zibal');
   const [cardNumber, setCardNumber] = useState('');
   const [cvv2, setCvv2] = useState('');
   const [expMonth, setExpMonth] = useState('');
@@ -28,6 +30,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [otpTimer, setOtpTimer] = useState(120);
 
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRedirectingZibal, setIsRedirectingZibal] = useState(false);
+  const [isRedirectingBitpay, setIsRedirectingBitpay] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [paymentDone, setPaymentDone] = useState(false);
   const [refId, setRefId] = useState('');
@@ -52,6 +56,30 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   }, [otpSent, otpTimer]);
 
   if (!isOpen) return null;
+
+  const handlePayWithZibal = async () => {
+    setErrorMessage('');
+    setIsRedirectingZibal(true);
+    try {
+      await initiateZibalPayment(order);
+    } catch (err: any) {
+      console.error('Zibal initiation error:', err);
+      setErrorMessage(err?.message || 'خطا در اتصال به درگاه زیبال. لطفاً مجدداً تلاش کنید.');
+      setIsRedirectingZibal(false);
+    }
+  };
+
+  const handlePayWithBitpay = async () => {
+    setErrorMessage('');
+    setIsRedirectingBitpay(true);
+    try {
+      await initiateBitpayPayment(order);
+    } catch (err: any) {
+      console.error('BitPay initiation error:', err);
+      setErrorMessage(err?.message || 'خطا در اتصال به درگاه بیت‌پی. لطفاً مجدداً تلاش کنید.');
+      setIsRedirectingBitpay(false);
+    }
+  };
 
   const handleRequestOtp = () => {
     if (cardNumber.length < 16) {
@@ -133,7 +161,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const seconds = sessionTimer % 60;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto font-['Vazirmatn',sans-serif] dir-rtl">
       <div className="bg-white border border-slate-200 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden my-auto text-slate-800">
         {/* Gateway Header Banner */}
         <div className="bg-slate-50 p-4 border-b border-slate-200 flex items-center justify-between">
@@ -142,7 +170,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xs font-black text-slate-900">درگاه پرداخت الکترونیک شاپرک</div>
+              <div className="text-xs font-black text-slate-900">درگاه پرداخت الکترونیک شاپرک (زیبال)</div>
               <div className="text-[10px] text-slate-500">اتصال امن به شبکه بانکی کشور</div>
             </div>
           </div>
@@ -152,7 +180,6 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               {toPersianDigits(minutes)}:{seconds < 10 ? '۰' : ''}{toPersianDigits(seconds)}
             </div>
             <button
-              type="button"
               onClick={onClose}
               className="text-neutral-400 hover:text-neutral-700 p-1 rounded-lg transition cursor-pointer"
             >
@@ -196,49 +223,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               📦 کارشناسان خرید دبی تا چند ساعت آینده فرآیند تامین و ارسال کالا از امارات را آغاز خواهند کرد. اطلاع‌رسانی خودکار به تلگرام و ایمیل ادمین انجام شد.
             </div>
 
-            {/* Notification Dispatch Indicators */}
-            <div className="grid grid-cols-2 gap-2 pt-1 font-['Vazirmatn',sans-serif]">
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await fetch('/api/notify/telegram', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ orderId: order.id, orderData: order })
-                    });
-                    alert('✅ پیام هشدار سفارش مجدداً به تلگرام ادمین ارسال شد.');
-                  } catch (e) {
-                    console.error(e);
-                  }
-                }}
-                className="bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <span>✈️ ارسال مجدد به تلگرام</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await fetch('/api/notify/email', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ orderId: order.id, orderData: order })
-                    });
-                    alert('✅ فاکتور سفارش مجدداً به ایمیل ادمین ارسال شد.');
-                  } catch (e) {
-                    console.error(e);
-                  }
-                }}
-                className="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <span>✉️ ارسال مجدد به ایمیل</span>
-              </button>
-            </div>
-
             <button
-              type="button"
               onClick={onClose}
               className="w-full bg-black hover:bg-neutral-800 text-white font-extrabold text-sm py-3 rounded-xl transition shadow-md cursor-pointer mt-2"
             >
@@ -246,7 +231,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             </button>
           </div>
         ) : (
-          /* Payment Form */
+          /* Payment Mode Selector & Forms */
           <div className="p-5 md:p-6 space-y-4">
             {/* Merchant Info Banner */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex justify-between items-center text-xs">
@@ -260,133 +245,237 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               </div>
             </div>
 
+            {/* Gateway Mode Switcher Tabs */}
+            <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setPaymentMode('zibal')}
+                className={`py-2 px-2 rounded-lg transition text-center cursor-pointer text-[11px] sm:text-xs ${
+                  paymentMode === 'zibal'
+                    ? 'bg-white text-[#7C3AED] shadow-sm font-black'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ⚡ زیبال (شاپرک)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMode('bitpay')}
+                className={`py-2 px-2 rounded-lg transition text-center cursor-pointer text-[11px] sm:text-xs ${
+                  paymentMode === 'bitpay'
+                    ? 'bg-white text-emerald-600 shadow-sm font-black'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                💎 بیت‌پی (BitPay)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMode('simulate')}
+                className={`py-2 px-2 rounded-lg transition text-center cursor-pointer text-[11px] sm:text-xs ${
+                  paymentMode === 'simulate'
+                    ? 'bg-white text-slate-900 shadow-sm font-black'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                💳 تست (کارت)
+              </button>
+            </div>
+
             {errorMessage && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-semibold">
                 {errorMessage}
               </div>
             )}
 
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">شماره کارت ۱۶ رقمی:</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    maxLength={19}
-                    value={cardNumber}
-                    onChange={(e) => setCardNumber(formatCardInput(e.target.value))}
-                    placeholder="6037 9918 0000 0000"
-                    className="w-full bg-slate-50 border border-slate-300 focus:border-[#7C3AED] focus:bg-white text-slate-900 text-sm p-2.5 rounded-xl text-left dir-ltr font-mono focus:outline-none"
-                    dir="ltr"
-                  />
-                  <CreditCard className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+            {paymentMode === 'zibal' ? (
+              /* Zibal Direct Gateway Trigger */
+              <div className="space-y-4 pt-1">
+                <div className="bg-[#FAF5FF] border border-[#E9D5FF] rounded-2xl p-4 text-xs text-[#581C87] space-y-2">
+                  <div className="font-bold flex items-center gap-1.5 text-sm text-[#6B21A8]">
+                    <ShieldCheck className="w-4 h-4 text-[#7C3AED]" />
+                    <span>انتقال به درگاه پرداخت زیبال (شاپرک)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    با کلیک بر روی دکمه زیر، به درگاه پرداخت رسمی شاپرک منتقل می‌شوید. پس از تکمیل تراکنش، به طور خودکار به سایت سیریک فیت بازگشته و رسید خرید دریافت خواهید کرد.
+                  </p>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handlePayWithZibal}
+                  disabled={isRedirectingZibal}
+                  className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-black text-sm py-4 rounded-2xl transition shadow-xl shadow-[#7C3AED]/25 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isRedirectingZibal ? (
+                    <>
+                      <RefreshCw className="w-5 h-5 animate-spin" />
+                      <span>در حال اتصال به درگاه شاپرک...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>پرداخت آنلاین {formatToman(order.calculatedToman)}</span>
+                      <ExternalLink className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">کد CVV2:</label>
-                  <input
-                    type="password"
-                    maxLength={4}
-                    value={cvv2}
-                    onChange={(e) => setCvv2(e.target.value)}
-                    placeholder="1234"
-                    className="w-full bg-slate-50 border border-slate-300 focus:border-[#7C3AED] text-slate-900 text-sm p-2.5 rounded-xl text-center font-mono focus:outline-none"
-                  />
+            ) : paymentMode === 'bitpay' ? (
+              /* BitPay Direct Gateway Trigger */
+              <div className="space-y-4 pt-1">
+                <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-950 space-y-2">
+                  <div className="font-bold flex items-center gap-1.5 text-sm text-emerald-800">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span>انتقال به درگاه پرداخت امن بیت‌پی (BitPay)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    درگاه بیت‌پی امکان تسویه ریالی شاپرک و درگاه‌های پیشرفته را با امنیت بالا فراهم می‌کند. پس از پرداخت، رسید فوری سفارش برای شما صادر خواهد شد.
+                  </p>
                 </div>
 
+                <button
+                  type="button"
+                  onClick={handlePayWithBitpay}
+                  disabled={isRedirectingBitpay}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm py-4 rounded-2xl transition shadow-xl shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isRedirectingBitpay ? (
+                    <>
+                      <RefreshCw className="w-5 h-5 animate-spin" />
+                      <span>در حال اتصال به درگاه بیت‌پی...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>پرداخت با بیت‌پی {formatToman(order.calculatedToman)}</span>
+                      <ExternalLink className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              /* Direct Card Simulation Form */
+              <div className="space-y-3 text-xs">
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">تاریخ انقضا:</label>
-                  <div className="flex items-center gap-1">
+                  <label className="font-bold text-slate-700 block mb-1">شماره کارت ۱۶ رقمی:</label>
+                  <div className="relative">
                     <input
                       type="text"
-                      maxLength={2}
-                      placeholder="ماه"
-                      value={expMonth}
-                      onChange={(e) => setExpMonth(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs p-2.5 rounded-xl text-center font-mono focus:outline-none"
+                      maxLength={19}
+                      value={cardNumber}
+                      onChange={(e) => setCardNumber(formatCardInput(e.target.value))}
+                      placeholder="6037 9918 0000 0000"
+                      className="w-full bg-slate-50 border border-slate-300 focus:border-[#7C3AED] focus:bg-white text-slate-900 text-sm p-2.5 rounded-xl text-left dir-ltr font-mono focus:outline-none"
+                      dir="ltr"
                     />
-                    <span>/</span>
+                    <CreditCard className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">کد CVV2:</label>
+                    <input
+                      type="password"
+                      maxLength={4}
+                      value={cvv2}
+                      onChange={(e) => setCvv2(e.target.value)}
+                      placeholder="1234"
+                      className="w-full bg-slate-50 border border-slate-300 focus:border-[#7C3AED] text-slate-900 text-sm p-2.5 rounded-xl text-center font-mono focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">تاریخ انقضا:</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        maxLength={2}
+                        placeholder="ماه"
+                        value={expMonth}
+                        onChange={(e) => setExpMonth(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs p-2.5 rounded-xl text-center font-mono focus:outline-none"
+                      />
+                      <span>/</span>
+                      <input
+                        type="text"
+                        maxLength={2}
+                        placeholder="سال"
+                        value={expYear}
+                        onChange={(e) => setExpYear(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs p-2.5 rounded-xl text-center font-mono focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Captcha */}
+                <div className="grid grid-cols-2 gap-3 items-center">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">کد امنیتی:</label>
                     <input
                       type="text"
-                      maxLength={2}
-                      placeholder="سال"
-                      value={expYear}
-                      onChange={(e) => setExpYear(e.target.value)}
+                      value={captchaInput}
+                      onChange={(e) => setCaptchaInput(e.target.value)}
+                      placeholder="کد تصویر"
                       className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs p-2.5 rounded-xl text-center font-mono focus:outline-none"
                     />
                   </div>
-                </div>
-              </div>
 
-              {/* Captcha */}
-              <div className="grid grid-cols-2 gap-3 items-center">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">کد امنیتی:</label>
-                  <input
-                    type="text"
-                    value={captchaInput}
-                    onChange={(e) => setCaptchaInput(e.target.value)}
-                    placeholder="کد تصویر"
-                    className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs p-2.5 rounded-xl text-center font-mono focus:outline-none"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 mt-4">
-                  <div className="bg-slate-100 border border-slate-300 text-slate-800 font-mono font-black text-lg px-4 py-1.5 rounded-xl tracking-widest select-none">
-                    {captchaCode}
+                  <div className="flex items-center gap-2 mt-4">
+                    <div className="bg-slate-100 border border-slate-300 text-slate-800 font-mono font-black text-lg px-4 py-1.5 rounded-xl tracking-widest select-none">
+                      {captchaCode}
+                    </div>
+                    <button
+                      onClick={handleGenerateCaptcha}
+                      type="button"
+                      className="text-slate-500 hover:text-slate-800 p-1"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
                   </div>
-                  <button
-                    onClick={handleGenerateCaptcha}
-                    type="button"
-                    className="text-slate-500 hover:text-slate-800 p-1"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
                 </div>
-              </div>
 
-              {/* OTP Code */}
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">رمز دوم پویا:</label>
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    placeholder="رمز دریافت شده"
-                    className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs p-2.5 rounded-xl text-center font-mono focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleRequestOtp}
-                    className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold whitespace-nowrap shrink-0 transition"
-                  >
-                    {otpSent ? `ارسال مجدد (${otpTimer})` : 'درخواست رمز پویا'}
-                  </button>
+                {/* OTP Code */}
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">رمز دوم پویا:</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value)}
+                      placeholder="رمز دریافت شده"
+                      className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs p-2.5 rounded-xl text-center font-mono focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleRequestOtp}
+                      className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold whitespace-nowrap shrink-0 transition"
+                    >
+                      {otpSent ? `ارسال مجدد (${otpTimer})` : 'درخواست رمز پویا'}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <button
-              type="button"
-              onClick={handlePay}
-              disabled={isProcessing}
-              className="w-full purple-gradient hover:opacity-95 text-white font-extrabold text-sm py-3.5 rounded-2xl transition shadow-lg shadow-[#7C3AED]/25 flex items-center justify-center gap-2 mt-4 cursor-pointer"
-            >
-              {isProcessing ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>در حال انجام تراکنش...</span>
-                </>
-              ) : (
-                <span>پرداخت و ثبت نهایی</span>
-              )}
-            </button>
+                <button
+                  onClick={handlePay}
+                  disabled={isProcessing}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-sm py-3.5 rounded-2xl transition shadow-lg flex items-center justify-center gap-2 mt-4 cursor-pointer"
+                >
+                  {isProcessing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>در حال انجام تراکنش...</span>
+                    </>
+                  ) : (
+                    <span>تایید و پرداخت تستی</span>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
     </div>
   );
 };
+

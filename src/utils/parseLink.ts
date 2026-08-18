@@ -1,5 +1,5 @@
 import { getEffectiveGeminiKeysList, callGeminiApiWithKeyRotation } from './geminiKey';
-import type { ProductVariantGroup, ProductVariantOption, ProductVariantMatrix, ProductVariantItem } from '../types';
+import type { ProductVariantGroup, ProductVariantOption } from '../types';
 
 export interface ParsedProductResult {
   success: boolean;
@@ -25,7 +25,6 @@ export interface ParsedProductResult {
   description?: string;
   inStock?: boolean;
   variants?: any[];
-  variantMatrix?: ProductVariantMatrix;
   variantGroups?: ProductVariantGroup[];
   options?: string[];
   flavors?: string[];
@@ -628,30 +627,6 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
   "brand": "Brand Name",
   "category": "Category Name",
   "description": "Short Persian product description",
-  "variantMatrix": {
-    "sizes": ["60 Servings", "120 Servings"],
-    "flavors": ["Chocolate", "Vanilla"],
-    "items": [
-      {
-        "id": "v1",
-        "title": "60 Servings / Chocolate",
-        "size": "60 Servings",
-        "flavor": "Chocolate",
-        "priceAED": 160.95,
-        "originalPriceAED": 199.0,
-        "inStock": true
-      },
-      {
-        "id": "v2",
-        "title": "120 Servings / Chocolate",
-        "size": "120 Servings",
-        "flavor": "Chocolate",
-        "priceAED": 242.95,
-        "originalPriceAED": 299.0,
-        "inStock": true
-      }
-    ]
-  },
   "variantGroups": [
     {
       "id": "flavors",
@@ -667,8 +642,8 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
       "name": "وزن / سایز (Size)",
       "type": "size",
       "options": [
-        { "id": "s1", "name": "۶۰ سروینگ (60 Servings)", "priceAed": 160.95 },
-        { "id": "s2", "name": "۱۲۰ سروینگ (120 Servings)", "priceAed": 242.95 }
+        { "id": "s1", "name": "۲.۲۷ کیلوگرم (5 lbs)", "priceAed": 280.0 },
+        { "id": "s2", "name": "۹۰۷ گرم (2 lbs)", "priceAed": 130.0 }
       ]
     }
   ]
@@ -725,10 +700,8 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
           options: (Array.isArray(vg.options) ? vg.options : []).map((opt: any, oIdx: number) => ({
             id: opt.id || `opt-${gIdx}-${oIdx}`,
             name: typeof opt === 'string' ? opt : (opt.name || opt.title || `گزینه ${oIdx + 1}`),
-            priceAed: Number(opt.priceAed || opt.priceAED || opt.price || priceAed) || priceAed,
-            priceAED: Number(opt.priceAED || opt.priceAed || opt.price || priceAed) || priceAed,
-            originalPriceAed: Number(opt.originalPriceAed || opt.originalPriceAED || opt.originalPrice || 0) || undefined,
-            originalPriceAED: Number(opt.originalPriceAED || opt.originalPriceAed || opt.originalPrice || 0) || undefined,
+            priceAed: Number(opt.priceAed || opt.price || priceAed) || priceAed,
+            originalPriceAed: Number(opt.originalPriceAed || opt.originalPrice || 0) || undefined,
             image: opt.image || undefined,
             inStock: opt.inStock !== false
           }))
@@ -739,66 +712,11 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
       const extractedSizes: string[] = [];
       variantGroups.forEach(vg => {
         if (vg.type === 'size') {
-          vg.options.forEach(opt => {
-            if (opt.name && !extractedSizes.includes(opt.name)) extractedSizes.push(opt.name);
-          });
+          vg.options.forEach(opt => extractedSizes.push(opt.name));
         } else {
-          vg.options.forEach(opt => {
-            if (opt.name && !extractedFlavors.includes(opt.name)) extractedFlavors.push(opt.name);
-          });
+          vg.options.forEach(opt => extractedFlavors.push(opt.name));
         }
       });
-
-      // Construct Unified ProductVariantMatrix
-      const matrixItems: ProductVariantItem[] = [];
-      if (parsed.variantMatrix && Array.isArray(parsed.variantMatrix.items)) {
-        parsed.variantMatrix.items.forEach((item: any, idx: number) => {
-          const itemTitle = item.title || item.name || '';
-          const itemPrice = Number(item.priceAED || item.priceAed || item.price || priceAed) || priceAed;
-          const itemOrigPrice = Number(item.originalPriceAED || item.originalPriceAed || item.originalPrice || 0) || undefined;
-          matrixItems.push({
-            id: item.id || `matrix-${idx}`,
-            title: itemTitle || `گزینه ${idx + 1}`,
-            name: itemTitle || `گزینه ${idx + 1}`,
-            size: item.size,
-            flavor: item.flavor,
-            priceAED: itemPrice,
-            priceAed: itemPrice,
-            originalPriceAED: itemOrigPrice,
-            originalPriceAed: itemOrigPrice,
-            image: item.image,
-            inStock: item.inStock !== false
-          });
-        });
-      }
-
-      // If matrix items is empty, generate from variantGroups
-      if (matrixItems.length === 0 && variantGroups.length > 0) {
-        variantGroups.forEach(vg => {
-          vg.options.forEach((opt, optIdx) => {
-            matrixItems.push({
-              id: opt.id || `opt-${optIdx}`,
-              title: opt.name,
-              name: opt.name,
-              size: vg.type === 'size' ? opt.name : undefined,
-              flavor: vg.type === 'flavor' ? opt.name : undefined,
-              priceAED: opt.priceAed || priceAed,
-              priceAed: opt.priceAed || priceAed,
-              originalPriceAED: opt.originalPriceAed,
-              originalPriceAed: opt.originalPriceAed,
-              image: opt.image,
-              inStock: opt.inStock !== false
-            });
-          });
-        });
-      }
-
-      const variantMatrix: ProductVariantMatrix = {
-        sizes: parsed.variantMatrix?.sizes || extractedSizes,
-        flavors: parsed.variantMatrix?.flavors || extractedFlavors,
-        items: matrixItems,
-        selectedVariant: matrixItems[0]
-      };
 
       return {
         success: true,
@@ -815,11 +733,9 @@ Respond ONLY with a valid JSON object in this exact structure without markdown f
         weightKg: Number(parsed.weightKg) || 0.8,
         description: parsed.description || 'محصول اورجینال با ضمانت اصالت ۱۰۰٪ دبی و بسته‌بندی پلمپ شرکتی',
         variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
-        variantMatrix,
-        variants: matrixItems,
-        flavors: variantMatrix.flavors.length > 0 ? variantMatrix.flavors : (parsed.flavors || []),
-        sizes: variantMatrix.sizes.length > 0 ? variantMatrix.sizes : (parsed.sizes || []),
-        options: parsed.options || [...variantMatrix.flavors, ...variantMatrix.sizes]
+        flavors: extractedFlavors.length > 0 ? extractedFlavors : (parsed.flavors || []),
+        sizes: extractedSizes.length > 0 ? extractedSizes : (parsed.sizes || []),
+        options: parsed.options || [...extractedFlavors, ...extractedSizes]
       };
     }
   } catch (err) {

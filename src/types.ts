@@ -1,56 +1,8 @@
-export interface ProductVariantItem {
-  id: string;
-  title: string;        // e.g. "120 Servings" or "Chocolate / 5 lbs"
-  size?: string;
-  flavor?: string;
-  name?: string;
-  url?: string;         // Sibling product URL for URL-based variant stores (e.g. Dr. Nutrition)
-  priceAED: number;     // Variant-specific price
-  priceAed?: number;
-  originalPriceAED?: number;
-  originalPriceAed?: number;
-  priceToman?: number;
-  weightKg?: number;
-  image?: string;
-  imageThumbnail?: string;
-  inStock: boolean;
-}
-
-export interface ProductVariantMatrix {
-  sizes: string[];      // e.g., ["1 kg", "1.8 kg", "5 lbs", "32 Servings"]
-  flavors: string[];    // e.g., ["Chocolate Caramel", "Green Apple", "Vanilla"]
-  items: ProductVariantItem[]; // Full matrix of options with individual pricing
-  selectedVariant?: ProductVariantItem;
-}
-
-export interface NormalizedProduct {
-  id: string;
-  source: 'drnutrition' | 'gnc' | 'lifepharmacy' | 'generic';
-  sourceUrl: string;
-  canonicalUrl?: string;
-  title: string;
-  brand: string;
-  currentPriceAED: number;
-  originalPriceAED?: number;
-  discountPercentage?: number;
-  currency: 'AED';
-  mainImage: string;
-  galleryImages: string[];
-  inStock: boolean;
-  variants: ProductVariantMatrix;
-  description: string;
-  nutritionFacts?: Record<string, string>;
-  ingredients?: string[];
-  category?: string;
-  scrapedAt: string;
-}
-
 export interface User {
   id: string;
   name: string;
   phoneNumber: string;
   email?: string;
-  address?: string;
   createdAt: string;
 }
 
@@ -85,28 +37,18 @@ export interface FeaturedDeal {
   title: string;
   brand?: string;
   category: string;
-  categoryKey?: string;
   priceAed: number;
   originalPriceAed?: number;
   discountPercent?: number;
   weightKg?: number;
-  profitMargin?: number;
-  marginPercent?: number;
-  priceToman?: number;
-  originalPriceToman?: number;
-  stockQuantity?: number;
-  stockCount?: number;
   image?: string;
   url: string;
   storeName?: string;
   badge?: string;
-  deliveryBadge?: string;
   section?: 'featured' | 'bestseller' | 'discount';
   isFeaturedInCalculator?: boolean;
   isPopularSample?: boolean;
-  isPopular?: boolean;
   isActive: boolean;
-  inStock?: boolean;
   description?: string;
   flavors?: string[];
   sizes?: string[];
@@ -118,24 +60,17 @@ export interface LocalInventoryItem {
   image: string;
   priceToman: number;
   originalPriceToman?: number;
-  calculatedTomanOverride?: number;
   stockQuantity: number;
-  stockCount?: number;
   category: string;
-  categoryKey?: string;
   description?: string;
   deliveryBadge?: string;
   inStock: boolean;
-  isIranWarehouse?: boolean;
-  isLocalInventory?: boolean;
   isPopularSample?: boolean;
-  isPopular?: boolean;
   priceAed?: number;
   weightKg?: number;
   marginPercent?: number;
   flavors?: string[];
   sizes?: string[];
-  url?: string;
 }
 
 export interface HomePageSettings {
@@ -181,16 +116,10 @@ export interface HomePageSettings {
   trustBadge2: string;
   trustBadge3: string;
   showTrustBadges?: boolean;
-  showEnamad?: boolean;
-  showSamandehi?: boolean;
   enamadHtml?: string;
-  enamadCode?: string;
-  enamadUrl?: string;
   samandehiHtml?: string;
-  samandehiCode?: string;
   customBadgeImg?: string;
   customBadgeLink?: string;
-  supportPhone?: string;
   headerPillSlogan?: string;
   heroMainHeadline?: string;
   heroHighlightWord?: string;
@@ -198,11 +127,12 @@ export interface HomePageSettings {
   heroImageUrl?: string;
 }
 
-export type GatewayProvider = 'zarinpal' | 'zibal' | 'nextpay' | 'idpay' | 'card_to_card';
+export type GatewayProvider = 'zarinpal' | 'zibal' | 'nextpay' | 'idpay' | 'bitpay' | 'card_to_card';
 
 export interface PaymentGatewayConfig {
   activeGateway: GatewayProvider;
   merchantId: string;
+  bitpayApiKey?: string;
   callbackUrl: string;
   isSandbox: boolean;
   cardToCard: {
@@ -216,6 +146,7 @@ export interface PaymentGatewayConfig {
 export interface GatewayProviderConfig {
   activeGateway: GatewayProvider;
   merchantId: string;
+  bitpayApiKey?: string;
   callbackUrl: string;
   isSandbox: boolean;
   cardToCard: {
@@ -259,9 +190,7 @@ export interface PricingRulesConfig {
 export interface WarehouseCategory {
   id: string;
   label: string;
-  name?: string;
   iconUrl?: string;
-  imageUrl?: string;
   filterKey: string;
   englishLabel?: string;
   isPinned?: boolean;
@@ -281,17 +210,15 @@ export interface DomainItem {
 }
 
 export interface FeatureToggles {
-  showReviews?: boolean;
+  showReviews: boolean;
   showComments?: boolean;
-  showStores?: boolean;
-  showBreakdown?: boolean;
-  showLocalInventory?: boolean;
-  showAnnouncementBanner?: boolean;
-  showSupportSection?: boolean;
-  showTopPromo?: boolean;
+  showStores: boolean;
+  showBreakdown: boolean;
+  showLocalInventory: boolean;
+  showAnnouncementBanner: boolean;
+  showSupportSection: boolean;
+  showTopPromo: boolean;
   showTrustBadges?: boolean;
-  showEnamad?: boolean;
-  showSamandehi?: boolean;
   showFaqSection?: boolean;
 }
 
@@ -312,16 +239,10 @@ export interface CmsConfig {
   showFaqSection?: boolean;
   showTopPromo?: boolean;
   showTrustBadges?: boolean;
-  showEnamad?: boolean;
-  showSamandehi?: boolean;
   enamadHtml?: string;
-  enamadCode?: string;
-  enamadUrl?: string;
   samandehiHtml?: string;
-  samandehiCode?: string;
   customBadgeImg?: string;
   customBadgeLink?: string;
-  popularSamplesOrder?: string[];
   announcementText?: string;
   announcementBadge?: string;
   announcementSlogans?: string[];
@@ -414,10 +335,23 @@ export interface Order {
   shippingStatus: ShippingStatus;
   createdAt: string;
   paymentRefId?: string;
+  refNumber?: string;
+  trackId?: string;
+  paymentUrl?: string;
+  paidAt?: string;
+  cardNumber?: string;
+  gatewayProvider?: string;
   selectedOption?: string;
   discountCode?: string;
   discountAmountToman?: number;
-  isLocalInventory?: boolean;
+}
+
+export interface ProductVariantItem {
+  id?: string;
+  name: string; // e.g. "Strawberry", "Chocolate", "5 LBS", "60 Servings"
+  inStock: boolean;
+  priceAED?: number;
+  imageThumbnail?: string;
 }
 
 export interface ScrapedProductResult {
@@ -433,7 +367,6 @@ export interface ScrapedProductResult {
   calculatedPriceToman: number;
   inStock: boolean;
   variants: ProductVariantItem[];
-  variantMatrix?: ProductVariantMatrix;
   variantGroups?: VariantGroupsStructure;
   features?: string[];
   description?: string;
@@ -448,15 +381,12 @@ export interface VariantOption {
   inStock: boolean; // Strict in-stock validation
   price?: number;
   priceAed?: number; // for backward compatibility
-  priceAED?: number;
   originalPrice?: number;
   originalPriceAed?: number;
-  originalPriceAED?: number;
   currency?: string;
   imageUrl?: string;
   image?: string; // for backward compatibility
   sku?: string;
-  url?: string;
 }
 
 export interface VariantGroupsStructure {
@@ -510,7 +440,6 @@ export interface UniversalProduct {
   dimensions?: VariantDimension[];
   variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
-  variantMatrix?: ProductVariantMatrix;
   options?: string[];
   flavors?: string[];
   sizes?: string[];
@@ -524,13 +453,10 @@ export interface ProductVariantOption {
   name: string;        // e.g. "وانیل / Vanilla", "2.27 kg (5 lbs)"
   nameFa?: string;     // Persian translated or cleaned name
   priceAed?: number;   // Specific price if variant has a different price
-  priceAED?: number;
   originalPriceAed?: number;
-  originalPriceAED?: number;
   image?: string;      // Image specific to this variant/flavor
   inStock?: boolean;
   sku?: string;
-  url?: string;
 }
 
 export interface ProductVariantGroup {
@@ -555,7 +481,6 @@ export interface ScrapedProduct {
   description?: string;
   variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
-  variantMatrix?: ProductVariantMatrix;
   options?: string[];
   flavors?: string[];
   sizes?: string[];
@@ -583,24 +508,17 @@ export interface ParsedProduct {
   fallback?: boolean;
   variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
-  variantMatrix?: ProductVariantMatrix;
 }
 
 export interface ProductVariant {
   id: string;
-  title?: string;
   flavor?: string; // e.g., "Green Apple", "Blue Raspberry", "Chocolate"
   size?: string;   // e.g., "50 Servings", "1 kg", "2.3 kg"
   name?: string;
   priceAed?: number;
-  priceAED?: number;
-  originalPriceAed?: number;
-  originalPriceAED?: number;
   priceToman?: number;
   inStock?: boolean;
   image?: string;
-  imageThumbnail?: string;
-  url?: string;
 }
 
 export interface CartItem {
@@ -617,25 +535,21 @@ export interface CartItem {
   galleryImages?: string[];
   storeName?: string;
   calculatedToman?: number;
-  calculatedTomanOverride?: number;
-  priceToman?: number;
   quantity: number;
   category?: string;
   brand?: string;
   selectedOption?: string;
   selectedFlavor?: string;
   selectedSize?: string;
-  selectedVariant?: ProductVariant | ProductVariantItem;
+  selectedVariant?: ProductVariant;
   selectedVariants?: Record<string, ProductVariantOption>;
   options?: string[];
   flavors?: string[];
   sizes?: string[];
   variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
-  variantMatrix?: ProductVariantMatrix;
   description?: string;
   isLocalInventory?: boolean;
-  isIranWarehouse?: boolean;
   isDeal?: boolean;
 }
 

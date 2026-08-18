@@ -1,142 +1,98 @@
 import React from 'react';
+import { ShieldCheck } from 'lucide-react';
 import type { CmsConfig } from '../types';
-import { useSettings } from '../context/SettingsContext';
 
 interface TrustBadgesSectionProps {
   cms?: CmsConfig | null;
   settings?: any;
 }
 
-export const TrustBadgesSection: React.FC<TrustBadgesSectionProps> = ({ cms, settings: propSettings }) => {
-  let contextSettings: any = null;
-  try {
-    const ctx = useSettings();
-    contextSettings = ctx?.settings;
-  } catch (_e) {}
-
-  const effectiveSettings = propSettings || contextSettings || {};
+export const TrustBadgesSection: React.FC<TrustBadgesSectionProps> = ({ cms, settings }) => {
   const home = cms?.homeContent;
+  const showTrust =
+    cms?.features?.showTrustBadges ??
+    cms?.showTrustBadges ??
+    home?.showTrustBadges ??
+    settings?.showTrustBadges ??
+    true;
 
-  // Resolve Master Show/Hide Toggle
-  let showTrust = true;
-  try {
-    const resolvedVal =
-      cms?.features?.showTrustBadges ??
-      cms?.showTrustBadges ??
-      home?.showTrustBadges ??
-      effectiveSettings?.showTrustBadges;
-    if (resolvedVal !== undefined && resolvedVal !== null) {
-      showTrust = Boolean(resolvedVal);
-    }
-  } catch (e) {
-    console.warn('Error reading showTrustBadges setting:', e);
-  }
-
-  // Resolve individual badge visibility toggles
-  let showEnamad = true;
-  try {
-    const enamadVal =
-      cms?.features?.showEnamad ??
-      cms?.showEnamad ??
-      home?.showEnamad ??
-      effectiveSettings?.showEnamad;
-    if (enamadVal !== undefined && enamadVal !== null) {
-      showEnamad = Boolean(enamadVal);
-    }
-  } catch (_e) {}
-
-  let showSamandehi = true;
-  try {
-    const samandehiVal =
-      cms?.features?.showSamandehi ??
-      cms?.showSamandehi ??
-      home?.showSamandehi ??
-      effectiveSettings?.showSamandehi;
-    if (samandehiVal !== undefined && samandehiVal !== null) {
-      showSamandehi = Boolean(samandehiVal);
-    }
-  } catch (_e) {}
-
-  // If master toggle is off, or no badges are enabled, return null
   if (showTrust === false) return null;
-  if (!showEnamad && !showSamandehi) return null;
+
+  const customBadgeImg = cms?.customBadgeImg || home?.customBadgeImg || settings?.customBadgeImg || '';
+  const customBadgeLink = cms?.customBadgeLink || home?.customBadgeLink || settings?.customBadgeLink || '';
 
   return (
-    <div className="w-full bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 sm:p-5 my-4 font-['Vazirmatn',sans-serif]">
-      {/* Header */}
-      <div className="flex items-center justify-center gap-2 mb-4">
-        <svg className="w-5 h-5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-        </svg>
-        <h3 className="text-slate-800 font-bold text-sm sm:text-base">
-          نمادهای اعتماد و مجوزهای رسمی
-        </h3>
+    <div id="trust-badges-section" className="bg-white border border-slate-200/90 rounded-3xl p-5 md:p-6 shadow-2xs space-y-4 text-center font-['Vazirmatn',sans-serif]">
+      <div className="flex items-center justify-center gap-2 border-b border-slate-100 pb-3">
+        <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+        <h3 className="font-black text-sm md:text-base text-slate-900 tracking-tight">نمادهای اعتماد و مجوزهای رسمی</h3>
       </div>
 
-      {/* Badges Grid */}
-      <div className={`grid ${showEnamad && showSamandehi ? 'grid-cols-2 gap-3 max-w-md mx-auto' : 'grid-cols-1 max-w-[220px] mx-auto'} w-full`}>
-        {/* Enamad Badge */}
-        {showEnamad && (
-          <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-4 flex flex-col items-center justify-center">
-            <div className="w-20 h-20 bg-white rounded-lg border border-slate-200 shadow-xs flex items-center justify-center p-1.5 mb-2 overflow-hidden hover:border-blue-400 transition-colors">
-              {/* Official Enamad Badge Link & Authentic Logo */}
-              <a 
-                href="https://trustseal.enamad.ir/?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full h-full flex items-center justify-center"
-                title="مشاهده نماد اعتماد الکترونیکی معتبر"
-              >
-                <img 
-                  src="https://upload.wikimedia.org/wikipedia/commons/1/1b/Enamad_Logo.png" 
-                  alt="نماد اعتماد الکترونیکی (اینماد)" 
-                  loading="lazy"
-                  className="w-full h-full object-contain cursor-pointer"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/enamad.png';
-                  }}
-                />
-              </a>
-            </div>
-            <span className="text-slate-800 font-semibold text-xs sm:text-sm text-center">اینماد (نماد اعتماد)</span>
-            <span className="text-slate-500 text-[11px] mt-0.5 text-center">احراز هویت و مجوز رسمی</span>
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center justify-center gap-3 sm:gap-6 pt-1">
+        {/* Non-Blocking Official Enamad Component */}
+        <a
+          href="https://trustseal.enamad.ir/?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex flex-col items-center justify-center p-3.5 bg-white border border-slate-200/90 hover:border-slate-800 rounded-2xl transition-all duration-200 shadow-2xs hover:shadow-md cursor-pointer w-full sm:w-44 text-center group active:scale-[0.98]"
+        >
+          <div className="w-16 h-16 sm:w-20 sm:h-20 object-contain mb-1.5 flex items-center justify-center group-hover:scale-105 transition-transform">
+            <img
+              src="/enamad.png"
+              alt="اینماد"
+              onError={(e) => {
+                e.currentTarget.src = "https://upload.wikimedia.org/wikipedia/commons/1/1b/Enamad_Logo.png";
+              }}
+              className="w-full h-full object-contain"
+            />
           </div>
-        )}
+          <span className="text-[11px] sm:text-xs font-black text-slate-800">نماد اعتماد الکترونیکی</span>
+          <span className="text-[10px] text-slate-500 font-semibold mt-0.5">جهت استعلام کلیک کنید</span>
+        </a>
 
-        {/* Samandehi Badge */}
-        {showSamandehi && (
-          <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-4 flex flex-col items-center justify-center">
-            <div className="w-20 h-20 bg-white rounded-lg border border-slate-200 shadow-sm flex items-center justify-center p-1 mb-2 overflow-hidden">
-              <a
-                referrerPolicy="origin"
-                target="_blank"
-                rel="noopener noreferrer"
-                href="https://samandehi.ir"
-                className="w-full h-full flex items-center justify-center"
-              >
-                <img
-                  referrerPolicy="origin"
-                  src="https://samandehi.ir/assets/images/logo.png"
-                  alt="ساماندهی (نشان ملی)"
-                  style={{ cursor: 'pointer' }}
-                  className="w-full h-full object-contain"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/samandehi.png';
-                  }}
-                />
-              </a>
+        {/* Samandehi Digital Media Badge */}
+        <a
+          href="https://samandehi.ir"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex flex-col items-center justify-center p-3.5 bg-white border border-slate-200/90 hover:border-slate-800 rounded-2xl transition-all duration-200 shadow-2xs hover:shadow-md cursor-pointer w-full sm:w-44 text-center group active:scale-[0.98]"
+        >
+          <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-amber-50 border border-amber-200/80 flex flex-col items-center justify-center p-1 relative">
+              <span className="text-xl font-extrabold text-amber-700">رسانه</span>
+              <span className="text-[8px] font-bold text-amber-800 mt-0.5">دیجیتال</span>
+              <span className="absolute -bottom-1 text-[8px] font-black bg-amber-600 text-white px-1.5 py-0.2 rounded-full">
+                ساماندهی
+              </span>
             </div>
-            <span className="text-slate-800 font-semibold text-xs sm:text-sm text-center">ساماندهی (نشان ملی)</span>
-            <span className="text-slate-500 text-[11px] mt-0.5 text-center">ثبت رسانه‌های دیجیتال</span>
           </div>
+          <span className="text-[11px] sm:text-xs font-black text-slate-900">ساماندهی رسانه‌های دیجیتال</span>
+          <span className="text-[10px] text-slate-500 font-semibold mt-0.5">نشان ملی ثبت</span>
+        </a>
+
+        {/* Optional Custom Badge */}
+        {customBadgeImg && (
+          <a
+            href={customBadgeLink || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col items-center justify-center p-3.5 bg-white border border-slate-200/90 hover:border-slate-800 rounded-2xl transition-all duration-200 shadow-2xs hover:shadow-md cursor-pointer w-full sm:w-44 text-center group active:scale-[0.98]"
+          >
+            <img
+              src={customBadgeImg}
+              alt="نماد اختصاصی"
+              className="w-16 h-16 sm:w-20 sm:h-20 object-contain mb-1.5 group-hover:scale-105 transition-transform"
+            />
+            <span className="text-[11px] sm:text-xs font-black text-slate-900">مجوز صنفی واردات</span>
+          </a>
         )}
       </div>
 
-      {/* Footer Note */}
-      <p className="text-slate-500 text-[11px] text-center mt-3 leading-relaxed">
+      <p className="text-[11px] text-slate-500 font-medium">
         تمامی فعالیت‌های این مجموعه دارای مجوز رسمی و تحت نظارت مراجع ذی‌صلاح می‌باشند.
       </p>
     </div>
   );
 };
 
+export default TrustBadgesSection;

@@ -1,16 +1,65 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import type { WarehouseCategory } from '../types';
-import { SirikFitLogo } from './SirikFitLogo';
-import {
-  DEFAULT_UNIFIED_CATEGORIES,
-  getCategoryTheme,
-  renderCategoryIcon,
-  getCanonicalCategoryKey,
-  getCategoryImageUrl
-} from '../utils/categoryHelper';
 
-export { DEFAULT_UNIFIED_CATEGORIES as DEFAULT_CIRCULAR_CATEGORIES };
+export const DEFAULT_CIRCULAR_CATEGORIES: WarehouseCategory[] = [
+  {
+    id: 'protein',
+    label: 'پروتئین وی',
+    englishLabel: 'WHEY',
+    filterKey: 'protein',
+    iconUrl: 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'creatine',
+    label: 'کراتین',
+    englishLabel: 'CREATINE',
+    filterKey: 'creatine',
+    iconUrl: 'https://images.unsplash.com/photo-1546483875-ad9014c88eba?w=500&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'omega',
+    label: 'امگا ۳',
+    englishLabel: 'OMEGA 3',
+    filterKey: 'omega',
+    iconUrl: 'https://images.unsplash.com/photo-1526947425960-945c6e72858f?w=500&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'vitamin',
+    label: 'مولتی ویتامین',
+    englishLabel: 'MULTIVITAMIN',
+    filterKey: 'vitamin',
+    iconUrl: 'https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=500&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'gainer',
+    label: 'گینر',
+    englishLabel: 'GAINER',
+    filterKey: 'gainer',
+    iconUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'amino',
+    label: 'آمینو',
+    englishLabel: 'AMINO',
+    filterKey: 'amino',
+    iconUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=500&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'pre',
+    label: 'قبل تمرین',
+    englishLabel: 'PRE-WORKOUT',
+    filterKey: 'pre',
+    iconUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=500&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'all',
+    label: 'همه کالاها',
+    englishLabel: 'ALL PRODUCTS',
+    filterKey: 'all',
+    iconUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop&q=80'
+  }
+];
 
 interface CircularCategoryRowProps {
   categories?: WarehouseCategory[];
@@ -19,70 +68,6 @@ interface CircularCategoryRowProps {
   title?: string;
   showNavArrows?: boolean;
 }
-
-interface CategoryCircleItemProps {
-  cat: WarehouseCategory;
-  isActive: boolean;
-  onSelect: () => void;
-}
-
-const CategoryCircleItem: React.FC<CategoryCircleItemProps> = ({ cat, isActive, onSelect }) => {
-  const [imageError, setImageError] = useState(false);
-  const rawKey = cat.filterKey || cat.id;
-  const displayLabel = cat.label || cat.name || 'دسته‌بندی';
-  const canonical = getCanonicalCategoryKey(rawKey || displayLabel);
-  const isAllCategory = canonical === 'all';
-  const theme = getCategoryTheme(rawKey || displayLabel);
-  
-  // Custom image check: support imageUrl, iconUrl, or category photo fallback
-  const fallbackImage = getCategoryImageUrl(rawKey || displayLabel);
-  const imageSource = cat.imageUrl || cat.iconUrl || fallbackImage;
-  const hasValidImage = Boolean(imageSource && typeof imageSource === 'string' && imageSource.trim().length > 0 && !imageError);
-
-  return (
-    <div
-      onClick={onSelect}
-      className="flex flex-col items-center flex-shrink-0 w-[72px] sm:w-[80px] cursor-pointer group select-none"
-    >
-      {/* 1. THE THICK WHITE FRAME */}
-      <div
-        className={`w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full bg-white p-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.08)] border transition-all duration-300 flex items-center justify-center group-hover:shadow-md group-hover:-translate-y-0.5 ${
-          isActive ? 'border-gray-400 shadow-md scale-105' : 'border-slate-100'
-        }`}
-      >
-        {/* 2. THE INNER IMAGE / ICON */}
-        <div className="w-full h-full rounded-full overflow-hidden bg-slate-50 flex items-center justify-center">
-          {isAllCategory && !cat.imageUrl ? (
-            <div className="w-full h-full flex items-center justify-center bg-white p-0.5">
-              <SirikFitLogo className="w-full h-full" />
-            </div>
-          ) : hasValidImage ? (
-            <img
-              src={imageSource}
-              alt={displayLabel}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <div
-              className={`w-full h-full rounded-full bg-gradient-to-br ${theme.gradient} flex items-center justify-center text-white p-1`}
-            >
-              {renderCategoryIcon(theme.iconName, 'w-5 h-5 text-white stroke-[2]')}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 3. TRUNCATED TITLE */}
-      <span className={`text-[10px] sm:text-[11px] font-medium mt-2 text-center w-full truncate px-0.5 block leading-tight transition-colors ${
-        isActive ? 'font-bold text-slate-900' : 'text-slate-700 group-hover:text-slate-900'
-      }`}>
-        {displayLabel}
-      </span>
-    </div>
-  );
-};
 
 export const CircularCategoryRow: React.FC<CircularCategoryRowProps> = ({
   categories = [],
@@ -100,59 +85,92 @@ export const CircularCategoryRow: React.FC<CircularCategoryRowProps> = ({
     }
   };
 
-  // Merge provided categories with fallback defaults
-  const catList = categories && categories.length > 0 ? categories : DEFAULT_UNIFIED_CATEGORIES;
-  const canonicalSelected = getCanonicalCategoryKey(selectedCat);
+  // Merge provided categories with fallback defaults if needed
+  const catList = (categories && categories.length > 0) ? categories : DEFAULT_CIRCULAR_CATEGORIES;
+
+  const getCategoryImage = (cat: WarehouseCategory): string => {
+    if (cat.iconUrl) return cat.iconUrl;
+    const match = DEFAULT_CIRCULAR_CATEGORIES.find(d => d.filterKey === cat.filterKey || d.id === cat.id);
+    return match?.iconUrl || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
+  };
 
   return (
-    <div className="w-full font-['Vazirmatn',sans-serif] relative group/carousel my-2 py-1">
+    <div className="w-full font-['Vazirmatn',sans-serif] relative group/carousel my-1 py-0.5">
       {/* Optional Header Row */}
       {title && (
-        <div className="flex items-center justify-between mb-2 px-2">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-            <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight">{title}</h3>
+        <div className="flex items-center justify-between mb-2 px-1">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-slate-900"></span>
+            <h3 className="text-xs font-black text-slate-900">{title}</h3>
           </div>
-          <span className="text-[11px] text-slate-400 font-medium">مشاهده سریع بر اساس دسته</span>
         </div>
       )}
 
-      {/* Horizontal Flex Row with Subtle Navigation Controls */}
-      <div className="relative flex items-center w-full group">
+      {/* Horizontal Flex Row with Subtle Side Nav Arrows */}
+      <div className="relative flex items-center w-full">
         {showNavArrows && (
           <button
             type="button"
             onClick={() => scroll('right')}
-            className="absolute z-10 -right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full bg-white/70 shadow-sm border border-gray-200 text-slate-400 opacity-40 hover:opacity-100 hover:bg-white hover:text-slate-700 hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95 shrink-0"
+            className="absolute right-0 z-20 w-7 h-7 rounded-full bg-white/90 border border-slate-200/80 text-slate-400 hover:text-slate-900 hover:bg-white shadow-2xs flex items-center justify-center transition-all opacity-20 group-hover/carousel:opacity-80 hover:!opacity-100 cursor-pointer active:scale-95 shrink-0"
             title="بعدی"
-            aria-label="بعدی"
           >
-            <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+            <ChevronRight className="w-4 h-4 stroke-[2]" />
           </button>
         )}
 
-        {/* Badges Container: Horizontal smooth scroll with hidden scrollbar */}
+        {/* Horizontal Scrollable Container */}
         <div
           ref={scrollRef}
-          className="flex items-center gap-3 sm:gap-3.5 overflow-x-auto no-scrollbar py-2.5 px-2 dir-rtl scroll-smooth w-full"
+          className="flex items-center gap-3 sm:gap-4 overflow-x-auto no-scrollbar py-1 px-6 dir-rtl scroll-smooth w-full"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {catList.map((cat) => {
-            const rawKey = cat.filterKey || cat.id;
-            const canonicalKey = getCanonicalCategoryKey(rawKey || cat.label || cat.name);
-            const isActive =
-              canonicalSelected === canonicalKey ||
-              selectedCat === rawKey ||
-              selectedCat === cat.id ||
-              (canonicalSelected === 'all' && canonicalKey === 'all');
+            const filterKey = cat.filterKey || cat.id;
+            const isActive = selectedCat === filterKey || selectedCat === cat.id || (selectedCat === 'all' && cat.filterKey === 'all');
+            const imgSrc = getCategoryImage(cat);
 
             return (
-              <CategoryCircleItem
-                key={cat.id || rawKey}
-                cat={cat}
-                isActive={isActive}
-                onSelect={() => onSelectCategory(rawKey)}
-              />
+              <div
+                key={cat.id || filterKey}
+                onClick={() => onSelectCategory(filterKey)}
+                className="flex flex-col items-center shrink-0 cursor-pointer group select-none transition-transform duration-200 hover:-translate-y-0.5"
+                style={{ width: '72px' }}
+              >
+                {/* Slimmer & Sleek Circular Badge Frame */}
+                <div
+                  className={`relative w-14 h-14 md:w-16 md:h-16 rounded-full p-0.5 border bg-white shadow-xs hover:shadow-md transition-all duration-200 flex items-center justify-center overflow-hidden shrink-0 ${
+                    isActive
+                      ? 'border-slate-900 ring-2 ring-slate-900/20 scale-105'
+                      : 'border-slate-200/90 group-hover:border-slate-600'
+                  }`}
+                >
+                  <img
+                    src={imgSrc}
+                    alt={cat.label}
+                    className="w-full h-full object-cover rounded-full group-hover:scale-105 transition-transform duration-300"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
+                    }}
+                  />
+
+                  {isActive && (
+                    <span className="absolute top-0.5 left-0.5 z-10 w-4 h-4 bg-slate-900 rounded-full flex items-center justify-center shadow-2xs">
+                      <Check className="w-2.5 h-2.5 text-white stroke-[3]" />
+                    </span>
+                  )}
+                </div>
+
+                {/* Centered Persian Label Below Circle */}
+                <span
+                  className={`text-xs font-medium mt-1.5 text-center truncate max-w-[70px] w-full transition-colors ${
+                    isActive ? 'text-slate-900 font-bold' : 'text-slate-700 group-hover:text-slate-900'
+                  }`}
+                >
+                  {cat.label}
+                </span>
+              </div>
             );
           })}
         </div>
@@ -161,18 +179,13 @@ export const CircularCategoryRow: React.FC<CircularCategoryRowProps> = ({
           <button
             type="button"
             onClick={() => scroll('left')}
-            className="absolute z-10 -left-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full bg-white/70 shadow-sm border border-gray-200 text-slate-400 opacity-40 hover:opacity-100 hover:bg-white hover:text-slate-700 hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95 shrink-0"
+            className="absolute left-0 z-20 w-7 h-7 rounded-full bg-white/90 border border-slate-200/80 text-slate-400 hover:text-slate-900 hover:bg-white shadow-2xs flex items-center justify-center transition-all opacity-20 group-hover/carousel:opacity-80 hover:!opacity-100 cursor-pointer active:scale-95 shrink-0"
             title="قبلی"
-            aria-label="قبلی"
           >
-            <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
+            <ChevronLeft className="w-4 h-4 stroke-[2]" />
           </button>
         )}
       </div>
     </div>
   );
 };
-
-// Aliases for compatibility
-export const CategoryPills = CircularCategoryRow;
-export const CategoriesHeader = CircularCategoryRow;

@@ -196,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {isLoadingRate ? (
                   <span className="text-slate-400 font-normal">--</span>
                 ) : dynamicRate && dynamicRate > 0 ? (
-                  `${toPersianDigits(Number(dynamicRate).toLocaleString('fa-IR'))} تومان`
+                  `${toPersianDigits(dynamicRate.toLocaleString('fa-IR'))} تومان`
                 ) : (
                   '--'
                 )}

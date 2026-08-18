@@ -1,66 +1,5 @@
 import { PricingRulesConfig, CommissionRule, ShippingIncrementRule } from '../types';
 
-export interface PricingRules {
-  exchangeRate: number;        // e.g., 51200
-  defaultProfitMargin: number; // e.g., 20 (%)
-  baseShippingAED: number;     // e.g., 20 AED (1st item)
-  extraItemShippingAED: number;// e.g., 5 AED (per additional item)
-  maxShippingCapAED: number;   // e.g., 40 AED
-}
-
-// 1. Incremental Shipping Calculator
-export function calculateShippingAED(totalItemsCount: number, rules: PricingRules): number {
-  if (totalItemsCount <= 0) return 0;
-  if (totalItemsCount === 1) return rules.baseShippingAED;
-  const calculatedShipping = rules.baseShippingAED + (totalItemsCount - 1) * rules.extraItemShippingAED;
-  return Math.min(calculatedShipping, rules.maxShippingCapAED);
-}
-
-// 2. Exact Floor Rounding (Zero out the last 3 digits)
-export function applyFloorRoundingToman(rawToman: number): number {
-  if (!rawToman || rawToman <= 0) return 0;
-  // Example: 19599360 -> 19599.36 -> 19599 -> 19599000
-  return Math.floor(rawToman / 1000) * 1000;
-}
-
-// 3. Single Product Price Calculator (for Card / Modal display)
-export function calculateSingleProductPriceToman(
-  priceAED: number,
-  customProfitMargin: number | undefined,
-  rules: PricingRules
-): number {
-  const margin = customProfitMargin !== undefined ? customProfitMargin : rules.defaultProfitMargin;
-  const costWithProfit = priceAED * (1 + margin / 100);
-  const rawToman = (costWithProfit + rules.baseShippingAED) * rules.exchangeRate;
-  return applyFloorRoundingToman(rawToman);
-}
-
-// 4. Cart & Checkout Summary Calculator
-export function calculateCartSummary(
-  items: Array<{ priceAED: number; quantity: number; profitMargin?: number }>,
-  rules: PricingRules
-) {
-  const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
-  
-  const itemsSubtotalAED = items.reduce((sum, item) => {
-    const margin = item.profitMargin !== undefined ? item.profitMargin : rules.defaultProfitMargin;
-    return sum + (item.priceAED * (1 + margin / 100) * item.quantity);
-  }, 0);
-
-  const shippingAED = calculateShippingAED(totalQuantity, rules);
-  const grandTotalAED = itemsSubtotalAED + shippingAED;
-
-  return {
-    totalQuantity,
-    itemsSubtotalAED,
-    shippingAED,
-    grandTotalAED,
-    itemsSubtotalToman: applyFloorRoundingToman(itemsSubtotalAED * rules.exchangeRate),
-    shippingToman: applyFloorRoundingToman(shippingAED * rules.exchangeRate),
-    grandTotalToman: applyFloorRoundingToman(grandTotalAED * rules.exchangeRate)
-  };
-}
-
 export interface AppSettings {
   aedRate: number;
   minOrderAmountToman?: number;
@@ -338,7 +277,7 @@ export function calculateOrderPricing(
 
   // 6 & 7. Display Final Total
   const finalTotalAed = subtotalAed + commissionAmountAed + shippingCostAed;
-  const finalTotalToman = applyFloorRoundingToman(finalTotalAed * effectiveRate);
+  const finalTotalToman = Math.round(finalTotalAed * effectiveRate);
 
   const breakdownSteps = [
     { step: 1, label: 'مجموع سفارش (Subtotal)', value: `${subtotalAed.toLocaleString('fa-IR')} درهم` },

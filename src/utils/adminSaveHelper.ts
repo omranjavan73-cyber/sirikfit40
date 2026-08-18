@@ -27,34 +27,6 @@ export function safeParseNumeric(val: any, fallback = 0): number {
 }
 
 /**
- * Recursively cleans any object or array so that no `undefined` values are ever passed to Firestore.
- * Firestore throws a runtime error if any field in the document is `undefined`.
- */
-export function sanitizePayloadForFirestore<T = any>(obj: T): T {
-  if (obj === undefined || obj === null) return null as unknown as T;
-  if (typeof obj !== 'object') return obj;
-
-  if (Array.isArray(obj)) {
-    return obj
-      .filter((item) => item !== undefined)
-      .map((item) => sanitizePayloadForFirestore(item)) as unknown as T;
-  }
-
-  const clean: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj as Record<string, any>)) {
-    if (value === undefined) {
-      continue; // Omit undefined properties entirely
-    }
-    if (value !== null && typeof value === 'object') {
-      clean[key] = sanitizePayloadForFirestore(value);
-    } else {
-      clean[key] = value;
-    }
-  }
-  return clean as T;
-}
-
-/**
  * Single source of truth for saving all admin panel configuration updates:
  * Financial Settings, AED Rate, CMS Configs, and Feature Toggles.
  *
@@ -219,14 +191,14 @@ export async function saveAdminSettingsPayload(
       firestoreAppPayload.showReviewsSection = revVal;
       firestoreAppPayload.showReviews = revVal;
       firestoreAppPayload.showComments = revVal;
-      firestoreAppPayload.showPriceBreakdown = Boolean(cmsConfig.showPriceBreakdown ?? true);
-      firestoreAppPayload.showAnnouncementBanner = Boolean(cmsConfig.showAnnouncementBanner ?? true);
-      firestoreAppPayload.showLocalInventory = Boolean(cmsConfig.showLocalInventory ?? true);
+      firestoreAppPayload.showPriceBreakdown = cmsConfig.showPriceBreakdown;
+      firestoreAppPayload.showAnnouncementBanner = cmsConfig.showAnnouncementBanner;
+      firestoreAppPayload.showLocalInventory = cmsConfig.showLocalInventory;
     }
 
     const firestorePromises: Promise<any>[] = [];
 
-    if (featureConfig || cmsConfig || cleanFinancial) {
+    if (featureConfig || cmsConfig) {
       const revVal = featureConfig?.showReviews !== undefined
         ? Boolean(featureConfig.showReviews)
         : (featureConfig?.showComments !== undefined
@@ -235,42 +207,37 @@ export async function saveAdminSettingsPayload(
             ? Boolean(cmsConfig?.showReviewsSection)
             : (cmsConfig?.showComments !== undefined ? Boolean(cmsConfig?.showComments) : true)));
 
-      const generalPayload: Record<string, any> = {
+      const generalPayload = {
         showReviewsSection: revVal,
         showReviews: revVal,
         showComments: revVal,
-        showPriceBreakdown: featureConfig?.showBreakdown !== undefined ? Boolean(featureConfig.showBreakdown) : Boolean(cmsConfig?.showPriceBreakdown ?? true),
-        showAnnouncementBanner: featureConfig?.showAnnouncementBanner !== undefined ? Boolean(featureConfig.showAnnouncementBanner) : Boolean(cmsConfig?.showAnnouncementBanner ?? true),
-        showLocalInventory: featureConfig?.showLocalInventory !== undefined ? Boolean(featureConfig.showLocalInventory) : Boolean(cmsConfig?.showLocalInventory ?? true),
-        showTrustBadges: Boolean(cmsConfig?.showTrustBadges ?? cmsConfig?.homeContent?.showTrustBadges ?? true),
+        showPriceBreakdown: featureConfig?.showBreakdown !== undefined ? Boolean(featureConfig.showBreakdown) : cmsConfig?.showPriceBreakdown,
+        showAnnouncementBanner: featureConfig?.showAnnouncementBanner !== undefined ? Boolean(featureConfig.showAnnouncementBanner) : cmsConfig?.showAnnouncementBanner,
+        showLocalInventory: featureConfig?.showLocalInventory !== undefined ? Boolean(featureConfig.showLocalInventory) : cmsConfig?.showLocalInventory,
+        showTrustBadges: cmsConfig?.showTrustBadges ?? cmsConfig?.homeContent?.showTrustBadges ?? true,
         enamadHtml: cmsConfig?.enamadHtml ?? cmsConfig?.homeContent?.enamadHtml ?? '',
         samandehiHtml: cmsConfig?.samandehiHtml ?? cmsConfig?.homeContent?.samandehiHtml ?? '',
         customBadgeImg: cmsConfig?.customBadgeImg ?? cmsConfig?.homeContent?.customBadgeImg ?? '',
         customBadgeLink: cmsConfig?.customBadgeLink ?? cmsConfig?.homeContent?.customBadgeLink ?? '',
+        aedRate: extractedAedRate || undefined,
         updatedAt: new Date().toISOString()
       };
 
-      if (extractedAedRate && extractedAedRate > 0) {
-        generalPayload.aedRate = extractedAedRate;
-        generalPayload.manualAedRate = extractedAedRate;
-      }
-
       firestorePromises.push(
-        setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore(generalPayload), { merge: true })
+        setDoc(doc(db, 'settings', 'general'), generalPayload, { merge: true })
       );
     }
 
     if (Object.keys(firestoreAppPayload).length > 0) {
-      const cleanApp = sanitizePayloadForFirestore(firestoreAppPayload);
       firestorePromises.push(
-        setDoc(doc(db, 'settings', 'app'), cleanApp, { merge: true }),
-        setDoc(doc(db, 'settings', 'financial'), cleanApp, { merge: true })
+        setDoc(doc(db, 'settings', 'app'), firestoreAppPayload, { merge: true }),
+        setDoc(doc(db, 'settings', 'financial'), firestoreAppPayload, { merge: true })
       );
     }
 
     if (cmsConfig) {
       firestorePromises.push(
-        setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(cmsConfig), { merge: true })
+        setDoc(doc(db, 'settings', 'cms'), cmsConfig, { merge: true })
       );
     }
 
@@ -287,7 +254,7 @@ export async function saveAdminSettingsPayload(
       fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sanitizePayloadForFirestore(restPayload))
+        body: JSON.stringify(restPayload)
       }).catch(() => {});
     } catch (_restErr) {}
 

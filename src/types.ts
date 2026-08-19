@@ -353,9 +353,25 @@ export interface Order {
 export interface ProductVariantItem {
   id?: string;
   name: string; // e.g. "Strawberry", "Chocolate", "5 LBS", "60 Servings"
+  title?: string;
   inStock: boolean;
   priceAED?: number;
+  priceAed?: number;
+  originalPriceAED?: number;
+  originalPriceAed?: number;
+  size?: string;
+  flavor?: string;
+  image?: string;
   imageThumbnail?: string;
+}
+
+export interface ProductVariantMatrix {
+  dimensions?: any[];
+  items?: ProductVariantItem[];
+  sizes?: string[];
+  flavors?: string[];
+  options?: string[];
+  selectedVariant?: ProductVariantItem;
 }
 
 export interface ScrapedProductResult {

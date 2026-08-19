@@ -606,16 +606,13 @@ const verifyPaymentTransaction = onRequest(
   }
 );
 
-// Load bundled Express App from functions/dist/server.cjs safely (which does NOT call app.listen)
+// Load bundled Express App from functions/dist/server.cjs
 let expressApp = null;
 try {
-  const distServerPath = path.join(__dirname, 'dist', 'server.cjs');
-  if (fs.existsSync(distServerPath)) {
-    const serverModule = require(distServerPath);
-    expressApp = serverModule.app || serverModule.default || serverModule;
-  }
+  const appModule = require("./dist/server.cjs");
+  expressApp = appModule.default || appModule.app || appModule;
 } catch (err) {
-  console.warn('Notice: functions/dist/server.cjs loading notice:', err.message);
+  console.warn("Notice: functions/dist/server.cjs loading notice:", err.message);
 }
 
 /**
@@ -625,6 +622,7 @@ try {
 const api = onRequest(
   {
     cors: true,
+    maxInstances: 10,
     memory: '1GiB',
     timeoutSeconds: 60
   },

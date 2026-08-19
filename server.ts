@@ -4378,23 +4378,24 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
 
     if (jinaRes.ok) {
       const jinaText = await jinaRes.text();
-      const parsed = parseHtmlEngine(jinaText, drUrl);
-      if (parsed.title && parsed.price > 0) {
+      const drResult = parseDrNutritionHtml(jinaText, drUrl);
+      if (drResult && drResult.title && drResult.price > 0) {
+        logDrNutritionScrapeResult(drUrl, drResult, { tier: 'tier4-jina', source: drResult.source }).catch(() => {});
         return {
           ok: true,
-          title: parsed.title,
-          brand: parsed.brand || storeName,
-          price: parsed.price,
-          currency: "AED",
-          image: sanitizeImageUrl(parsed.image, drUrl),
-          galleryImages: parsed.galleryImages,
-          images: parsed.galleryImages,
-          variantGroups: parsed.variantGroups,
-          flavors: parsed.flavors,
-          sizes: parsed.sizes,
-          options: parsed.options,
-          storeName,
-          description: parsed.description
+          title: drResult.title,
+          brand: drResult.brand || storeName,
+          price: drResult.price,
+          currency: 'AED',
+          image: drResult.image,
+          galleryImages: drResult.gallery,
+          images: drResult.gallery,
+          flavors: drResult.flavors,
+          sizes: drResult.sizes,
+          options: [...drResult.flavors, ...drResult.sizes],
+          description: drResult.description,
+          inStock: drResult.inStock,
+          storeName
         };
       }
     }
@@ -5426,55 +5427,24 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   next();
 });
 
-// Export Express app and 2nd Generation Cloud Function
-export const api = onRequest(
-  {
-    cors: true,
-    memory: '1GiB',
-    timeoutSeconds: 60,
-  },
-  app
+// Export Express app
+export { app };
+
+const isCloudFunctions = !!(
+  process.env.FUNCTION_TARGET ||
+  process.env.K_SERVICE ||
+  process.env.FIREBASE_CONFIG ||
+  process.env.IS_FIREBASE_FUNCTION
 );
 
-export { app };
+if (!isCloudFunctions && process.env.NODE_ENV !== 'production') {
+  const PORT = Number(process.env.PORT) || 3000;
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
+}
+
 export default app;
 
-// ----------------------------------------------------
-// LOCAL STANDALONE SERVER LISTENER
-// ----------------------------------------------------
-async function startLocalServer() {
-  await getStoreData().catch(e => console.warn('Initial store hydrate warn:', e));
-
-  if (process.env.NODE_ENV !== 'production') {
-    try {
-      const { createServer: createViteServer } = await import('vite');
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: 'spa',
-      });
-      app.use(vite.middlewares);
-    } catch (_viteErr) {
-      console.warn('Vite dev middleware notice:', _viteErr);
-    }
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
-
-  // Strictly ensure app.listen is only called locally, NEVER in Firebase Cloud Functions / Cloud Run / Production Functions
-  if (!isCloudOrFunctionEnv && !process.env.FUNCTION_TARGET && !process.env.K_SERVICE && !process.env.FIREBASE_CONFIG) {
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`SIRIK FIT Platform server listening on http://localhost:${PORT}`);
-    });
-  }
-}
-
-// ONLY launch local HTTP server if NOT running in Cloud Functions / Cloud Run
-if (!isCloudOrFunctionEnv && !process.env.FUNCTION_TARGET && !process.env.K_SERVICE && !process.env.FIREBASE_CONFIG) {
-  startLocalServer();
-}
 
 

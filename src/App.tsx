@@ -441,7 +441,9 @@ function MainApp() {
   // Fetch Settings & CMS Config directly via Firestore SDK with LocalStorage Precedence & Timeout Guard
   const fetchSettings = async () => {
     setIsLoadingSettings(true);
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+    // Strict fallback timeout to kill infinite spinner
+    const safetyTimer = setTimeout(() => setIsLoadingSettings(false), 2000);
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000));
 
     try {
       let localRate: number | null = null;
@@ -486,6 +488,7 @@ function MainApp() {
     } catch (err) {
       console.warn('Error loading settings:', err);
     } finally {
+      clearTimeout(safetyTimer);
       setIsLoadingSettings(false);
     }
   };

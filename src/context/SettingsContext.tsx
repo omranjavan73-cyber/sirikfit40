@@ -128,14 +128,14 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const refreshSettings = async () => {
     setIsLoading(true);
-    // Safety net: guarantee spinner stops after 1500ms regardless of what happens
-    const safetyTimer = setTimeout(() => setIsLoading(false), 1500);
+    // Safety net: guarantee spinner stops after 2000ms regardless of what happens
+    const safetyTimer = setTimeout(() => setIsLoading(false), 2000);
 
     try {
       let fetchedRate: number | null = null;
       let fetchedData: any = null;
 
-      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 2500));
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 2000));
 
       // ۱. دریافت مستقیم از دیتابیس با سقف زمانی ۲.۵ ثانیه
       try {

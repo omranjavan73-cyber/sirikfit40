@@ -3403,6 +3403,9 @@ export interface ParseAdapterResult {
   ok: boolean;
   requireManualEntry?: boolean;
   message?: string;
+  error?: string;
+  details?: string;
+  statusCode?: number | string;
   title?: string;
   brand?: string;
   price?: number | null;

@@ -61,7 +61,8 @@ import {
   Calendar,
   Store,
   Layout,
-  HelpCircle
+  HelpCircle,
+  Bug
 } from 'lucide-react';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { 
@@ -92,6 +93,7 @@ import StickyBottomSaveBar from './StickyBottomSaveBar';
 import { AdminSupportTickets } from './AdminSupportTickets';
 import { AdminFAQManager } from './AdminFAQManager';
 import { AdminSeoManager } from './AdminSeoManager';
+import { AdminScraperLogs } from './AdminScraperLogs';
 import { saveAdminSettingsPayload, safeParseNumeric } from '../utils/adminSaveHelper';
 
 export const sanitizePayloadForFirestore = (obj: any): any => {
@@ -303,9 +305,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'seo'
+  // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'seo' | 'scraperLogs'
   const [activeAdminSubTab, setActiveAdminSubTab] = useState<
-    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'seo'
+    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'seo' | 'scraperLogs'
   >('dashboard');
 
   // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples'
@@ -2639,6 +2641,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         return 'بک‌آپ و پشتیبان‌گیری داده‌ها';
       case 'seo':
         return 'مدیریت سئو و متاتگ‌های سایت (SEO)';
+      case 'scraperLogs':
+        return 'گزارش و عیب‌یابی خطاهای استخراج ربات';
       default:
         return 'مدیریت و تنظیمات سیستم';
     }
@@ -3076,6 +3080,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </h4>
                   <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 shrink-0">
                     گوگل
+                  </span>
+                </div>
+              </button>
+
+              {/* Card 14: گزارش خطای استخراج */}
+              <button
+                type="button"
+                onClick={() => { setActiveAdminSubTab('scraperLogs'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-rose-400 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+              >
+                <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <Bug className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1 flex items-center justify-between gap-1">
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-rose-600 transition truncate">
+                    گزارش خطای استخراج
+                  </h4>
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 shrink-0">
+                    ربات
                   </span>
                 </div>
               </button>
@@ -7613,6 +7636,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* SUB-TAB: SEO MANAGEMENT SUITE */}
       {activeAdminSubTab === 'seo' && (
         <AdminSeoManager showToast={showToast} />
+      )}
+
+      {/* SUB-TAB: SCRAPER DIAGNOSTIC LOGS */}
+      {activeAdminSubTab === 'scraperLogs' && (
+        <AdminScraperLogs showToast={showToast} />
       )}
 
       {/* TOP-RIGHT TOAST NOTIFICATION */}

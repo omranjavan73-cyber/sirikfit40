@@ -18,23 +18,25 @@ export function normalizeToEnglishDigits(str: string | number): string {
   return res;
 }
 
-export function formatToman(amount: number): string {
-  if (isNaN(amount)) return '۰ تومان';
+export function formatToman(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || isNaN(amount)) return '۰ تومان';
   const formatted = Math.round(amount).toLocaleString('fa-IR');
   return `${formatted} تومان`;
 }
 
-export function formatAed(amount: number): string {
-  if (isNaN(amount) || amount === 0) return '0 AED';
+export function formatAed(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || isNaN(amount) || amount === 0) return '0 AED';
   const formatted = Number.isInteger(amount)
     ? amount.toLocaleString('en-US')
     : amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${formatted} AED`;
 }
 
-export function formatPersianDate(isoString: string): string {
+export function formatPersianDate(isoString: string | null | undefined): string {
+  if (!isoString) return '';
   try {
     const date = new Date(isoString);
+    if (isNaN(date.getTime())) return String(isoString);
     return new Intl.DateTimeFormat('fa-IR', {
       year: 'numeric',
       month: 'long',
@@ -43,21 +45,27 @@ export function formatPersianDate(isoString: string): string {
       minute: '2-digit'
     }).format(date);
   } catch {
-    return isoString;
+    return String(isoString || '');
   }
 }
 
 export function calculateFinalToman(
-  priceAed: number,
-  weightKg: number,
-  cargoRatePerKg: number,
-  profitMarginPercent: number,
-  aedRate: number
+  priceAed: number | null | undefined,
+  weightKg: number | null | undefined,
+  cargoRatePerKg: number | null | undefined,
+  profitMarginPercent: number | null | undefined,
+  aedRate: number | null | undefined
 ): number {
-  const cargoCostAed = weightKg * cargoRatePerKg;
-  const subtotalAed = priceAed + cargoCostAed;
-  const withProfitAed = subtotalAed * (1 + profitMarginPercent / 100);
-  return Math.round(withProfitAed * aedRate);
+  const pAed = typeof priceAed === 'number' && !isNaN(priceAed) ? priceAed : 0;
+  const wKg = typeof weightKg === 'number' && !isNaN(weightKg) ? weightKg : 0.5;
+  const cRate = typeof cargoRatePerKg === 'number' && !isNaN(cargoRatePerKg) ? cargoRatePerKg : 35;
+  const margin = typeof profitMarginPercent === 'number' && !isNaN(profitMarginPercent) ? profitMarginPercent : 15;
+  const rate = typeof aedRate === 'number' && !isNaN(aedRate) ? aedRate : 0;
+
+  const cargoCostAed = wKg * cRate;
+  const subtotalAed = pAed + cargoCostAed;
+  const withProfitAed = subtotalAed * (1 + margin / 100);
+  return Math.round(withProfitAed * rate);
 }
 
 /**

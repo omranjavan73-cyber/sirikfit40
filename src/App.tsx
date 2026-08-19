@@ -24,6 +24,7 @@ import { CircularCategoryRow } from './components/CircularCategoryRow';
 import { ReviewsSection } from './components/ReviewsSection';
 import { FAQView } from './components/FAQView';
 import { SeoHeadInjector } from './components/SeoHeadInjector';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
 import { toPersianDigits, getEffectiveAedRate, calculateFinalToman } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
@@ -1112,15 +1113,17 @@ function MainApp() {
 
 export default function App() {
   return (
-    <SettingsProvider>
-      <SeoHeadInjector />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/payment/callback" element={<PaymentCallback />} />
-          <Route path="/payment-callback" element={<PaymentCallback />} />
-          <Route path="/*" element={<MainApp />} />
-        </Routes>
-      </BrowserRouter>
-    </SettingsProvider>
+    <ErrorBoundary>
+      <SettingsProvider>
+        <SeoHeadInjector />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/payment/callback" element={<PaymentCallback />} />
+            <Route path="/payment-callback" element={<PaymentCallback />} />
+            <Route path="/*" element={<MainApp />} />
+          </Routes>
+        </BrowserRouter>
+      </SettingsProvider>
+    </ErrorBoundary>
   );
 }

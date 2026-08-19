@@ -22,10 +22,10 @@ export function detectStoreOrigin(url: string): { storeName: string; origin: str
   if (lower.includes('amazon.ae') || lower.includes('amazon.')) {
     return { storeName: 'Amazon UAE', origin: 'دبی، امارات (Amazon.ae)', flag: '🇦🇪' };
   }
-  if (lower.includes('drnutrition.com')) {
+  if (lower.includes('drnutrition.com') || lower.includes('drnutrition')) {
     return { storeName: 'Dr. Nutrition', origin: 'انبار مرکزی Dr Nutrition دبی', flag: '🇦🇪' };
   }
-  if (lower.includes('gnc.')) {
+  if (lower.includes('gnc.') || lower.includes('gnc-') || lower.includes('gnc')) {
     return { storeName: 'GNC Store', origin: 'نمایندگی رسمی GNC امارات', flag: '🇦🇪' };
   }
   if (lower.includes('lifepharmacy.com')) {

@@ -23,6 +23,7 @@ import { PopularProductsCarousel, PopularProductItem } from './components/Popula
 import { CircularCategoryRow } from './components/CircularCategoryRow';
 import { ReviewsSection } from './components/ReviewsSection';
 import { FAQView } from './components/FAQView';
+import { SeoHeadInjector } from './components/SeoHeadInjector';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
 import { toPersianDigits, getEffectiveAedRate, calculateFinalToman } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
@@ -436,9 +437,11 @@ function MainApp() {
     }
   };
 
-  // Fetch Settings & CMS Config directly via Firestore SDK with LocalStorage Precedence
+  // Fetch Settings & CMS Config directly via Firestore SDK with LocalStorage Precedence & Timeout Guard
   const fetchSettings = async () => {
     setIsLoadingSettings(true);
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+
     try {
       let localRate: number | null = null;
       let localSettings: any = null;
@@ -456,7 +459,7 @@ function MainApp() {
         }
       }
 
-      const fsSettings = await fetchSettingsFromFirestore();
+      const fsSettings = await Promise.race([fetchSettingsFromFirestore(), timeoutPromise]);
 
       if (fsSettings) {
         setSettings(prev => {
@@ -487,8 +490,10 @@ function MainApp() {
   };
 
   const fetchCms = async () => {
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+
     try {
-      const fsCms = await getCmsFromFirestore();
+      const fsCms = await Promise.race([getCmsFromFirestore(), timeoutPromise]);
       if (fsCms) {
         if (fsCms.homeContent) {
           fsCms.homeContent.appTitle = (fsCms.homeContent.appTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
@@ -1108,6 +1113,7 @@ function MainApp() {
 export default function App() {
   return (
     <SettingsProvider>
+      <SeoHeadInjector />
       <BrowserRouter>
         <Routes>
           <Route path="/payment/callback" element={<PaymentCallback />} />

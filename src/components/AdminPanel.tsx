@@ -75,6 +75,8 @@ import {
   fetchVisitorStatsFromFirestore,
   deleteOrderFromFirestore,
   saveOrderToFirestore,
+  saveAdminPasswordToFirestore,
+  getAdminPasswordFromFirestore,
   isFirestoreGrpcNoise
 } from '../firebase';
 import { safeFetchJson } from '../utils/apiHelper';
@@ -89,6 +91,7 @@ import {
 import StickyBottomSaveBar from './StickyBottomSaveBar';
 import { AdminSupportTickets } from './AdminSupportTickets';
 import { AdminFAQManager } from './AdminFAQManager';
+import { AdminSeoManager } from './AdminSeoManager';
 import { saveAdminSettingsPayload, safeParseNumeric } from '../utils/adminSaveHelper';
 
 export const sanitizePayloadForFirestore = (obj: any): any => {
@@ -300,9 +303,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries'
+  // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'seo'
   const [activeAdminSubTab, setActiveAdminSubTab] = useState<
-    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries'
+    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'seo'
   >('dashboard');
 
   // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples'
@@ -780,23 +783,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     setIsChangingPass(true);
     try {
+      // 1. Send update to Backend API
       const res = await fetch('/api/admin/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword, newPassword })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'خطا در تغییر کلمه عبور');
       }
 
+      // 2. Direct Firestore Backup Write
+      await saveAdminPasswordToFirestore(newPassword);
+
       setPassMessage({ text: data.message || 'کلمه عبور با موفقیت به‌روزرسانی شد.', type: 'success' });
+      if (showToast) {
+        showToast('کلمه عبور مدیریت با موفقیت تغییر یافت و ذخیره شد.', 'success');
+      }
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       fetchAuditLogs();
     } catch (err: any) {
       setPassMessage({ text: err.message || 'خطا در برقراری ارتباط با سرور', type: 'error' });
+      if (showToast) {
+        showToast(`خطا در تغییر رمز: ${err.message || 'خطای ناشناخته'}`, 'error');
+      }
     } finally {
       setIsChangingPass(false);
     }
@@ -1560,13 +1573,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   }, []);
 
-  // 🟢 [FIXED_BY_AI]: Added fallback authentication with omex2025 password when backend is unavailable
+  // Dynamic authentication with Firestore verification priority
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoggingIn(true);
     setLoginError('');
 
     try {
+      // 1. First attempt login against the backend endpoint
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1583,25 +1597,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         }
       }
 
-      // Backend response failed - Fallback check for omex2025
-      if (passwordInput === 'omex2025') {
-        localStorage.setItem('omex_admin_token', 'fallback_admin_token');
+      // 2. Direct Firestore fallback validation if API fails or backend is unreachable
+      const firestorePass = await getAdminPasswordFromFirestore();
+      if (firestorePass && passwordInput === firestorePass) {
+        localStorage.setItem('omex_admin_token', 'firestore_admin_token_' + Date.now());
         setIsAuthenticated(true);
         fetchAdminOrders();
         return;
       }
 
       const data = await res.json().catch(() => ({}));
-      setLoginError(data.error || 'رمز عبور اشتباه است.');
-    } catch (err) {
-      // Backend unavailable or fetch failed - Fallback check
-      if (passwordInput === 'omex2025') {
-        localStorage.setItem('omex_admin_token', 'fallback_admin_token');
-        setIsAuthenticated(true);
-        fetchAdminOrders();
-      } else {
-        setLoginError('خطا در برقراری ارتباط با سرور.');
-      }
+      setLoginError(data.error || 'رمز عبور مدیریت اشتباه است.');
+    } catch (_err) {
+      // Backend unavailable or fetch network error - Check Firestore directly
+      try {
+        const firestorePass = await getAdminPasswordFromFirestore();
+        if (firestorePass && passwordInput === firestorePass) {
+          localStorage.setItem('omex_admin_token', 'firestore_admin_token_' + Date.now());
+          setIsAuthenticated(true);
+          fetchAdminOrders();
+          return;
+        }
+      } catch (_fsErr) {}
+
+      setLoginError('رمز عبور وارد شده نادرست است یا امکان اتصال به سرور وجود ندارد.');
     } finally {
       setIsLoggingIn(false);
     }
@@ -2600,6 +2619,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         return 'رمز عبور و مدیریت امنیت';
       case 'backup':
         return 'بک‌آپ و پشتیبان‌گیری داده‌ها';
+      case 'seo':
+        return 'مدیریت سئو و متاتگ‌های سایت (SEO)';
       default:
         return 'مدیریت و تنظیمات سیستم';
     }
@@ -2612,6 +2633,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       await handleSaveBackupSchedule(new Event('submit') as any);
     } else if (activeAdminSubTab === 'gateway') {
       await handleSaveGatewaySettings();
+    } else if (activeAdminSubTab === 'seo') {
+      const formEl = document.querySelector('form');
+      if (formEl) formEl.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     } else if (activeAdminSubTab === 'homeContent' || activeAdminSubTab === 'cms' || activeAdminSubTab === 'apiSettings') {
       await handleDirectCmsSave();
     } else if (activeAdminSubTab === 'accounting' || activeAdminSubTab === 'dashboard') {
@@ -2714,7 +2738,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               required
               value={passwordInput}
               onChange={(e) => setPasswordInput(e.target.value)}
-              placeholder="رمز عبور را وارد کنید (پیش‌فرض: omex2025)"
+              placeholder="رمز عبور پنل مدیریت را وارد کنید"
               className="w-full bg-neutral-50 border border-neutral-300 focus:border-black focus:bg-white text-neutral-900 text-sm px-4 py-2.5 rounded-xl focus:outline-none transition font-mono"
             />
           </div>
@@ -3016,6 +3040,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-emerald-700 transition truncate">
                     بک‌آپ و پشتیبان‌گیری
                   </h4>
+                </div>
+              </button>
+
+              {/* Card 13: مدیریت سئو سایت */}
+              <button
+                type="button"
+                onClick={() => { setActiveAdminSubTab('seo'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-teal-400 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1 flex items-center justify-between gap-1">
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-teal-600 transition truncate">
+                    سئو سایت (SEO)
+                  </h4>
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 shrink-0">
+                    گوگل
+                  </span>
                 </div>
               </button>
             </div>
@@ -7547,6 +7590,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* SUB-TAB: FAQ & USER INQUIRIES MANAGEMENT */}
       {(activeAdminSubTab === 'faq' || activeAdminSubTab === 'inquiries') && (
         <AdminFAQManager showToast={showToast} />
+      )}
+
+      {/* SUB-TAB: SEO MANAGEMENT SUITE */}
+      {activeAdminSubTab === 'seo' && (
+        <AdminSeoManager showToast={showToast} />
       )}
 
       {/* TOP-RIGHT TOAST NOTIFICATION */}

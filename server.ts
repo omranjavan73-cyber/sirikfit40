@@ -1155,29 +1155,40 @@ async function createBackupSnapshot(type: 'MANUAL' | 'AUTOMATIC' | 'EMAIL_BACKUP
   return backupRecord;
 }
 
-// Background Scheduled Backup Timer (checks every 30 minutes)
-setInterval(async () => {
-  try {
-    const schedSnap = await getDoc(doc(db, 'settings', 'backupSchedule'));
-    if (schedSnap.exists()) {
-      const sched = schedSnap.data() as any;
-      if (sched && sched.enabled) {
-        const intervalMs = (sched.intervalHours || 24) * 3600 * 1000;
-        const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
-        if (Date.now() - lastRun >= intervalMs) {
-          console.log('[Auto-Backup] Executing scheduled backup...');
-          await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبان‌گیر خودکار (Cron)');
-          await setDoc(doc(db, 'settings', 'backupSchedule'), {
-            lastRunTimestamp: new Date().toISOString(),
-            nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
-          }, { merge: true });
+// Background Scheduled Backup Timer (checks every 30 minutes, only in standalone mode)
+const isCloudOrFunctionEnv = !!(
+  process.env.FUNCTION_TARGET ||
+  process.env.K_SERVICE ||
+  process.env.GAE_ENV ||
+  process.env.FIREBASE_CONFIG ||
+  process.env.GOOGLE_CLOUD_PROJECT ||
+  process.env.IS_FIREBASE_FUNCTION === 'true'
+);
+
+if (!isCloudOrFunctionEnv && !process.env.FUNCTION_TARGET && !process.env.K_SERVICE) {
+  setInterval(async () => {
+    try {
+      const schedSnap = await getDoc(doc(db, 'settings', 'backupSchedule'));
+      if (schedSnap.exists()) {
+        const sched = schedSnap.data() as any;
+        if (sched && sched.enabled) {
+          const intervalMs = (sched.intervalHours || 24) * 3600 * 1000;
+          const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
+          if (Date.now() - lastRun >= intervalMs) {
+            console.log('[Auto-Backup] Executing scheduled backup...');
+            await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبان‌گیر خودکار (Cron)');
+            await setDoc(doc(db, 'settings', 'backupSchedule'), {
+              lastRunTimestamp: new Date().toISOString(),
+              nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
+            }, { merge: true });
+          }
         }
       }
+    } catch (err) {
+      console.warn('Scheduled backup runner error:', err);
     }
-  } catch (err) {
-    console.warn('Scheduled backup runner error:', err);
-  }
-}, 30 * 60 * 1000);
+  }, 30 * 60 * 1000);
+}
 
 // Security & Admin Password APIs
 app.get('/api/admin/security', async (req, res) => {
@@ -1208,9 +1219,19 @@ app.post('/api/admin/change-password', async (req, res) => {
   }
 
   const sec = await getAdminSecurity();
-  const validPass = sec.passwordHash || 'admin123';
+  let currentValidPass = sec.passwordHash || 'admin123';
 
-  if (currentPassword !== validPass && currentPassword !== 'admin123' && currentPassword !== 'admin') {
+  // Also check settings/security document in Firestore
+  try {
+    const secSnap = await getDoc(doc(db, 'settings', 'security'));
+    if (secSnap.exists() && secSnap.data()?.adminPassword) {
+      currentValidPass = secSnap.data().adminPassword;
+    }
+  } catch (_e) {}
+
+  const defaultAllowedFallback = process.env.ADMIN_PASSWORD || 'admin123';
+
+  if (currentPassword !== currentValidPass && currentPassword !== defaultAllowedFallback) {
     await addAuditLog('PASSWORD_CHANGE_FAILED', 'SECURITY', 'تلاش ناموفق برای تغییر کلمه عبور (رمز فعلی اشتباه بود)');
     return res.status(400).json({ error: 'کلمه عبور فعلی وارد شده نادرست است.' });
   }
@@ -1218,6 +1239,10 @@ app.post('/api/admin/change-password', async (req, res) => {
   sec.passwordHash = newPassword;
   sec.lastPasswordChange = new Date().toISOString();
   await saveAdminSecurity(sec);
+
+  try {
+    await setDoc(doc(db, 'settings', 'security'), { adminPassword: newPassword }, { merge: true });
+  } catch (_e) {}
 
   await addAuditLog('PASSWORD_CHANGED', 'SECURITY', 'کلمه عبور مدیر سیستم با موفقیت به‌روزرسانی شد.');
   res.json({ success: true, message: 'کلمه عبور مدیریت با موفقیت تغییر یافت.' });
@@ -1684,14 +1709,74 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // POST /api/admin/login
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', async (req, res) => {
   const { password } = req.body;
-  const validPasswords = ['omex2025', 'admin123', 'omexadmin'];
-  
-  if (validPasswords.includes(password)) {
+  if (!password) {
+    return res.status(400).json({ error: 'رمز عبور مدیریت را وارد کنید' });
+  }
+
+  // 1. Fetch dynamic admin password from Firestore
+  let firestorePassword: string | null = null;
+  try {
+    const secSnap = await getDoc(doc(db, 'settings', 'security'));
+    if (secSnap.exists() && secSnap.data()?.adminPassword) {
+      firestorePassword = secSnap.data().adminPassword;
+    }
+  } catch (_e) {}
+
+  if (!firestorePassword) {
+    try {
+      const adminSecSnap = await getDoc(doc(db, 'settings', 'adminSecurity'));
+      if (adminSecSnap.exists() && adminSecSnap.data()?.passwordHash) {
+        firestorePassword = adminSecSnap.data().passwordHash;
+      }
+    } catch (_e) {}
+  }
+
+  const validPassword = firestorePassword || process.env.ADMIN_PASSWORD || 'admin123';
+
+  if (password === validPassword) {
     return res.json({ success: true, token: 'omex_session_token_' + Date.now() });
   } else {
     return res.status(401).json({ error: 'رمز عبور مدیریت اشتباه است' });
+  }
+});
+
+// GET /api/settings/seo
+app.get('/api/settings/seo', async (req, res) => {
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'seo'));
+    if (snap.exists()) {
+      return res.json({ success: true, seo: snap.data() });
+    }
+  } catch (_e) {}
+
+  const store = readStore();
+  const fileSeo = (store as any).seo || null;
+  return res.json({ success: true, seo: fileSeo });
+});
+
+// POST /api/settings/seo
+app.post('/api/settings/seo', async (req, res) => {
+  try {
+    const seoData = req.body;
+    if (!seoData || typeof seoData !== 'object') {
+      return res.status(400).json({ error: 'داده‌های سئو نامعتبر است' });
+    }
+
+    await setDoc(doc(db, 'settings', 'seo'), seoData, { merge: true });
+
+    try {
+      const store = readStore();
+      (store as any).seo = seoData;
+      writeStore(store);
+    } catch (_storeErr) {}
+
+    await addAuditLog('SEO_UPDATED', 'SETTINGS', 'تنظیمات و متاتگ‌های سئو سایت با موفقیت به‌روزرسانی شد.');
+    return res.json({ success: true, message: 'تنظیمات سئو با موفقیت ذخیره شد.', seo: seoData });
+  } catch (err: any) {
+    console.error('Error saving SEO settings:', err);
+    return res.status(500).json({ error: 'خطا در ذخیره تنظیمات سئو در سرور' });
   }
 });
 
@@ -3163,12 +3248,12 @@ const getStandardScraperHeaders = (targetUrl?: string) => {
     } catch (_e) {}
   }
   return {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept-Language': 'en-US,en;q=0.9,ar-AE,ar;q=0.8,fa;q=0.7',
     'Cache-Control': 'no-cache',
     'Pragma': 'no-cache',
-    'Sec-Ch-Ua': '"Not-A.Brand";v="99", "Chromium";v="124", "Google Chrome";v="124"',
+    'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
     'Sec-Ch-Ua-Mobile': '?0',
     'Sec-Ch-Ua-Platform': '"Windows"',
     'Sec-Fetch-Dest': 'document',
@@ -3185,6 +3270,7 @@ export interface ParseAdapterResult {
   requireManualEntry?: boolean;
   message?: string;
   title?: string;
+  brand?: string;
   price?: number | null;
   currency?: string;
   image?: string;
@@ -3200,10 +3286,12 @@ export interface ParseAdapterResult {
   options?: string[];
   flavors?: string[];
   sizes?: string[];
+  inStock?: boolean;
 }
 
 function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
   let extractedTitle = '';
+  let extractedBrand = '';
   let extractedPrice = 0;
   let extractedImage = '';
   let extractedDesc = '';
@@ -3212,6 +3300,7 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
   if (!rawHtmlText) {
     return {
       title: '',
+      brand: '',
       price: 0,
       image: '',
       galleryImages: [],
@@ -3236,6 +3325,9 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
         if (isProduct) {
           if (!extractedTitle && (item.name || item.headline)) {
             extractedTitle = cleanTitleStr(String(item.name || item.headline));
+          }
+          if (!extractedBrand && (item.brand?.name || item.brand)) {
+            extractedBrand = String(item.brand?.name || item.brand).trim();
           }
           if (!extractedDesc && item.description) {
             extractedDesc = String(item.description).replace(/<[^>]+>/g, '').trim();
@@ -3644,6 +3736,7 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
 
   return {
     title: extractedTitle,
+    brand: extractedBrand,
     price: extractedPrice,
     image: extractedImage,
     galleryImages: finalGallery,
@@ -3672,21 +3765,24 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
     drUrl = drUrl.replace('drnutrition.com/', 'drnutrition.com/en-ae/');
   }
 
-  // TIER 1: DIRECT FETCH + SHOPIFY JS + JSON-LD & META TAG PARSING (Fast & Free)
-  try {
-    let cleanJsUrl = drUrl.split('?')[0].split('#')[0].replace(/\.js$/i, '').replace(/\.json$/i, '');
-    if (cleanJsUrl.endsWith('/')) cleanJsUrl = cleanJsUrl.slice(0, -1);
+  const cleanBase = drUrl.split('?')[0].split('#')[0].replace(/\.js$/i, '').replace(/\.json$/i, '');
+  const urlHandle = cleanBase.split('/').filter(Boolean).pop() || '';
 
+  // TIER 1: SHOPIFY / NEXT.JS PRODUCT JSON & JS ENDPOINTS
+  try {
     const jsUrls = [
-      `${cleanJsUrl}.js`,
-      `${cleanJsUrl}.json`,
-      cleanJsUrl.replace('/en-ae/', '/') + '.js'
+      `${cleanBase}.js`,
+      `${cleanBase}.json`,
+      `https://www.drnutrition.com/products/${urlHandle}.json`,
+      `https://www.drnutrition.com/products/${urlHandle}.js`,
+      `https://www.drnutrition.com/en-ae/products/${urlHandle}.json`,
+      `https://www.drnutrition.com/en-ae/products/${urlHandle}.js`
     ];
 
     for (const jsUrl of jsUrls) {
       try {
         const controller = new AbortController();
-        const tId = setTimeout(() => controller.abort(), 3000);
+        const tId = setTimeout(() => controller.abort(), 3500);
         const res = await fetch(jsUrl, {
           headers: {
             ...headers,
@@ -3709,33 +3805,43 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
                 p = p / 100;
               }
               const finalPrice = Math.round(p * 100) / 100;
-              
-              // Extract all images from Shopify product
+              const brand = pObj?.vendor || pObj?.brand || 'Dr. Nutrition';
+
+              // Extract & enhance all images to high resolution
               const galleryImages: string[] = [];
               if (Array.isArray(pObj?.images)) {
                 pObj.images.forEach((img: any) => {
                   const src = typeof img === 'string' ? img : (img?.src || img?.url);
                   if (src) {
                     const s = sanitizeImageUrl(src, drUrl);
-                    if (s && !galleryImages.includes(s)) galleryImages.push(s);
+                    if (s) {
+                      // High-res transform for Shopify CDN images
+                      const hires = s.replace(/_(?:small|medium|compact|thumb|100x100|200x200|400x400)\./gi, '_1024x1024.');
+                      if (!galleryImages.includes(hires)) galleryImages.push(hires);
+                    }
                   }
                 });
               }
 
               let rawImg = pObj?.featured_image || (galleryImages.length > 0 ? galleryImages[0] : pObj?.image?.src);
               if (typeof rawImg === 'object' && rawImg?.src) rawImg = rawImg.src;
-              const mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), drUrl);
+              let mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), drUrl);
+              if (mainImg) {
+                mainImg = mainImg.replace(/_(?:small|medium|compact|thumb|100x100|200x200|400x400)\./gi, '_1024x1024.');
+              }
               if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
 
-              // Extract variants & options
+              // Extract variants, flavors & sizes
               const flavors: string[] = [];
               const sizes: string[] = [];
               const variantGroups: any[] = [];
               const rawVariants = Array.isArray(pObj?.variants) ? pObj.variants : [];
-              
+              let isAnyInStock = pObj?.available !== false;
+
               if (rawVariants.length > 0) {
                 const flavorOptions: any[] = [];
                 const sizeOptions: any[] = [];
+                isAnyInStock = rawVariants.some((v: any) => v.available !== false);
 
                 rawVariants.forEach((v: any, vIdx: number) => {
                   let vPrice = finalPrice;
@@ -3771,10 +3877,15 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
                 }
               }
 
+              // Extract description & nutrition facts
+              const rawDesc = pObj.body_html || pObj.description || '';
+              const cleanedDesc = rawDesc ? String(rawDesc).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500) : undefined;
+
               if (t && finalPrice > 0) {
                 return {
                   ok: true,
                   title: cleanTitleStr(t),
+                  brand,
                   price: finalPrice,
                   currency: "AED",
                   image: mainImg,
@@ -3784,7 +3895,8 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
                   flavors,
                   sizes,
                   options: [...flavors, ...sizes],
-                  description: pObj.body_html ? String(pObj.body_html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000) : undefined,
+                  description: cleanedDesc,
+                  inStock: isAnyInStock,
                   storeName
                 };
               }
@@ -3795,10 +3907,10 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
     }
   } catch (_e) {}
 
-  // Direct HTML SSR Fetch + JSON-LD & Meta Tags
+  // TIER 2: DIRECT HTML SSR FETCH + CHEERIO / DOM PARSER & REGEX FALLBACKS
   try {
     const controller = new AbortController();
-    const tId = setTimeout(() => controller.abort(), 3500);
+    const tId = setTimeout(() => controller.abort(), 4000);
     const directRes = await fetch(drUrl, {
       headers,
       signal: controller.signal
@@ -3807,11 +3919,43 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
 
     if (directRes.ok) {
       const html = await directRes.text();
+
+      // Check Next.js __NEXT_DATA__ script tag
+      const nextMatch = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+      if (nextMatch && nextMatch[1]) {
+        try {
+          const nextJson = JSON.parse(nextMatch[1]);
+          const pp = nextJson?.props?.pageProps;
+          const pObj = pp?.product || pp?.productData || pp?.initialData?.product || pp?.productDetails;
+          if (pObj) {
+            const t = pObj.name || pObj.title;
+            const p = parseFloat(String(pObj.price || pObj.special_price || pObj.finalPrice || pObj.price_aed || 0));
+            if (t && p > 0) {
+              const mainImg = sanitizeImageUrl(pObj.image || pObj.mainImage || (Array.isArray(pObj.images) ? pObj.images[0] : ''), drUrl);
+              const gallery = Array.isArray(pObj.images) ? pObj.images.map((im: any) => sanitizeImageUrl(typeof im === 'string' ? im : im?.url || im?.src, drUrl)).filter(Boolean) : (mainImg ? [mainImg] : []);
+              return {
+                ok: true,
+                title: cleanTitleStr(t),
+                brand: pObj.brand || pObj.vendor || storeName,
+                price: Math.round(p * 100) / 100,
+                currency: "AED",
+                image: mainImg,
+                galleryImages: gallery,
+                images: gallery,
+                description: pObj.description ? String(pObj.description).replace(/<[^>]+>/g, ' ').trim().slice(0, 1500) : undefined,
+                storeName
+              };
+            }
+          }
+        } catch (_nextErr) {}
+      }
+
       const parsed = parseHtmlEngine(html, drUrl);
       if (parsed.title && parsed.price > 0) {
         return {
           ok: true,
           title: parsed.title,
+          brand: parsed.brand || storeName,
           price: parsed.price,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, drUrl),
@@ -3828,13 +3972,13 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
     }
   } catch (_directErr) {}
 
-  // TIER 2: SCRAPERAPI PROXY FALLBACK
+  // TIER 3: SCRAPERAPI PROXY FALLBACK
   const scraperApiKey = (cmsConfig?.apiConfig as any)?.scraperApiKey || process.env.SCRAPER_API_KEY || process.env.SCRAPERAPI_KEY || "a67220b28858f356c2b0f0ea7878c6f8";
   if (scraperApiKey) {
     try {
       const scraperUrl = `http://api.scraperapi.com?api_key=${encodeURIComponent(scraperApiKey)}&url=${encodeURIComponent(drUrl)}`;
       const controller = new AbortController();
-      const tId = setTimeout(() => controller.abort(), 5000);
+      const tId = setTimeout(() => controller.abort(), 6000);
       const scraperRes = await fetch(scraperUrl, { signal: controller.signal });
       clearTimeout(tId);
 
@@ -3846,6 +3990,7 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
             return {
               ok: true,
               title: parsed.title,
+              brand: parsed.brand || storeName,
               price: parsed.price,
               currency: "AED",
               image: sanitizeImageUrl(parsed.image, drUrl),
@@ -3864,11 +4009,11 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
     } catch (_scraperErr) {}
   }
 
-  // Tier 3 Fallback: Jina Reader Proxy
+  // TIER 4: JINA READER PROXY FALLBACK
   try {
     const jinaUrl = `https://r.jina.ai/${drUrl}`;
     const controller = new AbortController();
-    const tId = setTimeout(() => controller.abort(), 4000);
+    const tId = setTimeout(() => controller.abort(), 4500);
     const jinaRes = await fetch(jinaUrl, {
       headers: {
         ...headers,
@@ -3886,6 +4031,7 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
         return {
           ok: true,
           title: parsed.title,
+          brand: parsed.brand || storeName,
           price: parsed.price,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, drUrl),
@@ -3895,7 +4041,8 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
           flavors: parsed.flavors,
           sizes: parsed.sizes,
           options: parsed.options,
-          storeName
+          storeName,
+          description: parsed.description
         };
       }
     }
@@ -3915,104 +4062,134 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
   const storeName = "GNC Store";
   const headers = getStandardScraperHeaders(targetUrl);
 
-  // 1. Shopify .json Endpoint
+  const cleanBase = targetUrl.split('?')[0].split('#')[0].replace(/\.js$/i, '').replace(/\.json$/i, '');
+  const urlHandle = cleanBase.split('/').filter(Boolean).pop() || '';
+
+  // TIER 1: SHOPIFY / STOREFRONT JSON ENDPOINTS
   try {
-    const cleanJsUrl = targetUrl.split('?')[0].replace(/\.js$/i, '').replace(/\.json$/i, '') + '.json';
-    const controller = new AbortController();
-    const tId = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(cleanJsUrl, {
-      headers: { ...headers, 'Accept': 'application/json' },
-      signal: controller.signal
-    });
-    clearTimeout(tId);
+    const jsUrls = [
+      `${cleanBase}.json`,
+      `${cleanBase}.js`,
+      `https://gnc-mena.com/products/${urlHandle}.json`,
+      `https://uae.gnc.com/products/${urlHandle}.json`,
+      `https://www.gnc.com/products/${urlHandle}.json`
+    ];
 
-    if (res.ok) {
-      const json = await res.json();
-      const pObj = json?.product || json;
-      const t = pObj?.title || pObj?.name;
-      const primaryVar = Array.isArray(pObj?.variants) ? pObj.variants[0] : null;
-      let rawP = primaryVar?.price ?? pObj?.price;
-      if (t && rawP) {
-        let p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-        if (p > 2000) p = p / 100;
-        if (!isNaN(p) && p > 0) {
-          const galleryImages: string[] = [];
-          if (Array.isArray(pObj.images)) {
-            pObj.images.forEach((img: any) => {
-              const src = typeof img === 'string' ? img : (img?.src || img?.url);
-              if (src) {
-                const s = sanitizeImageUrl(src, targetUrl);
-                if (s && !galleryImages.includes(s)) galleryImages.push(s);
-              }
-            });
-          }
-          const img = pObj.image?.src || (galleryImages.length > 0 ? galleryImages[0] : pObj.featured_image);
-          const mainImg = sanitizeImageUrl(String(img || ''), targetUrl);
-          if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+    for (const jsUrl of jsUrls) {
+      try {
+        const controller = new AbortController();
+        const tId = setTimeout(() => controller.abort(), 3500);
+        const res = await fetch(jsUrl, {
+          headers: { ...headers, 'Accept': 'application/json' },
+          signal: controller.signal
+        });
+        clearTimeout(tId);
 
-          const flavors: string[] = [];
-          const sizes: string[] = [];
-          const variantGroups: any[] = [];
-          const rawVariants = Array.isArray(pObj?.variants) ? pObj.variants : [];
-
-          if (rawVariants.length > 0) {
-            const flavorOptions: any[] = [];
-            const sizeOptions: any[] = [];
-            rawVariants.forEach((v: any, vIdx: number) => {
-              let vPrice = Math.round(p * 100) / 100;
-              if (v.price) {
-                let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                if (vp > 2000) vp = vp / 100;
-                if (!isNaN(vp) && vp > 0) vPrice = Math.round(vp * 100) / 100;
-              }
-              const vTitle = String(v.title || v.option1 || '').trim();
-              if (vTitle && !['default title', 'default', '1'].includes(vTitle.toLowerCase())) {
-                const isSize = vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('count') || vTitle.toLowerCase().includes('عددی') || vTitle.toLowerCase().includes('سروینگ');
-                if (isSize) {
-                  if (!sizes.includes(vTitle)) {
-                    sizes.push(vTitle);
-                    sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: v.available !== false });
+        if (res.ok) {
+          const json = await res.json();
+          const pObj = json?.product || json;
+          const t = pObj?.title || pObj?.name;
+          const primaryVar = Array.isArray(pObj?.variants) ? pObj.variants[0] : null;
+          let rawP = primaryVar?.price ?? pObj?.price;
+          if (t && rawP) {
+            let p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+            if (p > 2000) p = p / 100;
+            if (!isNaN(p) && p > 0) {
+              const brand = pObj.vendor || pObj.brand || "GNC";
+              const galleryImages: string[] = [];
+              if (Array.isArray(pObj.images)) {
+                pObj.images.forEach((img: any) => {
+                  const src = typeof img === 'string' ? img : (img?.src || img?.url);
+                  if (src) {
+                    const s = sanitizeImageUrl(src, targetUrl);
+                    if (s) {
+                      const hires = s.replace(/_(?:small|medium|compact|thumb|100x100|200x200|400x400)\./gi, '_1024x1024.');
+                      if (!galleryImages.includes(hires)) galleryImages.push(hires);
+                    }
                   }
-                } else {
-                  if (!flavors.includes(vTitle)) {
-                    flavors.push(vTitle);
-                    flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: v.available !== false });
+                });
+              }
+              const img = pObj.image?.src || (galleryImages.length > 0 ? galleryImages[0] : pObj.featured_image);
+              let mainImg = sanitizeImageUrl(String(img || ''), targetUrl);
+              if (mainImg) {
+                mainImg = mainImg.replace(/_(?:small|medium|compact|thumb|100x100|200x200|400x400)\./gi, '_1024x1024.');
+              }
+              if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+
+              const flavors: string[] = [];
+              const sizes: string[] = [];
+              const variantGroups: any[] = [];
+              const rawVariants = Array.isArray(pObj?.variants) ? pObj.variants : [];
+              let isAnyInStock = pObj?.available !== false;
+
+              if (rawVariants.length > 0) {
+                const flavorOptions: any[] = [];
+                const sizeOptions: any[] = [];
+                isAnyInStock = rawVariants.some((v: any) => v.available !== false);
+
+                rawVariants.forEach((v: any, vIdx: number) => {
+                  let vPrice = Math.round(p * 100) / 100;
+                  if (v.price) {
+                    let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                    if (vp > 2000) vp = vp / 100;
+                    if (!isNaN(vp) && vp > 0) vPrice = Math.round(vp * 100) / 100;
                   }
+                  const vTitle = String(v.title || v.option1 || '').trim();
+                  if (vTitle && !['default title', 'default', '1'].includes(vTitle.toLowerCase())) {
+                    const isSize = vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('count') || vTitle.toLowerCase().includes('عددی') || vTitle.toLowerCase().includes('سروینگ') || vTitle.toLowerCase().includes('lb') || vTitle.toLowerCase().includes('kg');
+                    if (isSize) {
+                      if (!sizes.includes(vTitle)) {
+                        sizes.push(vTitle);
+                        sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: v.available !== false });
+                      }
+                    } else {
+                      if (!flavors.includes(vTitle)) {
+                        flavors.push(vTitle);
+                        flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, priceAed: vPrice, inStock: v.available !== false });
+                      }
+                    }
+                  }
+                });
+
+                if (flavorOptions.length > 0) {
+                  variantGroups.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorOptions });
+                }
+                if (sizeOptions.length > 0) {
+                  variantGroups.push({ id: 'sizes', name: 'تعداد / بسته‌بندی (Size)', type: 'size', options: sizeOptions });
                 }
               }
-            });
 
-            if (flavorOptions.length > 0) {
-              variantGroups.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorOptions });
-            }
-            if (sizeOptions.length > 0) {
-              variantGroups.push({ id: 'sizes', name: 'تعداد / بسته‌بندی (Size)', type: 'size', options: sizeOptions });
+              const rawDesc = pObj.body_html || pObj.description || '';
+              const cleanedDesc = rawDesc ? String(rawDesc).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500) : undefined;
+
+              return {
+                ok: true,
+                title: cleanTitleStr(t),
+                brand,
+                price: Math.round(p * 100) / 100,
+                currency: "AED",
+                image: mainImg,
+                galleryImages,
+                images: galleryImages,
+                variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
+                flavors,
+                sizes,
+                options: [...flavors, ...sizes],
+                description: cleanedDesc,
+                inStock: isAnyInStock,
+                storeName
+              };
             }
           }
-
-          return {
-            ok: true,
-            title: cleanTitleStr(t),
-            price: Math.round(p * 100) / 100,
-            currency: "AED",
-            image: mainImg,
-            galleryImages,
-            images: galleryImages,
-            variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
-            flavors,
-            sizes,
-            options: [...flavors, ...sizes],
-            storeName
-          };
         }
-      }
+      } catch (_jsonErr) {}
     }
   } catch (_e) {}
 
-  // 2. Direct Fetch + HTML Engine
+  // TIER 2: DIRECT FETCH + HTML ENGINE
   try {
     const controller = new AbortController();
-    const tId = setTimeout(() => controller.abort(), 3500);
+    const tId = setTimeout(() => controller.abort(), 4000);
     const directRes = await fetch(targetUrl, {
       headers,
       signal: controller.signal
@@ -4026,6 +4203,7 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
         return {
           ok: true,
           title: parsed.title,
+          brand: parsed.brand || storeName,
           price: parsed.price,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, targetUrl),
@@ -4042,13 +4220,13 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
     }
   } catch (_e) {}
 
-  // 3. ScraperAPI Proxy Fallback
+  // TIER 3: SCRAPERAPI PROXY FALLBACK
   const scraperApiKey = (cmsConfig?.apiConfig as any)?.scraperApiKey || process.env.SCRAPER_API_KEY || process.env.SCRAPERAPI_KEY || "a67220b28858f356c2b0f0ea7878c6f8";
   if (scraperApiKey) {
     try {
       const scraperUrl = `http://api.scraperapi.com?api_key=${encodeURIComponent(scraperApiKey)}&url=${encodeURIComponent(targetUrl)}`;
       const controller = new AbortController();
-      const tId = setTimeout(() => controller.abort(), 5000);
+      const tId = setTimeout(() => controller.abort(), 6000);
       const scraperRes = await fetch(scraperUrl, { signal: controller.signal });
       clearTimeout(tId);
 
@@ -4060,6 +4238,7 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
             return {
               ok: true,
               title: parsed.title,
+              brand: parsed.brand || storeName,
               price: parsed.price,
               currency: "AED",
               image: sanitizeImageUrl(parsed.image, targetUrl),
@@ -4078,11 +4257,11 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
     } catch (_scraperErr) {}
   }
 
-  // 4. Jina Reader Proxy Fallback
+  // TIER 4: JINA READER PROXY FALLBACK
   try {
     const jinaUrl = `https://r.jina.ai/${targetUrl}`;
     const controller = new AbortController();
-    const tId = setTimeout(() => controller.abort(), 4000);
+    const tId = setTimeout(() => controller.abort(), 4500);
     const jinaRes = await fetch(jinaUrl, {
       headers: {
         ...headers,
@@ -4100,6 +4279,7 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
         return {
           ok: true,
           title: parsed.title,
+          brand: parsed.brand || storeName,
           price: parsed.price,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, targetUrl),
@@ -4109,7 +4289,8 @@ async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdap
           flavors: parsed.flavors,
           sizes: parsed.sizes,
           options: parsed.options,
-          storeName
+          storeName,
+          description: parsed.description
         };
       }
     }
@@ -4895,20 +5076,22 @@ export { app };
 export default app;
 
 // ----------------------------------------------------
-// VITE MIDDLEWARE & STANDALONE SERVER
+// LOCAL STANDALONE SERVER LISTENER
 // ----------------------------------------------------
-const isFirebaseFunction = process.env.IS_FIREBASE_FUNCTION === 'true';
-
-async function startServer() {
+async function startLocalServer() {
   await getStoreData().catch(e => console.warn('Initial store hydrate warn:', e));
 
   if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (_viteErr) {
+      console.warn('Vite dev middleware notice:', _viteErr);
+    }
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
@@ -4917,17 +5100,17 @@ async function startServer() {
     });
   }
 
-  // Only listen when running as standalone server, NEVER when required inside Firebase Cloud Functions
-  if (!isFirebaseFunction) {
+  // Strictly ensure app.listen is only called locally, NEVER in Firebase Cloud Functions / Cloud Run / Production Functions
+  if (!isCloudOrFunctionEnv && !process.env.FUNCTION_TARGET && !process.env.K_SERVICE && !process.env.FIREBASE_CONFIG) {
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`OMEX Dubai Import Platform server listening on http://localhost:${PORT}`);
+      console.log(`SIRIK FIT Platform server listening on http://localhost:${PORT}`);
     });
   }
 }
 
-// Launch server unless explicitly imported within Firebase Functions
-if (!isFirebaseFunction) {
-  startServer();
+// ONLY launch local HTTP server if NOT running in Cloud Functions / Cloud Run
+if (!isCloudOrFunctionEnv && !process.env.FUNCTION_TARGET && !process.env.K_SERVICE && !process.env.FIREBASE_CONFIG) {
+  startLocalServer();
 }
 
 

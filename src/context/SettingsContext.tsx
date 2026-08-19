@@ -131,9 +131,11 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     let fetchedRate: number | null = null;
     let fetchedData: any = null;
 
-    // ۱. دریافت مستقیم از دیتابیس
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 2500));
+
+    // ۱. دریافت مستقیم از دیتابیس با سقف زمانی ۲.۵ ثانیه
     try {
-      fetchedData = await fetchSettingsFromFirestore();
+      fetchedData = await Promise.race([fetchSettingsFromFirestore(), timeoutPromise]);
       if (fetchedData) {
         const r = Number(fetchedData.aedRate || fetchedData.manualAedRate || fetchedData.exchangeRate);
         if (!isNaN(r) && r > 0) {
@@ -145,7 +147,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     // ۲. دریافت از REST API در صورت عدم پاسخ دیتابیس
     if (!fetchedData) {
       try {
-        const apiRes = await safeFetchJson('/api/settings');
+        const apiRes = await Promise.race([safeFetchJson('/api/settings'), timeoutPromise]) as any;
         const resData = apiRes?.data || apiRes;
         if (resData) {
           fetchedData = resData;

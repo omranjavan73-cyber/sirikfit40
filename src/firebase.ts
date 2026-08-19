@@ -582,22 +582,29 @@ export async function fetchTicketsFromFirestore(): Promise<any[]> {
 }
 
 // ----------------------------------------------------
-// ADMIN AUXILIARIES
+// ADMIN AUXILIARIES & SECURITY
 // ----------------------------------------------------
 export async function saveAdminPasswordToFirestore(password: string) {
   try {
     await setDoc(doc(db, 'settings', 'security'), { adminPassword: password }, { merge: true });
+    await setDoc(doc(db, 'settings', 'adminSecurity'), { passwordHash: password, lastPasswordChange: new Date().toISOString() }, { merge: true });
     if (typeof window !== 'undefined') {
       localStorage.setItem('sirikfit_admin_password', password);
     }
   } catch (_e) {}
 }
 
-export async function getAdminPasswordFromFirestore() {
+export async function getAdminPasswordFromFirestore(): Promise<string | null> {
   try {
     const snap = await getDoc(doc(db, 'settings', 'security'));
     if (snap.exists() && snap.data()?.adminPassword) {
       return snap.data().adminPassword;
+    }
+  } catch (_e) {}
+  try {
+    const snap2 = await getDoc(doc(db, 'settings', 'adminSecurity'));
+    if (snap2.exists() && snap2.data()?.passwordHash) {
+      return snap2.data().passwordHash;
     }
   } catch (_e) {}
   try {
@@ -606,6 +613,30 @@ export async function getAdminPasswordFromFirestore() {
     }
   } catch (_e) {}
   return null;
+}
+
+// ----------------------------------------------------
+// SEO SETTINGS FIRESTORE SYNC
+// ----------------------------------------------------
+export async function fetchSeoSettingsFromFirestore(): Promise<any | null> {
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'seo'));
+    if (snap.exists()) {
+      return snap.data();
+    }
+  } catch (err) {
+    console.warn('Firestore SEO fetch notice:', err);
+  }
+  return null;
+}
+
+export async function saveSeoSettingsToFirestore(seoData: any): Promise<void> {
+  try {
+    await setDoc(doc(db, 'settings', 'seo'), seoData, { merge: true });
+  } catch (err) {
+    console.warn('Firestore SEO save error:', err);
+    throw err;
+  }
 }
 
 export async function checkFirestoreConnection(): Promise<{

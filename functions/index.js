@@ -561,29 +561,46 @@ const verifyPaymentTransaction = onRequest(
   }
 );
 
+// Load bundled Express App from functions/dist/server.cjs safely (which does NOT call app.listen)
+let expressApp = null;
+try {
+  const distServerPath = path.join(__dirname, 'dist', 'server.cjs');
+  if (fs.existsSync(distServerPath)) {
+    const serverModule = require(distServerPath);
+    expressApp = serverModule.app || serverModule.default || serverModule;
+  }
+} catch (err) {
+  console.warn('Notice: functions/dist/server.cjs loading notice:', err.message);
+}
+
 /**
  * Cloud Function: api
- * Non-blocking standard HTTPS entry point for general API requests and health checks
+ * High-performance Express API handler wrapped in Firebase v2 onRequest
  */
 const api = onRequest(
   {
     cors: true,
-    memory: '512MiB',
+    memory: '1GiB',
     timeoutSeconds: 60
   },
-  async (req, res) => {
+  (req, res) => {
+    // Handle CORS preflight options
     if (req.method === 'OPTIONS') {
       res.set('Access-Control-Allow-Origin', '*');
-      res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
       return res.status(204).send('');
     }
 
-    if (req.path === '/health' || req.path === '/api/health') {
-      return res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    if (expressApp && typeof expressApp === 'function') {
+      return expressApp(req, res);
     }
 
-    return res.json({
+    if (req.path === '/health' || req.path === '/api/health') {
+      return res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+    }
+
+    return res.status(200).json({
       service: 'SIRIK FIT Backend Cloud Functions API',
       status: 'active',
       timestamp: new Date().toISOString(),

@@ -184,7 +184,8 @@ const createPaymentRequest = onRequest(
       // ==========================================
       if (gateway === 'zibal') {
         // PRODUCTION GUARD: Refuse to send the test placeholder "zibal" to the live API
-        if (!settings.zibalMerchant) {
+        const activeMerchantId = settings.zibalMerchantId || settings.zibalMerchant;
+        if (!activeMerchantId) {
           return res.status(503).json({
             success: false,
             result: -10,
@@ -192,7 +193,7 @@ const createPaymentRequest = onRequest(
           });
         }
         const zibalPayload = {
-          merchant: settings.zibalMerchant,
+          merchant: activeMerchantId,
           amount: amountInRials,
           callbackUrl: effectiveCallback,
           description: effectiveDescription,

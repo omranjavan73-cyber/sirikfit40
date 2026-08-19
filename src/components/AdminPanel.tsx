@@ -332,7 +332,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Payment Gateway Settings State
   const [activeGateway, setActiveGateway] = useState<GatewayProvider>(cms?.paymentGateway?.activeGateway || 'zarinpal');
-  const [merchantId, setMerchantId] = useState<string>(cms?.paymentGateway?.merchantId || 'zarin_merchant_omex_8849102');
+  const [merchantId, setMerchantId] = useState<string>(cms?.paymentGateway?.zibalMerchantId || cms?.paymentGateway?.zibalMerchant || cms?.paymentGateway?.merchantId || 'zarin_merchant_omex_8849102');
   const [callbackUrl, setCallbackUrl] = useState<string>(cms?.paymentGateway?.callbackUrl || '/api/payment/callback');
   const [isSandbox, setIsSandbox] = useState<boolean>(cms?.paymentGateway?.isSandbox ?? true);
   const [cardNumber, setCardNumber] = useState<string>(cms?.paymentGateway?.cardToCard?.cardNumber || '6037-9918-4421-9876');
@@ -1533,8 +1533,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setActiveGateway(gw);
         setMerchantId(
           gw === 'bitpay'
-            ? (cms.paymentGateway.bitpayApiKey || cms.paymentGateway.merchantId || '')
-            : (cms.paymentGateway.merchantId || '')
+            ? (cms.paymentGateway.bitpayApiKey || cms.paymentGateway.zibalMerchantId || cms.paymentGateway.zibalMerchant || cms.paymentGateway.merchantId || '')
+            : (cms.paymentGateway.zibalMerchantId || cms.paymentGateway.zibalMerchant || cms.paymentGateway.merchantId || '')
         );
         setCallbackUrl(cms.paymentGateway.callbackUrl || '/api/payment/callback');
         setIsSandbox(cms.paymentGateway.isSandbox ?? true);
@@ -1750,6 +1750,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const configPayload: PaymentGatewayConfig = {
       activeGateway,
       merchantId,
+      zibalMerchantId: activeGateway === 'zibal' ? merchantId : (cms?.paymentGateway?.zibalMerchantId || cms?.paymentGateway?.merchantId || ''),
+      zibalMerchant: activeGateway === 'zibal' ? merchantId : (cms?.paymentGateway?.zibalMerchant || cms?.paymentGateway?.merchantId || ''),
       bitpayApiKey: activeGateway === 'bitpay' ? merchantId : (cms?.paymentGateway?.bitpayApiKey || merchantId),
       callbackUrl,
       isSandbox,
@@ -1770,7 +1772,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const paymentSettingsDoc = {
         activeGateway,
         merchantId,
-        zibalMerchant: activeGateway === 'zibal' && merchantId ? merchantId : (cms?.paymentGateway?.merchantId && cms?.paymentGateway?.merchantId !== 'zibal' ? cms.paymentGateway.merchantId : undefined),
+        zibalMerchantId: activeGateway === 'zibal' && merchantId ? merchantId : (cms?.paymentGateway?.zibalMerchantId || cms?.paymentGateway?.merchantId || undefined),
+        zibalMerchant: activeGateway === 'zibal' && merchantId ? merchantId : (cms?.paymentGateway?.zibalMerchant || cms?.paymentGateway?.merchantId || undefined),
         bitpayApiKey: activeGateway === 'bitpay' ? merchantId : (cms?.paymentGateway?.bitpayApiKey || merchantId || 'adxcv-zzadq-jal-api-key'),
         callbackUrl,
         isSandbox,

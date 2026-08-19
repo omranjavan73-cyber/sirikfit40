@@ -1,7 +1,7 @@
 import { safeFetchJson } from '../utils/apiHelper';
 
 export interface InitiatePaymentParams {
-  amount: number; // in Toman or Rial
+  amount?: number; // in Toman or Rial
   orderId?: string;
   mobile?: string;
   phoneNumber?: string;

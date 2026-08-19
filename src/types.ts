@@ -132,6 +132,8 @@ export type GatewayProvider = 'zarinpal' | 'zibal' | 'nextpay' | 'idpay' | 'bitp
 export interface PaymentGatewayConfig {
   activeGateway: GatewayProvider;
   merchantId: string;
+  zibalMerchantId?: string;
+  zibalMerchant?: string;
   bitpayApiKey?: string;
   callbackUrl: string;
   isSandbox: boolean;
@@ -146,6 +148,8 @@ export interface PaymentGatewayConfig {
 export interface GatewayProviderConfig {
   activeGateway: GatewayProvider;
   merchantId: string;
+  zibalMerchantId?: string;
+  zibalMerchant?: string;
   bitpayApiKey?: string;
   callbackUrl: string;
   isSandbox: boolean;

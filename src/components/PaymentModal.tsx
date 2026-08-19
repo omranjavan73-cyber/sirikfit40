@@ -12,6 +12,8 @@ interface PaymentModalProps {
   onPaymentSuccess: (updatedOrder: Order) => void;
   /** The active payment gateway from admin settings. Defaults to 'zibal'. */
   activeGateway?: 'zibal' | 'bitpay' | string;
+  settings?: any;
+  gatewayConfig?: any;
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
@@ -19,8 +21,17 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   isOpen,
   onClose,
   onPaymentSuccess,
-  activeGateway: configuredGateway = 'zibal'
+  activeGateway: configuredGateway = 'zibal',
+  settings,
+  gatewayConfig
 }) => {
+  const zibalMerchantId =
+    settings?.zibalMerchantId ||
+    settings?.merchantId ||
+    gatewayConfig?.zibalMerchantId ||
+    gatewayConfig?.zibalMerchant ||
+    gatewayConfig?.merchantId;
+
   // When only Zibal is the configured gateway, skip the selector and go directly
   const isZibalOnly = !configuredGateway || configuredGateway === 'zibal';
 

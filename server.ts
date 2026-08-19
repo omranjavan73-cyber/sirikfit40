@@ -2521,11 +2521,11 @@ app.post('/api/payment/simulate', async (req, res) => {
  * Returns null if no real merchant ID is configured so the caller can return a 400/503 error.
  * NEVER falls back to the test string "zibal".
  */
-async function getFirestoreZibalMerchant(): Promise<{ merchantId: string | null; isSandbox: boolean }> {
+async function getFirestoreZibalMerchant(): Promise<{ zibalMerchantId: string | null; merchantId: string | null; isSandbox: boolean }> {
   const envMerchant = process.env.ZIBAL_MERCHANT || '';
   // Env var set and is NOT the literal test placeholder → use it
   if (envMerchant && envMerchant !== 'zibal') {
-    return { merchantId: envMerchant, isSandbox: false };
+    return { zibalMerchantId: envMerchant, merchantId: envMerchant, isSandbox: false };
   }
 
   try {
@@ -2536,7 +2536,7 @@ async function getFirestoreZibalMerchant(): Promise<{ merchantId: string | null;
       const mid = g.zibalMerchantId || g.zibalMerchant || g.merchantId || '';
       const isTest = g.testMode === true || g.isSandbox === true;
       if (mid && mid !== 'zibal') {
-        return { merchantId: mid, isSandbox: isTest };
+        return { zibalMerchantId: mid, merchantId: mid, isSandbox: isTest };
       }
     }
 
@@ -2547,7 +2547,7 @@ async function getFirestoreZibalMerchant(): Promise<{ merchantId: string | null;
       const mid = d.zibalMerchantId || d.zibalMerchant || d.merchantId || '';
       const sandbox = d.isSandbox === true || d.testMode === true;
       if (mid && mid !== 'zibal') {
-        return { merchantId: mid, isSandbox: sandbox };
+        return { zibalMerchantId: mid, merchantId: mid, isSandbox: sandbox };
       }
     }
 
@@ -2559,7 +2559,7 @@ async function getFirestoreZibalMerchant(): Promise<{ merchantId: string | null;
       const mid = gw.zibalMerchantId || gw.zibalMerchant || gw.merchantId || '';
       const sandbox = gw.isSandbox === true || gw.testMode === true;
       if (mid && mid !== 'zibal') {
-        return { merchantId: mid, isSandbox: sandbox };
+        return { zibalMerchantId: mid, merchantId: mid, isSandbox: sandbox };
       }
     }
   } catch (err) {
@@ -2567,7 +2567,7 @@ async function getFirestoreZibalMerchant(): Promise<{ merchantId: string | null;
   }
 
   // No real merchant ID found
-  return { merchantId: null, isSandbox: true };
+  return { zibalMerchantId: null, merchantId: null, isSandbox: true };
 }
 
 // Handler for payment initiation via Zibal
@@ -2596,15 +2596,15 @@ const handleZibalPaymentRequest = async (req: express.Request, res: express.Resp
     }
 
     const zibalConfig = await getFirestoreZibalMerchant();
-    if (!zibalConfig.merchantId) {
-      console.error('[Zibal] Production error: No Zibal merchant ID configured in settings/payment or settings/cms.');
+    const zibalMerchant = zibalConfig.zibalMerchantId || zibalConfig.merchantId;
+    if (!zibalMerchant) {
+      console.error('[Zibal] Production error: No Zibal merchant ID configured in settings/payment, settings/gateways, or settings/cms.');
       return res.status(503).json({
         success: false,
         result: -10,
         message: 'درگاه پرداخت زیبال پیکربندی نشده است. لطفاً شناسه پذیرنده را در پنل مدیریت وارد کنید.'
       });
     }
-    const zibalMerchant = zibalConfig.merchantId;
 
     const numAmount = Number(amount);
     // Zibal API requires amount in Rials. If Tomans is passed (< 1,000,000,000), multiply by 10.
@@ -2710,7 +2710,8 @@ const handleZibalPaymentVerify = async (req: express.Request, res: express.Respo
     }
 
     const zibalConfig = await getFirestoreZibalMerchant();
-    if (!zibalConfig.merchantId) {
+    const zibalMerchant = zibalConfig.zibalMerchantId || zibalConfig.merchantId;
+    if (!zibalMerchant) {
       console.error('[Zibal] Verify: No merchant ID configured.');
       return res.status(503).json({
         success: false,
@@ -2718,7 +2719,6 @@ const handleZibalPaymentVerify = async (req: express.Request, res: express.Respo
         message: 'درگاه زیبال پیکربندی نشده است.'
       });
     }
-    const zibalMerchant = zibalConfig.merchantId;
 
     const zibalResponse = await fetch('https://gateway.zibal.ir/v1/verify', {
       method: 'POST',
@@ -3966,16 +3966,15 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
 // specific Next.js / Shopify structure and price-in-cents formatting.
 // -------------------------------------------------------------------
 function parseDrNutritionHtml(html: string, drUrl: string): {
+  ok?: boolean;
+  success?: boolean;
+  requireManualEntry?: boolean;
   title: string; price: number; image: string; brand: string;
   gallery: string[]; flavors: string[]; sizes: string[]; description: string; inStock: boolean;
   source: string;
 } | null {
   const storeName = 'Dr. Nutrition';
 
-  /**
-   * Dr. Nutrition stores prices as cents in JSON-LD (e.g. 6900 = AED 69.00).
-   * If price > 2000, divide by 100 to convert from cents.
-   */
   function normalizeDrPrice(raw: any): number {
     if (raw === undefined || raw === null) return 0;
     const s = normalizeToEnglishDigits(String(raw)).replace(/,/g, '').replace(/[^0-9.]/g, '');
@@ -3985,157 +3984,114 @@ function parseDrNutritionHtml(html: string, drUrl: string): {
     return Math.round(p * 100) / 100;
   }
 
-  // ─── STEP A: JSON-LD blocks ───────────────────────────────────────────────
-  const ldBlocks = Array.from(html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi));
-  for (const block of ldBlocks) {
-    if (!block[1]) continue;
-    try {
-      const parsed = JSON.parse(block[1]);
-      const items: any[] = Array.isArray(parsed) ? parsed : (parsed['@graph'] ? parsed['@graph'] : [parsed]);
-      for (const item of items) {
-        if (!item) continue;
-        const isProduct =
-          item['@type'] === 'Product' ||
-          item['@type'] === 'IndividualProduct' ||
-          (item.name && item.offers);
-        if (!isProduct) continue;
-
-        const title = cleanTitleStr(String(item.name || item.headline || ''));
-        const brand = item.brand?.name || item.brand || storeName;
-        const desc = item.description ? String(item.description).replace(/<[^>]+>/g, '').trim() : '';
-        const availability = item.offers?.availability || item.offers?.[0]?.availability || '';
-        const inStock = !availability || availability.toLowerCase().includes('instock');
-
-        let price = 0;
-        const offersList = item.offers ? (Array.isArray(item.offers) ? item.offers : [item.offers]) : [];
-        for (const offer of offersList) {
-          if (!offer) continue;
-          const pRaw = offer.price ?? offer.lowPrice ?? offer.highPrice ?? offer.priceSpecification?.price;
-          price = normalizeDrPrice(pRaw);
-          if (price > 0) break;
-        }
-
-        const rawImages = Array.isArray(item.image) ? item.image : (item.image ? [item.image] : []);
-        const gallery: string[] = rawImages
-          .map((img: any) => sanitizeImageUrl(typeof img === 'string' ? img : (img?.url || img?.src || img?.contentUrl || ''), drUrl))
-          .filter(Boolean);
-        const mainImg = gallery[0] || '';
-
-        if (title && price > 0) {
-          return { title, price, image: mainImg, brand: typeof brand === 'string' ? brand : storeName, gallery, flavors: [], sizes: [], description: desc, inStock, source: 'json-ld' };
-        }
-      }
-    } catch (_e) {}
+  // ─── TITLE & IMAGE EXTRACTION ─────────────────────────────────────────────
+  let title = '';
+  const ogTitleMatch = html.match(/<meta\s+[^>]*property=["']og:title["']\s+content=["']([^"']+)["']/i)
+    || html.match(/<meta\s+[^>]*content=["']([^"']+)["']\s+[^>]*property=["']og:title["']/i);
+  if (ogTitleMatch?.[1]) title = cleanTitleStr(ogTitleMatch[1]);
+  if (!title) {
+    const tMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (tMatch?.[1]) title = cleanTitleStr(tMatch[1]);
   }
 
-  // ─── STEP B: __NEXT_DATA__ hydration ─────────────────────────────────────
-  const nextMatch = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
-  if (nextMatch && nextMatch[1]) {
-    try {
-      const nextJson = JSON.parse(nextMatch[1]);
-      const pp = nextJson?.props?.pageProps;
+  let image = '';
+  const ogImgMatch = html.match(/<meta\s+[^>]*property=["']og:image["']\s+content=["']([^"']+)["']/i)
+    || html.match(/<meta\s+[^>]*content=["']([^"']+)["']\s+[^>]*property=["']og:image["']/i);
+  if (ogImgMatch?.[1]) image = sanitizeImageUrl(ogImgMatch[1], drUrl);
 
-      let pObj: any =
-        pp?.product ||
-        pp?.productData ||
-        pp?.initialData?.product ||
-        pp?.productDetails ||
-        pp?.item ||
-        pp?.data?.product;
+  // ─── SEARCH ALL SCRIPT TAGS FOR JSON WITH PRICE / OFFERS ──────────────────
+  let extractedPrice = 0;
+  let extractedTitleFromScript = '';
+  let extractedImageFromScript = '';
+  let scriptSource = 'script-tags';
 
-      // Check dehydrated React Query state
-      if (!pObj && pp?.dehydratedState?.queries) {
-        for (const q of pp.dehydratedState.queries) {
-          const qd = q?.state?.data;
-          if (qd?.product || qd?.productData || (qd?.title && (qd?.price || qd?.special_price))) {
-            pObj = qd?.product || qd?.productData || qd;
-            break;
-          }
-          // Some Dr. Nutrition Next.js queries nest one level deeper
-          if (qd?.data?.product || (qd?.data?.title && qd?.data?.price)) {
-            pObj = qd.data?.product || qd.data;
-            break;
-          }
-        }
-      }
+  const allScripts = Array.from(html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi));
+  for (const sMatch of allScripts) {
+    const scriptContent = sMatch[1];
+    if (!scriptContent) continue;
 
-      if (pObj) {
-        const title = cleanTitleStr(String(pObj.name || pObj.title || ''));
-        const rawPrice = pObj.price || pObj.special_price || pObj.finalPrice || pObj.price_aed || pObj.variants?.[0]?.price;
-        const price = normalizeDrPrice(rawPrice);
-        const brand = pObj.brand?.name || pObj.brand || pObj.vendor || storeName;
-        const rawImg = pObj.image || pObj.mainImage || (Array.isArray(pObj.images) ? pObj.images[0] : '');
-        const mainImg = sanitizeImageUrl(typeof rawImg === 'string' ? rawImg : rawImg?.src || rawImg?.url || '', drUrl);
-        const gallery: string[] = Array.isArray(pObj.images)
-          ? pObj.images.map((im: any) => sanitizeImageUrl(typeof im === 'string' ? im : im?.url || im?.src || '', drUrl)).filter(Boolean)
-          : (mainImg ? [mainImg] : []);
-        const desc = pObj.description ? String(pObj.description).replace(/<[^>]+>/g, ' ').trim().slice(0, 1500) : '';
-        const inStock = pObj.available !== false && pObj.inStock !== false;
-
-        const flavors: string[] = [];
-        const sizes: string[] = [];
-        if (Array.isArray(pObj.variants)) {
-          pObj.variants.forEach((v: any) => {
-            const vTitle = String(v.title || v.name || '').trim();
-            if (vTitle && !['default', 'default title', '1'].includes(vTitle.toLowerCase())) {
-              if (/\b(kg|g|lb|serving|سروینگ|عددی)\b/i.test(vTitle)) {
-                if (!sizes.includes(vTitle)) sizes.push(vTitle);
-              } else {
-                if (!flavors.includes(vTitle)) flavors.push(vTitle);
+    if (scriptContent.includes('"price"') || scriptContent.includes('"offers"') || scriptContent.includes('"lowPrice"') || scriptContent.includes('"sale_price"')) {
+      if (scriptContent.trim().startsWith('{') || scriptContent.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(scriptContent.trim());
+          const items: any[] = Array.isArray(parsed) ? parsed : (parsed['@graph'] ? parsed['@graph'] : [parsed]);
+          for (const item of items) {
+            if (!item) continue;
+            if ((item.name || item.title) && !extractedTitleFromScript) {
+              extractedTitleFromScript = cleanTitleStr(String(item.name || item.title));
+            }
+            if (item.image && !extractedImageFromScript) {
+              const rawImg = Array.isArray(item.image) ? item.image[0] : item.image;
+              const imgStr = typeof rawImg === 'string' ? rawImg : (rawImg?.url || rawImg?.src || '');
+              if (imgStr) extractedImageFromScript = sanitizeImageUrl(imgStr, drUrl);
+            }
+            const offersList = item.offers ? (Array.isArray(item.offers) ? item.offers : [item.offers]) : [];
+            for (const offer of offersList) {
+              const pRaw = offer?.price ?? offer?.lowPrice ?? offer?.highPrice;
+              const p = normalizeDrPrice(pRaw);
+              if (p > 0) {
+                extractedPrice = p;
+                scriptSource = 'script-json-parsed';
+                break;
               }
             }
-          });
-        }
+            if (extractedPrice > 0) break;
+            if (item.price || item.special_price || item.lowPrice) {
+              const p = normalizeDrPrice(item.price || item.special_price || item.lowPrice);
+              if (p > 0) {
+                extractedPrice = p;
+                scriptSource = 'script-json-item';
+                break;
+              }
+            }
+          }
+        } catch (_e) {}
+      }
 
-        if (title && price > 0) {
-          return { title, price, image: mainImg, brand: typeof brand === 'string' ? brand : storeName, gallery, flavors, sizes, description: desc, inStock, source: '__next_data__' };
+      if (extractedPrice === 0) {
+        const scriptPriceMatch = scriptContent.match(/(?:"price"|"lowPrice"|"sale_price")\s*:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i);
+        if (scriptPriceMatch && scriptPriceMatch[1]) {
+          const p = normalizeDrPrice(scriptPriceMatch[1]);
+          if (p > 0) {
+            extractedPrice = p;
+            scriptSource = 'script-regex';
+          }
         }
       }
-    } catch (_nextErr) {}
+    }
+    if (extractedPrice > 0) break;
   }
 
-  // ─── STEP C: Raw Regex Fallbacks ─────────────────────────────────────────
-  // Title
-  let title = '';
-  const ogTitle = html.match(/<meta\s+[^>]*property=["']og:title["']\s+content=["']([^"']+)["']/i)
-    || html.match(/<meta\s+[^>]*content=["']([^"']+)["']\s+[^>]*property=["']og:title["']/i);
-  if (ogTitle?.[1]) title = cleanTitleStr(ogTitle[1]);
-  if (!title) {
-    const twitterTitle = html.match(/<meta\s+[^>]*name=["']twitter:title["']\s+content=["']([^"']+)["']/i);
-    if (twitterTitle?.[1]) title = cleanTitleStr(twitterTitle[1]);
-  }
-  if (!title) {
-    const htmlTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    if (htmlTitle?.[1]) title = cleanTitleStr(htmlTitle[1]);
-  }
-
-  // Price — priority: JSON keys → AED inline → currency prefix
-  let price = 0;
-  const pricePatterns = [
-    /["'](sale_price|current_price|unit_price|price)["']:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i,
-    /["'](price)["']:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i,
-    /AED\s*([0-9,.]+)/i,
-    /([0-9,.]+)\s*AED/i,
-    /درهم\s*([0-9,.]+)/i
-  ];
-  for (const pat of pricePatterns) {
-    const m = html.match(pat);
-    if (m) {
-      // Pattern may have 2 capture groups (key + value) or 1 (value)
-      const rawVal = m[2] || m[1];
-      const p = normalizeDrPrice(rawVal);
-      if (p > 0) { price = p; break; }
+  // ─── RAW HTML REGEX FALLBACK FOR PRICE ────────────────────────────────────
+  if (extractedPrice === 0) {
+    const rawPriceMatch = html.match(/(?:"price"|"lowPrice"|"sale_price")\s*:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i)
+      || html.match(/(?:AED|درهم)\s*([0-9]+(?:\.[0-9]+)?)/i)
+      || html.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:AED|درهم)/i);
+    if (rawPriceMatch && rawPriceMatch[1]) {
+      extractedPrice = normalizeDrPrice(rawPriceMatch[1]);
+      scriptSource = 'raw-html-regex';
     }
   }
 
-  // Image
-  let image = '';
-  const ogImg = html.match(/<meta\s+[^>]*property=["']og:image["']\s+content=["']([^"']+)["']/i)
-    || html.match(/<meta\s+[^>]*content=["']([^"']+)["']\s+[^>]*property=["']og:image["']/i);
-  if (ogImg?.[1]) image = sanitizeImageUrl(ogImg[1], drUrl);
+  const finalTitle = title || extractedTitleFromScript || 'Dr. Nutrition Product';
+  const finalImage = image || extractedImageFromScript || '';
 
-  if (title && price > 0) {
-    return { title, price, image, brand: storeName, gallery: image ? [image] : [], flavors: [], sizes: [], description: '', inStock: true, source: 'regex' };
+  if (extractedPrice > 0) {
+    return {
+      ok: true,
+      success: true,
+      requireManualEntry: false,
+      title: finalTitle,
+      price: extractedPrice,
+      image: finalImage,
+      brand: storeName,
+      gallery: finalImage ? [finalImage] : [],
+      flavors: [],
+      sizes: [],
+      description: '',
+      inStock: true,
+      source: scriptSource
+    };
   }
 
   return null;

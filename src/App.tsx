@@ -570,10 +570,27 @@ function MainApp() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleInitiatePaymentForOrder = async (order: Order) => {
+    setPendingOrderForPayment(order);
+    const activeGw = (cmsConfig as any)?.paymentGateway?.activeGateway || 'zibal';
+    if (activeGw === 'zibal') {
+      try {
+        const { initiateZibalPayment } = await import('./services/paymentService');
+        await initiateZibalPayment({
+          ...order,
+          amount: order.calculatedToman || (order as any).totalToman || 0
+        });
+        return;
+      } catch (err) {
+        console.error('Direct Zibal payment initiation failed, opening modal fallback:', err);
+      }
+    }
+    setIsPaymentModalOpen(true);
+  };
+
   const handleOrderCreated = (newOrder: Order) => {
     setSelectedProduct(null);
-    setPendingOrderForPayment(newOrder);
-    setIsPaymentModalOpen(true);
+    handleInitiatePaymentForOrder(newOrder);
   };
 
   const handlePaymentSuccess = () => {
@@ -1023,8 +1040,7 @@ function MainApp() {
             }}
             showToast={showToast}
             onPayPendingOrder={(order) => {
-              setPendingOrderForPayment(order);
-              setIsPaymentModalOpen(true);
+              handleInitiatePaymentForOrder(order);
             }}
           />
         )}
@@ -1065,6 +1081,8 @@ function MainApp() {
           }}
           onPaymentSuccess={handlePaymentSuccess}
           activeGateway={(cmsConfig as any)?.paymentGateway?.activeGateway || 'zibal'}
+          settings={settings}
+          gatewayConfig={(cmsConfig as any)?.paymentGateway}
         />
       )}
 

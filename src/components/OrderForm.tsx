@@ -67,9 +67,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const handleSubmitOrder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    const minOrderLimit = settings.minOrderAed || 200;
-    if ((product.priceAed * qty) < minOrderLimit) {
-      setErrorMessage(`حداقل مبلغ سفارش برای ارسال، ${toPersianDigits(minOrderLimit)} درهم میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
+    const effectiveRate = getEffectiveAedRate(settings) || 23000;
+    const dynamicMinOrderToman = settings.minOrderAmountToman && Number(settings.minOrderAmountToman) > 0
+      ? Number(settings.minOrderAmountToman)
+      : (settings.minOrderAed && Number(settings.minOrderAed) > 0 ? Number(settings.minOrderAed) * effectiveRate : 0);
+
+    if (dynamicMinOrderToman > 0 && totalToman < dynamicMinOrderToman) {
+      setErrorMessage(`حداقل مبلغ سفارش برای ارسال، ${formatToman(dynamicMinOrderToman)} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
       return;
     }
 

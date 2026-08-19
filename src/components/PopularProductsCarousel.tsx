@@ -186,17 +186,19 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
                   {item.title}
                 </span>
 
-                {/* Product Price */}
-                <span className="text-[11px] font-bold text-red-600 dark:text-red-500 dir-rtl tracking-tight mt-0.5 flex items-center justify-center">
+                {/* Product Price Badge (Solid Red with Bold White Text) */}
+                <div className="mt-1 flex items-center justify-center w-full">
                   {numericPrice ? (
-                    <>
-                      <span>{Number(numericPrice).toLocaleString('fa-IR')}</span>
-                      <span className="text-[10px] font-semibold text-red-500/80 mr-0.5">تومان</span>
-                    </>
+                    <span className="bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] px-2.5 py-1 rounded-md shadow-sm dir-rtl tracking-tight inline-flex items-center gap-1 transition-colors">
+                      <span className="font-extrabold">{Number(numericPrice).toLocaleString('fa-IR')}</span>
+                      <span className="text-[9px] font-medium text-red-100">تومان</span>
+                    </span>
                   ) : (
-                    <span className="text-[10px] font-medium text-slate-500">استعلام قیمت</span>
+                    <span className="bg-slate-100 text-slate-600 font-bold text-[10px] px-2.5 py-1 rounded-md shadow-2xs">
+                      استعلام قیمت
+                    </span>
                   )}
-                </span>
+                </div>
               </div>
             );
           })}

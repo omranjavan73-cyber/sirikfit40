@@ -421,9 +421,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const handleSubmitOrder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    const minOrderLimit = settings.minOrderAed || 200;
-    if (cartTotalAed < minOrderLimit) {
-      setErrorMessage(`حداقل مبلغ سفارش برای ارسال، ${toPersianDigits(minOrderLimit)} درهم میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
+    const dynamicMinOrderToman = settings.minOrderAmountToman && Number(settings.minOrderAmountToman) > 0
+      ? Number(settings.minOrderAmountToman)
+      : (settings.minOrderAed && Number(settings.minOrderAed) > 0 ? Number(settings.minOrderAed) * activeAedRate : 0);
+
+    if (dynamicMinOrderToman > 0 && effectiveTotalToman < dynamicMinOrderToman) {
+      setErrorMessage(`حداقل مبلغ سفارش برای ارسال، ${formatToman(dynamicMinOrderToman)} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
       return;
     }
 
@@ -1423,31 +1426,42 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             </div>
 
             {/* Minimum Order Warning & Direct Payment Action Button */}
-            {cartTotalAed < (settings.minOrderAed || 200) && (
-              <div className="p-3.5 bg-amber-50 border border-amber-200/90 rounded-[16px] text-amber-900 text-xs font-bold flex items-center gap-2 text-right dir-rtl">
-                <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0" />
-                <span>
-                  حداقل مبلغ سفارش برای ارسال، {toPersianDigits(settings.minOrderAed || 200)} درهم میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
-                </span>
-              </div>
-            )}
+            {(() => {
+              const dynamicMinOrderToman = settings.minOrderAmountToman && Number(settings.minOrderAmountToman) > 0
+                ? Number(settings.minOrderAmountToman)
+                : (settings.minOrderAed && Number(settings.minOrderAed) > 0 ? Number(settings.minOrderAed) * activeAedRate : 0);
+              const isBelowMin = dynamicMinOrderToman > 0 && effectiveTotalToman < dynamicMinOrderToman;
 
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => handleSubmitOrder()}
-                disabled={isSubmitting || cartTotalAed < (settings.minOrderAed || 200)}
-                className={`w-full font-black text-xs md:text-sm py-3.5 rounded-[16px] transition shadow-md border-none text-center flex items-center justify-center gap-2 ${
-                  cartTotalAed < (settings.minOrderAed || 200)
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                    : 'bg-[#111111] hover:bg-black text-white cursor-pointer'
-                }`}
-              >
-                <span>
-                  {isSubmitting ? 'در حال اتصال به درگاه...' : 'تأیید و پرداخت نهایی ←'}
-                </span>
-              </button>
-            </div>
+              return (
+                <>
+                  {isBelowMin && (
+                    <div className="p-3.5 bg-amber-50 border border-amber-200/90 rounded-[16px] text-amber-900 text-xs font-bold flex items-center gap-2 text-right dir-rtl">
+                      <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+                      <span>
+                        حداقل مبلغ سفارش برای ارسال، {formatToman(dynamicMinOrderToman)} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSubmitOrder()}
+                      disabled={isSubmitting || isBelowMin}
+                      className={`w-full font-black text-xs md:text-sm py-3.5 rounded-[16px] transition shadow-md border-none text-center flex items-center justify-center gap-2 ${
+                        isBelowMin
+                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                          : 'bg-[#111111] hover:bg-black text-white cursor-pointer'
+                      }`}
+                    >
+                      <span>
+                        {isSubmitting ? 'در حال اتصال به درگاه...' : 'تأیید و پرداخت نهایی ←'}
+                      </span>
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
 
         </div>

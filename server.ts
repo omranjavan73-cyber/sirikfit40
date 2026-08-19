@@ -2516,6 +2516,60 @@ app.post('/api/payment/simulate', async (req, res) => {
 // ZIBAL PAYMENT GATEWAY INTEGRATION ENDPOINTS
 // ----------------------------------------------------
 
+/**
+ * Fetches the live Zibal merchant ID from Firestore (settings/gateways, settings/payment, or settings/cms).
+ * Returns null if no real merchant ID is configured so the caller can return a 400/503 error.
+ * NEVER falls back to the test string "zibal".
+ */
+async function getFirestoreZibalMerchant(): Promise<{ merchantId: string | null; isSandbox: boolean }> {
+  const envMerchant = process.env.ZIBAL_MERCHANT || '';
+  // Env var set and is NOT the literal test placeholder → use it
+  if (envMerchant && envMerchant !== 'zibal') {
+    return { merchantId: envMerchant, isSandbox: false };
+  }
+
+  try {
+    // 1. Check settings/gateways (primary gateway config)
+    const gatewaysSnap = await getDoc(doc(db, 'settings', 'gateways'));
+    if (gatewaysSnap.exists()) {
+      const g = gatewaysSnap.data() as any;
+      const mid = g.zibalMerchantId || g.zibalMerchant || g.merchantId || '';
+      const isTest = g.testMode === true || g.isSandbox === true;
+      if (mid && mid !== 'zibal') {
+        return { merchantId: mid, isSandbox: isTest };
+      }
+    }
+
+    // 2. Check settings/payment
+    const paymentSnap = await getDoc(doc(db, 'settings', 'payment'));
+    if (paymentSnap.exists()) {
+      const d = paymentSnap.data() as any;
+      const mid = d.zibalMerchantId || d.zibalMerchant || d.merchantId || '';
+      const sandbox = d.isSandbox === true || d.testMode === true;
+      if (mid && mid !== 'zibal') {
+        return { merchantId: mid, isSandbox: sandbox };
+      }
+    }
+
+    // 3. Fallback: settings/cms → paymentGateway
+    const cmsSnap = await getDoc(doc(db, 'settings', 'cms'));
+    if (cmsSnap.exists()) {
+      const cms = cmsSnap.data() as any;
+      const gw = cms?.paymentGateway || {};
+      const mid = gw.zibalMerchantId || gw.zibalMerchant || gw.merchantId || '';
+      const sandbox = gw.isSandbox === true || gw.testMode === true;
+      if (mid && mid !== 'zibal') {
+        return { merchantId: mid, isSandbox: sandbox };
+      }
+    }
+  } catch (err) {
+    console.warn('[Zibal] Could not read merchant settings from Firestore:', err instanceof Error ? err.message : String(err));
+  }
+
+  // No real merchant ID found
+  return { merchantId: null, isSandbox: true };
+}
+
 // Handler for payment initiation via Zibal
 const handleZibalPaymentRequest = async (req: express.Request, res: express.Response) => {
   try {
@@ -2541,7 +2595,17 @@ const handleZibalPaymentRequest = async (req: express.Request, res: express.Resp
       });
     }
 
-    const zibalMerchant = process.env.ZIBAL_MERCHANT || 'zibal';
+    const zibalConfig = await getFirestoreZibalMerchant();
+    if (!zibalConfig.merchantId) {
+      console.error('[Zibal] Production error: No Zibal merchant ID configured in settings/payment or settings/cms.');
+      return res.status(503).json({
+        success: false,
+        result: -10,
+        message: 'درگاه پرداخت زیبال پیکربندی نشده است. لطفاً شناسه پذیرنده را در پنل مدیریت وارد کنید.'
+      });
+    }
+    const zibalMerchant = zibalConfig.merchantId;
+
     const numAmount = Number(amount);
     // Zibal API requires amount in Rials. If Tomans is passed (< 1,000,000,000), multiply by 10.
     const amountInRials = numAmount < 1000000000 ? numAmount * 10 : numAmount;
@@ -2586,7 +2650,7 @@ const handleZibalPaymentRequest = async (req: express.Request, res: express.Resp
           phoneNumber: effectiveMobile,
           deliveryAddress: deliveryAddress || '',
           notes: notes || '',
-          productTitle: productTitle || 'سفارش واردات دبی',
+          productTitle: productTitle || 'سفارش فروشگاه سیریک فیت',
           priceAed: priceAed || 0,
           calculatedToman: amountInTomans,
           paymentStatus: 'PENDING',
@@ -2645,7 +2709,16 @@ const handleZibalPaymentVerify = async (req: express.Request, res: express.Respo
       });
     }
 
-    const zibalMerchant = process.env.ZIBAL_MERCHANT || 'zibal';
+    const zibalConfig = await getFirestoreZibalMerchant();
+    if (!zibalConfig.merchantId) {
+      console.error('[Zibal] Verify: No merchant ID configured.');
+      return res.status(503).json({
+        success: false,
+        result: -10,
+        message: 'درگاه زیبال پیکربندی نشده است.'
+      });
+    }
+    const zibalMerchant = zibalConfig.merchantId;
 
     const zibalResponse = await fetch('https://gateway.zibal.ir/v1/verify', {
       method: 'POST',
@@ -2836,7 +2909,7 @@ const handleBitpayPaymentRequest = async (req: express.Request, res: express.Res
           phoneNumber: effectiveMobile,
           deliveryAddress: deliveryAddress || '',
           notes: notes || '',
-          productTitle: productTitle || 'سفارش واردات دبی',
+          productTitle: productTitle || 'سفارش فروشگاه سیریک فیت',
           priceAed: priceAed || 0,
           calculatedToman: amountInTomans,
           amountRial: amountInRials,
@@ -3888,6 +3961,208 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
 }
 
 // -------------------------------------------------------------------
+// DR. NUTRITION ISOLATED HTML EXTRACTION PIPELINE
+// Separate from the generic parseHtmlEngine to handle Dr. Nutrition's
+// specific Next.js / Shopify structure and price-in-cents formatting.
+// -------------------------------------------------------------------
+function parseDrNutritionHtml(html: string, drUrl: string): {
+  title: string; price: number; image: string; brand: string;
+  gallery: string[]; flavors: string[]; sizes: string[]; description: string; inStock: boolean;
+  source: string;
+} | null {
+  const storeName = 'Dr. Nutrition';
+
+  /**
+   * Dr. Nutrition stores prices as cents in JSON-LD (e.g. 6900 = AED 69.00).
+   * If price > 2000, divide by 100 to convert from cents.
+   */
+  function normalizeDrPrice(raw: any): number {
+    if (raw === undefined || raw === null) return 0;
+    const s = normalizeToEnglishDigits(String(raw)).replace(/,/g, '').replace(/[^0-9.]/g, '');
+    let p = parseFloat(s);
+    if (isNaN(p) || p <= 0) return 0;
+    if (p > 2000) p = p / 100;
+    return Math.round(p * 100) / 100;
+  }
+
+  // ─── STEP A: JSON-LD blocks ───────────────────────────────────────────────
+  const ldBlocks = Array.from(html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi));
+  for (const block of ldBlocks) {
+    if (!block[1]) continue;
+    try {
+      const parsed = JSON.parse(block[1]);
+      const items: any[] = Array.isArray(parsed) ? parsed : (parsed['@graph'] ? parsed['@graph'] : [parsed]);
+      for (const item of items) {
+        if (!item) continue;
+        const isProduct =
+          item['@type'] === 'Product' ||
+          item['@type'] === 'IndividualProduct' ||
+          (item.name && item.offers);
+        if (!isProduct) continue;
+
+        const title = cleanTitleStr(String(item.name || item.headline || ''));
+        const brand = item.brand?.name || item.brand || storeName;
+        const desc = item.description ? String(item.description).replace(/<[^>]+>/g, '').trim() : '';
+        const availability = item.offers?.availability || item.offers?.[0]?.availability || '';
+        const inStock = !availability || availability.toLowerCase().includes('instock');
+
+        let price = 0;
+        const offersList = item.offers ? (Array.isArray(item.offers) ? item.offers : [item.offers]) : [];
+        for (const offer of offersList) {
+          if (!offer) continue;
+          const pRaw = offer.price ?? offer.lowPrice ?? offer.highPrice ?? offer.priceSpecification?.price;
+          price = normalizeDrPrice(pRaw);
+          if (price > 0) break;
+        }
+
+        const rawImages = Array.isArray(item.image) ? item.image : (item.image ? [item.image] : []);
+        const gallery: string[] = rawImages
+          .map((img: any) => sanitizeImageUrl(typeof img === 'string' ? img : (img?.url || img?.src || img?.contentUrl || ''), drUrl))
+          .filter(Boolean);
+        const mainImg = gallery[0] || '';
+
+        if (title && price > 0) {
+          return { title, price, image: mainImg, brand: typeof brand === 'string' ? brand : storeName, gallery, flavors: [], sizes: [], description: desc, inStock, source: 'json-ld' };
+        }
+      }
+    } catch (_e) {}
+  }
+
+  // ─── STEP B: __NEXT_DATA__ hydration ─────────────────────────────────────
+  const nextMatch = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (nextMatch && nextMatch[1]) {
+    try {
+      const nextJson = JSON.parse(nextMatch[1]);
+      const pp = nextJson?.props?.pageProps;
+
+      let pObj: any =
+        pp?.product ||
+        pp?.productData ||
+        pp?.initialData?.product ||
+        pp?.productDetails ||
+        pp?.item ||
+        pp?.data?.product;
+
+      // Check dehydrated React Query state
+      if (!pObj && pp?.dehydratedState?.queries) {
+        for (const q of pp.dehydratedState.queries) {
+          const qd = q?.state?.data;
+          if (qd?.product || qd?.productData || (qd?.title && (qd?.price || qd?.special_price))) {
+            pObj = qd?.product || qd?.productData || qd;
+            break;
+          }
+          // Some Dr. Nutrition Next.js queries nest one level deeper
+          if (qd?.data?.product || (qd?.data?.title && qd?.data?.price)) {
+            pObj = qd.data?.product || qd.data;
+            break;
+          }
+        }
+      }
+
+      if (pObj) {
+        const title = cleanTitleStr(String(pObj.name || pObj.title || ''));
+        const rawPrice = pObj.price || pObj.special_price || pObj.finalPrice || pObj.price_aed || pObj.variants?.[0]?.price;
+        const price = normalizeDrPrice(rawPrice);
+        const brand = pObj.brand?.name || pObj.brand || pObj.vendor || storeName;
+        const rawImg = pObj.image || pObj.mainImage || (Array.isArray(pObj.images) ? pObj.images[0] : '');
+        const mainImg = sanitizeImageUrl(typeof rawImg === 'string' ? rawImg : rawImg?.src || rawImg?.url || '', drUrl);
+        const gallery: string[] = Array.isArray(pObj.images)
+          ? pObj.images.map((im: any) => sanitizeImageUrl(typeof im === 'string' ? im : im?.url || im?.src || '', drUrl)).filter(Boolean)
+          : (mainImg ? [mainImg] : []);
+        const desc = pObj.description ? String(pObj.description).replace(/<[^>]+>/g, ' ').trim().slice(0, 1500) : '';
+        const inStock = pObj.available !== false && pObj.inStock !== false;
+
+        const flavors: string[] = [];
+        const sizes: string[] = [];
+        if (Array.isArray(pObj.variants)) {
+          pObj.variants.forEach((v: any) => {
+            const vTitle = String(v.title || v.name || '').trim();
+            if (vTitle && !['default', 'default title', '1'].includes(vTitle.toLowerCase())) {
+              if (/\b(kg|g|lb|serving|سروینگ|عددی)\b/i.test(vTitle)) {
+                if (!sizes.includes(vTitle)) sizes.push(vTitle);
+              } else {
+                if (!flavors.includes(vTitle)) flavors.push(vTitle);
+              }
+            }
+          });
+        }
+
+        if (title && price > 0) {
+          return { title, price, image: mainImg, brand: typeof brand === 'string' ? brand : storeName, gallery, flavors, sizes, description: desc, inStock, source: '__next_data__' };
+        }
+      }
+    } catch (_nextErr) {}
+  }
+
+  // ─── STEP C: Raw Regex Fallbacks ─────────────────────────────────────────
+  // Title
+  let title = '';
+  const ogTitle = html.match(/<meta\s+[^>]*property=["']og:title["']\s+content=["']([^"']+)["']/i)
+    || html.match(/<meta\s+[^>]*content=["']([^"']+)["']\s+[^>]*property=["']og:title["']/i);
+  if (ogTitle?.[1]) title = cleanTitleStr(ogTitle[1]);
+  if (!title) {
+    const twitterTitle = html.match(/<meta\s+[^>]*name=["']twitter:title["']\s+content=["']([^"']+)["']/i);
+    if (twitterTitle?.[1]) title = cleanTitleStr(twitterTitle[1]);
+  }
+  if (!title) {
+    const htmlTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (htmlTitle?.[1]) title = cleanTitleStr(htmlTitle[1]);
+  }
+
+  // Price — priority: JSON keys → AED inline → currency prefix
+  let price = 0;
+  const pricePatterns = [
+    /["'](sale_price|current_price|unit_price|price)["']:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i,
+    /["'](price)["']:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i,
+    /AED\s*([0-9,.]+)/i,
+    /([0-9,.]+)\s*AED/i,
+    /درهم\s*([0-9,.]+)/i
+  ];
+  for (const pat of pricePatterns) {
+    const m = html.match(pat);
+    if (m) {
+      // Pattern may have 2 capture groups (key + value) or 1 (value)
+      const rawVal = m[2] || m[1];
+      const p = normalizeDrPrice(rawVal);
+      if (p > 0) { price = p; break; }
+    }
+  }
+
+  // Image
+  let image = '';
+  const ogImg = html.match(/<meta\s+[^>]*property=["']og:image["']\s+content=["']([^"']+)["']/i)
+    || html.match(/<meta\s+[^>]*content=["']([^"']+)["']\s+[^>]*property=["']og:image["']/i);
+  if (ogImg?.[1]) image = sanitizeImageUrl(ogImg[1], drUrl);
+
+  if (title && price > 0) {
+    return { title, price, image, brand: storeName, gallery: image ? [image] : [], flavors: [], sizes: [], description: '', inStock: true, source: 'regex' };
+  }
+
+  return null;
+}
+
+/**
+ * Logs Dr. Nutrition scraping diagnostics to Firestore scraper_logs collection.
+ */
+async function logDrNutritionScrapeResult(url: string, result: any, diagnostics: Record<string, any>) {
+  try {
+    const logRef = doc(collection(db, 'scraper_logs'));
+    await setDoc(logRef, {
+      url,
+      store: 'Dr. Nutrition',
+      timestamp: new Date().toISOString(),
+      success: !!(result?.title && result?.price > 0),
+      title: result?.title || null,
+      price: result?.price || null,
+      source: result?.source || diagnostics.source || null,
+      diagnostics
+    });
+  } catch (_logErr) {
+    // Non-critical: log failure should not affect scraper result
+  }
+}
+
+// -------------------------------------------------------------------
 // ADAPTER 1: DR NUTRITION DEDICATED ADAPTER (drNutritionAdapter)
 // -------------------------------------------------------------------
 async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdapterResult> {
@@ -4057,151 +4332,35 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
     if (directRes.ok) {
       const html = await directRes.text();
 
-      // 1. Deep Parse Next.js __NEXT_DATA__ script tag
-      const nextMatch = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
-      if (nextMatch && nextMatch[1]) {
-        try {
-          const nextJson = JSON.parse(nextMatch[1]);
-          const pp = nextJson?.props?.pageProps;
-          
-          // Traverse common Next.js / Shopify hydration shapes
-          let pObj: any = pp?.product || pp?.productData || pp?.initialData?.product || pp?.productDetails || pp?.item || pp?.data?.product;
-          
-          // Check React Query / Apollo dehydrated state if product not at root
-          if (!pObj && pp?.dehydratedState?.queries) {
-            for (const q of pp.dehydratedState.queries) {
-              const qData = q?.state?.data;
-              if (qData?.product || qData?.productData || (qData?.title && qData?.price)) {
-                pObj = qData?.product || qData?.productData || qData;
-                break;
-              }
-            }
-          }
+      // Use the dedicated Dr. Nutrition extraction pipeline (JSON-LD → __NEXT_DATA__ → Regex)
+      const drResult = parseDrNutritionHtml(html, drUrl);
 
-          if (pObj) {
-            const t = pObj.name || pObj.title;
-            let rawP = pObj.price || pObj.special_price || pObj.finalPrice || pObj.price_aed || pObj.variants?.[0]?.price || 0;
-            let p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-            if (p > 1000 || (!String(rawP).includes('.') && p >= 1000)) p = p / 100;
-            
-            if (t && p > 0) {
-              const brand = pObj.brand?.name || pObj.brand || pObj.vendor || storeName;
-              const rawImg = pObj.image || pObj.mainImage || (Array.isArray(pObj.images) ? pObj.images[0] : '');
-              const mainImg = sanitizeImageUrl(typeof rawImg === 'string' ? rawImg : rawImg?.src || rawImg?.url || '', drUrl);
-              const gallery: string[] = Array.isArray(pObj.images)
-                ? pObj.images.map((im: any) => sanitizeImageUrl(typeof im === 'string' ? im : im?.url || im?.src, drUrl)).filter(Boolean)
-                : (mainImg ? [mainImg] : []);
+      // Log diagnostics to Firestore regardless of success/failure
+      const diagnostics: Record<string, any> = {
+        httpStatus: directRes.status,
+        htmlLength: html.length,
+        hasNextData: html.includes('__NEXT_DATA__'),
+        hasJsonLd: html.includes('application/ld+json'),
+        source: drResult?.source || 'failed',
+        tier: 'tier2-direct-html'
+      };
+      logDrNutritionScrapeResult(drUrl, drResult, diagnostics).catch(() => {});
 
-              const flavors: string[] = [];
-              const sizes: string[] = [];
-              if (Array.isArray(pObj.variants)) {
-                pObj.variants.forEach((v: any) => {
-                  const vTitle = String(v.title || v.name || '').trim();
-                  if (vTitle && !['default', 'default title', '1'].includes(vTitle.toLowerCase())) {
-                    if (/\b(kg|g|lb|serving|سروینگ|عددی)\b/i.test(vTitle)) {
-                      if (!sizes.includes(vTitle)) sizes.push(vTitle);
-                    } else {
-                      if (!flavors.includes(vTitle)) flavors.push(vTitle);
-                    }
-                  }
-                });
-              }
-
-              return {
-                ok: true,
-                title: cleanTitleStr(t),
-                brand: typeof brand === 'string' ? brand : storeName,
-                price: Math.round(p * 100) / 100,
-                currency: "AED",
-                image: mainImg,
-                galleryImages: gallery,
-                images: gallery,
-                flavors,
-                sizes,
-                options: [...flavors, ...sizes],
-                description: pObj.description ? String(pObj.description).replace(/<[^>]+>/g, ' ').trim().slice(0, 1500) : undefined,
-                inStock: pObj.available !== false && pObj.inStock !== false,
-                storeName
-              };
-            }
-          }
-        } catch (_nextErr) {}
-      }
-
-      // 2. Parse Standard HTML / JSON-LD Engine
-      const parsed = parseHtmlEngine(html, drUrl);
-      if (parsed.title && parsed.price > 0) {
+      if (drResult && drResult.title && drResult.price > 0) {
         return {
           ok: true,
-          title: parsed.title,
-          brand: parsed.brand || storeName,
-          price: parsed.price,
-          currency: "AED",
-          image: sanitizeImageUrl(parsed.image, drUrl),
-          galleryImages: parsed.galleryImages,
-          images: parsed.galleryImages,
-          variantGroups: parsed.variantGroups,
-          flavors: parsed.flavors,
-          sizes: parsed.sizes,
-          options: parsed.options,
-          storeName,
-          description: parsed.description
-        };
-      }
-
-      // 3. Robust Regex Fallbacks for Title, Price, Image, Brand from raw HTML
-      let regTitle = '';
-      const ogTitleMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
-      if (ogTitleMatch && ogTitleMatch[1]) {
-        regTitle = cleanTitleStr(ogTitleMatch[1]);
-      } else {
-        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-        if (titleMatch && titleMatch[1]) regTitle = cleanTitleStr(titleMatch[1]);
-      }
-
-      let regPrice = 0;
-      const priceMatches = [
-        html.match(/"price":\s*"?([0-9.]+)"?/i),
-        html.match(/"price_aed":\s*"?([0-9.]+)"?/i),
-        html.match(/"special_price":\s*"?([0-9.]+)"?/i),
-        html.match(/AED\s*([0-9,.]+)/i),
-        html.match(/([0-9,.]+)\s*AED/i),
-        html.match(/class=["'][^"']*price[^"']*["'][^>]*>\s*(?:AED|د\.إ)?\s*([0-9,.]+)/i)
-      ];
-
-      for (const pm of priceMatches) {
-        if (pm && pm[1]) {
-          let pVal = parseFloat(normalizeToEnglishDigits(pm[1]).replace(/,/g, ''));
-          if (!isNaN(pVal) && pVal > 0) {
-            if (pVal > 1000) pVal = pVal / 100;
-            regPrice = Math.round(pVal * 100) / 100;
-            break;
-          }
-        }
-      }
-
-      let regImage = '';
-      const ogImgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
-      if (ogImgMatch && ogImgMatch[1]) {
-        regImage = sanitizeImageUrl(ogImgMatch[1], drUrl);
-      }
-
-      let regBrand = storeName;
-      const brandMatch = html.match(/"brand":\s*(?:\{[^}]*"name":\s*"([^"]+)"|"([^"]+)")/i);
-      if (brandMatch) {
-        regBrand = (brandMatch[1] || brandMatch[2] || storeName).trim();
-      }
-
-      if (regTitle && regPrice > 0) {
-        return {
-          ok: true,
-          title: regTitle,
-          brand: regBrand,
-          price: regPrice,
-          currency: "AED",
-          image: regImage,
-          galleryImages: regImage ? [regImage] : [],
-          images: regImage ? [regImage] : [],
+          title: drResult.title,
+          brand: drResult.brand || storeName,
+          price: drResult.price,
+          currency: 'AED',
+          image: drResult.image,
+          galleryImages: drResult.gallery,
+          images: drResult.gallery,
+          flavors: drResult.flavors,
+          sizes: drResult.sizes,
+          options: [...drResult.flavors, ...drResult.sizes],
+          description: drResult.description,
+          inStock: drResult.inStock,
           storeName
         };
       }
@@ -4221,23 +4380,24 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
       if (scraperRes.ok) {
         const scraperHtml = await scraperRes.text();
         if (scraperHtml && scraperHtml.length > 100) {
-          const parsed = parseHtmlEngine(scraperHtml, drUrl);
-          if (parsed.title && parsed.price > 0) {
+          const drResult = parseDrNutritionHtml(scraperHtml, drUrl);
+          if (drResult && drResult.title && drResult.price > 0) {
+            logDrNutritionScrapeResult(drUrl, drResult, { tier: 'tier3-scraperapi', source: drResult.source }).catch(() => {});
             return {
               ok: true,
-              title: parsed.title,
-              brand: parsed.brand || storeName,
-              price: parsed.price,
-              currency: "AED",
-              image: sanitizeImageUrl(parsed.image, drUrl),
-              galleryImages: parsed.galleryImages,
-              images: parsed.galleryImages,
-              variantGroups: parsed.variantGroups,
-              flavors: parsed.flavors,
-              sizes: parsed.sizes,
-              options: parsed.options,
-              storeName,
-              description: parsed.description
+              title: drResult.title,
+              brand: drResult.brand || storeName,
+              price: drResult.price,
+              currency: 'AED',
+              image: drResult.image,
+              galleryImages: drResult.gallery,
+              images: drResult.gallery,
+              flavors: drResult.flavors,
+              sizes: drResult.sizes,
+              options: [...drResult.flavors, ...drResult.sizes],
+              description: drResult.description,
+              inStock: drResult.inStock,
+              storeName
             };
           }
         }

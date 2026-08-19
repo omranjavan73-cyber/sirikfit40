@@ -1770,7 +1770,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const paymentSettingsDoc = {
         activeGateway,
         merchantId,
-        zibalMerchant: activeGateway === 'zibal' ? merchantId : (cms?.paymentGateway?.merchantId || 'zibal'),
+        zibalMerchant: activeGateway === 'zibal' && merchantId ? merchantId : (cms?.paymentGateway?.merchantId && cms?.paymentGateway?.merchantId !== 'zibal' ? cms.paymentGateway.merchantId : undefined),
         bitpayApiKey: activeGateway === 'bitpay' ? merchantId : (cms?.paymentGateway?.bitpayApiKey || merchantId || 'adxcv-zzadq-jal-api-key'),
         callbackUrl,
         isSandbox,

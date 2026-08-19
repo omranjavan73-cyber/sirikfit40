@@ -10,15 +10,23 @@ interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPaymentSuccess: (updatedOrder: Order) => void;
+  /** The active payment gateway from admin settings. Defaults to 'zibal'. */
+  activeGateway?: 'zibal' | 'bitpay' | string;
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
   order,
   isOpen,
   onClose,
-  onPaymentSuccess
+  onPaymentSuccess,
+  activeGateway: configuredGateway = 'zibal'
 }) => {
-  const [paymentMode, setPaymentMode] = useState<'zibal' | 'bitpay' | 'simulate'>('zibal');
+  // When only Zibal is the configured gateway, skip the selector and go directly
+  const isZibalOnly = !configuredGateway || configuredGateway === 'zibal';
+
+  const [paymentMode, setPaymentMode] = useState<'zibal' | 'bitpay' | 'simulate'>(
+    isZibalOnly ? 'zibal' : (configuredGateway === 'bitpay' ? 'bitpay' : 'zibal')
+  );
   const [cardNumber, setCardNumber] = useState('');
   const [cvv2, setCvv2] = useState('');
   const [expMonth, setExpMonth] = useState('');
@@ -45,6 +53,16 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       setSessionTimer((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(interval);
+  }, [isOpen]);
+
+  // Auto-trigger Zibal immediately when modal opens if Zibal is the only active gateway
+  useEffect(() => {
+    if (isOpen && isZibalOnly && !isRedirectingZibal && !paymentDone) {
+      const timer = setTimeout(() => {
+        handlePayWithZibal();
+      }, 300); // brief delay so modal renders first
+      return () => clearTimeout(timer);
+    }
   }, [isOpen]);
 
   useEffect(() => {
@@ -197,7 +215,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
             <div>
               <h3 className="text-xl font-extrabold text-neutral-900 mb-1">پرداخت با موفقیت انجام شد</h3>
-              <p className="text-xs text-neutral-600">سفارش شما در سامانه واردات SIRIK FIT ثبت شد.</p>
+              <p className="text-xs text-neutral-600">سفارش شما در فروشگاه اینترنتی سیریک فیت ثبت شد.</p>
             </div>
 
             <div className="bg-neutral-50 border border-neutral-200 rounded-2xl p-4 text-right text-xs space-y-2.5">
@@ -237,7 +255,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex justify-between items-center text-xs">
               <div>
                 <span className="text-slate-500 block text-[10px]">پذیرنده:</span>
-                <span className="font-extrabold text-slate-900">سامانه واردات SIRIK FIT</span>
+                <span className="font-extrabold text-slate-900">فروشگاه اینترنتی سیریک فیت</span>
               </div>
               <div className="text-left">
                 <span className="text-slate-500 block text-[10px]">مبلغ قابل پرداخت:</span>
@@ -245,7 +263,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               </div>
             </div>
 
-            {/* Gateway Mode Switcher Tabs */}
+            {/* Gateway Mode Switcher Tabs — only shown when multiple gateways are available */}
+            {!isZibalOnly && (
             <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-bold">
               <button
                 type="button"
@@ -281,6 +300,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 💳 تست (کارت)
               </button>
             </div>
+            )}
 
             {errorMessage && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-semibold">

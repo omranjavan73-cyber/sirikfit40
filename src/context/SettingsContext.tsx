@@ -111,7 +111,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     };
   });
 
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const setAedRate = (rate: number) => {
     if (typeof window !== 'undefined') {
@@ -128,65 +128,71 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const refreshSettings = async () => {
     setIsLoading(true);
-    let fetchedRate: number | null = null;
-    let fetchedData: any = null;
+    // Safety net: guarantee spinner stops after 1500ms regardless of what happens
+    const safetyTimer = setTimeout(() => setIsLoading(false), 1500);
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 2500));
-
-    // ۱. دریافت مستقیم از دیتابیس با سقف زمانی ۲.۵ ثانیه
     try {
-      fetchedData = await Promise.race([fetchSettingsFromFirestore(), timeoutPromise]);
-      if (fetchedData) {
-        const r = Number(fetchedData.aedRate || fetchedData.manualAedRate || fetchedData.exchangeRate);
-        if (!isNaN(r) && r > 0) {
-          fetchedRate = r;
-        }
-      }
-    } catch (_e) {}
+      let fetchedRate: number | null = null;
+      let fetchedData: any = null;
 
-    // ۲. دریافت از REST API در صورت عدم پاسخ دیتابیس
-    if (!fetchedData) {
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 2500));
+
+      // ۱. دریافت مستقیم از دیتابیس با سقف زمانی ۲.۵ ثانیه
       try {
-        const apiRes = await Promise.race([safeFetchJson('/api/settings'), timeoutPromise]) as any;
-        const resData = apiRes?.data || apiRes;
-        if (resData) {
-          fetchedData = resData;
-          const r = Number(resData.aedRate || resData.manualAedRate);
-          if (!isNaN(r) && r > 0) fetchedRate = r;
+        fetchedData = await Promise.race([fetchSettingsFromFirestore(), timeoutPromise]);
+        if (fetchedData) {
+          const r = Number(fetchedData.aedRate || fetchedData.manualAedRate || fetchedData.exchangeRate);
+          if (!isNaN(r) && r > 0) {
+            fetchedRate = r;
+          }
         }
       } catch (_e) {}
-    }
 
-    if (fetchedData) {
-      if (fetchedRate && fetchedRate > 0) {
-        setAedRateState(fetchedRate);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('sirikfit_aed_rate', String(fetchedRate));
+      // ۲. دریافت از REST API در صورت عدم پاسخ دیتابیس
+      if (!fetchedData) {
+        try {
+          const apiRes = await Promise.race([safeFetchJson('/api/settings'), timeoutPromise]) as any;
+          const resData = apiRes?.data || apiRes;
+          if (resData) {
+            fetchedData = resData;
+            const r = Number(resData.aedRate || resData.manualAedRate);
+            if (!isNaN(r) && r > 0) fetchedRate = r;
+          }
+        } catch (_e) {}
+      }
+
+      if (fetchedData) {
+        if (fetchedRate && fetchedRate > 0) {
+          setAedRateState(fetchedRate);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('sirikfit_aed_rate', String(fetchedRate));
+          }
         }
-      }
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('sirikfit_financial_settings', JSON.stringify(fetchedData));
-      }
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sirikfit_financial_settings', JSON.stringify(fetchedData));
+        }
 
-      // به‌روزرسانی کامل استیت شامل مقادیر مالی و تمامی تیک‌ها و تنظیمات عمومی
-      setSettingsState(prev => ({
-        ...prev,
-        ...fetchedData,
-        aedRate: fetchedRate || prev.aedRate,
-        manualAedRate: fetchedRate || prev.manualAedRate,
-        minOrderAmountToman: fetchedData.minOrderAmountToman !== undefined ? Number(fetchedData.minOrderAmountToman) : (prev.minOrderAmountToman ?? 0),
-        cargoRatePerKg: fetchedData.cargoRatePerKg ?? prev.cargoRatePerKg ?? 35,
-        profitMargin: fetchedData.profitMargin ?? prev.profitMargin ?? 15,
-        enableComments: fetchedData.enableComments ?? fetchedData.showComments ?? prev.enableComments ?? true,
-        showPriceDetails: fetchedData.showPriceDetails ?? prev.showPriceDetails ?? true,
-        isStoreActive: fetchedData.isStoreActive ?? prev.isStoreActive ?? true,
-        showContactNumber: fetchedData.showContactNumber ?? prev.showContactNumber ?? true,
-        slogans: Array.isArray(fetchedData.slogans) ? fetchedData.slogans : prev.slogans
-      }));
+        // به‌روزرسانی کامل استیت شامل مقادیر مالی و تمامی تیک‌ها و تنظیمات عمومی
+        setSettingsState(prev => ({
+          ...prev,
+          ...fetchedData,
+          aedRate: fetchedRate || prev.aedRate,
+          manualAedRate: fetchedRate || prev.manualAedRate,
+          minOrderAmountToman: fetchedData.minOrderAmountToman !== undefined ? Number(fetchedData.minOrderAmountToman) : (prev.minOrderAmountToman ?? 0),
+          cargoRatePerKg: fetchedData.cargoRatePerKg ?? prev.cargoRatePerKg ?? 35,
+          profitMargin: fetchedData.profitMargin ?? prev.profitMargin ?? 15,
+          enableComments: fetchedData.enableComments ?? fetchedData.showComments ?? prev.enableComments ?? true,
+          showPriceDetails: fetchedData.showPriceDetails ?? prev.showPriceDetails ?? true,
+          isStoreActive: fetchedData.isStoreActive ?? prev.isStoreActive ?? true,
+          showContactNumber: fetchedData.showContactNumber ?? prev.showContactNumber ?? true,
+          slogans: Array.isArray(fetchedData.slogans) ? fetchedData.slogans : prev.slogans
+        }));
+      }
+    } finally {
+      clearTimeout(safetyTimer);
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   };
 
   useEffect(() => {

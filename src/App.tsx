@@ -1064,6 +1064,7 @@ function MainApp() {
             setActiveTab('account');
           }}
           onPaymentSuccess={handlePaymentSuccess}
+          activeGateway={(cmsConfig as any)?.paymentGateway?.activeGateway || 'zibal'}
         />
       )}
 

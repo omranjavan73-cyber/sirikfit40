@@ -202,7 +202,7 @@ export const PaymentCallback: React.FC = () => {
                 : 'درگاه پرداخت رسمی شاپرک (زیبال)'}
             </span>
           </div>
-          <h1 className="text-2xl font-black text-white tracking-tight">سامانه واردات SIRIK FIT</h1>
+          <h1 className="text-2xl font-black text-white tracking-tight">فروشگاه اینترنتی سیریک فیت</h1>
         </div>
 
         {/* State 1: Verification In Progress */}

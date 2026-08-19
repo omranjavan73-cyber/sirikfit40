@@ -33,52 +33,88 @@ try {
 }
 
 /**
- * Helper: Fetch active gateway configurations from Firestore `settings/payment`
- * or fallback to `settings/cms` or environment variables to prevent leaking credentials to clients.
+ * Helper: Fetch active gateway configurations from Firestore `settings/gateways`, `settings/payment`
+ * or fallback to `settings/cms` → environment variables.
+ * NEVER falls back to the literal test string "zibal".
+ * Returns zibalMerchant = null if no real merchant ID is found.
  */
 async function getPaymentGatewaySettings() {
-  let zibalMerchant = process.env.ZIBAL_MERCHANT || 'zibal';
-  let bitpayApiKey = process.env.BITPAY_API_KEY || 'adxcv-zzadq-jal-api-key';
+  const envMerchant = process.env.ZIBAL_MERCHANT || '';
+  // Only trust env var if it is NOT the literal sandbox placeholder
+  let zibalMerchant = (envMerchant && envMerchant !== 'zibal') ? envMerchant : null;
+  let bitpayApiKey = process.env.BITPAY_API_KEY || null;
   let activeGateway = 'zibal';
+  let isSandbox = false;
 
   if (firestoreDb) {
     try {
-      // 1. Check settings/payment
-      const paymentSnap = await firestoreDb.collection('settings').doc('payment').get();
-      if (paymentSnap.exists) {
-        const data = paymentSnap.data() || {};
-        if (data.zibalMerchant || (data.activeGateway === 'zibal' && data.merchantId)) {
-          zibalMerchant = data.zibalMerchant || data.merchantId || zibalMerchant;
+      // 1. Check settings/gateways
+      const gatewaysSnap = await firestoreDb.collection('settings').doc('gateways').get();
+      if (gatewaysSnap.exists) {
+        const gData = gatewaysSnap.data() || {};
+        const mid = gData.zibalMerchantId || gData.zibalMerchant || gData.merchantId || '';
+        if (mid && mid !== 'zibal') {
+          zibalMerchant = mid;
         }
-        if (data.bitpayApiKey || (data.activeGateway === 'bitpay' && data.merchantId)) {
-          bitpayApiKey = data.bitpayApiKey || data.merchantId || bitpayApiKey;
+        if (gData.bitpayApiKey) {
+          bitpayApiKey = gData.bitpayApiKey;
         }
-        if (data.activeGateway) {
-          activeGateway = data.activeGateway;
+        if (gData.activeGateway) {
+          activeGateway = gData.activeGateway;
+        }
+        if (gData.testMode === true || gData.isSandbox === true) {
+          isSandbox = true;
         }
       }
 
-      // 2. Check settings/cms fallback
-      const cmsSnap = await firestoreDb.collection('settings').doc('cms').get();
-      if (cmsSnap.exists) {
-        const cmsData = cmsSnap.data() || {};
-        const gw = cmsData.paymentGateway || {};
-        if (gw.zibalMerchant || (gw.activeGateway === 'zibal' && gw.merchantId)) {
-          zibalMerchant = gw.zibalMerchant || gw.merchantId || zibalMerchant;
+      // 2. Check settings/payment (if not found in gateways)
+      if (!zibalMerchant) {
+        const paymentSnap = await firestoreDb.collection('settings').doc('payment').get();
+        if (paymentSnap.exists) {
+          const data = paymentSnap.data() || {};
+          const mid = data.zibalMerchantId || data.zibalMerchant || data.merchantId || '';
+          if (mid && mid !== 'zibal') {
+            zibalMerchant = mid;
+          }
+          if (data.bitpayApiKey && !bitpayApiKey) {
+            bitpayApiKey = data.bitpayApiKey;
+          }
+          if (data.activeGateway && activeGateway === 'zibal') {
+            activeGateway = data.activeGateway;
+          }
+          if (data.isSandbox === true || data.testMode === true) {
+            isSandbox = true;
+          }
         }
-        if (gw.bitpayApiKey || (gw.activeGateway === 'bitpay' && gw.merchantId)) {
-          bitpayApiKey = gw.bitpayApiKey || gw.merchantId || bitpayApiKey;
-        }
-        if (gw.activeGateway && !paymentSnap.exists) {
-          activeGateway = gw.activeGateway;
+      }
+
+      // 3. Fallback: settings/cms → paymentGateway
+      if (!zibalMerchant) {
+        const cmsSnap = await firestoreDb.collection('settings').doc('cms').get();
+        if (cmsSnap.exists) {
+          const cmsData = cmsSnap.data() || {};
+          const gw = cmsData.paymentGateway || {};
+          const mid = gw.zibalMerchantId || gw.zibalMerchant || gw.merchantId || '';
+          if (mid && mid !== 'zibal') {
+            zibalMerchant = mid;
+          }
+          if (gw.bitpayApiKey && !bitpayApiKey) {
+            bitpayApiKey = gw.bitpayApiKey;
+          }
+          if (gw.activeGateway && activeGateway === 'zibal') {
+            activeGateway = gw.activeGateway;
+          }
+          if (gw.isSandbox === true || gw.testMode === true) {
+            isSandbox = true;
+          }
         }
       }
     } catch (err) {
-      console.warn('Failed to load dynamic gateway settings from Firestore, using env/defaults:', err.message);
+      console.warn('[Gateway] Failed to load settings from Firestore:', err.message);
     }
   }
 
-  return { zibalMerchant, bitpayApiKey, activeGateway };
+  return { zibalMerchant, bitpayApiKey, activeGateway, isSandbox };
 }
 
 /**
@@ -147,6 +183,14 @@ const createPaymentRequest = onRequest(
       // ROUTE 1: ZIBAL PAYMENT GATEWAY
       // ==========================================
       if (gateway === 'zibal') {
+        // PRODUCTION GUARD: Refuse to send the test placeholder "zibal" to the live API
+        if (!settings.zibalMerchant) {
+          return res.status(503).json({
+            success: false,
+            result: -10,
+            message: 'شناسه پذیرنده زیبال پیکربندی نشده است. لطفاً merchant ID واقعی را در پنل مدیریت ثبت کنید.'
+          });
+        }
         const zibalPayload = {
           merchant: settings.zibalMerchant,
           amount: amountInRials,
@@ -183,7 +227,7 @@ const createPaymentRequest = onRequest(
                   phoneNumber: effectiveMobile,
                   deliveryAddress: deliveryAddress || existingData.deliveryAddress || '',
                   notes: notes || existingData.notes || '',
-                  productTitle: productTitle || existingData.productTitle || 'سفارش واردات دبی',
+                  productTitle: productTitle || existingData.productTitle || 'سفارش فروشگاه سیریک فیت',
                   priceAed: priceAed || existingData.priceAed || 0,
                   calculatedToman: amountInTomans,
                   amountRial: amountInRials,
@@ -262,7 +306,7 @@ const createPaymentRequest = onRequest(
                   phoneNumber: effectiveMobile,
                   deliveryAddress: deliveryAddress || existingData.deliveryAddress || '',
                   notes: notes || existingData.notes || '',
-                  productTitle: productTitle || existingData.productTitle || 'سفارش واردات دبی',
+                  productTitle: productTitle || existingData.productTitle || 'سفارش فروشگاه سیریک فیت',
                   priceAed: priceAed || existingData.priceAed || 0,
                   calculatedToman: amountInTomans,
                   amountRial: amountInRials,

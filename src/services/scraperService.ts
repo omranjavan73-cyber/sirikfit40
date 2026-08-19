@@ -505,3 +505,122 @@ export class UniversalScraperService {
 
 export const universalScraperService = UniversalScraperService.getInstance();
 
+/**
+ * Dedicated Dr. Nutrition HTML parser adapter (JSON-LD -> __NEXT_DATA__ -> Regex).
+ * Handles cent-to-AED conversion and Next.js hydration shapes.
+ */
+export function parseDrNutrition(html: string, url: string = ''): {
+  title: string;
+  price: number;
+  image: string;
+  brand: string;
+  gallery: string[];
+  inStock: boolean;
+  source: string;
+} | null {
+  if (!html) return null;
+
+  const normalizeDrPrice = (raw: any): number => {
+    if (raw === undefined || raw === null) return 0;
+    const s = String(raw).replace(/,/g, '').replace(/[^0-9.]/g, '');
+    let p = parseFloat(s);
+    if (isNaN(p) || p <= 0) return 0;
+    if (p > 2000) p = p / 100;
+    return Math.round(p * 100) / 100;
+  };
+
+  // Step A: JSON-LD Extraction
+  const ldBlocks = Array.from(html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi));
+  for (const block of ldBlocks) {
+    if (!block[1]) continue;
+    try {
+      const parsed = JSON.parse(block[1]);
+      const items: any[] = Array.isArray(parsed) ? parsed : (parsed['@graph'] ? parsed['@graph'] : [parsed]);
+      for (const item of items) {
+        if (!item) continue;
+        const isProduct = item['@type'] === 'Product' || item['@type'] === 'IndividualProduct' || (item.name && item.offers);
+        if (!isProduct) continue;
+
+        const title = String(item.name || item.headline || '').trim();
+        const brand = item.brand?.name || item.brand || 'Dr. Nutrition';
+        const availability = item.offers?.availability || item.offers?.[0]?.availability || '';
+        const inStock = !availability || availability.toLowerCase().includes('instock');
+
+        let price = 0;
+        const offersList = item.offers ? (Array.isArray(item.offers) ? item.offers : [item.offers]) : [];
+        for (const offer of offersList) {
+          if (!offer) continue;
+          const pRaw = offer.price ?? offer.lowPrice ?? offer.highPrice ?? offer.priceSpecification?.price;
+          price = normalizeDrPrice(pRaw);
+          if (price > 0) break;
+        }
+
+        const rawImages = Array.isArray(item.image) ? item.image : (item.image ? [item.image] : []);
+        const gallery: string[] = rawImages.map((img: any) => (typeof img === 'string' ? img : img?.url || img?.src || '')).filter(Boolean);
+        const image = gallery[0] || '';
+
+        if (title && price > 0) {
+          return { title, price, image, brand: typeof brand === 'string' ? brand : 'Dr. Nutrition', gallery, inStock, source: 'json-ld' };
+        }
+      }
+    } catch (_e) {}
+  }
+
+  // Step B: Next.js __NEXT_DATA__
+  const nextMatch = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (nextMatch && nextMatch[1]) {
+    try {
+      const nextJson = JSON.parse(nextMatch[1]);
+      const pp = nextJson?.props?.pageProps;
+      const pObj: any = pp?.product || pp?.productData || pp?.initialData?.product || pp?.productDetails || pp?.item;
+      if (pObj) {
+        const title = String(pObj.name || pObj.title || '').trim();
+        const rawPrice = pObj.price || pObj.special_price || pObj.finalPrice || pObj.price_aed || pObj.variants?.[0]?.price;
+        const price = normalizeDrPrice(rawPrice);
+        const brand = pObj.brand?.name || pObj.brand || pObj.vendor || 'Dr. Nutrition';
+        const rawImg = pObj.image || pObj.mainImage || (Array.isArray(pObj.images) ? pObj.images[0] : '');
+        const image = typeof rawImg === 'string' ? rawImg : rawImg?.src || rawImg?.url || '';
+        const gallery: string[] = Array.isArray(pObj.images) ? pObj.images.map((im: any) => (typeof im === 'string' ? im : im?.url || im?.src || '')).filter(Boolean) : (image ? [image] : []);
+        const inStock = pObj.available !== false && pObj.inStock !== false;
+
+        if (title && price > 0) {
+          return { title, price, image, brand: typeof brand === 'string' ? brand : 'Dr. Nutrition', gallery, inStock, source: '__next_data__' };
+        }
+      }
+    } catch (_e) {}
+  }
+
+  // Step C: Regex Fallbacks
+  let title = '';
+  const ogTitle = html.match(/<meta\s+[^>]*property=["']og:title["']\s+content=["']([^"']+)["']/i);
+  if (ogTitle?.[1]) title = ogTitle[1].trim();
+  if (!title) {
+    const tMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (tMatch?.[1]) title = tMatch[1].trim();
+  }
+
+  let price = 0;
+  const priceMatches = [
+    /["'](?:price|sale_price|unit_price)["']\s*:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i,
+    /(?:AED|درهم)\s*([0-9]+(?:\.[0-9]+)?)/i,
+    /([0-9]+(?:\.[0-9]+)?)\s*(?:AED|درهم)/i
+  ];
+  for (const pm of priceMatches) {
+    const m = html.match(pm);
+    if (m && m[1]) {
+      const p = normalizeDrPrice(m[1]);
+      if (p > 0) { price = p; break; }
+    }
+  }
+
+  let image = '';
+  const ogImg = html.match(/<meta\s+[^>]*property=["']og:image["']\s+content=["']([^"']+)["']/i);
+  if (ogImg?.[1]) image = ogImg[1].trim();
+
+  if (title && price > 0) {
+    return { title, price, image, brand: 'Dr. Nutrition', gallery: image ? [image] : [], inStock: true, source: 'regex' };
+  }
+
+  return null;
+}
+

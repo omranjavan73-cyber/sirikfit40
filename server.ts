@@ -397,10 +397,10 @@ const defaultCmsConfig: CmsConfig = {
     trustBadge3: 'تحویل ۵ تا ۷ روزه'
   },
   paymentGateway: {
-    activeGateway: 'zarinpal',
-    merchantId: 'zarin_merchant_omex_8849102',
-    callbackUrl: '/api/payment/callback',
-    isSandbox: true,
+    activeGateway: 'zibal',
+    merchantId: '',
+    callbackUrl: 'https://sirikfit.ir/api/payment/callback',
+    isSandbox: false,
     cardToCard: {
       cardNumber: '6037-9918-4421-9876',
       bankName: 'بانک ملی ایران',
@@ -2285,11 +2285,10 @@ function getZibalErrorMessage(code: number): string {
 }
 
 async function getEffectiveGatewayConfig(): Promise<PaymentGatewayConfig> {
-  const store = readStore();
-  let config: PaymentGatewayConfig = store.cms?.paymentGateway || {
+  let config: PaymentGatewayConfig = {
     activeGateway: 'zibal',
     merchantId: '',
-    callbackUrl: '',
+    callbackUrl: 'https://sirikfit.ir/api/payment/callback',
     isSandbox: false,
     cardToCard: {
       cardNumber: '',
@@ -2300,20 +2299,18 @@ async function getEffectiveGatewayConfig(): Promise<PaymentGatewayConfig> {
   };
 
   try {
-    const cmsDoc = await getDoc(doc(db, 'settings', 'cms'));
-    if (cmsDoc.exists()) {
-      const data = cmsDoc.data();
-      if (data?.paymentGateway) {
-        config = { ...config, ...data.paymentGateway };
-      }
-    }
-  } catch (_e) {}
-
-  try {
     const gwDoc = await getDoc(doc(db, 'settings', 'gateways'));
     if (gwDoc.exists()) {
       const data = gwDoc.data();
       config = { ...config, ...data };
+    } else {
+      const cmsDoc = await getDoc(doc(db, 'settings', 'cms'));
+      if (cmsDoc.exists()) {
+        const data = cmsDoc.data();
+        if (data?.paymentGateway) {
+          config = { ...config, ...data.paymentGateway };
+        }
+      }
     }
   } catch (_e) {}
 

@@ -9,6 +9,10 @@ import type {
   VariantGroupsStructure
 } from '../types';
 import { generateBilingualProductTitle } from '../utils/parseLink';
+import { GncAdapter } from './GncAdapter';
+import { DrNutritionAdapter } from './DrNutritionAdapter';
+
+export { GncAdapter, DrNutritionAdapter };
 
 export interface ScraperAdapter {
   storeName: string;
@@ -22,10 +26,10 @@ export function detectStoreOrigin(url: string): { storeName: string; origin: str
   if (lower.includes('amazon.ae') || lower.includes('amazon.')) {
     return { storeName: 'Amazon UAE', origin: 'دبی، امارات (Amazon.ae)', flag: '🇦🇪' };
   }
-  if (lower.includes('drnutrition.com') || lower.includes('drnutrition')) {
+  if (lower.includes('drnutrition.com')) {
     return { storeName: 'Dr. Nutrition', origin: 'انبار مرکزی Dr Nutrition دبی', flag: '🇦🇪' };
   }
-  if (lower.includes('gnc.') || lower.includes('gnc-') || lower.includes('gnc')) {
+  if (lower.includes('gnc.')) {
     return { storeName: 'GNC Store', origin: 'نمایندگی رسمی GNC امارات', flag: '🇦🇪' };
   }
   if (lower.includes('lifepharmacy.com')) {
@@ -174,37 +178,92 @@ export class UniversalScraperService {
    */
   public extractFlatVariants(raw: any, defaultPriceAed: number): ProductVariantItem[] {
     const flatVariants: ProductVariantItem[] = [];
-    const seenNames = new Set<string>();
+    const seenKeys = new Set<string>();
 
+    // 1. Direct variantMatrix items if provided
+    if (raw.variantMatrix && Array.isArray(raw.variantMatrix.items) && raw.variantMatrix.items.length > 0) {
+      raw.variantMatrix.items.forEach((item: any, idx: number) => {
+        const itemTitle = item.title || item.name || '';
+        const key = `${item.flavor || ''}__${item.size || ''}__${itemTitle}`.trim().toLowerCase();
+        if (key && !seenKeys.has(key)) {
+          seenKeys.add(key);
+          const p = item.priceAED !== undefined ? Number(item.priceAED) : (item.priceAed !== undefined ? Number(item.priceAed) : (item.price !== undefined ? Number(item.price) : defaultPriceAed));
+          const op = item.originalPriceAED !== undefined ? Number(item.originalPriceAED) : (item.originalPriceAed !== undefined ? Number(item.originalPriceAed) : undefined);
+          flatVariants.push({
+            id: item.id || `matrix-var-${idx}`,
+            title: itemTitle || `گزینه ${idx + 1}`,
+            name: itemTitle || `گزینه ${idx + 1}`,
+            size: item.size,
+            flavor: item.flavor,
+            priceAED: p,
+            priceAed: p,
+            originalPriceAED: op,
+            originalPriceAed: op,
+            image: item.image || item.imageThumbnail || item.imageUrl,
+            imageThumbnail: item.imageThumbnail || item.image || item.imageUrl,
+            inStock: item.inStock !== false && item.available !== false
+          });
+        }
+      });
+      if (flatVariants.length > 0) return flatVariants;
+    }
+
+    // 2. Raw variants array
     if (Array.isArray(raw.variants) && raw.variants.length > 0) {
       raw.variants.forEach((v: any, idx: number) => {
-        const vName = typeof v === 'string' ? v : (v.name || v.label || v.title || '');
-        if (vName && !seenNames.has(vName.trim().toLowerCase())) {
-          seenNames.add(vName.trim().toLowerCase());
+        const vName = typeof v === 'string' ? v : (v.title || v.name || v.label || '');
+        const vSize = typeof v === 'object' ? (v.size || v.option1 || v.option2) : undefined;
+        const vFlavor = typeof v === 'object' ? (v.flavor || v.option2 || v.option1) : undefined;
+        const key = (vName || `${vSize || ''}-${vFlavor || ''}`).trim().toLowerCase();
+        if (key && !seenKeys.has(key)) {
+          seenKeys.add(key);
           const isAvailable = v.inStock !== false && v.available !== false && !v.soldOut && !v.isSoldOut && v.is_available !== false;
+          const p = v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : (v.price !== undefined ? Number(v.price) : defaultPriceAed));
+          const op = v.originalPriceAED !== undefined ? Number(v.originalPriceAED) : (v.originalPriceAed !== undefined ? Number(v.originalPriceAed) : undefined);
           flatVariants.push({
             id: v.id || `variant-${idx}`,
-            name: vName,
+            title: vName || `گزینه ${idx + 1}`,
+            name: vName || `گزینه ${idx + 1}`,
+            size: vSize,
+            flavor: vFlavor,
             inStock: isAvailable,
-            priceAED: v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : (v.price !== undefined ? Number(v.price) : defaultPriceAed)),
+            priceAED: p,
+            priceAed: p,
+            originalPriceAED: op,
+            originalPriceAed: op,
+            image: v.image || v.imageThumbnail || v.imageUrl,
             imageThumbnail: v.imageThumbnail || v.imageUrl || v.image || undefined
           });
         }
       });
     }
 
+    // 3. Variant groups
     if (Array.isArray(raw.variantGroups) && raw.variantGroups.length > 0) {
       raw.variantGroups.forEach((vg: any) => {
+        const isSizeGroup = vg.type === 'size' || vg.id === 'sizes' || vg.name?.includes('وزن') || vg.name?.includes('سایز') || vg.name?.includes('Size');
+        const isFlavorGroup = vg.type === 'flavor' || vg.id === 'flavors' || vg.name?.includes('طعم') || vg.name?.includes('Flavor');
+        
         (vg.options || []).forEach((opt: any, optIdx: number) => {
-          const optName = typeof opt === 'string' ? opt : (opt.name || opt.label || opt.nameFa || '');
-          if (optName && !seenNames.has(optName.trim().toLowerCase())) {
-            seenNames.add(optName.trim().toLowerCase());
+          const optName = typeof opt === 'string' ? opt : (opt.name || opt.label || opt.title || opt.nameFa || '');
+          const key = optName.trim().toLowerCase();
+          if (optName && !seenKeys.has(key)) {
+            seenKeys.add(key);
             const isAvailable = opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut;
+            const p = opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : defaultPriceAed));
+            const op = opt.originalPriceAED !== undefined ? Number(opt.originalPriceAED) : (opt.originalPriceAed !== undefined ? Number(opt.originalPriceAed) : undefined);
             flatVariants.push({
               id: opt.id || `opt-${optIdx}`,
+              title: optName,
               name: optName,
+              size: isSizeGroup ? optName : undefined,
+              flavor: isFlavorGroup ? optName : undefined,
               inStock: isAvailable,
-              priceAED: opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : defaultPriceAed),
+              priceAED: p,
+              priceAed: p,
+              originalPriceAED: op,
+              originalPriceAed: op,
+              image: opt.image || opt.imageUrl || undefined,
               imageThumbnail: opt.image || opt.imageUrl || undefined
             });
           }
@@ -212,48 +271,63 @@ export class UniversalScraperService {
       });
     }
 
+    // 4. Flat flavors, sizes, options arrays
     if (flatVariants.length === 0) {
       const flavors: any[] = Array.isArray(raw.flavors) ? raw.flavors : [];
       flavors.forEach((flv, idx) => {
-        const flvName = typeof flv === 'string' ? flv : (flv?.name || flv?.label || '');
+        const flvName = typeof flv === 'string' ? flv : (flv?.name || flv?.label || flv?.title || '');
         const isAvailable = typeof flv === 'object' ? (flv.inStock !== false && flv.available !== false) : true;
-        if (flvName && !seenNames.has(flvName.trim().toLowerCase())) {
-          seenNames.add(flvName.trim().toLowerCase());
+        const p = typeof flv === 'object' && (flv.priceAED || flv.priceAed || flv.price) ? Number(flv.priceAED || flv.priceAed || flv.price) : defaultPriceAed;
+        const key = flvName.trim().toLowerCase();
+        if (flvName && !seenKeys.has(key)) {
+          seenKeys.add(key);
           flatVariants.push({
             id: `flv-${idx}`,
+            title: flvName,
             name: flvName,
+            flavor: flvName,
             inStock: isAvailable,
-            priceAED: defaultPriceAed
+            priceAED: p,
+            priceAed: p
           });
         }
       });
 
       const sizes: any[] = Array.isArray(raw.sizes) ? raw.sizes : [];
       sizes.forEach((sz, idx) => {
-        const szName = typeof sz === 'string' ? sz : (sz?.name || sz?.label || '');
+        const szName = typeof sz === 'string' ? sz : (sz?.name || sz?.label || sz?.title || '');
         const isAvailable = typeof sz === 'object' ? (sz.inStock !== false && sz.available !== false) : true;
-        if (szName && !seenNames.has(szName.trim().toLowerCase())) {
-          seenNames.add(szName.trim().toLowerCase());
+        const p = typeof sz === 'object' && (sz.priceAED || sz.priceAed || sz.price) ? Number(sz.priceAED || sz.priceAed || sz.price) : defaultPriceAed;
+        const key = szName.trim().toLowerCase();
+        if (szName && !seenKeys.has(key)) {
+          seenKeys.add(key);
           flatVariants.push({
             id: `sz-${idx}`,
+            title: szName,
             name: szName,
+            size: szName,
             inStock: isAvailable,
-            priceAED: defaultPriceAed
+            priceAED: p,
+            priceAed: p
           });
         }
       });
 
       const options: any[] = Array.isArray(raw.options) ? raw.options : [];
       options.forEach((opt, idx) => {
-        const optName = typeof opt === 'string' ? opt : (opt?.name || opt?.label || '');
+        const optName = typeof opt === 'string' ? opt : (opt?.name || opt?.label || opt?.title || '');
         const isAvailable = typeof opt === 'object' ? (opt.inStock !== false && opt.available !== false) : true;
-        if (optName && !seenNames.has(optName.trim().toLowerCase()) && !['default', 'standard', 'پیش‌فرض'].includes(optName.trim().toLowerCase())) {
-          seenNames.add(optName.trim().toLowerCase());
+        const p = typeof opt === 'object' && (opt.priceAED || opt.priceAed || opt.price) ? Number(opt.priceAED || opt.priceAed || opt.price) : defaultPriceAed;
+        const key = optName.trim().toLowerCase();
+        if (optName && !seenKeys.has(key) && !['default', 'standard', 'پیش‌فرض', 'default title'].includes(key)) {
+          seenKeys.add(key);
           flatVariants.push({
             id: `opt-${idx}`,
+            title: optName,
             name: optName,
             inStock: isAvailable,
-            priceAED: defaultPriceAed
+            priceAED: p,
+            priceAed: p
           });
         }
       });
@@ -314,6 +388,26 @@ export class UniversalScraperService {
       });
     }
 
+    // Construct unified ProductVariantMatrix
+    const sizesList: string[] = [];
+    const flavorsList: string[] = [];
+    variants.forEach(v => {
+      if (v.size && !sizesList.includes(v.size)) sizesList.push(v.size);
+      if (v.flavor && !flavorsList.includes(v.flavor)) flavorsList.push(v.flavor);
+    });
+    if (variantGroups.sizes) {
+      variantGroups.sizes.forEach(s => { if (s.name && !sizesList.includes(s.name)) sizesList.push(s.name); });
+    }
+    if (variantGroups.flavors) {
+      variantGroups.flavors.forEach(f => { if (f.name && !flavorsList.includes(f.name)) flavorsList.push(f.name); });
+    }
+    const variantMatrix = {
+      sizes: sizesList,
+      flavors: flavorsList,
+      items: variants,
+      selectedVariant: variants[0]
+    };
+
     return {
       id: raw.id || `scraped-${Date.now()}`,
       title: raw.title || 'Dubai Store Product',
@@ -328,6 +422,7 @@ export class UniversalScraperService {
       calculatedPriceToman: calculatedPriceToman || Number(raw.calculatedPriceToman) || 0,
       inStock: raw.inStock !== false,
       variants,
+      variantMatrix,
       variantGroups: (variantGroups.flavors?.length || variantGroups.sizes?.length || variantGroups.others?.length) ? variantGroups : undefined,
       description: raw.description
     };
@@ -370,8 +465,9 @@ export class UniversalScraperService {
           name: opt.name || opt.label || String(opt),
           nameFa: opt.nameFa,
           type: vg.type || 'generic',
-          price: opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed),
-          priceAed: opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed),
+          price: opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed)),
+          priceAed: opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed)),
+          priceAED: opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed)),
           image: opt.image || opt.imageThumbnail || opt.imageUrl,
           imageUrl: opt.imageUrl || opt.image || opt.imageThumbnail,
           inStock: opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut,
@@ -394,6 +490,7 @@ export class UniversalScraperService {
             name: o.name,
             nameFa: o.nameFa,
             priceAed: o.priceAed,
+            priceAED: o.priceAED,
             image: o.image,
             inStock: o.inStock !== false,
             sku: o.sku
@@ -408,13 +505,15 @@ export class UniversalScraperService {
         const flvOptions: VariantOption[] = flavors.map((f, idx) => {
           const fName = typeof f === 'string' ? f : (f?.name || f?.label || '');
           const isAvail = typeof f === 'object' ? (f.inStock !== false && f.available !== false) : true;
+          const p = typeof f === 'object' && (f.priceAED || f.priceAed || f.price) ? Number(f.priceAED || f.priceAed || f.price) : priceAed;
           return {
             id: `flv-${idx}`,
             label: fName,
             name: fName,
             type: 'flavor',
-            price: priceAed,
-            priceAed: priceAed,
+            price: p,
+            priceAed: p,
+            priceAED: p,
             inStock: isAvail
           };
         });
@@ -436,13 +535,15 @@ export class UniversalScraperService {
         const szOptions: VariantOption[] = sizes.map((s, idx) => {
           const sName = typeof s === 'string' ? s : (s?.name || s?.label || '');
           const isAvail = typeof s === 'object' ? (s.inStock !== false && s.available !== false) : true;
+          const p = typeof s === 'object' && (s.priceAED || s.priceAed || s.price) ? Number(s.priceAED || s.priceAed || s.price) : priceAed;
           return {
             id: `sz-${idx}`,
             label: sName,
             name: sName,
             type: 'size',
-            price: priceAed,
-            priceAed: priceAed,
+            price: p,
+            priceAed: p,
+            priceAED: p,
             inStock: isAvail
           };
         });
@@ -472,6 +573,32 @@ export class UniversalScraperService {
 
     const overallInStock = raw.inStock !== false && raw.available !== false && hasAnyInStockVariant;
 
+    // Construct unified ProductVariantMatrix
+    const sizesList: string[] = [];
+    const flavorsList: string[] = [];
+    flatVariants.forEach(v => {
+      if (v.size && !sizesList.includes(v.size)) sizesList.push(v.size);
+      if (v.flavor && !flavorsList.includes(v.flavor)) flavorsList.push(v.flavor);
+    });
+    if (Array.isArray(raw.sizes)) {
+      raw.sizes.forEach((s: any) => {
+        const sName = typeof s === 'string' ? s : (s?.name || s?.label || '');
+        if (sName && !sizesList.includes(sName)) sizesList.push(sName);
+      });
+    }
+    if (Array.isArray(raw.flavors)) {
+      raw.flavors.forEach((f: any) => {
+        const fName = typeof f === 'string' ? f : (f?.name || f?.label || '');
+        if (fName && !flavorsList.includes(fName)) flavorsList.push(fName);
+      });
+    }
+    const variantMatrix = {
+      sizes: sizesList,
+      flavors: flavorsList,
+      items: flatVariants,
+      selectedVariant: flatVariants[0]
+    };
+
     return {
       title: titleFa,
       titleFa,
@@ -495,6 +622,7 @@ export class UniversalScraperService {
       dimensions: dimensions.length > 0 ? dimensions : undefined,
       variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
       variants: flatVariants.length > 0 ? flatVariants as any : undefined,
+      variantMatrix,
       options: raw.options || [],
       flavors: raw.flavors || [],
       sizes: raw.sizes || [],
@@ -504,142 +632,4 @@ export class UniversalScraperService {
 }
 
 export const universalScraperService = UniversalScraperService.getInstance();
-
-/**
- * Dedicated Dr. Nutrition HTML parser adapter (JSON-LD -> __NEXT_DATA__ -> Regex).
- * Searches ALL <script> tags for price/offers JSON, extracts meta title/image, and regex matches price.
- */
-export function parseDrNutrition(html: string, url: string = ''): {
-  ok?: boolean;
-  success?: boolean;
-  requireManualEntry?: boolean;
-  title: string;
-  price: number;
-  image: string;
-  brand: string;
-  gallery: string[];
-  inStock: boolean;
-  source: string;
-} | null {
-  if (!html) return null;
-
-  const normalizeDrPrice = (raw: any): number => {
-    if (raw === undefined || raw === null) return 0;
-    const s = String(raw).replace(/,/g, '').replace(/[^0-9.]/g, '');
-    let p = parseFloat(s);
-    if (isNaN(p) || p <= 0) return 0;
-    if (p > 2000) p = p / 100;
-    return Math.round(p * 100) / 100;
-  };
-
-  // Extract Title from og:title or <title>
-  let title = '';
-  const ogTitleMatch = html.match(/<meta\s+[^>]*property=["']og:title["']\s+content=["']([^"']+)["']/i)
-    || html.match(/<meta\s+[^>]*content=["']([^"']+)["']\s+[^>]*property=["']og:title["']/i);
-  if (ogTitleMatch?.[1]) title = ogTitleMatch[1].trim();
-  if (!title) {
-    const tMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    if (tMatch?.[1]) title = tMatch[1].trim();
-  }
-
-  // Extract Image from og:image
-  let image = '';
-  const ogImgMatch = html.match(/<meta\s+[^>]*property=["']og:image["']\s+content=["']([^"']+)["']/i)
-    || html.match(/<meta\s+[^>]*content=["']([^"']+)["']\s+[^>]*property=["']og:image["']/i);
-  if (ogImgMatch?.[1]) image = ogImgMatch[1].trim();
-
-  // Search ALL <script> tags for JSON containing "price" or "offers"
-  let extractedPrice = 0;
-  let extractedTitleFromScript = '';
-  let extractedImageFromScript = '';
-  let scriptSource = 'script-tags';
-
-  const allScripts = Array.from(html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi));
-  for (const sMatch of allScripts) {
-    const scriptContent = sMatch[1];
-    if (!scriptContent) continue;
-
-    if (scriptContent.includes('"price"') || scriptContent.includes('"offers"') || scriptContent.includes('"lowPrice"') || scriptContent.includes('"sale_price"')) {
-      if (scriptContent.trim().startsWith('{') || scriptContent.trim().startsWith('[')) {
-        try {
-          const parsed = JSON.parse(scriptContent.trim());
-          const items: any[] = Array.isArray(parsed) ? parsed : (parsed['@graph'] ? parsed['@graph'] : [parsed]);
-          for (const item of items) {
-            if (!item) continue;
-            if ((item.name || item.title) && !extractedTitleFromScript) {
-              extractedTitleFromScript = String(item.name || item.title).trim();
-            }
-            if (item.image && !extractedImageFromScript) {
-              const rawImg = Array.isArray(item.image) ? item.image[0] : item.image;
-              extractedImageFromScript = typeof rawImg === 'string' ? rawImg : (rawImg?.url || rawImg?.src || '');
-            }
-            const offersList = item.offers ? (Array.isArray(item.offers) ? item.offers : [item.offers]) : [];
-            for (const offer of offersList) {
-              const pRaw = offer?.price ?? offer?.lowPrice ?? offer?.highPrice;
-              const p = normalizeDrPrice(pRaw);
-              if (p > 0) {
-                extractedPrice = p;
-                scriptSource = 'script-json-parsed';
-                break;
-              }
-            }
-            if (extractedPrice > 0) break;
-            if (item.price || item.special_price || item.lowPrice) {
-              const p = normalizeDrPrice(item.price || item.special_price || item.lowPrice);
-              if (p > 0) {
-                extractedPrice = p;
-                scriptSource = 'script-json-item';
-                break;
-              }
-            }
-          }
-        } catch (_e) {}
-      }
-
-      if (extractedPrice === 0) {
-        const scriptPriceMatch = scriptContent.match(/(?:"price"|"lowPrice"|"sale_price")\s*:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i);
-        if (scriptPriceMatch && scriptPriceMatch[1]) {
-          const p = normalizeDrPrice(scriptPriceMatch[1]);
-          if (p > 0) {
-            extractedPrice = p;
-            scriptSource = 'script-regex';
-          }
-        }
-      }
-    }
-    if (extractedPrice > 0) break;
-  }
-
-  // Raw HTML fallback regex match for price if scripts didn't find one
-  if (extractedPrice === 0) {
-    const rawPriceMatch = html.match(/(?:"price"|"lowPrice"|"sale_price")\s*:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i)
-      || html.match(/(?:AED|درهم)\s*([0-9]+(?:\.[0-9]+)?)/i)
-      || html.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:AED|درهم)/i);
-    if (rawPriceMatch && rawPriceMatch[1]) {
-      extractedPrice = normalizeDrPrice(rawPriceMatch[1]);
-      scriptSource = 'raw-html-regex';
-    }
-  }
-
-  const finalTitle = title || extractedTitleFromScript || 'Dr. Nutrition Product';
-  const finalImage = image || extractedImageFromScript || '';
-
-  if (extractedPrice > 0) {
-    return {
-      ok: true,
-      success: true,
-      requireManualEntry: false,
-      title: finalTitle,
-      price: extractedPrice,
-      image: finalImage,
-      brand: 'Dr. Nutrition',
-      gallery: finalImage ? [finalImage] : [],
-      inStock: true,
-      source: scriptSource
-    };
-  }
-
-  return null;
-}
-
 

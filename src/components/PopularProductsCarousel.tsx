@@ -2,23 +2,23 @@ import React, { useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { ProductDetailModal } from './ProductDetailModal';
 import type { FinancialSettings } from '../types';
+import { getEffectiveAedRate, calculateFinalToman, formatToman } from '../utils/formatters';
 
 export interface PopularProductItem {
   id: string;
   title: string;
   image: string;
-  price?: number | string;
-  discountedPrice?: number | string;
   filterKey?: string;
   rawItem?: any;
   type?: 'local' | 'deal' | 'custom';
+  samplePriceAed?: number;
+  sampleWeightKg?: number;
 }
 
 const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'whey-protein',
     title: 'پروتئین وی طعم‌دار',
-    price: 3450000,
     filterKey: 'whey',
     image: 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -26,7 +26,6 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'creatine-monohydrate',
     title: 'کراتین مونوهیدرات',
-    price: 1850000,
     filterKey: 'creatine',
     image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -34,7 +33,6 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'multivitamin-men',
     title: 'مولتی ویتامین',
-    price: 980000,
     filterKey: 'vitamin',
     image: 'https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -42,7 +40,6 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'c4-preworkout',
     title: 'پمپ C4 Extreme',
-    price: 2150000,
     filterKey: 'pre',
     image: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -50,7 +47,6 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'omega-gnc',
     title: 'امگا ۳ فشرده GNC',
-    price: 1290000,
     filterKey: 'omega',
     image: 'https://images.unsplash.com/photo-1526947425960-945c6e72858f?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -58,7 +54,6 @@ const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
   {
     id: 'gainer-weight',
     title: 'گینر افزایش وزن',
-    price: 2890000,
     filterKey: 'gainer',
     image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop&q=80',
     type: 'custom'
@@ -93,7 +88,11 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
   };
 
   const rawList = items || products;
-  const list = (rawList && rawList.length > 0) ? rawList : DEFAULT_POPULAR_PRODUCTS;
+  const list = rawList !== undefined ? rawList : DEFAULT_POPULAR_PRODUCTS;
+
+  if (!list || list.length === 0) {
+    return null;
+  }
 
   const handleItemClick = (prod: PopularProductItem) => {
     setSelectedPopularForModal(prod);
@@ -103,28 +102,6 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
     cargoRatePerKg: 35,
     profitMargin: 20,
     aedRate: 23000
-  };
-
-  const resolveItemPrice = (item: PopularProductItem): number | null => {
-    const p = item.price || item.discountedPrice;
-    if (p !== undefined && p !== null && !isNaN(Number(p)) && Number(p) > 0) {
-      return Number(p);
-    }
-    if (item.rawItem) {
-      if (item.rawItem.priceToman && Number(item.rawItem.priceToman) > 0) {
-        return Number(item.rawItem.priceToman);
-      }
-      if (item.rawItem.calculatedToman && Number(item.rawItem.calculatedToman) > 0) {
-        return Number(item.rawItem.calculatedToman);
-      }
-      if (item.rawItem.priceAed && Number(item.rawItem.priceAed) > 0) {
-        const rate = defaultSettings.aedRate || 23000;
-        const cargoCost = (item.rawItem.weightKg || 0.5) * (defaultSettings.cargoRatePerKg || 35);
-        const subtotal = item.rawItem.priceAed + cargoCost;
-        return Math.round(subtotal * (1 + (defaultSettings.profitMargin || 20) / 100) * rate);
-      }
-    }
-    return null;
   };
 
   return (
@@ -154,51 +131,66 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
           <ChevronRight className="w-4 h-4 stroke-[2]" />
         </button>
 
-        {/* Scrollable Container with Story Cards */}
+        {/* Scrollable Container with Pure White Circular Badges & Thick Borders */}
         <div
           ref={scrollRef}
-          className="flex items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar py-1 px-1 dir-rtl scroll-smooth w-full"
+          className="flex flex-row justify-start items-center gap-3 sm:gap-4 overflow-x-auto no-scrollbar py-1 px-1 dir-rtl scroll-smooth w-full"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {list.map((item) => {
-            const numericPrice = resolveItemPrice(item);
+          {list.map((prod) => {
+            const effectiveRate = getEffectiveAedRate(settings) || defaultSettings.aedRate || 55000;
+            const rawItem = prod.rawItem;
+            let priceDisplay: string | null = null;
+
+            if (rawItem?.priceToman && rawItem.priceToman > 0) {
+              priceDisplay = formatToman(rawItem.priceToman);
+            } else if (rawItem?.calculatedTomanOverride && rawItem.calculatedTomanOverride > 0) {
+              priceDisplay = formatToman(rawItem.calculatedTomanOverride);
+            } else if (rawItem?.priceAed && rawItem.priceAed > 0) {
+              const margin = rawItem.profitMargin ?? rawItem.marginPercent ?? defaultSettings.profitMargin ?? 15;
+              const cargo = (rawItem.weightKg || 0.5) * (defaultSettings.cargoRatePerKg || 35) * effectiveRate;
+              const calc = Math.floor(((rawItem.priceAed * effectiveRate * (1 + margin / 100)) + cargo) / 1000) * 1000;
+              priceDisplay = formatToman(calc);
+            } else if (prod.samplePriceAed && prod.samplePriceAed > 0) {
+              const margin = defaultSettings.profitMargin ?? 15;
+              const cargo = (prod.sampleWeightKg || 0.5) * (defaultSettings.cargoRatePerKg || 35) * effectiveRate;
+              const calc = Math.floor(((prod.samplePriceAed * effectiveRate * (1 + margin / 100)) + cargo) / 1000) * 1000;
+              priceDisplay = formatToman(calc);
+            }
+
             return (
               <div
-                key={item.id}
-                onClick={() => handleItemClick(item)}
-                className="flex flex-col items-center text-center shrink-0 w-20 sm:w-24 gap-1 select-none cursor-pointer group transition-transform duration-200 hover:-translate-y-0.5 overflow-hidden"
+                key={prod.id}
+                onClick={() => handleItemClick(prod)}
+                className="flex flex-col items-center shrink-0 cursor-pointer group select-none transition-transform duration-200 hover:-translate-y-0.5 w-[80px] sm:w-[92px]"
               >
-                {/* Story Avatar Frame */}
-                <div className="relative w-16 h-16 sm:w-[68px] sm:h-[68px] rounded-full p-0.5 border border-slate-200/90 bg-white shadow-xs hover:shadow-md group-hover:border-slate-600 flex items-center justify-center overflow-hidden transition-all duration-200 shrink-0">
-                  <img
-                    src={item.image}
-                    alt={item.title}
-                    className="w-full h-full object-cover rounded-full group-hover:scale-105 transition-transform duration-300"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
-                    }}
-                  />
+                {/* Double-Ring Circle Container: Outer Ring + Clean Thick White Middle Band */}
+                <div className="w-16 h-16 md:w-20 md:h-20 rounded-full border border-gray-200/90 bg-white p-[3px] shadow-sm transition-all duration-200 group-hover:scale-105 shrink-0 flex items-center justify-center">
+                  {/* Inner Image Frame: Micro Inner Border + Overflow Hidden */}
+                  <div className="w-full h-full rounded-full border border-gray-200/70 overflow-hidden bg-white flex items-center justify-center">
+                    <img
+                      src={prod.image}
+                      alt={prod.title}
+                      className="w-full h-full object-contain p-1 group-hover:scale-110 transition-transform duration-300 select-none"
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
+                      }}
+                    />
+                  </div>
                 </div>
 
-                {/* Product Title */}
-                <span className="text-slate-800 font-semibold text-[11px] truncate w-full text-center px-1">
-                  {item.title}
+                {/* Centered Product Persian Title Below Circle */}
+                <span className="text-[11px] sm:text-xs font-medium text-slate-700 group-hover:text-slate-900 mt-1 text-center truncate w-full max-w-[80px] md:max-w-[92px]">
+                  {prod.title}
                 </span>
 
-                {/* Product Price Badge (Solid Red with Bold White Text) */}
-                <div className="mt-1 flex items-center justify-center w-full">
-                  {numericPrice ? (
-                    <span className="bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] px-2.5 py-1 rounded-md shadow-sm dir-rtl tracking-tight inline-flex items-center gap-1 transition-colors">
-                      <span className="font-extrabold">{Number(numericPrice).toLocaleString('fa-IR')}</span>
-                      <span className="text-[9px] font-medium text-red-100">تومان</span>
-                    </span>
-                  ) : (
-                    <span className="bg-slate-100 text-slate-600 font-bold text-[10px] px-2.5 py-1 rounded-md shadow-2xs">
-                      استعلام قیمت
-                    </span>
-                  )}
-                </div>
+                {/* Modern Solid Red Price Badge */}
+                {priceDisplay && (
+                  <span className="bg-red-600 px-2.5 py-1 rounded-lg shadow-sm inline-flex items-center justify-center whitespace-nowrap text-white font-extrabold text-[10px] sm:text-xs tracking-tight mt-1">
+                    {priceDisplay}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -216,37 +208,82 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
       </div>
 
       {/* Embedded Product Details Modal (Matching Featured Deals) */}
-      <ProductDetailModal
-        isOpen={!!selectedPopularForModal}
-        onClose={() => setSelectedPopularForModal(null)}
-        product={selectedPopularForModal ? {
+      {(() => {
+        if (!selectedPopularForModal) return null;
+        const effectiveRate = getEffectiveAedRate(settings) || defaultSettings.aedRate || 55000;
+        const cargoRate = defaultSettings.cargoRatePerKg || 35;
+        const isLocal = selectedPopularForModal.type === 'local';
+        const raw = selectedPopularForModal.rawItem || {};
+        
+        let priceTomanVal: number | undefined = undefined;
+        let profitMarginVal: number = defaultSettings.profitMargin || 20;
+
+        if (raw.priceToman && raw.priceToman > 0) {
+          priceTomanVal = raw.priceToman;
+        } else if (raw.calculatedTomanOverride && raw.calculatedTomanOverride > 0) {
+          priceTomanVal = raw.calculatedTomanOverride;
+        } else if (raw.calculatedToman && raw.calculatedToman > 0) {
+          priceTomanVal = raw.calculatedToman;
+        } else if (isLocal) {
+          priceTomanVal = raw.priceToman;
+        } else if (selectedPopularForModal.type === 'deal') {
+          profitMarginVal = raw.profitMargin !== undefined ? raw.profitMargin : (raw.marginPercent !== undefined ? raw.marginPercent : (defaultSettings.profitMargin || 20));
+          priceTomanVal = calculateFinalToman(
+            raw.priceAed || 100,
+            raw.weightKg || 0.5,
+            cargoRate,
+            profitMarginVal,
+            effectiveRate
+          );
+        } else {
+          priceTomanVal = calculateFinalToman(
+            150,
+            0.5,
+            cargoRate,
+            profitMarginVal,
+            effectiveRate
+          );
+        }
+
+        const modalProduct = {
+          id: raw.id || selectedPopularForModal.id,
           title: selectedPopularForModal.title,
-          url: selectedPopularForModal.rawItem?.url || 'https://drnutrition.com',
-          priceAed: selectedPopularForModal.rawItem?.priceAed || (selectedPopularForModal.type === 'local' ? Math.round((selectedPopularForModal.rawItem?.priceToman || 0) / defaultSettings.aedRate) : 150),
-          originalPriceAed: selectedPopularForModal.rawItem?.originalPriceAed || 0,
-          weightKg: selectedPopularForModal.rawItem?.weightKg || 0.5,
+          url: raw.url || 'https://drnutrition.com',
+          priceAed: raw.priceAed || (isLocal ? Math.round((raw.priceToman || 0) / effectiveRate) : 150),
+          originalPriceAed: raw.originalPriceAed || 0,
+          priceToman: priceTomanVal,
+          originalPriceToman: raw.originalPriceToman,
+          calculatedTomanOverride: priceTomanVal,
+          profitMargin: profitMarginVal,
+          weightKg: raw.weightKg || 0.5,
           image: selectedPopularForModal.image,
-          storeName: selectedPopularForModal.type === 'local' ? 'انبار ایران (تحویل فوری)' : (selectedPopularForModal.rawItem?.storeName || 'فروشگاه دبی'),
-          brand: selectedPopularForModal.type === 'local' ? 'انبار ایران' : (selectedPopularForModal.rawItem?.brand || 'دبی'),
-          category: selectedPopularForModal.rawItem?.category || (selectedPopularForModal.type === 'local' ? 'موجودی ایران' : 'پرطرفدارها'),
-          description: selectedPopularForModal.rawItem?.description || '',
-          badge: selectedPopularForModal.type === 'local' ? 'موجودی در ایران (تحویل فوری ۲۴ الی ۴۸ ساعته)' : 'ارسال سفارشی از دبی (تحویل ۷ الی ۱۴ روز کاری درب منزل)',
-          calculatedTomanOverride: selectedPopularForModal.type === 'local' ? selectedPopularForModal.rawItem?.priceToman : undefined,
-          isLocalInventory: selectedPopularForModal.type === 'local',
-          flavors: selectedPopularForModal.rawItem?.flavors || [],
-          sizes: selectedPopularForModal.rawItem?.sizes || []
-        } : null}
-        settings={defaultSettings}
-        onAddToCart={(productPayload, flavor, size) => {
-          if (onAddToCart) {
-            onAddToCart(productPayload, flavor, size);
-          } else if (onSelectProduct && selectedPopularForModal) {
-            onSelectProduct(selectedPopularForModal);
-          }
-          setSelectedPopularForModal(null);
-        }}
-      />
+          storeName: isLocal ? 'انبار ایران (تحویل فوری)' : (raw.storeName || 'فروشگاه دبی'),
+          brand: isLocal ? 'انبار ایران' : (raw.brand || 'دبی'),
+          category: raw.category || (isLocal ? 'موجودی ایران' : 'پرطرفدارها'),
+          description: raw.description || '',
+          badge: isLocal ? 'موجودی در ایران (تحویل فوری ۲۴ الی ۴۸ ساعته)' : 'ارسال سفارشی از دبی (تحویل ۷ الی ۱۴ روز کاری درب منزل)',
+          isLocalInventory: isLocal,
+          flavors: raw.flavors || [],
+          sizes: raw.sizes || []
+        };
+
+        return (
+          <ProductDetailModal
+            isOpen={!!selectedPopularForModal}
+            onClose={() => setSelectedPopularForModal(null)}
+            product={modalProduct}
+            settings={settings || defaultSettings}
+            onAddToCart={(productPayload, flavor, size) => {
+              if (onAddToCart) {
+                onAddToCart(productPayload, flavor, size);
+              } else if (onSelectProduct && selectedPopularForModal) {
+                onSelectProduct(selectedPopularForModal);
+              }
+              setSelectedPopularForModal(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };
-

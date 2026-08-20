@@ -32,7 +32,7 @@ import {
 } from '../utils/pricingEngine';
 import { formatToman, toPersianDigits, normalizeToEnglishDigits } from '../utils/formatters';
 import { useSettings } from '../context/SettingsContext';
-import { saveAdminSettingsPayload, safeParseNumeric } from '../utils/adminSaveHelper';
+import { safeParseNumeric, sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
 
 interface PricingRulesAdminProps {
   settings: FinancialSettings | null;
@@ -306,10 +306,13 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       const cleanMinShip = safeParseNumeric(minShippingCostAed, 20);
       const cleanMaxShip = safeParseNumeric(maxShippingCostAed, 40);
 
+      const isMinLimitActive = parsedMinOrderToman > 0;
+
       // Construct Clean Numeric AppSettings Object
       const appSettingsPayload = {
         aedRate: parsedRate,
         minOrderAmountToman: parsedMinOrderToman,
+        minOrderLimitEnabled: isMinLimitActive,
         baseCommission: {
           enabled: baseCommissionEnabled,
           percentage: cleanBasePercent
@@ -377,30 +380,27 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       window.dispatchEvent(new Event('storage'));
 
       // ---------------------------------------------------------------
-      // STEP 3: Async Persistence to Firestore SDK & REST API
+      // STEP 3: Async Persistence directly to Firestore SDK
       // ---------------------------------------------------------------
-      await saveAdminSettingsPayload(
-        {
-          aedRate: parsedRate,
-          manualAedRate: parsedRate,
-          cargoRatePerKg: cleanBaseShip,
-          profitMargin: cleanBasePercent,
-          minOrderAmountToman: parsedMinOrderToman,
-          ...appSettingsPayload
-        },
-        cms
-      );
+      const directFinancialPayload = {
+        aedRate: parsedRate,
+        manualAedRate: parsedRate,
+        cargoRatePerKg: cleanBaseShip,
+        profitMargin: cleanBasePercent,
+        minOrderAmountToman: parsedMinOrderToman,
+        minOrderLimitEnabled: isMinLimitActive,
+        autoUpdateRates: false,
+        currencyApiUrl: '',
+        updatedAt: Date.now()
+      };
 
       // Direct Firestore document updates
       await Promise.all([
-        setDoc(doc(db, 'settings', 'app'), appSettingsPayload, { merge: true }),
-        setDoc(doc(db, 'settings', 'financial'), {
-          aedRate: parsedRate,
-          manualAedRate: parsedRate,
-          minOrderAmountToman: parsedMinOrderToman,
-          autoUpdateRates: false,
-          currencyApiUrl: ''
-        }, { merge: true })
+        setDoc(doc(db, 'settings', 'app'), sanitizePayloadForFirestore(appSettingsPayload), { merge: true }),
+        setDoc(doc(db, 'settings', 'financial'), sanitizePayloadForFirestore(directFinancialPayload), { merge: true }),
+        setDoc(doc(db, 'settings', 'pricing'), sanitizePayloadForFirestore(appSettingsPayload), { merge: true }),
+        setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore(directFinancialPayload), { merge: true }),
+        setDoc(doc(db, 'settings', 'pricingRules'), sanitizePayloadForFirestore(activePricingConfig), { merge: true })
       ]);
 
       if (onUpdateSettings) {
@@ -409,7 +409,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           manualAedRate: parsedRate,
           cargoRatePerKg: cleanBaseShip,
           profitMargin: cleanBasePercent,
-          minOrderAmountToman: parsedMinOrderToman
+          minOrderAmountToman: parsedMinOrderToman,
+          minOrderLimitEnabled: isMinLimitActive
         });
       }
       if (onSavePricingRules) {

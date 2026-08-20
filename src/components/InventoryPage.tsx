@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import type { LocalInventoryItem, WarehouseCategory, FinancialSettings } from '../types';
-import { formatToman } from '../utils/formatters';
+import { formatToman, formatPrice, formatAedValue, getEffectiveAedRate } from '../utils/formatters';
 import { CategoryGridSection } from './CategoryGridSection';
 import { ProductDetailModal } from './ProductDetailModal';
+import { isCategoryMatch } from '../utils/categoryHelper';
 
 interface InventoryPageProps {
   items: LocalInventoryItem[];
@@ -32,27 +33,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
     const desc = (item.description || '').toLowerCase();
 
     const matchesSearch = !q || title.includes(q) || cat.includes(q) || desc.includes(q);
-
-    let matchesCat = true;
-    if (selectedCat !== 'all' && selectedCat !== 'همه') {
-      const catObj = (categories || []).find(c => c.filterKey === selectedCat || c.id === selectedCat);
-      const term = (catObj?.filterKey || catObj?.label || selectedCat).toLowerCase();
-      
-      // Fallback matching logic for standard key terms
-      if (selectedCat === 'protein' || term.includes('پروتئین')) {
-        matchesCat = cat.includes('پروتئین') || title.includes('وی') || title.includes('ایزوله') || title.includes('whey') || title.includes('protein');
-      } else if (selectedCat === 'vitamin' || term.includes('ویتامین')) {
-        matchesCat = cat.includes('ویتامین') || title.includes('مولتی') || title.includes('daily') || title.includes('سی') || title.includes('c') || title.includes('vitamin');
-      } else if (selectedCat === 'pre' || term.includes('قبل')) {
-        matchesCat = cat.includes('تمرین') || title.includes('پمپ') || title.includes('c4') || title.includes('کراتین') || title.includes('pre') || title.includes('پرفروش');
-      } else if (selectedCat === 'omega' || term.includes('امگا')) {
-        matchesCat = cat.includes('امگا') || title.includes('امگا') || title.includes('fish') || title.includes('omega');
-      } else if (selectedCat === 'hot' || term.includes('فروش')) {
-        matchesCat = true;
-      } else {
-        matchesCat = cat.includes(term) || term.includes(cat) || title.includes(term) || desc.includes(term);
-      }
-    }
+    const matchesCat = isCategoryMatch(item, selectedCat, categories);
 
     return matchesSearch && matchesCat;
   });
@@ -148,11 +129,21 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                   {item.title}
                 </h4>
 
-                {/* Price */}
-                <div className="pt-1">
-                  <span className="font-black text-xs md:text-sm text-[#E11D48] block dir-rtl">
-                    {formatToman(item.priceToman)}
-                  </span>
+                {/* Pricing Row - Single unbroken row */}
+                <div className="flex items-center justify-between w-full pt-2 pb-1 border-t border-gray-100">
+                  {/* Right side: Toman Price in a single unbroken line */}
+                  <div className="flex items-baseline gap-1 text-red-600 font-extrabold text-xs sm:text-sm md:text-base whitespace-nowrap">
+                    <span>{formatPrice(item.priceToman)}</span>
+                    <span className="text-[10px] sm:text-[11px] md:text-xs font-bold">تومان</span>
+                  </div>
+
+                  {/* Left side: AED Original Price if available */}
+                  {item.priceAed ? (
+                    <div className="text-gray-400 text-xs font-semibold whitespace-nowrap dir-ltr">
+                      <span>{formatAedValue(item.priceAed)}</span>
+                      <span className="text-[10px] ml-0.5">AED</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -186,32 +177,45 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
       )}
 
       {/* Embedded Product Details Modal */}
-      <ProductDetailModal
-        isOpen={!!selectedLocalForModal}
-        onClose={() => setSelectedLocalForModal(null)}
-        product={selectedLocalForModal ? {
-          title: `${selectedLocalForModal.title} (موجودی انبار ایران)`,
-          url: selectedLocalForModal.url || 'https://omex.ir/stock/' + selectedLocalForModal.id,
-          priceAed: Math.round(selectedLocalForModal.priceToman / defaultSettings.aedRate) || 100,
-          originalPriceAed: selectedLocalForModal.originalPriceToman ? Math.round(selectedLocalForModal.originalPriceToman / defaultSettings.aedRate) : 0,
-          weightKg: 0.5,
-          image: selectedLocalForModal.image,
-          storeName: 'انبار ایران (تحویل فوری)',
-          brand: 'انبار ایران',
-          category: selectedLocalForModal.category || 'موجودی ایران',
-          description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
-          badge: selectedLocalForModal.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته'
-        } : null}
-        settings={defaultSettings}
-        onAddToCart={(productPayload, flavor, size) => {
-          if (onAddToCart) {
-            onAddToCart(productPayload, flavor, size);
-          } else if (selectedLocalForModal) {
-            onSelectLocalProduct(selectedLocalForModal);
-          }
-          setSelectedLocalForModal(null);
-        }}
-      />
+      {(() => {
+        if (!selectedLocalForModal) return null;
+        const effectiveRate = getEffectiveAedRate(settings) || 55000;
+        return (
+          <ProductDetailModal
+            isOpen={!!selectedLocalForModal}
+            onClose={() => setSelectedLocalForModal(null)}
+            product={{
+              id: selectedLocalForModal.id,
+              title: `${selectedLocalForModal.title} (موجودی انبار ایران)`,
+              url: selectedLocalForModal.url || 'https://omex.ir/stock/' + selectedLocalForModal.id,
+              priceAed: selectedLocalForModal.priceAed || Math.round(selectedLocalForModal.priceToman / effectiveRate) || 100,
+              originalPriceAed: selectedLocalForModal.originalPriceToman ? Math.round(selectedLocalForModal.originalPriceToman / effectiveRate) : 0,
+              priceToman: selectedLocalForModal.priceToman,
+              originalPriceToman: selectedLocalForModal.originalPriceToman,
+              calculatedTomanOverride: selectedLocalForModal.priceToman,
+              isLocalInventory: true,
+              weightKg: selectedLocalForModal.weightKg || 0.5,
+              image: selectedLocalForModal.image,
+              storeName: 'انبار ایران (تحویل فوری)',
+              brand: 'انبار ایران',
+              category: selectedLocalForModal.category || 'موجودی ایران',
+              description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
+              badge: selectedLocalForModal.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته',
+              flavors: selectedLocalForModal.flavors || [],
+              sizes: selectedLocalForModal.sizes || []
+            }}
+            settings={settings || { cargoRatePerKg: 35, profitMargin: 20, aedRate: effectiveRate }}
+            onAddToCart={(productPayload, flavor, size) => {
+              if (onAddToCart) {
+                onAddToCart(productPayload, flavor, size);
+              } else if (selectedLocalForModal) {
+                onSelectLocalProduct(selectedLocalForModal);
+              }
+              setSelectedLocalForModal(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };

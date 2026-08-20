@@ -7,7 +7,7 @@ import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary>
+    <ErrorBoundary name="Root Application">
       <App />
     </ErrorBoundary>
   </StrictMode>,

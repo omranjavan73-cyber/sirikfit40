@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { PaymentCallback } from './pages/PaymentCallback';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { AppDashboard } from './components/AppDashboard';
@@ -23,53 +21,45 @@ import { PopularProductsCarousel, PopularProductItem } from './components/Popula
 import { CircularCategoryRow } from './components/CircularCategoryRow';
 import { ReviewsSection } from './components/ReviewsSection';
 import { FAQView } from './components/FAQView';
-import { SeoHeadInjector } from './components/SeoHeadInjector';
-import { ErrorBoundary } from './components/ErrorBoundary';
+import { PaymentReceipt } from './components/PaymentReceipt';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
 import { toPersianDigits, getEffectiveAedRate, calculateFinalToman } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { getSafeItem, setSafeItem } from './utils/safeStorage';
 
 function MainApp() {
-  const [activeTab, setActiveTab] = useState<TabType>('main');
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/payment/receipt')) {
+      return 'receipt';
+    }
+    return 'main';
+  });
   const [isCalculatorVisible] = useState(true);
 
   // User Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    try {
-      const saved = localStorage.getItem('omex_current_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
+    return getSafeItem<User | null>('omex_current_user', null);
   });
 
   const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('omex_cart_items');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    return getSafeItem<CartItem[]>('omex_cart_items', []);
   });
 
   useEffect(() => {
-    try {
-      localStorage.setItem('omex_cart_items', JSON.stringify(cartItems));
-    } catch (e) {
-      console.error('Error saving cart items:', e);
-    }
+    setSafeItem('omex_cart_items', cartItems);
   }, [cartItems]);
 
   // Analytics Visitor Tracking (resilient, never crashes)
   useEffect(() => {
     try {
-      let vid = localStorage.getItem('omex_visitor_id');
+      let vid = getSafeItem<string>('omex_visitor_id', '');
       if (!vid) {
         vid = 'v-' + Math.random().toString(36).substring(2, 11);
-        localStorage.setItem('omex_visitor_id', vid);
+        setSafeItem('omex_visitor_id', vid);
       }
       fetch('/api/analytics/track-visit', {
         method: 'POST',
@@ -87,7 +77,7 @@ function MainApp() {
   // Browser & Mobile Back Button Navigation (Prevents website exit on Cart/Detail view)
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-      if (activeTab === 'cart' || activeTab === 'detail' || activeTab === 'inventory' || activeTab === 'deals' || activeTab === 'faq') {
+      if (activeTab === 'cart' || activeTab === 'detail' || activeTab === 'inventory' || activeTab === 'deals' || activeTab === 'faq' || activeTab === 'receipt') {
         setActiveTab('main');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
@@ -103,7 +93,7 @@ function MainApp() {
     setCartItems((prev) => {
       return prev
         .map((item) => {
-          if (item.id === id) {
+          if (item.id === id || item.cartItemId === id) {
             const newQty = item.quantity + delta;
             return newQty > 0 ? { ...item, quantity: newQty } : null;
           }
@@ -114,7 +104,7 @@ function MainApp() {
   };
 
   const handleRemoveCartItem = (id: string) => {
-    setCartItems((prev) => prev.filter((item) => item.id !== id));
+    setCartItems((prev) => prev.filter((item) => item.id !== id && item.cartItemId !== id));
     showToast('محصول از سبد خرید حذف شد', 'success');
   };
 
@@ -130,30 +120,23 @@ function MainApp() {
     let cargo = 35;
     let margin = 15;
     let minOrderToman = 0;
-    let minOrderAed = 0;
+    let minOrderLimitEnabled = false;
 
-    if (typeof window !== 'undefined') {
-      try {
-        const directRate = localStorage.getItem('sirikfit_aed_rate');
-        if (directRate && !isNaN(Number(directRate)) && Number(directRate) > 0) {
-          rate = Number(directRate);
-        }
+    const directRate = getSafeItem<string>('sirikfit_aed_rate', '');
+    if (directRate && !isNaN(Number(directRate)) && Number(directRate) > 0) {
+      rate = Number(directRate);
+    }
 
-        const saved = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed) {
-            const exRate = Number(parsed.exchangeRate || parsed.aedRate || parsed.manualAedRate);
-            if (!isNaN(exRate) && exRate > 0 && !directRate) {
-              rate = exRate;
-            }
-            if (typeof parsed.cargoRatePerKg === 'number') cargo = parsed.cargoRatePerKg;
-            if (typeof parsed.profitMargin === 'number') margin = parsed.profitMargin;
-            if (typeof parsed.minOrderAmountToman === 'number') minOrderToman = parsed.minOrderAmountToman;
-            if (typeof parsed.minOrderAed === 'number') minOrderAed = parsed.minOrderAed;
-          }
-        }
-      } catch (_e) {}
+    const saved = getSafeItem<any>('sirikfit_financial_settings', null) || getSafeItem<any>('sirikfit_app_settings', null) || getSafeItem<any>('omex_financial_settings', null);
+    if (saved && typeof saved === 'object') {
+      const exRate = Number(saved.exchangeRate || saved.aedRate || saved.manualAedRate);
+      if (!isNaN(exRate) && exRate > 0 && !directRate) {
+        rate = exRate;
+      }
+      if (typeof saved.cargoRatePerKg === 'number') cargo = saved.cargoRatePerKg;
+      if (typeof saved.profitMargin === 'number') margin = saved.profitMargin;
+      if (typeof saved.minOrderAmountToman === 'number') minOrderToman = saved.minOrderAmountToman;
+      if (typeof saved.minOrderLimitEnabled === 'boolean') minOrderLimitEnabled = saved.minOrderLimitEnabled;
     }
 
     return {
@@ -162,7 +145,7 @@ function MainApp() {
       cargoRatePerKg: cargo,
       profitMargin: margin,
       minOrderAmountToman: minOrderToman,
-      minOrderAed: minOrderAed
+      minOrderLimitEnabled: minOrderLimitEnabled
     };
   });
 
@@ -170,22 +153,15 @@ function MainApp() {
 
   // CMS State initialized from LocalStorage FIRST
   const [cmsConfig, setCmsConfig] = useState<CmsConfig | null>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('sirikfit_cms_config') || localStorage.getItem('omex_home_cms');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed) return parsed;
-        }
-      } catch (_e) {}
-    }
-    return null;
+    const saved = getSafeItem<any>('sirikfit_cms_config', null) || getSafeItem<any>('omex_home_cms', null);
+    return saved && typeof saved === 'object' ? saved : null;
   });
 
   const [isLocalInventoryModalOpen, setIsLocalInventoryModalOpen] = useState(false);
 
   // Active Selected Product for Order Form / Product Detail
   const [selectedProduct, setSelectedProduct] = useState<{
+    id?: string;
     title: string;
     url: string;
     priceAed: number;
@@ -193,6 +169,23 @@ function MainApp() {
     image?: string;
     storeName?: string;
     calculatedTomanOverride?: number;
+    brand?: string;
+    category?: string;
+    description?: string;
+    badge?: string;
+    inStock?: boolean;
+    isLocalInventory?: boolean;
+    flavors?: string[];
+    sizes?: string[];
+    originalPriceAed?: number;
+    priceToman?: number;
+    originalPriceToman?: number;
+    discountPercent?: number;
+    servings?: string;
+    origin?: string;
+    profitMargin?: number;
+    marginPercent?: number;
+    [key: string]: any;
   } | null>(null);
 
   // Selected Deal for Calculator Population
@@ -203,6 +196,7 @@ function MainApp() {
     weightKg: number;
     image?: string;
     storeName?: string;
+    [key: string]: any;
   } | null>(null);
 
   // Active Pending Order for Payment Gateway Modal
@@ -217,11 +211,13 @@ function MainApp() {
   };
 
   const addToCart = (product: any, selectedFlavor?: string, selectedSize?: string) => {
-    const flavorStr = selectedFlavor || product.selectedFlavor || '';
-    const sizeStr = selectedSize || product.selectedSize || '';
-    const id = product.id || product.url || product.title || 'item';
+    const flavorStr = selectedFlavor || product?.selectedFlavor || '';
+    const sizeStr = selectedSize || product?.selectedSize || '';
+    const id = product?.id || product?.url || product?.title || 'item';
     const cartItemId = `${id}-${flavorStr}-${sizeStr}`;
-    const qtyToAdd = typeof product.quantity === 'number' && product.quantity > 0 ? product.quantity : 1;
+    const qtyToAdd = (typeof product?.quantity === 'number' && Number.isFinite(product.quantity) && product.quantity > 0)
+      ? Math.max(1, Math.floor(product.quantity))
+      : 1;
 
     setCartItems((prevCart: any[]) => {
       const existingItemIndex = prevCart.findIndex(
@@ -230,8 +226,19 @@ function MainApp() {
 
       let updatedCart: any[];
       if (existingItemIndex > -1) {
-        updatedCart = [...prevCart];
-        updatedCart[existingItemIndex].quantity += qtyToAdd;
+        // Move existing item to top (index 0) with updated quantity
+        const existingItem = prevCart[existingItemIndex];
+        const updatedItem = {
+          ...existingItem,
+          ...product,
+          id: existingItem.id || id,
+          cartItemId: existingItem.cartItemId || cartItemId,
+          selectedFlavor: flavorStr || existingItem.selectedFlavor,
+          selectedSize: sizeStr || existingItem.selectedSize,
+          quantity: (existingItem.quantity || 1) + qtyToAdd
+        };
+        const otherItems = prevCart.filter((_, idx) => idx !== existingItemIndex);
+        updatedCart = [updatedItem, ...otherItems];
       } else {
         const newItem = {
           ...product,
@@ -242,7 +249,8 @@ function MainApp() {
           selectedSize: sizeStr || undefined,
           quantity: qtyToAdd
         };
-        updatedCart = [...prevCart, newItem];
+        // Prepend brand-new item to the very top (index 0)
+        updatedCart = [newItem, ...prevCart];
       }
 
       try {
@@ -419,6 +427,41 @@ function MainApp() {
     };
   }, []);
 
+  // Dynamic SEO & Meta Tag Sync Effect
+  useEffect(() => {
+    try {
+      const seo = (cmsConfig as any)?.seo;
+      const localSeoRaw = localStorage.getItem('sirikfit_seo_settings');
+      let localSeo: any = null;
+      if (localSeoRaw) {
+        try { localSeo = JSON.parse(localSeoRaw); } catch (_e) {}
+      }
+      const activeSeo = seo || localSeo;
+
+      if (activeSeo?.siteTitle) {
+        document.title = activeSeo.siteTitle;
+      }
+      if (activeSeo?.metaDescription) {
+        let metaDesc = document.querySelector('meta[name="description"]');
+        if (!metaDesc) {
+          metaDesc = document.createElement('meta');
+          metaDesc.setAttribute('name', 'description');
+          document.head.appendChild(metaDesc);
+        }
+        metaDesc.setAttribute('content', activeSeo.metaDescription);
+      }
+      if (activeSeo?.googleSiteVerification) {
+        let gVerify = document.querySelector('meta[name="google-site-verification"]');
+        if (!gVerify) {
+          gVerify = document.createElement('meta');
+          gVerify.setAttribute('name', 'google-site-verification');
+          document.head.appendChild(gVerify);
+        }
+        gVerify.setAttribute('content', activeSeo.googleSiteVerification.replace(/<[^>]*>/g, '').trim());
+      }
+    } catch (_e) {}
+  }, [cmsConfig]);
+
   // Sync user with localStorage
   const handleAuthSuccess = (user: User) => {
     setCurrentUser(user);
@@ -438,13 +481,9 @@ function MainApp() {
     }
   };
 
-  // Fetch Settings & CMS Config directly via Firestore SDK with LocalStorage Precedence & Timeout Guard
+  // Fetch Settings & CMS Config directly via Firestore SDK with LocalStorage Precedence
   const fetchSettings = async () => {
     setIsLoadingSettings(true);
-    // Strict fallback timeout to kill infinite spinner
-    const safetyTimer = setTimeout(() => setIsLoadingSettings(false), 2000);
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000));
-
     try {
       let localRate: number | null = null;
       let localSettings: any = null;
@@ -462,7 +501,7 @@ function MainApp() {
         }
       }
 
-      const fsSettings = await Promise.race([fetchSettingsFromFirestore(), timeoutPromise]);
+      const fsSettings = await fetchSettingsFromFirestore();
 
       if (fsSettings) {
         setSettings(prev => {
@@ -488,16 +527,13 @@ function MainApp() {
     } catch (err) {
       console.warn('Error loading settings:', err);
     } finally {
-      clearTimeout(safetyTimer);
       setIsLoadingSettings(false);
     }
   };
 
   const fetchCms = async () => {
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
-
     try {
-      const fsCms = await Promise.race([getCmsFromFirestore(), timeoutPromise]);
+      const fsCms = await getCmsFromFirestore();
       if (fsCms) {
         if (fsCms.homeContent) {
           fsCms.homeContent.appTitle = (fsCms.homeContent.appTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
@@ -573,27 +609,10 @@ function MainApp() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleInitiatePaymentForOrder = async (order: Order) => {
-    setPendingOrderForPayment(order);
-    const activeGw = (cmsConfig as any)?.paymentGateway?.activeGateway || 'zibal';
-    if (activeGw === 'zibal') {
-      try {
-        const { initiateZibalPayment } = await import('./services/paymentService');
-        await initiateZibalPayment({
-          ...order,
-          amount: order.calculatedToman || (order as any).totalToman || 0
-        });
-        return;
-      } catch (err) {
-        console.error('Direct Zibal payment initiation failed, opening modal fallback:', err);
-      }
-    }
-    setIsPaymentModalOpen(true);
-  };
-
   const handleOrderCreated = (newOrder: Order) => {
     setSelectedProduct(null);
-    handleInitiatePaymentForOrder(newOrder);
+    setPendingOrderForPayment(newOrder);
+    setIsPaymentModalOpen(true);
   };
 
   const handlePaymentSuccess = () => {
@@ -601,7 +620,20 @@ function MainApp() {
   };
 
   const handleSelectDeal = (deal: FeaturedDeal) => {
+    const effectiveRate = getEffectiveAedRate(settings, cmsConfig) || 1;
+    const dealMargin = deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : settings.profitMargin);
+    const finalToman = (deal.priceToman && deal.priceToman > 0)
+      ? deal.priceToman
+      : calculateFinalToman(
+          deal.priceAed || 100,
+          deal.weightKg || 0.5,
+          settings.cargoRatePerKg,
+          dealMargin,
+          effectiveRate
+        );
+
     setSelectedProduct({
+      id: deal.id,
       title: deal.title,
       url: deal.url,
       priceAed: deal.priceAed,
@@ -614,6 +646,11 @@ function MainApp() {
       category: deal.category,
       description: deal.description || 'پیشنهاد ویژه خرید مستقیم از دبی با بهترین قیمت',
       badge: deal.badge || '🔥 پیشنهاد ویژه',
+      priceToman: finalToman,
+      calculatedTomanOverride: finalToman,
+      profitMargin: dealMargin,
+      flavors: deal.flavors || [],
+      sizes: deal.sizes || [],
       inStock: true
     });
     setActiveTab('detail');
@@ -702,6 +739,7 @@ function MainApp() {
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
         onOpenCart={() => {
+          setSelectedProduct(null);
           setActiveTab('detail');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
@@ -731,34 +769,13 @@ function MainApp() {
 
             {/* Popular Samples Section (نمونه‌های محبوب) */}
             {(() => {
-              const popularDeals = (cmsConfig?.deals || []).filter(d => d && (d.isPopularSample || d.isFeaturedInCalculator) && d.isActive !== false);
-              const popularLocal = (cmsConfig?.localInventory || []).filter(i => i && i.isPopularSample && i.inStock !== false);
-
-              const getLocalPrice = (item: any) => {
-                return item.priceToman || item.price || item.calculatedToman;
-              };
-
-              const getDealPrice = (deal: any) => {
-                if (deal.priceToman) return deal.priceToman;
-                if (deal.calculatedToman) return deal.calculatedToman;
-                if (deal.priceAed) {
-                  const effectiveRate = getEffectiveAedRate(settings, cmsConfig) || settings.aedRate || 23000;
-                  return calculateFinalToman(
-                    deal.priceAed,
-                    deal.weightKg || 0.5,
-                    settings.cargoRatePerKg || 35,
-                    settings.profitMargin || 20,
-                    effectiveRate
-                  );
-                }
-                return deal.price;
-              };
+              const popularDeals = (cmsConfig?.deals || []).filter(d => d && (d.isPopular === true || d.isPopularSample === true) && d.isActive !== false);
+              const popularLocal = (cmsConfig?.localInventory || []).filter(i => i && (i.isPopular === true || i.isPopularSample === true) && i.inStock !== false);
 
               let popularList: PopularProductItem[] = [
                 ...popularLocal.map(item => ({
                   id: `local-${item.id}`,
                   title: item.title,
-                  price: getLocalPrice(item),
                   image: item.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
                   rawItem: item,
                   type: 'local' as const
@@ -766,7 +783,6 @@ function MainApp() {
                 ...popularDeals.map(deal => ({
                   id: `deal-${deal.id}`,
                   title: deal.title,
-                  price: getDealPrice(deal),
                   image: deal.image || 'https://images.unsplash.com/photo-1546483875-ad9014c88eba?w=500&auto=format&fit=crop&q=80',
                   rawItem: deal,
                   type: 'deal' as const
@@ -774,26 +790,7 @@ function MainApp() {
               ];
 
               if (popularList.length === 0) {
-                const fallbackLocal = (cmsConfig?.localInventory || []).slice(0, 3);
-                const fallbackDeals = (cmsConfig?.deals || []).slice(0, 3);
-                popularList = [
-                  ...fallbackLocal.map(item => ({
-                    id: `local-${item.id}`,
-                    title: item.title,
-                    price: getLocalPrice(item),
-                    image: item.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
-                    rawItem: item,
-                    type: 'local' as const
-                  })),
-                  ...fallbackDeals.map(deal => ({
-                    id: `deal-${deal.id}`,
-                    title: deal.title,
-                    price: getDealPrice(deal),
-                    image: deal.image || 'https://images.unsplash.com/photo-1546483875-ad9014c88eba?w=500&auto=format&fit=crop&q=80',
-                    rawItem: deal,
-                    type: 'deal' as const
-                  }))
-                ];
+                return null;
               }
 
               const popularOrder = (cmsConfig as any)?.popularSamplesOrder || [];
@@ -817,6 +814,7 @@ function MainApp() {
               return (
                 <PopularProductsCarousel
                   items={popularList}
+                  settings={settings}
                   onAddToCart={addToCart}
                   onSelectProduct={(item) => {
                     const effectiveRate = getEffectiveAedRate(settings, cmsConfig) || 1;
@@ -824,15 +822,18 @@ function MainApp() {
                       const local = item.rawItem;
                       const calcAed = Math.round((local.priceToman || 0) / effectiveRate);
                       setSelectedProduct({
+                        id: local.id,
                         title: `${local.title} (موجودی انبار ایران)`,
                         url: 'https://omex.ir/stock/' + local.id,
                         priceAed: calcAed > 0 ? calcAed : 100,
                         originalPriceAed: local.originalPriceToman ? Math.round(local.originalPriceToman / effectiveRate) : 0,
-                        weightKg: 0.5,
+                        priceToman: local.priceToman,
+                        originalPriceToman: local.originalPriceToman,
+                        calculatedTomanOverride: local.priceToman,
+                        weightKg: local.weightKg || 0.5,
                         image: local.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
                         storeName: 'انبار ایران (تحویل فوری)',
                         brand: 'انبار ایران',
-                        calculatedTomanOverride: local.priceToman,
                         category: local.category || 'موجودی ایران',
                         description: local.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
                         badge: local.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته',
@@ -845,7 +846,22 @@ function MainApp() {
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     } else if (item.type === 'deal' && item.rawItem) {
                       const deal = item.rawItem;
+                      const dealMargin = deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : settings.profitMargin);
+                      const finalToman = (deal.priceToman && deal.priceToman > 0)
+                        ? deal.priceToman
+                        : (deal.calculatedTomanOverride && deal.calculatedTomanOverride > 0
+                            ? deal.calculatedTomanOverride
+                            : (deal.calculatedToman && deal.calculatedToman > 0
+                                ? deal.calculatedToman
+                                : calculateFinalToman(
+                                    deal.priceAed || 100,
+                                    deal.weightKg || 0.5,
+                                    settings.cargoRatePerKg,
+                                    dealMargin,
+                                    effectiveRate
+                                  )));
                       setSelectedProduct({
+                        id: deal.id,
                         title: deal.title || 'پیشنهاد ویژه دبی',
                         url: deal.url || 'https://drnutrition.com',
                         priceAed: deal.priceAed || 100,
@@ -858,6 +874,9 @@ function MainApp() {
                         category: deal.category || 'پیشنهاد ویژه',
                         description: deal.description || 'پیشنهاد ویژه خرید مستقیم از دبی با بهترین قیمت',
                         badge: deal.badge || '🔥 پیشنهاد ویژه',
+                        priceToman: finalToman,
+                        calculatedTomanOverride: finalToman,
+                        profitMargin: dealMargin,
                         inStock: true,
                         flavors: deal.flavors || [],
                         sizes: deal.sizes || []
@@ -865,6 +884,7 @@ function MainApp() {
                       setActiveTab('detail');
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     } else {
+                      const finalToman = calculateFinalToman(150, 0.5, settings.cargoRatePerKg, settings.profitMargin, effectiveRate);
                       setSelectedProduct({
                         title: item.title || 'محصول نمونه محبوب',
                         url: 'https://drnutrition.com',
@@ -876,6 +896,9 @@ function MainApp() {
                         category: 'مکمل‌های ورزشی',
                         description: 'ضمانت اصالت ۱۰۰٪، کیفیت اورجینال و ارسال مستقیم از دبی',
                         badge: '⭐ محبوب',
+                        priceToman: finalToman,
+                        calculatedTomanOverride: finalToman,
+                        profitMargin: settings.profitMargin,
                         inStock: true
                       });
                       setActiveTab('detail');
@@ -943,21 +966,16 @@ function MainApp() {
             </div>
 
             {/* Trust Badges Section (eNamad & Samandehi) */}
-            <TrustBadgesSection cms={cmsConfig} settings={settings} />
+            <ErrorBoundary name="Trust Badges">
+              <TrustBadgesSection cms={cmsConfig} settings={settings} />
+            </ErrorBoundary>
           </div>
         )}
 
-        {/* DEDICATED PRODUCT DETAIL & CHECKOUT SCREEN (#detail) */}
-        {activeTab === 'detail' && (
+        {/* DEDICATED PRODUCT DETAIL & CHECKOUT SCREEN (#detail or #cart) */}
+        {(activeTab === 'detail' || (activeTab as any) === 'cart') && (
           <ProductDetailView
-            product={selectedProduct || {
-              title: 'مکمل پروتئین وی ON Gold Standard 100% (۵ پوندی)',
-              url: 'https://www.drnutrition.com',
-              priceAed: 320,
-              weightKg: 2.3,
-              image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
-              storeName: 'Dr. Nutrition'
-            }}
+            product={selectedProduct}
             cartItems={cartItems}
             onAddToCart={addToCart}
             onUpdateCartQuantity={handleUpdateCartQuantity}
@@ -967,6 +985,7 @@ function MainApp() {
             cms={cmsConfig}
             currentUser={currentUser}
             onBackToMain={() => {
+              setSelectedProduct(null);
               setActiveTab('main');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
@@ -979,16 +998,20 @@ function MainApp() {
           <InventoryPage
             items={cmsConfig?.localInventory || []}
             categories={cmsConfig?.warehouseCategories}
+            settings={settings}
             onAddToCart={addToCart}
             onSelectLocalProduct={(item) => {
               const effectiveRate = getEffectiveAedRate(settings, cmsConfig) || 1;
               const calcAed = Math.round((item.priceToman || 0) / effectiveRate);
               setSelectedProduct({
+                id: item.id,
                 title: `${item.title} (موجودی انبار ایران)`,
                 url: 'https://omex.ir/stock/' + item.id,
                 priceAed: calcAed > 0 ? calcAed : 100,
                 originalPriceAed: item.originalPriceToman ? Math.round(item.originalPriceToman / effectiveRate) : 0,
-                weightKg: 0.5,
+                priceToman: item.priceToman,
+                originalPriceToman: item.originalPriceToman,
+                weightKg: item.weightKg || 0.5,
                 image: item.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
                 storeName: 'انبار ایران (تحویل فوری)',
                 brand: 'انبار ایران',
@@ -1031,6 +1054,27 @@ function MainApp() {
           />
         )}
 
+        {/* PAYMENT RECEIPT PAGE (صفحه تایید پرداخت و فاکتور نهایی) */}
+        {activeTab === 'receipt' && (
+          <PaymentReceipt
+            cms={cmsConfig}
+            onNavigateHome={() => {
+              window.history.pushState({}, '', '/');
+              setActiveTab('main');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onNavigateAccount={() => {
+              window.history.pushState({}, '', '/');
+              setActiveTab('account');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onRetryPayment={(ord) => {
+              setPendingOrderForPayment(ord);
+              setIsPaymentModalOpen(true);
+            }}
+          />
+        )}
+
         {/* CUSTOMER ACCOUNT & ORDER TRACKING TAB (حساب کاربری / پیگیری سفارش) */}
         {activeTab === 'account' && (
           <CustomerAccountView
@@ -1043,7 +1087,8 @@ function MainApp() {
             }}
             showToast={showToast}
             onPayPendingOrder={(order) => {
-              handleInitiatePaymentForOrder(order);
+              setPendingOrderForPayment(order);
+              setIsPaymentModalOpen(true);
             }}
           />
         )}
@@ -1083,9 +1128,6 @@ function MainApp() {
             setActiveTab('account');
           }}
           onPaymentSuccess={handlePaymentSuccess}
-          activeGateway={(cmsConfig as any)?.paymentGateway?.activeGateway || 'zibal'}
-          settings={settings}
-          gatewayConfig={(cmsConfig as any)?.paymentGateway}
         />
       )}
 
@@ -1112,8 +1154,8 @@ function MainApp() {
             badge: '⚡ تحویل فوری ۲۴ ساعته',
             inStock: true,
             isLocalInventory: true,
-            flavors: item.flavors || [],
-            sizes: item.sizes || []
+            flavors: (item as any).flavors || [],
+            sizes: (item as any).sizes || []
           });
           setActiveTab('detail');
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1135,16 +1177,9 @@ function MainApp() {
 
 export default function App() {
   return (
-    <ErrorBoundary>
+    <ErrorBoundary name="SirikFit Application">
       <SettingsProvider>
-        <SeoHeadInjector />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/payment/callback" element={<PaymentCallback />} />
-            <Route path="/payment-callback" element={<PaymentCallback />} />
-            <Route path="/*" element={<MainApp />} />
-          </Routes>
-        </BrowserRouter>
+        <MainApp />
       </SettingsProvider>
     </ErrorBoundary>
   );

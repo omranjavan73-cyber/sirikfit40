@@ -1,69 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, ThumbsUp, Send, CheckCircle2, User, X, Sparkles, Filter, ArrowRight } from 'lucide-react';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, getDocs, addDoc, doc, updateDoc, query, orderBy, limit } from 'firebase/firestore';
-
+import { MessageSquare, ThumbsUp, Send, CheckCircle2, User, X, Sparkles, Filter, ArrowRight, CornerDownLeft } from 'lucide-react';
 import type { CmsConfig } from '../types';
+import { ReviewService, ReviewItem, DEFAULT_PUBLIC_REVIEWS } from '../services/ReviewService';
 
-export interface ReviewItem {
-  id: string;
-  authorName: string;
-  content: string;
-  createdAt: string;
-  likes: number;
-  dislikes?: number;
-  category?: 'پیشنهاد' | 'انتقاد' | 'نظر';
-  reply?: string;
-  isApproved?: boolean;
-}
-
-const DEFAULT_REVIEWS: ReviewItem[] = [
-  {
-    id: 'rev-1',
-    authorName: 'علی رضایی',
-    content: 'تجربه خوبی از خرید داشتم. ارسال سریع و بسته‌بندی عالی.',
-    createdAt: '۲ ساعت پیش',
-    likes: 12,
-    category: 'نظر',
-    isApproved: true,
-  },
-  {
-    id: 'rev-2',
-    authorName: 'سارا احمدی',
-    content: 'پیشنهاد می‌کنم تنوع محصولات بیشتر بشه، مخصوصاً برندهای جدید.',
-    createdAt: '۵ ساعت پیش',
-    likes: 8,
-    category: 'پیشنهاد',
-    isApproved: true,
-  },
-  {
-    id: 'rev-3',
-    authorName: 'علی محمدی',
-    content: 'قیمت‌ها نسبت به کیفیت محصولات عالیه، ممنون از خدمات خوبتون.',
-    createdAt: '۱ روز پیش',
-    likes: 15,
-    category: 'نظر',
-    isApproved: true,
-  },
-  {
-    id: 'rev-4',
-    authorName: 'رضا کریمی',
-    content: 'بسته‌بندی خیلی خوب و مطمئن بود، ممنون.',
-    createdAt: '۲ روز پیش',
-    likes: 6,
-    category: 'نظر',
-    isApproved: true,
-  },
-  {
-    id: 'rev-5',
-    authorName: 'نرگس موسوی',
-    content: 'پیشنهاد می‌کنم امکان پرداخت در محل هم اضافه بشه.',
-    createdAt: '۳ روز پیش',
-    likes: 7,
-    category: 'پیشنهاد',
-    isApproved: true,
-  },
-];
+export type { ReviewItem };
 
 interface ReviewsSectionProps {
   showReviewsSection?: boolean;
@@ -73,7 +13,7 @@ interface ReviewsSectionProps {
 export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ showReviewsSection = true, cms }) => {
   const isEnabled = (cms?.features?.showReviews ?? cms?.features?.showComments ?? cms?.showReviewsSection ?? cms?.showReviews ?? cms?.showComments ?? showReviewsSection) !== false;
 
-  const [reviews, setReviews] = useState<ReviewItem[]>(DEFAULT_REVIEWS);
+  const [reviews, setReviews] = useState<ReviewItem[]>(DEFAULT_PUBLIC_REVIEWS);
   const [authorName, setAuthorName] = useState('');
   const [content, setContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -82,50 +22,13 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ showReviewsSecti
   const [activeFilter, setActiveFilter] = useState<'همه' | 'جدیدترین' | 'پر لایک' | 'پیشنهاد' | 'انتقاد'>('همه');
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
 
-  // 1. Fetch reviews from Firestore / localStorage
+  // 1. Subscribe to Strictly Approved reviews from Firestore in Real-Time
   useEffect(() => {
-    let isMounted = true;
-    const fetchReviews = async () => {
-      try {
-        if (typeof window !== 'undefined') {
-          const cached = localStorage.getItem('sirikfit_user_reviews');
-          if (cached) {
-            setReviews(JSON.parse(cached));
-          }
-        }
-        if (db) {
-          const reviewsRef = collection(db, 'reviews');
-          const q = query(reviewsRef, orderBy('createdAt', 'desc'), limit(50));
-          const snap = await getDocs(q);
-          if (!snap.empty && isMounted) {
-            const list: ReviewItem[] = [];
-            snap.forEach((docSnap) => {
-              const data = docSnap.data();
-              list.push({
-                id: docSnap.id,
-                authorName: data.authorName || 'کاربر میهمان',
-                content: data.content || '',
-                createdAt: data.createdAt || 'چند لحظه پیش',
-                likes: data.likes || 0,
-                category: data.category || 'نظر',
-                reply: data.reply,
-                isApproved: data.isApproved !== false,
-              });
-            });
-            if (list.length > 0) {
-              setReviews(list);
-              try {
-                localStorage.setItem('sirikfit_user_reviews', JSON.stringify(list));
-              } catch (_e) {}
-            }
-          }
-        }
-      } catch (e) {
-        handleFirestoreError(e, OperationType.LIST, 'reviews');
-      }
-    };
-    fetchReviews();
-    return () => { isMounted = false; };
+    const unsubscribe = ReviewService.subscribeApprovedReviews((approvedList) => {
+      setReviews(approvedList);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   // If globally disabled from Admin Panel General Settings, return null completely
@@ -138,80 +41,60 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ showReviewsSecti
     if (!content.trim()) return;
 
     setIsSubmitting(true);
-    const newRev: ReviewItem = {
-      id: 'rev-' + Date.now(),
-      authorName: authorName.trim() || 'کاربر میهمان',
-      content: content.trim(),
-      createdAt: 'هم‌اکنون',
-      likes: 0,
-      category: content.includes('پیشنهاد') ? 'پیشنهاد' : content.includes('انتقاد') ? 'انتقاد' : 'نظر',
-      isApproved: false, // Default to false until admin approves & publishes
-    };
 
     try {
-      if (db) {
-        await addDoc(collection(db, 'reviews'), {
-          ...newRev,
-          timestamp: Date.now(),
-        });
-      }
+      await ReviewService.submitUserReview({
+        authorName: authorName.trim() || 'کاربر میهمان',
+        content: content.trim(),
+        category: content.includes('پیشنهاد') ? 'پیشنهاد' : content.includes('انتقاد') ? 'انتقاد' : 'نظر'
+      });
+
+      setContent('');
+      setAuthorName('');
+      setSubmitSuccess(true);
+      setTimeout(() => setSubmitSuccess(false), 5000);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'reviews');
+      console.error('Error submitting review:', err);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    const updated = [newRev, ...reviews];
-    setReviews(updated);
-    try {
-      localStorage.setItem('sirikfit_user_reviews', JSON.stringify(updated));
-    } catch (_e) {}
-
-    setContent('');
-    setAuthorName('');
-    setIsSubmitting(false);
-    setSubmitSuccess(true);
-    setTimeout(() => setSubmitSuccess(false), 4000);
   };
 
   const handleToggleLike = async (id: string) => {
     if (likedMap[id]) return; // already liked once
     setLikedMap((prev) => ({ ...prev, [id]: true }));
 
+    const target = reviews.find((r) => r.id === id);
+    const curLikes = target?.likes || 0;
+
     const updated = reviews.map((r) => {
       if (r.id === id) {
-        return { ...r, likes: r.likes + 1 };
+        return { ...r, likes: curLikes + 1 };
       }
       return r;
     });
     setReviews(updated);
-    try {
-      localStorage.setItem('sirikfit_user_reviews', JSON.stringify(updated));
-    } catch (_e) {}
 
-    if (db && !id.startsWith('rev-')) {
-      try {
-        const docRef = doc(db, 'reviews', id);
-        const item = reviews.find((r) => r.id === id);
-        if (item) {
-          await updateDoc(docRef, { likes: item.likes + 1 });
-        }
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `reviews/${id}`);
-      }
-    }
+    try {
+      await ReviewService.likeReview(id, curLikes);
+    } catch (_e) {}
   };
 
-  const approvedReviews = (reviews || []).filter((r) => r && r.isApproved === true);
+  // Strictly filter: ONLY render documents where status is approved and not unapproved
+  const approvedReviews = (reviews || []).filter(
+    (r) => r && (r.status === 'approved' || (r.status !== 'pending' && r.isApproved === true))
+  );
   const recentReviews = approvedReviews.slice(0, 3);
 
   const filteredReviews = approvedReviews.filter((r) => {
     if (activeFilter === 'همه') return true;
     if (activeFilter === 'جدیدترین') return true;
-    if (activeFilter === 'پر لایک') return r.likes >= 5;
+    if (activeFilter === 'پر لایک') return (r.likes || 0) >= 5;
     if (activeFilter === 'پیشنهاد') return r.category === 'پیشنهاد';
     if (activeFilter === 'انتقاد') return r.category === 'انتقاد';
     return true;
   }).sort((a, b) => {
-    if (activeFilter === 'پر لایک') return b.likes - a.likes;
+    if (activeFilter === 'پر لایک') return (b.likes || 0) - (a.likes || 0);
     return 0;
   });
 

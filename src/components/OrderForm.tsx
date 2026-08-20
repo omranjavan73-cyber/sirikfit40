@@ -14,6 +14,7 @@ interface OrderFormProps {
     storeName?: string;
     calculatedTomanOverride?: number;
     brand?: string;
+    badge?: string;
     discountPercent?: number;
     originalPriceAed?: number;
     servings?: string;
@@ -50,10 +51,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  const effectiveRate = getEffectiveAedRate(settings);
   const pricingResult = calculateOrderPricing(
     product.priceAed * qty,
     qty,
-    getEffectiveAedRate(settings)
+    effectiveRate
   );
 
   const totalToman = product.calculatedTomanOverride
@@ -67,13 +69,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const handleSubmitOrder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    const effectiveRate = getEffectiveAedRate(settings) || 23000;
-    const dynamicMinOrderToman = settings.minOrderAmountToman && Number(settings.minOrderAmountToman) > 0
-      ? Number(settings.minOrderAmountToman)
-      : (settings.minOrderAed && Number(settings.minOrderAed) > 0 ? Number(settings.minOrderAed) * effectiveRate : 0);
-
-    if (dynamicMinOrderToman > 0 && totalToman < dynamicMinOrderToman) {
-      setErrorMessage(`حداقل مبلغ سفارش برای ارسال، ${formatToman(dynamicMinOrderToman)} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
+    const minOrderLimitEnabled = Boolean(settings?.minOrderLimitEnabled ?? false);
+    const minOrderToman = settings?.minOrderAmountToman || 0;
+    if (minOrderLimitEnabled && minOrderToman > 0 && totalToman < minOrderToman) {
+      setErrorMessage(`حداقل مبلغ سفارش برای ارسال و ثبت نهایی، ${toPersianDigits(formatToman(minOrderToman))} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
       return;
     }
 
@@ -94,8 +93,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     setIsSubmitting(true);
 
     try {
-      const orderPayload = {
+      const trackingCode = `SF-${Date.now().toString().slice(-6)}`;
+      const orderPayload: Omit<Order, 'id'> = {
         userId: currentUser?.id,
+        trackingCode,
         customerName,
         phoneNumber,
         deliveryAddress,
@@ -106,14 +107,17 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         storeName: product.storeName,
         priceAed: product.priceAed * qty,
         weightKg: (product.weightKg || 0.5) * qty,
-        totalToman,
+        aedRate: effectiveRate,
+        cargoRatePerKg: settings.cargoRatePerKg || 35,
+        profitMargin: settings.profitMargin || 15,
+        calculatedToman: totalToman,
         createdAt: new Date().toISOString(),
         paymentStatus: 'PENDING',
-        shippingStatus: 'PROCESSING'
+        shippingStatus: 'PENDING_BUY'
       };
 
       const createdOrderId = await saveOrderToFirestore(orderPayload);
-      const createdOrder = { ...orderPayload, id: createdOrderId, orderId: createdOrderId };
+      const createdOrder: Order = { ...orderPayload, id: createdOrderId };
       onOrderCreated(createdOrder);
     } catch (e: any) {
       console.error('Error submitting order:', e);
@@ -142,6 +146,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         <h3 className="font-extrabold text-sm text-neutral-900">مشخصات کالا و خرید</h3>
         {onCancel && (
           <button
+            type="button"
             onClick={onCancel}
             className="w-8 h-8 rounded-full border border-neutral-200 bg-white hover:bg-neutral-100 flex items-center justify-center text-xs font-bold text-neutral-900 transition cursor-pointer shadow-2xs"
             title="بازگشت"
@@ -236,6 +241,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           <span className="font-extrabold text-xs text-neutral-900">تعداد</span>
           <div className="flex items-center gap-3 border border-neutral-200 rounded-xl p-1 bg-[#F8FAFC]">
             <button
+              type="button"
               onClick={() => setQty(Math.min(20, qty + 1))}
               className="w-7 h-7 rounded-lg bg-white border border-neutral-200 font-extrabold text-sm flex items-center justify-center hover:bg-neutral-100 transition cursor-pointer text-neutral-900"
             >
@@ -243,6 +249,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </button>
             <span className="font-black text-sm w-4 text-center text-neutral-900">{qty}</span>
             <button
+              type="button"
               onClick={() => setQty(Math.max(1, qty - 1))}
               className="w-7 h-7 rounded-lg bg-white border border-neutral-200 font-extrabold text-sm flex items-center justify-center hover:bg-neutral-100 transition cursor-pointer text-neutral-900"
             >
@@ -261,12 +268,14 @@ export const OrderForm: React.FC<OrderFormProps> = ({
       {!showCheckoutForm ? (
         <div className="grid grid-cols-2 gap-3">
           <button
+            type="button"
             onClick={() => setShowCheckoutForm(true)}
             className="w-full bg-black hover:bg-neutral-800 text-white font-extrabold text-xs sm:text-sm py-3.5 px-4 rounded-xl transition cursor-pointer shadow-2xs text-center"
           >
             خرید فوری
           </button>
           <button
+            type="button"
             onClick={() => setShowCheckoutForm(true)}
             className="w-full bg-black hover:bg-neutral-800 text-white font-extrabold text-xs sm:text-sm py-3.5 px-4 rounded-xl transition cursor-pointer shadow-2xs text-center"
           >
@@ -327,6 +336,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={handleSubmitOrder}
             disabled={isSubmitting}
             className="w-full bg-black hover:bg-neutral-800 text-white font-extrabold text-xs sm:text-sm py-3.5 rounded-xl transition cursor-pointer shadow-md text-center mt-2"

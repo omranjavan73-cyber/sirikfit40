@@ -19,9 +19,10 @@ import {
   ShieldCheck,
   Maximize2,
   Zap,
-  ZoomIn
+  ZoomIn,
+  Loader2
 } from 'lucide-react';
-import type { FinancialSettings, Order, User, CartItem, CmsConfig, VariantDimension, VariantOption } from '../types';
+import type { FinancialSettings, Order, User, CartItem, CmsConfig, VariantDimension, VariantOption, ProductVariantMatrix, ProductVariantItem } from '../types';
 import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
@@ -49,11 +50,11 @@ function cleanHtmlAndMarkdown(text?: string): string {
 }
 
 interface ProductDetailViewProps {
-  product: {
-    title: string;
-    url: string;
-    priceAed: number;
-    weightKg: number;
+  product?: {
+    title?: string;
+    url?: string;
+    priceAed?: number;
+    weightKg?: number;
     image?: string;
     images?: string[];
     galleryImages?: string[];
@@ -75,10 +76,11 @@ interface ProductDetailViewProps {
     dimensions?: VariantDimension[];
     variantGroups?: any[];
     variants?: any[];
+    variantMatrix?: ProductVariantMatrix;
     description?: string;
     descriptionFa?: string;
     isLocalInventory?: boolean;
-  };
+  } | null;
   cartItems?: CartItem[];
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   onUpdateCartQuantity?: (id: string, delta: number) => void;
@@ -104,20 +106,36 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   onBackToMain,
   onOrderCreated
 }) => {
+  const [localProduct, setLocalProduct] = useState<any>(product);
+  const [isVariantLoading, setIsVariantLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    setLocalProduct(product);
+  }, [product]);
+
+  const activeProd = localProduct || product;
+
   // Step 1: Product / Cart detail view. Step 2: Recipient details & order checkout
   const [step, setStep] = useState<1 | 2>(1);
   const [qty, setQty] = useState<number>(1);
   const [isAddedToCart, setIsAddedToCart] = useState<boolean>(false);
 
-  // Gallery and Image States
-  const rawGalleryList = Array.isArray(product.galleryImages) && product.galleryImages.length > 0
-    ? product.galleryImages
-    : (Array.isArray(product.images) && product.images.length > 0
-      ? product.images
-      : (product.image ? [product.image] : []));
-  const galleryList = Array.from(new Set(rawGalleryList.filter(Boolean)));
+  // Strictly reset quantity to 1 when active product changes
+  useEffect(() => {
+    setQty(1);
+  }, [activeProd?.title, activeProd?.url, (activeProd as any)?.id]);
 
-  const [activeImage, setActiveImage] = useState<string>(galleryList[0] || product.image || '');
+  // Gallery and Image States
+  const rawGalleryList: string[] = activeProd
+    ? (Array.isArray((activeProd as any).galleryImages) && (activeProd as any).galleryImages.length > 0
+        ? (activeProd as any).galleryImages
+        : (Array.isArray((activeProd as any).images) && (activeProd as any).images.length > 0
+          ? (activeProd as any).images
+          : (activeProd.image ? [String(activeProd.image)] : [])))
+    : [];
+  const galleryList: string[] = Array.from(new Set(rawGalleryList.filter(Boolean).map(String)));
+
+  const [activeImage, setActiveImage] = useState<string>(galleryList[0] || activeProd?.image || '');
 
   useEffect(() => {
     if (galleryList.length > 0) {
@@ -125,7 +143,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         setActiveImage(galleryList[0]);
       }
     }
-  }, [product.image, galleryList]);
+  }, [activeProd?.image, galleryList]);
 
   // Interactive Hover Zoom Lens States (Desktop)
   const [isHovered, setIsHovered] = useState<boolean>(false);
@@ -166,15 +184,61 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   // Variant selector states
   const [selectedVariants, setSelectedVariants] = useState<Record<string, VariantOption>>({});
-  const [selectedOptionFallback] = useState<string>(product.selectedOption || product.options?.[0] || '');
+  const [selectedOptionFallback] = useState<string>(activeProd?.selectedOption || activeProd?.options?.[0] || '');
 
-  // Extract dimensions or fallback to flavors/sizes
+  // Extract dimensions or fallback to variantMatrix / flavors / sizes
   const dimensions: VariantDimension[] = React.useMemo(() => {
-    if (Array.isArray(product.dimensions) && product.dimensions.length > 0) {
-      return product.dimensions;
+    if (!activeProd) return [];
+
+    if (Array.isArray(activeProd.dimensions) && activeProd.dimensions.length > 0) {
+      return activeProd.dimensions;
     }
-    if (Array.isArray(product.variantGroups) && product.variantGroups.length > 0) {
-      return product.variantGroups.map((vg: any) => ({
+
+    if (activeProd.variantMatrix?.items && activeProd.variantMatrix.items.length > 0) {
+      const flavorItems: VariantOption[] = [];
+      const sizeItems: VariantOption[] = [];
+      const genericItems: VariantOption[] = [];
+
+      activeProd.variantMatrix.items.forEach((item: any, idx: number) => {
+        const itemPrice = item.priceAED ?? item.priceAed ?? activeProd.priceAed ?? 0;
+        const opt: VariantOption = {
+          id: item.id || `matrix-${idx}`,
+          name: item.title || item.name || `گزینه ${idx + 1}`,
+          priceAed: itemPrice,
+          image: item.image,
+          inStock: item.inStock !== false,
+          url: item.url
+        };
+
+        if (item.size) {
+          sizeItems.push({ ...opt, name: item.size });
+        } else if (item.flavor) {
+          flavorItems.push({ ...opt, name: item.flavor });
+        } else {
+          const lower = (item.title || item.name || '').toLowerCase();
+          if (lower.includes('serving') || lower.includes('count') || lower.includes('kg') || lower.includes('lb') || lower.includes('g') || lower.includes('عددی') || lower.includes('سروینگ')) {
+            sizeItems.push(opt);
+          } else {
+            flavorItems.push(opt);
+          }
+        }
+      });
+
+      const matrixDims: VariantDimension[] = [];
+      if (flavorItems.length > 0) {
+        matrixDims.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorItems });
+      }
+      if (sizeItems.length > 0) {
+        matrixDims.push({ id: 'sizes', name: 'وزن / سایز (Size)', type: 'size', options: sizeItems });
+      }
+      if (matrixDims.length === 0 && genericItems.length > 0) {
+        matrixDims.push({ id: 'variants', name: 'انتخاب نوع کالا', type: 'generic', options: genericItems });
+      }
+      if (matrixDims.length > 0) return matrixDims;
+    }
+
+    if (Array.isArray(activeProd.variantGroups) && activeProd.variantGroups.length > 0) {
+      return activeProd.variantGroups.map((vg: any) => ({
         id: vg.id || 'group',
         name: vg.name || 'انتخاب گزینه',
         type: vg.type || 'generic',
@@ -182,55 +246,57 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
           id: opt.id || `opt-${idx}`,
           name: opt.name || String(opt),
           nameFa: opt.nameFa,
-          priceAed: opt.priceAed !== undefined ? Number(opt.priceAed) : product.priceAed,
+          priceAed: opt.priceAed !== undefined ? Number(opt.priceAed) : (activeProd?.priceAed || 0),
           image: opt.image,
-          inStock: opt.inStock !== false
+          inStock: opt.inStock !== false,
+          url: opt.url
         }))
       }));
     }
 
     const dims: VariantDimension[] = [];
-    if (Array.isArray(product.flavors) && product.flavors.length > 0) {
+    if (Array.isArray(activeProd.flavors) && activeProd.flavors.length > 0) {
       dims.push({
         id: 'flavors',
         name: 'طعم (Flavor)',
         type: 'flavor',
-        options: product.flavors.map((f, idx) => ({
+        options: activeProd.flavors.map((f: string, idx: number) => ({
           id: `flv-${idx}`,
           name: f,
-          priceAed: product.priceAed,
+          priceAed: activeProd.priceAed || 0,
           inStock: true
         }))
       });
     }
-    if (Array.isArray(product.sizes) && product.sizes.length > 0) {
+    if (Array.isArray(activeProd.sizes) && activeProd.sizes.length > 0) {
       dims.push({
         id: 'sizes',
         name: 'وزن / سایز (Size)',
         type: 'size',
-        options: product.sizes.map((s, idx) => ({
+        options: activeProd.sizes.map((s: string, idx: number) => ({
           id: `sz-${idx}`,
           name: s,
-          priceAed: product.priceAed,
+          priceAed: activeProd.priceAed || 0,
           inStock: true
         }))
       });
     }
-    if (dims.length === 0 && Array.isArray(product.variants) && product.variants.length > 0) {
+    if (dims.length === 0 && Array.isArray(activeProd.variants) && activeProd.variants.length > 0) {
       const flavorItems: VariantOption[] = [];
       const sizeItems: VariantOption[] = [];
       const genericItems: VariantOption[] = [];
 
-      product.variants.forEach((v: any, idx: number) => {
+      activeProd.variants.forEach((v: any, idx: number) => {
         const vName = typeof v === 'string' ? v : (v.name || '');
         if (!vName) return;
-        const vPrice = v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : product.priceAed);
+        const vPrice = v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : (activeProd?.priceAed || 0));
         const vOpt: VariantOption = {
           id: v.id || `var-${idx}`,
           name: vName,
           priceAed: vPrice,
           image: v.imageThumbnail || v.image,
-          inStock: v.inStock !== false
+          inStock: v.inStock !== false,
+          url: v.url
         };
 
         const lower = vName.toLowerCase();
@@ -254,24 +320,24 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       }
     }
 
-    if (dims.length === 0 && Array.isArray(product.options) && product.options.length > 0) {
-      const validOpts = product.options.filter(o => o && !['default', 'standard', 'پیش‌فرض'].includes(o.toLowerCase()));
+    if (dims.length === 0 && Array.isArray(activeProd.options) && activeProd.options.length > 0) {
+      const validOpts = activeProd.options.filter((o: string) => o && !['default', 'standard', 'پیش‌فرض'].includes(o.toLowerCase()));
       if (validOpts.length > 0) {
         dims.push({
           id: 'options',
           name: 'گزینه‌های کالا',
           type: 'generic',
-          options: validOpts.map((o, idx) => ({
+          options: validOpts.map((o: string, idx: number) => ({
             id: `opt-${idx}`,
             name: o,
-            priceAed: product.priceAed,
+            priceAed: activeProd?.priceAed || 0,
             inStock: true
           }))
         });
       }
     }
     return dims;
-  }, [product]);
+  }, [activeProd]);
 
   // Initialize selected variants
   useEffect(() => {
@@ -291,14 +357,14 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   // Dynamically calculate effective Price AED based on selected variant
   const selectedVariantPriceAed = React.useMemo(() => {
-    let p = product.priceAed || 280;
+    let p = product?.priceAed || 280;
     Object.values(selectedVariants).forEach((v: VariantOption) => {
       if (v?.priceAed && v.priceAed > 0) {
         p = v.priceAed;
       }
     });
     return p;
-  }, [product.priceAed, selectedVariants]);
+  }, [product?.priceAed, selectedVariants]);
 
   // Recipient Form States
   const [customerName, setCustomerName] = useState<string>(currentUser?.name || '');
@@ -322,37 +388,50 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     }
   }, [currentUser]);
 
-  const hasCart = Array.isArray(cartItems) && cartItems.length > 0;
+  const safeCartItems = Array.isArray(cartItems) ? cartItems.filter(Boolean) : [];
+  const hasCart = safeCartItems.length > 0;
 
-  // Single Product Calculations
-  const priceAed = selectedVariantPriceAed || product.priceAed || 280;
-  const originalPriceAed = product.originalPriceAed;
-  const weightKg = product.weightKg || 0.5;
+  // Single Product Calculations with full null safety guards
+  const priceAed = selectedVariantPriceAed || product?.priceAed || 280;
+  const originalPriceAed = product?.originalPriceAed;
+  const weightKg = product?.weightKg || 0.5;
 
-  const activeAedRate = getEffectiveAedRate(settings, cms);
+  const activeAedRate = getEffectiveAedRate(settings, cms) || settings?.aedRate || 55000;
+  const effectiveMargin = (product as any)?.profitMargin !== undefined && (product as any)?.profitMargin !== null
+    ? Number((product as any).profitMargin)
+    : ((product as any)?.marginPercent !== undefined && (product as any)?.marginPercent !== null
+      ? Number((product as any).marginPercent)
+      : (settings?.profitMargin || 20));
 
-  const singleToman = product.calculatedTomanOverride
-    ? product.calculatedTomanOverride
-    : calculateFinalToman(
+  let singleToman = 0;
+  if (product) {
+    if ((product as any)?.priceToman && (product as any).priceToman > 0 && (!selectedVariantPriceAed || selectedVariantPriceAed === product?.priceAed)) {
+      singleToman = (product as any).priceToman;
+    } else if (product?.calculatedTomanOverride && product.calculatedTomanOverride > 0 && (!selectedVariantPriceAed || selectedVariantPriceAed === product?.priceAed)) {
+      singleToman = product.calculatedTomanOverride;
+    } else {
+      singleToman = calculateFinalToman(
         priceAed,
         weightKg,
-        settings.cargoRatePerKg,
-        settings.profitMargin,
+        settings?.cargoRatePerKg || 35,
+        effectiveMargin,
         activeAedRate
       );
+    }
+  }
 
   // Aggregate Cart Calculations
   const cartTotalAed = hasCart
-    ? cartItems.reduce((sum, item) => sum + item.priceAed * item.quantity, 0)
-    : priceAed * qty;
+    ? safeCartItems.reduce((sum, item) => sum + (item?.priceAed || 0) * (item?.quantity || 1), 0)
+    : (product ? priceAed * qty : 0);
 
   const cartTotalWeightKg = hasCart
-    ? Math.round(cartItems.reduce((sum, item) => sum + item.weightKg * item.quantity, 0) * 100) / 100
-    : Math.round(weightKg * qty * 100) / 100;
+    ? Math.round(safeCartItems.reduce((sum, item) => sum + (item?.weightKg || 0.5) * (item?.quantity || 1), 0) * 100) / 100
+    : Math.round((weightKg || 0.5) * qty * 100) / 100;
 
   const totalItemCount = hasCart
-    ? cartItems.reduce((sum, item) => sum + item.quantity, 0)
-    : qty;
+    ? safeCartItems.reduce((sum, item) => sum + (item?.quantity || 1), 0)
+    : (product ? qty : 0);
 
   // Dynamic Bulk Order Pricing Engine
   const pricingResult = calculateOrderPricing(
@@ -361,16 +440,73 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     activeAedRate,
     cms?.pricingRules,
     cartTotalWeightKg,
-    settings.cargoRatePerKg
+    settings?.cargoRatePerKg || 35
   );
 
-  const cartTotalToman = (!hasCart && product.calculatedTomanOverride)
-    ? product.calculatedTomanOverride * qty
-    : pricingResult.finalTotalToman;
+  const getItemUnitToman = (item: CartItem): number => {
+    if (!item) return 0;
+    if (item.calculatedTomanOverride && item.calculatedTomanOverride > 0) {
+      return Math.round(item.calculatedTomanOverride);
+    }
+    if (item.priceToman && item.priceToman > 0) {
+      return Math.round(item.priceToman);
+    }
+    if (item.calculatedToman && item.calculatedToman > 0) {
+      return Math.round(item.calculatedToman);
+    }
+    const itemMargin = (item as any)?.profitMargin !== undefined && (item as any)?.profitMargin !== null
+      ? Number((item as any).profitMargin)
+      : ((item as any)?.marginPercent !== undefined && (item as any)?.marginPercent !== null
+        ? Number((item as any).marginPercent)
+        : (settings?.profitMargin || 20));
+    return calculateFinalToman(
+      item.priceAed || 0,
+      item.weightKg || 0.5,
+      settings?.cargoRatePerKg || 35,
+      itemMargin,
+      activeAedRate
+    );
+  };
+
+  const hasLocalOnly = hasCart && safeCartItems.every(i => i?.isLocalInventory || i?.calculatedTomanOverride || i?.priceToman);
+  const hasDubaiOnly = hasCart && safeCartItems.every(i => !i?.isLocalInventory && !i?.calculatedTomanOverride && !i?.priceToman);
+
+  let calculatedCartTotalToman = 0;
+  if (!hasCart) {
+    calculatedCartTotalToman = product ? (product.calculatedTomanOverride ? product.calculatedTomanOverride : singleToman) * qty : 0;
+  } else if (hasLocalOnly) {
+    calculatedCartTotalToman = safeCartItems.reduce((sum, item) => sum + (getItemUnitToman(item) * (item?.quantity || 1)), 0);
+  } else if (hasDubaiOnly) {
+    if (safeCartItems.length === 1) {
+      calculatedCartTotalToman = getItemUnitToman(safeCartItems[0]) * (safeCartItems[0]?.quantity || 1);
+    } else {
+      calculatedCartTotalToman = pricingResult.finalTotalToman;
+    }
+  } else {
+    const localSum = safeCartItems
+      .filter(i => i?.isLocalInventory || i?.calculatedTomanOverride || i?.priceToman)
+      .reduce((sum, item) => sum + (getItemUnitToman(item) * (item?.quantity || 1)), 0);
+    const dubaiItems = safeCartItems.filter(i => !i?.isLocalInventory && !i?.calculatedTomanOverride && !i?.priceToman);
+    const dubaiAed = dubaiItems.reduce((sum, i) => sum + (i?.priceAed || 0) * (i?.quantity || 1), 0);
+    const dubaiCount = dubaiItems.reduce((sum, i) => sum + (i?.quantity || 1), 0);
+    const dubaiWeight = dubaiItems.reduce((sum, i) => sum + (i?.weightKg || 0.5) * (i?.quantity || 1), 0);
+    const dubaiPricing = calculateOrderPricing(dubaiAed, dubaiCount, activeAedRate, cms?.pricingRules, dubaiWeight, settings?.cargoRatePerKg || 35);
+    calculatedCartTotalToman = localSum + dubaiPricing.finalTotalToman;
+  }
+
+  const cartTotalToman = calculatedCartTotalToman;
+
+  // Dynamic Minimum Order Amount in Toman
+  const minOrderAmountToman = Math.max(
+    0,
+    Number(cms?.pricingRules?.minOrderAmountToman || settings?.minOrderAmountToman || (settings as any)?.minOrderToman || 0)
+  );
+  const minOrderLimitEnabled = Boolean(cms?.pricingRules?.minOrderLimitEnabled ?? settings?.minOrderLimitEnabled ?? false);
 
   // Effective Total with Discount Code Applied
   const discountAmountToman = (appliedDiscount && appliedDiscount.isValid) ? appliedDiscount.discountAmountToman : 0;
   const effectiveTotalToman = Math.max(0, cartTotalToman - discountAmountToman);
+  const isBelowMinOrder = minOrderLimitEnabled && minOrderAmountToman > 0 && effectiveTotalToman < minOrderAmountToman;
 
   const baseGoodsToman = Math.round(cartTotalAed * activeAedRate);
   const cargoShippingToman = Math.round(pricingResult.shippingCostAed * activeAedRate);
@@ -381,21 +517,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const baselineToman = Math.round(baselineAed * activeAedRate);
   const savingsToman = Math.max(0, baselineToman - cartTotalToman);
 
-  const getItemUnitToman = (item: CartItem) => {
-    if (cartTotalAed > 0 && item.priceAed > 0) {
-      const share = (item.priceAed * item.quantity) / cartTotalAed;
-      return Math.round((cartTotalToman * share) / item.quantity);
-    }
-    if (item.calculatedToman) return item.calculatedToman;
-    return calculateFinalToman(item.priceAed, item.weightKg, settings.cargoRatePerKg, settings.profitMargin, activeAedRate);
-  };
-
   const handleApplyPromoCode = async () => {
     if (!promoInput.trim()) return;
     setIsApplyingPromo(true);
     setPromoMessage(null);
     try {
-      const itemsList = hasCart ? cartItems : undefined;
+      const itemsList = hasCart ? safeCartItems : undefined;
       const singleProd = !hasCart ? product : undefined;
       const res = await validateDiscountCode(promoInput, cartTotalToman, undefined, itemsList, singleProd);
       if (res.isValid) {
@@ -421,12 +548,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const handleSubmitOrder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    const dynamicMinOrderToman = settings.minOrderAmountToman && Number(settings.minOrderAmountToman) > 0
-      ? Number(settings.minOrderAmountToman)
-      : (settings.minOrderAed && Number(settings.minOrderAed) > 0 ? Number(settings.minOrderAed) * activeAedRate : 0);
-
-    if (dynamicMinOrderToman > 0 && effectiveTotalToman < dynamicMinOrderToman) {
-      setErrorMessage(`حداقل مبلغ سفارش برای ارسال، ${formatToman(dynamicMinOrderToman)} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
+    if (isBelowMinOrder) {
+      setErrorMessage(`حداقل مبلغ سفارش برای ارسال و ثبت نهایی، ${toPersianDigits(formatToman(minOrderAmountToman))} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
       return;
     }
 
@@ -448,12 +571,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
     try {
       const orderProductTitle = hasCart
-        ? cartItems.map((i) => `${toPersianDigits(i.quantity)} × ${i.title}`).join(' | ')
-        : `${toPersianDigits(qty)} × ${product.title}`;
+        ? safeCartItems.map((i) => `${toPersianDigits(i.quantity || 1)} × ${i.title || ''}`).join(' | ')
+        : (product ? `${toPersianDigits(qty)} × ${product.title || ''}` : '');
 
-      const orderProductUrl = hasCart ? cartItems[0]?.url || product.url : product.url;
-      const orderProductImage = hasCart ? cartItems[0]?.image || product.image : product.image;
-      const orderStoreName = hasCart ? cartItems[0]?.storeName || product.storeName : product.storeName;
+      const orderProductUrl = hasCart ? safeCartItems[0]?.url || product?.url : product?.url;
+      const orderProductImage = hasCart ? safeCartItems[0]?.image || product?.image : product?.image;
+      const orderStoreName = hasCart ? safeCartItems[0]?.storeName || product?.storeName : product?.storeName;
 
       const activeVariantSummary = Object.entries(selectedVariants)
         .map(([_, v]) => {
@@ -464,8 +587,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         .join(' - ');
 
       const orderSelectedOption = hasCart
-        ? cartItems.map((i) => i.selectedOption ? `${i.title} (${i.selectedOption})` : null).filter(Boolean).join(' | ')
-        : (activeVariantSummary || product.selectedOption);
+        ? safeCartItems.map((i) => i.selectedOption ? `${i.title} (${i.selectedOption})` : null).filter(Boolean).join(' | ')
+        : (activeVariantSummary || product?.selectedOption);
 
       const res = await fetch('/api/orders', {
         method: 'POST',
@@ -510,7 +633,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   };
 
   const handleAddSingleProductToCart = () => {
-    if (!onAddToCart) return;
+    if (!product || !onAddToCart) return;
 
     const selectedFlavorOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('flavor') || dimId === 'flavors')?.[1] as VariantOption | undefined;
     const selectedSizeOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('size') || dimId === 'sizes')?.[1] as VariantOption | undefined;
@@ -527,8 +650,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       .join(' - ');
 
     const payload = {
-      id: product.url || product.title,
-      title: product.title,
+      id: product.url || product.title || `prod-${Date.now()}`,
+      title: product.title || '',
       url: product.url || 'https://www.drnutrition.com',
       priceAed: priceAed,
       originalPriceAed: originalPriceAed,
@@ -559,8 +682,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   };
 
   // Clean description and extract structured benefits
-  const cleanDescription = cleanHtmlAndMarkdown(product.description || product.descriptionFa || '');
-  const titleLower = (product.title || '').toLowerCase();
+  const cleanDescription = cleanHtmlAndMarkdown(product?.description || product?.descriptionFa || '');
+  const titleLower = (product?.title || '').toLowerCase();
 
   // Dynamic Structure 1: Composition & Formulation (ترکیبات و ساختار)
   const getCompositionBullets = () => {
@@ -678,25 +801,33 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     ];
   };
 
-  // EMPTY CART VIEW (Only when no cart items AND no product was provided)
-  if ((!cartItems || cartItems.length === 0) && (!product || !product.title)) {
+  // ------------------------------------------------------------------
+  // 1. CLEAN EMPTY CART STATE
+  // ------------------------------------------------------------------
+  if ((!safeCartItems || safeCartItems.length === 0) && (!product || !product.title || (product as any).isCartOnly)) {
     return (
-      <div id="detail" className="space-y-4 font-['Vazirmatn',sans-serif] max-w-lg mx-auto pb-20 animate-fade-in text-center">
-        <div className="bg-white border border-slate-200/90 rounded-[24px] p-8 shadow-2xs space-y-4 my-6">
-          <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
-            <ShoppingCart className="w-8 h-8" />
+      <div id="detail" className="space-y-4 font-['Vazirmatn',sans-serif] max-w-lg mx-auto pb-20 animate-fade-in text-center dir-rtl">
+        <div className="bg-white border border-slate-200/90 rounded-[28px] p-8 shadow-2xs space-y-4 my-6">
+          <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400 shadow-inner">
+            <ShoppingCart className="w-10 h-10 text-slate-400" />
           </div>
-          <h2 className="text-lg font-black text-slate-900">سبد خرید شما خالی است</h2>
-          <p className="text-xs text-slate-500 font-medium leading-relaxed max-w-xs mx-auto">
-            می‌توانید لینک کالا از فروشگاه‌های دبی را استخراج کنید یا از بخش پیشنهادهای ویژه محصول مورد نظر را به سبد اضافه نمایید.
-          </p>
-          <button
-            onClick={onBackToMain}
-            className="w-full bg-[#111111] hover:bg-black text-white font-extrabold text-xs py-3.5 px-5 rounded-[14px] transition cursor-pointer border-none shadow-xs flex items-center justify-center gap-2"
-          >
-            <ArrowRight className="w-4 h-4" />
-            <span>بازگشت به صفحه اصلی و برآورد قیمت</span>
-          </button>
+          <div className="space-y-1">
+            <h2 className="text-base sm:text-lg font-black text-slate-900">
+              سبد خرید شما در حال حاضر خالی است
+            </h2>
+            <p className="text-xs text-slate-500 font-medium leading-relaxed max-w-xs mx-auto">
+              محصولات مورد نظر خود را از صفحه اصلی یا انبار ایران انتخاب کرده و به سبد خرید اضافه کنید.
+            </p>
+          </div>
+          <div className="pt-2">
+            <button
+              onClick={onBackToMain}
+              className="w-full bg-[#111111] hover:bg-black text-white font-extrabold text-xs py-3.5 px-5 rounded-[16px] transition cursor-pointer border-none shadow-sm flex items-center justify-center gap-2"
+            >
+              <span>مشاهده محصولات و شروع خرید</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -740,7 +871,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
                 return (
                   <div
-                    key={item.id}
+                    key={item.cartItemId || item.id}
                     className="bg-white border border-slate-200/90 rounded-[20px] p-4 shadow-2xs space-y-3 relative transition hover:border-slate-300"
                   >
                     <div className="flex items-start gap-3">
@@ -756,7 +887,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                           </span>
                           {/* TRASH / DELETE BUTTON */}
                           <button
-                            onClick={() => onRemoveCartItem && onRemoveCartItem(item.id)}
+                            onClick={() => onRemoveCartItem && onRemoveCartItem(item.cartItemId || item.id)}
                             className="text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 p-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 shrink-0"
                             title="حذف از سبد خرید"
                           >
@@ -832,7 +963,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 <div className="inline-flex items-center gap-1.5 bg-slate-900 text-white text-[11px] font-black px-3 py-1 rounded-full shadow-2xs">
                   <span>🇦🇪</span>
                   <span>مبدا سفارش:</span>
-                  <span className="text-amber-400 font-extrabold">{product.storeName || 'انبار دبی'}</span>
+                  <span className="text-amber-400 font-extrabold">{product?.storeName || 'انبار دبی'}</span>
                 </div>
 
                 <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
@@ -857,7 +988,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   {activeImage ? (
                     <img
                       src={activeImage}
-                      alt={product.title}
+                      alt={product?.title || ''}
                       referrerPolicy="no-referrer"
                       style={{
                         transformOrigin: `${zoomPos.x}% ${zoomPos.y}%`,
@@ -950,7 +1081,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                       -{toPersianDigits(Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100))}٪ تخفیف ویژه
                     </span>
                   )}
-                  {product.brand && (
+                  {product?.brand && (
                     <span className="bg-slate-100 text-slate-800 text-xs font-black px-3 py-1 rounded-full border border-slate-200">
                       برند: {product.brand}
                     </span>
@@ -961,7 +1092,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 </div>
 
                 <h1 className="font-black text-base sm:text-lg text-slate-900 leading-snug px-2">
-                  {product.title}
+                  {product?.title || ''}
                 </h1>
               </div>
 
@@ -993,8 +1124,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                               <button
                                 key={opt.id}
                                 type="button"
-                                disabled={!isAvailable}
-                                onClick={() => {
+                                disabled={!isAvailable || isVariantLoading}
+                                onClick={async () => {
                                   if (!isAvailable) return;
                                   setSelectedVariants(prev => ({
                                     ...prev,
@@ -1003,10 +1134,53 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                   if (opt.image) {
                                     setActiveImage(opt.image);
                                   }
+
+                                  // If the variant has a distinct URL for on-demand lazy loading:
+                                  if (opt.url && opt.url !== activeProd?.url && opt.url.startsWith('http')) {
+                                    try {
+                                      setIsVariantLoading(true);
+                                      const res = await fetch('/api/parse-link', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ url: opt.url })
+                                      });
+                                      if (res.ok) {
+                                        const data = await res.json();
+                                        const parsed = data.product || data;
+                                        if (parsed && (parsed.priceAed || parsed.priceAED)) {
+                                          const newPrice = parsed.priceAed || parsed.priceAED;
+                                          const newOrig = parsed.originalPriceAed || parsed.originalPriceAED;
+                                          const newImg = parsed.image || (parsed.images && parsed.images[0]) || (parsed.galleryImages && parsed.galleryImages[0]);
+                                          
+                                          setLocalProduct((prev: any) => ({
+                                            ...(prev || activeProd),
+                                            ...parsed,
+                                            url: opt.url,
+                                            priceAed: newPrice,
+                                            originalPriceAed: newOrig || prev?.originalPriceAed,
+                                            image: newImg || prev?.image,
+                                            images: parsed.images || parsed.galleryImages || prev?.images,
+                                            galleryImages: parsed.galleryImages || prev?.galleryImages,
+                                            variantMatrix: parsed.variantMatrix || prev?.variantMatrix
+                                          }));
+
+                                          if (newImg) {
+                                            setActiveImage(newImg);
+                                          }
+                                        }
+                                      }
+                                    } catch (err) {
+                                      console.warn('Could not lazy load variant in detail view:', err);
+                                    } finally {
+                                      setIsVariantLoading(false);
+                                    }
+                                  }
                                 }}
                                 className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all flex items-center gap-1.5 ${
                                   !isAvailable
                                     ? 'bg-slate-100/80 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50 line-through'
+                                    : isVariantLoading
+                                    ? 'opacity-60 cursor-wait bg-slate-50 text-slate-500 border border-slate-200'
                                     : isSelected
                                     ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02] cursor-pointer'
                                     : 'bg-white text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100 cursor-pointer'
@@ -1019,7 +1193,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                     (ناموجود)
                                   </span>
                                 )}
-                                {isAvailable && opt.priceAed && opt.priceAed !== product.priceAed && (
+                                {isAvailable && opt.priceAed && opt.priceAed !== (activeProd?.priceAed || 0) && (
                                   <span className={`text-[10px] ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
                                     ({opt.priceAed} د.إ)
                                   </span>
@@ -1038,15 +1212,29 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div className="bg-[#F0FDF4] border border-emerald-100 rounded-[20px] p-3.5 text-center space-y-0.5">
                   <span className="text-[11px] text-slate-500 font-semibold block">تحویل ایران</span>
-                  <span className="font-black text-emerald-600 text-base md:text-lg block">
-                    {formatToman(singleToman)}
+                  <span className="font-black text-emerald-600 text-base md:text-lg block flex items-center justify-center gap-1.5">
+                    {isVariantLoading ? (
+                      <span className="flex items-center gap-1 text-slate-400 text-xs animate-pulse font-normal">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                        <span>محاسبه مجدد...</span>
+                      </span>
+                    ) : (
+                      formatToman(singleToman)
+                    )}
                   </span>
                 </div>
 
                 <div className="bg-[#F8FAFC] border border-slate-200 rounded-[20px] p-3.5 text-center space-y-0.5">
                   <span className="text-[11px] text-slate-500 font-semibold block">قیمت درهم (دبی)</span>
-                  <span className="font-black text-slate-900 text-base md:text-lg block dir-ltr">
-                    {formatAed(priceAed)}
+                  <span className="font-black text-slate-900 text-base md:text-lg block dir-ltr flex items-center justify-center gap-1.5">
+                    {isVariantLoading ? (
+                      <span className="flex items-center gap-1 text-slate-400 text-xs animate-pulse font-normal">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />
+                        <span>استعلام...</span>
+                      </span>
+                    ) : (
+                      formatAed(priceAed)
+                    )}
                   </span>
                 </div>
               </div>
@@ -1142,26 +1330,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   </div>
                 </div>
 
-                {/* Block 3: تضمین اصالت و سلامت (Trust & Authenticity Badges) */}
-                <div className="bg-emerald-50/60 border border-emerald-200/90 rounded-2xl p-4 space-y-2.5 text-right">
-                  <div className="flex items-center gap-2 text-emerald-900 font-black text-xs sm:text-sm border-b border-emerald-100 pb-1.5">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                    <span>تضمین اصالت و سلامت فیزیکی کالا</span>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-start gap-2 text-xs text-emerald-950 font-bold">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
-                      <span className="leading-relaxed">۱۰۰٪ اورجینال و واردات مستقیم از نمایندگی‌های معتبر دبی</span>
-                    </div>
-                    <div className="flex items-start gap-2 text-xs text-emerald-950 font-bold">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
-                      <span className="leading-relaxed">تضمین سلامت فیزیکی، بسته‌بندی پلمپ شرکتی و کنترل بارکد اصالت</span>
-                    </div>
-                    <div className="flex items-start gap-2 text-xs text-emerald-950 font-bold">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
-                      <span className="leading-relaxed">دارای تاریخ انقضای معتبر و نگهداری در شرایط دمایی استاندارد</span>
-                    </div>
-                  </div>
+                {/* 1-Line Authenticity & Direct Import Verification Badge */}
+                <div className="bg-emerald-50 border border-emerald-200/90 rounded-xl py-2.5 px-3.5 flex items-center justify-center gap-2 text-emerald-800 text-xs sm:text-sm font-bold shadow-2xs">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>✓ تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال</span>
                 </div>
 
                 {/* Detailed Clean Description if available */}
@@ -1176,7 +1348,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               </div>
 
               {/* EMBEDDED PRODUCT VIDEOS (ویدیوهای معرفی کالا) */}
-              {Array.isArray(product.videos) && product.videos.length > 0 && (
+              {product && Array.isArray(product.videos) && product.videos.length > 0 && (
                 <div className="space-y-2 text-right pt-2 border-t border-slate-100">
                   <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
                     <Video className="w-4 h-4 text-indigo-600" />
@@ -1198,7 +1370,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                             src={vidUrl}
                             controls
                             className="w-full aspect-video bg-black"
-                            poster={product.image}
+                            poster={product?.image}
                           />
                         )}
                       </div>
@@ -1426,42 +1598,31 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             </div>
 
             {/* Minimum Order Warning & Direct Payment Action Button */}
-            {(() => {
-              const dynamicMinOrderToman = settings.minOrderAmountToman && Number(settings.minOrderAmountToman) > 0
-                ? Number(settings.minOrderAmountToman)
-                : (settings.minOrderAed && Number(settings.minOrderAed) > 0 ? Number(settings.minOrderAed) * activeAedRate : 0);
-              const isBelowMin = dynamicMinOrderToman > 0 && effectiveTotalToman < dynamicMinOrderToman;
+            {isBelowMinOrder && (
+              <div className="p-3.5 bg-amber-50 border border-amber-200/90 rounded-[16px] text-amber-900 text-xs font-bold flex items-center gap-2 text-right dir-rtl">
+                <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+                <span>
+                  حداقل مبلغ سفارش برای ثبت نهایی، {toPersianDigits(formatToman(minOrderAmountToman))} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
+                </span>
+              </div>
+            )}
 
-              return (
-                <>
-                  {isBelowMin && (
-                    <div className="p-3.5 bg-amber-50 border border-amber-200/90 rounded-[16px] text-amber-900 text-xs font-bold flex items-center gap-2 text-right dir-rtl">
-                      <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0" />
-                      <span>
-                        حداقل مبلغ سفارش برای ارسال، {formatToman(dynamicMinOrderToman)} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={() => handleSubmitOrder()}
-                      disabled={isSubmitting || isBelowMin}
-                      className={`w-full font-black text-xs md:text-sm py-3.5 rounded-[16px] transition shadow-md border-none text-center flex items-center justify-center gap-2 ${
-                        isBelowMin
-                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                          : 'bg-[#111111] hover:bg-black text-white cursor-pointer'
-                      }`}
-                    >
-                      <span>
-                        {isSubmitting ? 'در حال اتصال به درگاه...' : 'تأیید و پرداخت نهایی ←'}
-                      </span>
-                    </button>
-                  </div>
-                </>
-              );
-            })()}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => handleSubmitOrder()}
+                disabled={isSubmitting || isBelowMinOrder}
+                className={`w-full font-black text-xs md:text-sm py-3.5 rounded-[16px] transition shadow-md border-none text-center flex items-center justify-center gap-2 ${
+                  isBelowMinOrder
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                    : 'bg-[#111111] hover:bg-black text-white cursor-pointer'
+                }`}
+              >
+                <span>
+                  {isSubmitting ? 'در حال اتصال به درگاه...' : 'تأیید و پرداخت نهایی ←'}
+                </span>
+              </button>
+            </div>
           </div>
 
         </div>
@@ -1492,7 +1653,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             <span className="text-xs text-slate-600 font-medium block dir-rtl leading-relaxed">
               {hasCart
                 ? cartItems.map((i) => `${toPersianDigits(i.quantity)} × ${i.title}`).join(' | ')
-                : `${toPersianDigits(qty)} × ${product.title}`}
+                : `${toPersianDigits(qty)} × ${product?.title || ''}`}
             </span>
           </div>
 
@@ -1586,7 +1747,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
           <div className="flex items-center justify-between z-10" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2">
               <span className="bg-white/15 text-white text-xs font-black px-3 py-1.5 rounded-full border border-white/20">
-                {product.brand || product.storeName || 'فروشگاه دبی'}
+                {product?.brand || product?.storeName || 'فروشگاه دبی'}
               </span>
               {galleryList.length > 1 && (
                 <span className="text-white/80 text-xs font-extrabold bg-black/40 px-2.5 py-1 rounded-full border border-white/10">
@@ -1617,7 +1778,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             {galleryList[lightboxIndex] && (
               <img
                 src={galleryList[lightboxIndex]}
-                alt={product.title}
+                alt={product?.title || ''}
                 referrerPolicy="no-referrer"
                 className={`max-w-full max-h-[75vh] object-contain transition-transform duration-200 select-none ${
                   lightboxZoom ? 'scale-175 cursor-zoom-out' : 'scale-100'

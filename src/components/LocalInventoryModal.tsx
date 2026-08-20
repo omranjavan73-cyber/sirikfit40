@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PackageCheck, X, Search, Sparkles, CheckCircle2, Truck, AlertCircle } from 'lucide-react';
 import type { LocalInventoryItem, FinancialSettings } from '../types';
-import { formatToman } from '../utils/formatters';
+import { formatToman, formatPrice, getEffectiveAedRate } from '../utils/formatters';
 import { useSettings } from '../context/SettingsContext';
 import { ProductDetailModal } from './ProductDetailModal';
 
@@ -171,8 +171,11 @@ export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
                     <span className="text-[10px] font-black text-[#7C3AED] block mb-1">{item.category}</span>
                     <h4 className="font-extrabold text-sm text-slate-900 line-clamp-2 leading-relaxed mb-2">{item.title}</h4>
                   </div>
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 mt-2">
-                    <span className="text-base font-black text-[#7C3AED]">{formatToman(item.priceToman)}</span>
+                  <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 mt-2 w-full">
+                    <div className="flex items-baseline gap-1 text-red-600 font-extrabold text-xs sm:text-sm md:text-base whitespace-nowrap">
+                      <span>{formatPrice(item.priceToman)}</span>
+                      <span className="text-[10px] sm:text-[11px] font-bold">تومان</span>
+                    </div>
                     <button
                       type="button"
                       onClick={(e) => {
@@ -180,7 +183,7 @@ export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
                         setSelectedLocalForModal(item);
                       }}
                       disabled={!item.inStock}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center gap-1.5 cursor-pointer ${
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center gap-1.5 cursor-pointer ${
                         item.inStock
                           ? 'bg-slate-900 hover:bg-red-600 text-white shadow-sm hover:shadow-md active:scale-95'
                           : 'bg-slate-200 text-slate-400 cursor-not-allowed'
@@ -212,37 +215,46 @@ export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
       </div>
 
       {/* Embedded Product Details Modal */}
-      <ProductDetailModal
-        isOpen={!!selectedLocalForModal}
-        onClose={() => setSelectedLocalForModal(null)}
-        product={selectedLocalForModal ? {
-          title: `${selectedLocalForModal.title} (موجودی انبار ایران)`,
-          url: selectedLocalForModal.url || 'https://omex.ir/stock/' + selectedLocalForModal.id,
-          priceAed: Math.round(selectedLocalForModal.priceToman / defaultSettings.aedRate) || 100,
-          originalPriceAed: selectedLocalForModal.originalPriceToman ? Math.round(selectedLocalForModal.originalPriceToman / defaultSettings.aedRate) : 0,
-          weightKg: 0.5,
-          image: selectedLocalForModal.image,
-          storeName: 'انبار ایران (تحویل فوری)',
-          brand: 'انبار ایران',
-          category: selectedLocalForModal.category || 'موجودی ایران',
-          description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
-          badge: selectedLocalForModal.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته',
-          calculatedTomanOverride: selectedLocalForModal.priceToman,
-          isLocalInventory: true,
-          flavors: selectedLocalForModal.flavors || [],
-          sizes: selectedLocalForModal.sizes || []
-        } : null}
-        settings={defaultSettings}
-        onAddToCart={(productPayload, flavor, size) => {
-          if (onAddToCart) {
-            onAddToCart(productPayload, flavor, size);
-          } else if (selectedLocalForModal) {
-            handleOrder(selectedLocalForModal);
-          }
-          setSelectedLocalForModal(null);
-          onClose();
-        }}
-      />
+      {(() => {
+        if (!selectedLocalForModal) return null;
+        const effectiveRate = getEffectiveAedRate(settings) || currentRate || 55000;
+        return (
+          <ProductDetailModal
+            isOpen={!!selectedLocalForModal}
+            onClose={() => setSelectedLocalForModal(null)}
+            product={{
+              id: selectedLocalForModal.id,
+              title: `${selectedLocalForModal.title} (موجودی انبار ایران)`,
+              url: selectedLocalForModal.url || 'https://omex.ir/stock/' + selectedLocalForModal.id,
+              priceAed: selectedLocalForModal.priceAed || Math.round(selectedLocalForModal.priceToman / effectiveRate) || 100,
+              originalPriceAed: selectedLocalForModal.originalPriceToman ? Math.round(selectedLocalForModal.originalPriceToman / effectiveRate) : 0,
+              priceToman: selectedLocalForModal.priceToman,
+              originalPriceToman: selectedLocalForModal.originalPriceToman,
+              calculatedTomanOverride: selectedLocalForModal.priceToman,
+              isLocalInventory: true,
+              weightKg: selectedLocalForModal.weightKg || 0.5,
+              image: selectedLocalForModal.image,
+              storeName: 'انبار ایران (تحویل فوری)',
+              brand: 'انبار ایران',
+              category: selectedLocalForModal.category || 'موجودی ایران',
+              description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
+              badge: selectedLocalForModal.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته',
+              flavors: selectedLocalForModal.flavors || [],
+              sizes: selectedLocalForModal.sizes || []
+            }}
+            settings={settings || { cargoRatePerKg: 35, profitMargin: 20, aedRate: effectiveRate }}
+            onAddToCart={(productPayload, flavor, size) => {
+              if (onAddToCart) {
+                onAddToCart(productPayload, flavor, size);
+              } else if (selectedLocalForModal) {
+                handleOrder(selectedLocalForModal);
+              }
+              setSelectedLocalForModal(null);
+              onClose();
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };

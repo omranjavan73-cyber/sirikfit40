@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Search, X, Tag, Dumbbell, Pill, Flame, Zap, Sparkles } from 'lucide-react';
 import type { FeaturedDeal, FinancialSettings, WarehouseCategory } from '../types';
-import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
+import { formatToman, formatAed, formatPrice, formatAedValue, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 import { ProductDetailModal } from './ProductDetailModal';
 import { CategoryGridSection } from './CategoryGridSection';
+import { isCategoryMatch, DEFAULT_UNIFIED_CATEGORIES } from '../utils/categoryHelper';
 
 interface FeaturedDealsProps {
   deals?: FeaturedDeal[];
@@ -13,14 +14,7 @@ interface FeaturedDealsProps {
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
 }
 
-const DEFAULT_CATEGORY_TILES: WarehouseCategory[] = [
-  { id: 'all', label: 'همه پیشنهادها', filterKey: 'all', iconUrl: '' },
-  { id: 'protein', label: 'پروتئین', filterKey: 'protein', iconUrl: '' },
-  { id: 'vitamin', label: 'ویتامین', filterKey: 'vitamin', iconUrl: '' },
-  { id: 'pre', label: 'قبل تمرین', filterKey: 'pre', iconUrl: '' },
-  { id: 'omega', label: 'امگا ۳', filterKey: 'omega', iconUrl: '' },
-  { id: 'hot', label: 'پرفروش', filterKey: 'hot', iconUrl: '' },
-];
+const DEFAULT_CATEGORY_TILES: WarehouseCategory[] = DEFAULT_UNIFIED_CATEGORIES;
 
 const DEFAULT_DEALS: FeaturedDeal[] = [
   {
@@ -35,7 +29,9 @@ const DEFAULT_DEALS: FeaturedDeal[] = [
     storeName: 'Dr. Nutrition',
     isActive: true,
     section: 'featured',
-    isFeaturedInCalculator: true,
+    isFeaturedInCalculator: false,
+    isPopular: false,
+    isPopularSample: false,
     badge: '💪 وی ۵ پوندی ON',
     url: 'https://www.drnutrition.com'
   },
@@ -51,7 +47,9 @@ const DEFAULT_DEALS: FeaturedDeal[] = [
     storeName: 'Dr. Nutrition',
     isActive: true,
     section: 'discount',
-    isFeaturedInCalculator: true,
+    isFeaturedInCalculator: false,
+    isPopular: false,
+    isPopularSample: false,
     badge: '⚡ پمپ C4',
     url: 'https://www.drnutrition.com'
   },
@@ -67,7 +65,9 @@ const DEFAULT_DEALS: FeaturedDeal[] = [
     storeName: 'Life Pharmacy',
     isActive: true,
     section: 'bestseller',
-    isFeaturedInCalculator: true,
+    isFeaturedInCalculator: false,
+    isPopular: false,
+    isPopularSample: false,
     badge: '🐟 امگا ۳ GNC',
     url: 'https://www.lifepharmacy.com'
   },
@@ -83,7 +83,9 @@ const DEFAULT_DEALS: FeaturedDeal[] = [
     storeName: 'GNC UAE',
     isActive: true,
     section: 'featured',
-    isFeaturedInCalculator: true,
+    isFeaturedInCalculator: false,
+    isPopular: false,
+    isPopularSample: false,
     badge: '💊 مولتی GNC',
     url: 'https://gnc-mena.com'
   }
@@ -114,14 +116,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
     const store = (deal.storeName || '').toLowerCase();
 
     const matchesSearch = !q || title.includes(q) || cat.includes(q) || brand.includes(q) || store.includes(q);
-
-    let matchesCat = true;
-    if (selectedCat !== 'all' && selectedCat !== 'همه') {
-      const matchedTile = categoryList.find(c => c.id === selectedCat || (c.filterKey && c.filterKey === selectedCat));
-      const filterTerm = (matchedTile?.filterKey || matchedTile?.label || selectedCat).toLowerCase();
-
-      matchesCat = cat.includes(filterTerm) || filterTerm.includes(cat) || title.includes(filterTerm) || brand.includes(filterTerm);
-    }
+    const matchesCat = isCategoryMatch(deal, selectedCat, categoryList);
 
     return matchesSearch && matchesCat;
   });
@@ -173,6 +168,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
         isOpen={!!selectedDealForModal}
         onClose={() => setSelectedDealForModal(null)}
         product={selectedDealForModal ? {
+          id: selectedDealForModal.id,
           title: selectedDealForModal.title,
           url: selectedDealForModal.url,
           priceAed: selectedDealForModal.priceAed,
@@ -183,7 +179,28 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
           storeName: selectedDealForModal.storeName,
           brand: selectedDealForModal.brand,
           category: selectedDealForModal.category,
-          badge: selectedDealForModal.badge
+          badge: selectedDealForModal.badge,
+          profitMargin: selectedDealForModal.profitMargin ?? selectedDealForModal.marginPercent,
+          priceToman: (selectedDealForModal.priceToman && selectedDealForModal.priceToman > 0)
+            ? selectedDealForModal.priceToman
+            : calculateFinalToman(
+                selectedDealForModal.priceAed,
+                selectedDealForModal.weightKg || 0.5,
+                settings.cargoRatePerKg,
+                (selectedDealForModal.profitMargin !== undefined ? selectedDealForModal.profitMargin : (selectedDealForModal.marginPercent !== undefined ? selectedDealForModal.marginPercent : settings.profitMargin)),
+                getEffectiveAedRate(settings)
+              ),
+          calculatedTomanOverride: (selectedDealForModal.priceToman && selectedDealForModal.priceToman > 0)
+            ? selectedDealForModal.priceToman
+            : calculateFinalToman(
+                selectedDealForModal.priceAed,
+                selectedDealForModal.weightKg || 0.5,
+                settings.cargoRatePerKg,
+                (selectedDealForModal.profitMargin !== undefined ? selectedDealForModal.profitMargin : (selectedDealForModal.marginPercent !== undefined ? selectedDealForModal.marginPercent : settings.profitMargin)),
+                getEffectiveAedRate(settings)
+              ),
+          flavors: selectedDealForModal.flavors,
+          sizes: selectedDealForModal.sizes
         } : null}
         settings={settings}
         onAddToCart={(productPayload, flavor, size) => {
@@ -199,7 +216,10 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
               storeName: productPayload.storeName,
               url: productPayload.url || 'https://www.drnutrition.com',
               isActive: true,
-              category: selectedDealForModal?.category || 'محصول دبی'
+              category: selectedDealForModal?.category || 'محصول دبی',
+              profitMargin: selectedDealForModal?.profitMargin ?? selectedDealForModal?.marginPercent,
+              priceToman: productPayload.priceToman || selectedDealForModal?.priceToman,
+              originalPriceToman: selectedDealForModal?.originalPriceToman
             });
           }
           setSelectedDealForModal(null);
@@ -220,13 +240,15 @@ const ProductCard: React.FC<{
   const [isAdded, setIsAdded] = useState(false);
   const weight = deal.weightKg || 0.5;
 
-  const finalToman = calculateFinalToman(
-    deal.priceAed,
-    weight,
-    settings.cargoRatePerKg,
-    settings.profitMargin,
-    getEffectiveAedRate(settings)
-  );
+  const finalToman = (deal.priceToman && deal.priceToman > 0)
+    ? deal.priceToman
+    : calculateFinalToman(
+        deal.priceAed,
+        weight,
+        settings.cargoRatePerKg,
+        (deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : settings.profitMargin)),
+        getEffectiveAedRate(settings)
+      );
 
   const computedDiscount = (deal.originalPriceAed && deal.originalPriceAed > deal.priceAed)
     ? Math.round(((deal.originalPriceAed - deal.priceAed) / deal.originalPriceAed) * 100)
@@ -333,40 +355,35 @@ const ProductCard: React.FC<{
         </div>
       </div>
 
-      {/* Product Content Details */}
-      <div className="space-y-1 text-center">
-        {/* Category Tag */}
-        <span className={`text-[11px] font-extrabold block ${style.tagClass}`}>
-          {style.tagText}
+      {/* Product Title & Category */}
+      <div className="space-y-1.5 text-right flex-1 flex flex-col justify-between">
+        <span className={`text-[10px] font-extrabold block text-emerald-600`}>
+          {deal.category || 'خرید مستقیم از دبی'}
         </span>
 
-        {/* Product Title */}
-        <h4 className="font-extrabold text-xs md:text-sm text-slate-900 leading-tight line-clamp-2 h-9">
+        <h4 className="font-extrabold text-xs md:text-sm text-slate-900 leading-snug line-clamp-2 min-h-[32px]">
           {deal.title}
         </h4>
 
-        {/* Compact Prices Section */}
-        <div className="pt-1 space-y-1">
-          {/* Main Toman Price */}
-          <span className="text-xs md:text-sm font-black text-[#111111] block dir-rtl">
-            تحویل ایران: <span className="text-[#D31027] font-black">{formatToman(finalToman)}</span>
-          </span>
-
-          {/* Ultra-compact AED Base Price Pill */}
-          <div className="flex items-center justify-center gap-1">
-            <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-slate-200/80 dir-ltr shadow-2xs">
-              {deal.originalPriceAed && deal.originalPriceAed > deal.priceAed && (
-                <span className="line-through text-slate-400 text-[9px] mr-0.5">
-                  {deal.originalPriceAed}
-                </span>
-              )}
-              <span>{formatAed(deal.priceAed)}</span>
-            </span>
+        {/* Pricing Row - Single unbroken row */}
+        <div className="flex items-center justify-between w-full pt-2 pb-1 border-t border-gray-100">
+          {/* Right side: Toman Price in a single unbroken line */}
+          <div className="flex items-baseline gap-1 text-red-600 font-extrabold text-xs sm:text-sm md:text-base whitespace-nowrap">
+            <span>{formatPrice(finalToman)}</span>
+            <span className="text-[10px] sm:text-[11px] md:text-xs font-bold">تومان</span>
           </div>
+
+          {/* Left side: AED Original Price */}
+          {deal.priceAed ? (
+            <div className="text-gray-400 text-xs font-semibold whitespace-nowrap dir-ltr">
+              <span>{formatAedValue(deal.priceAed)}</span>
+              <span className="text-[10px] ml-0.5">AED</span>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {/* Full-width Action Button - Opens Product Details Modal */}
+      {/* Full-width Action Button - Opens Product Details Modal or adds to cart */}
       <button
         type="button"
         onClick={(e) => {
@@ -377,7 +394,7 @@ const ProductCard: React.FC<{
             onSelect(deal);
           }
         }}
-        className="w-full font-extrabold text-xs py-2.5 rounded-[14px] transition cursor-pointer text-center bg-[#111111] hover:bg-[#D31027] text-white border border-[#111111] hover:border-[#D31027] shadow-2xs"
+        className="w-full bg-slate-900 hover:bg-red-600 text-white text-xs font-bold py-2.5 rounded-xl transition-all duration-200 shadow-sm active:scale-95 mt-1 cursor-pointer flex items-center justify-center gap-1.5"
       >
         افزودن به سبد خرید
       </button>

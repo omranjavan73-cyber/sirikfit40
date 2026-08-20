@@ -1,3 +1,5 @@
+import { getSafeItem } from './safeStorage';
+
 // Helper utilities for Persian formatting and exchange rate resolution
 
 export function toPersianDigits(str: string | number): string {
@@ -18,25 +20,44 @@ export function normalizeToEnglishDigits(str: string | number): string {
   return res;
 }
 
-export function formatToman(amount: number | null | undefined): string {
-  if (amount === null || amount === undefined || isNaN(amount)) return '۰ تومان';
-  const formatted = Math.round(amount).toLocaleString('fa-IR');
+export function formatToman(amount: number | string | null | undefined): string {
+  if (amount === null || amount === undefined) return '۰ تومان';
+  const num = typeof amount === 'number' ? amount : parseFloat(String(amount));
+  if (isNaN(num)) return '۰ تومان';
+  const formatted = Math.round(num).toLocaleString('fa-IR');
   return `${formatted} تومان`;
 }
 
-export function formatAed(amount: number | null | undefined): string {
-  if (amount === null || amount === undefined || isNaN(amount) || amount === 0) return '0 AED';
-  const formatted = Number.isInteger(amount)
-    ? amount.toLocaleString('en-US')
-    : amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export function formatPrice(amount: number | string | null | undefined): string {
+  if (amount === null || amount === undefined) return '۰';
+  const num = typeof amount === 'number' ? amount : parseFloat(String(amount));
+  if (isNaN(num)) return '۰';
+  return Math.round(num).toLocaleString('fa-IR');
+}
+
+export function formatAed(amount: number | string | null | undefined): string {
+  if (amount === null || amount === undefined) return '0 AED';
+  const num = typeof amount === 'number' ? amount : parseFloat(String(amount));
+  if (isNaN(num) || num === 0) return '0 AED';
+  const formatted = Number.isInteger(num)
+    ? num.toLocaleString('en-US')
+    : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${formatted} AED`;
 }
 
-export function formatPersianDate(isoString: string | null | undefined): string {
-  if (!isoString) return '';
+export function formatAedValue(amount: number | string | null | undefined): string {
+  if (amount === null || amount === undefined) return '0';
+  const num = typeof amount === 'number' ? amount : parseFloat(String(amount));
+  if (isNaN(num) || num === 0) return '0';
+  return Number.isInteger(num)
+    ? num.toLocaleString('en-US')
+    : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export function formatPersianDate(dateInput: string | number | Date | null | undefined): string {
+  if (!dateInput) return '';
   try {
-    const date = new Date(isoString);
-    if (isNaN(date.getTime())) return String(isoString);
+    const date = typeof dateInput === 'number' || typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
     return new Intl.DateTimeFormat('fa-IR', {
       year: 'numeric',
       month: 'long',
@@ -45,27 +66,23 @@ export function formatPersianDate(isoString: string | null | undefined): string 
       minute: '2-digit'
     }).format(date);
   } catch {
-    return String(isoString || '');
+    return String(dateInput);
   }
 }
 
 export function calculateFinalToman(
-  priceAed: number | null | undefined,
-  weightKg: number | null | undefined,
-  cargoRatePerKg: number | null | undefined,
-  profitMarginPercent: number | null | undefined,
-  aedRate: number | null | undefined
+  priceAed: number,
+  weightKg: number,
+  cargoRatePerKg: number,
+  profitMarginPercent: number,
+  aedRate: number
 ): number {
-  const pAed = typeof priceAed === 'number' && !isNaN(priceAed) ? priceAed : 0;
-  const wKg = typeof weightKg === 'number' && !isNaN(weightKg) ? weightKg : 0.5;
-  const cRate = typeof cargoRatePerKg === 'number' && !isNaN(cargoRatePerKg) ? cargoRatePerKg : 35;
-  const margin = typeof profitMarginPercent === 'number' && !isNaN(profitMarginPercent) ? profitMarginPercent : 15;
-  const rate = typeof aedRate === 'number' && !isNaN(aedRate) ? aedRate : 0;
-
-  const cargoCostAed = wKg * cRate;
-  const subtotalAed = pAed + cargoCostAed;
-  const withProfitAed = subtotalAed * (1 + margin / 100);
-  return Math.round(withProfitAed * rate);
+  const cargoCostAed = weightKg * cargoRatePerKg;
+  const subtotalAed = priceAed + cargoCostAed;
+  const withProfitAed = subtotalAed * (1 + profitMarginPercent / 100);
+  const rawToman = withProfitAed * aedRate;
+  if (!rawToman || rawToman <= 0) return 0;
+  return Math.floor(rawToman / 1000) * 1000;
 }
 
 /**
@@ -101,24 +118,17 @@ export function getEffectiveAedRate(
   cms?: any
 ): number {
   // 1. Direct localStorage key
-  if (typeof window !== 'undefined') {
-    try {
-      const directLocal = localStorage.getItem('sirikfit_aed_rate');
-      if (directLocal) {
-        const num = parseFloat(directLocal);
-        if (!isNaN(num) && num > 0) return num;
-      }
+  const directLocal = getSafeItem<string>('sirikfit_aed_rate', '');
+  if (directLocal) {
+    const num = parseFloat(directLocal);
+    if (!isNaN(num) && num > 0) return num;
+  }
 
-      // 2. LocalStorage financial settings
-      const savedFinancials = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
-      if (savedFinancials) {
-        const parsed = JSON.parse(savedFinancials);
-        if (parsed) {
-          const exRate = parseFloat(parsed.exchangeRate || parsed.aedRate || parsed.manualAedRate);
-          if (!isNaN(exRate) && exRate > 0) return exRate;
-        }
-      }
-    } catch (_e) {}
+  // 2. LocalStorage financial settings
+  const savedFinancials = getSafeItem<any>('sirikfit_financial_settings', null) || getSafeItem<any>('omex_financial_settings', null);
+  if (savedFinancials && typeof savedFinancials === 'object') {
+    const exRate = parseFloat(savedFinancials.exchangeRate || savedFinancials.aedRate || savedFinancials.manualAedRate);
+    if (!isNaN(exRate) && exRate > 0) return exRate;
   }
 
   // 3. Current admin rate input from settings props

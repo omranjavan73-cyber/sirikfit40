@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { fetchSettingsFromFirestore, saveSettingsToFirestore } from '../firebase';
 import { safeFetchJson } from '../utils/apiHelper';
+import { getSafeItem, setSafeItem } from '../utils/safeStorage';
 
 export interface SiteSettings {
   // مالی
@@ -23,6 +24,8 @@ export interface SiteSettings {
   mobileBannerUrl?: string;
   desktopBannerUrl?: string;
   showTrustBadges?: boolean;
+  showEnamad?: boolean;
+  showSamandehi?: boolean;
   enamadHtml?: string;
   samandehiHtml?: string;
   customBadgeImg?: string;
@@ -44,12 +47,10 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [aedRate, setAedRateState] = useState<number | null>(() => {
-    if (typeof window !== 'undefined') {
-      const cached = localStorage.getItem('sirikfit_aed_rate');
-      if (cached) {
-        const num = parseFloat(cached);
-        if (!isNaN(num) && num > 0) return num;
-      }
+    const cached = getSafeItem<string>('sirikfit_aed_rate', '');
+    if (cached) {
+      const num = parseFloat(cached);
+      if (!isNaN(num) && num > 0) return num;
     }
     return null;
   });
@@ -61,39 +62,27 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     let minOrderToman = 0;
     let savedData: Partial<SiteSettings> = {};
 
-    if (typeof window !== 'undefined') {
-      const cachedDirect = localStorage.getItem('sirikfit_aed_rate');
-      if (cachedDirect) {
-        const num = parseFloat(cachedDirect);
-        if (!isNaN(num) && num > 0) initialRate = num;
-      }
+    const cachedDirect = getSafeItem<string>('sirikfit_aed_rate', '');
+    if (cachedDirect) {
+      const num = parseFloat(cachedDirect);
+      if (!isNaN(num) && num > 0) initialRate = num;
+    }
 
-      const savedFin = localStorage.getItem('sirikfit_financial_settings');
-      if (savedFin) {
-        try {
-          const parsed = JSON.parse(savedFin);
-          if (parsed && typeof parsed === 'object') {
-            savedData = parsed;
-            if (typeof parsed.cargoRatePerKg === 'number') cargo = parsed.cargoRatePerKg;
-            if (typeof parsed.profitMargin === 'number') margin = parsed.profitMargin;
-            if (typeof parsed.minOrderAmountToman === 'number') minOrderToman = parsed.minOrderAmountToman;
-            if (!initialRate) {
-              const r = Number(parsed.aedRate || parsed.manualAedRate || parsed.exchangeRate);
-              if (!isNaN(r) && r > 0) initialRate = r;
-            }
-          }
-        } catch (_e) {}
+    const savedFin = getSafeItem<any>('sirikfit_financial_settings', null);
+    if (savedFin && typeof savedFin === 'object') {
+      savedData = savedFin;
+      if (typeof savedFin.cargoRatePerKg === 'number') cargo = savedFin.cargoRatePerKg;
+      if (typeof savedFin.profitMargin === 'number') margin = savedFin.profitMargin;
+      if (typeof savedFin.minOrderAmountToman === 'number') minOrderToman = savedFin.minOrderAmountToman;
+      if (!initialRate) {
+        const r = Number(savedFin.aedRate || savedFin.manualAedRate || savedFin.exchangeRate);
+        if (!isNaN(r) && r > 0) initialRate = r;
       }
+    }
 
-      const savedApp = localStorage.getItem('sirikfit_app_settings');
-      if (savedApp) {
-        try {
-          const parsedApp = JSON.parse(savedApp);
-          if (parsedApp && typeof parsedApp.minOrderAmountToman === 'number') {
-            minOrderToman = parsedApp.minOrderAmountToman;
-          }
-        } catch (_e) {}
-      }
+    const savedApp = getSafeItem<any>('sirikfit_app_settings', null);
+    if (savedApp && typeof savedApp === 'object' && typeof savedApp.minOrderAmountToman === 'number') {
+      minOrderToman = savedApp.minOrderAmountToman;
     }
 
     return {
@@ -101,6 +90,9 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
       showPriceDetails: true,
       isStoreActive: true,
       showContactNumber: true,
+      showTrustBadges: true,
+      showEnamad: true,
+      showSamandehi: true,
       slogans: [],
       minOrderAmountToman: minOrderToman,
       ...savedData,
@@ -111,12 +103,10 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     };
   });
 
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const setAedRate = (rate: number) => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('sirikfit_aed_rate', String(rate));
-    }
+    setSafeItem('sirikfit_aed_rate', String(rate));
     setAedRateState(rate);
     setSettingsState(prev => ({
       ...prev,
@@ -128,71 +118,62 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const refreshSettings = async () => {
     setIsLoading(true);
-    // Safety net: guarantee spinner stops after 2000ms regardless of what happens
-    const safetyTimer = setTimeout(() => setIsLoading(false), 2000);
+    let fetchedRate: number | null = null;
+    let fetchedData: any = null;
 
+    // ۱. دریافت مستقیم از دیتابیس
     try {
-      let fetchedRate: number | null = null;
-      let fetchedData: any = null;
+      fetchedData = await fetchSettingsFromFirestore();
+      if (fetchedData) {
+        const r = Number(fetchedData.aedRate || fetchedData.manualAedRate || fetchedData.exchangeRate);
+        if (!isNaN(r) && r > 0) {
+          fetchedRate = r;
+        }
+      }
+    } catch (_e) {}
 
-      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 2000));
-
-      // ۱. دریافت مستقیم از دیتابیس با سقف زمانی ۲.۵ ثانیه
+    // ۲. دریافت از REST API در صورت عدم پاسخ دیتابیس
+    if (!fetchedData) {
       try {
-        fetchedData = await Promise.race([fetchSettingsFromFirestore(), timeoutPromise]);
-        if (fetchedData) {
-          const r = Number(fetchedData.aedRate || fetchedData.manualAedRate || fetchedData.exchangeRate);
-          if (!isNaN(r) && r > 0) {
-            fetchedRate = r;
-          }
+        const apiRes = await safeFetchJson('/api/settings');
+        const resData = apiRes?.data || apiRes;
+        if (resData) {
+          fetchedData = resData;
+          const r = Number(resData.aedRate || resData.manualAedRate);
+          if (!isNaN(r) && r > 0) fetchedRate = r;
         }
       } catch (_e) {}
-
-      // ۲. دریافت از REST API در صورت عدم پاسخ دیتابیس
-      if (!fetchedData) {
-        try {
-          const apiRes = await Promise.race([safeFetchJson('/api/settings'), timeoutPromise]) as any;
-          const resData = apiRes?.data || apiRes;
-          if (resData) {
-            fetchedData = resData;
-            const r = Number(resData.aedRate || resData.manualAedRate);
-            if (!isNaN(r) && r > 0) fetchedRate = r;
-          }
-        } catch (_e) {}
-      }
-
-      if (fetchedData) {
-        if (fetchedRate && fetchedRate > 0) {
-          setAedRateState(fetchedRate);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('sirikfit_aed_rate', String(fetchedRate));
-          }
-        }
-
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('sirikfit_financial_settings', JSON.stringify(fetchedData));
-        }
-
-        // به‌روزرسانی کامل استیت شامل مقادیر مالی و تمامی تیک‌ها و تنظیمات عمومی
-        setSettingsState(prev => ({
-          ...prev,
-          ...fetchedData,
-          aedRate: fetchedRate || prev.aedRate,
-          manualAedRate: fetchedRate || prev.manualAedRate,
-          minOrderAmountToman: fetchedData.minOrderAmountToman !== undefined ? Number(fetchedData.minOrderAmountToman) : (prev.minOrderAmountToman ?? 0),
-          cargoRatePerKg: fetchedData.cargoRatePerKg ?? prev.cargoRatePerKg ?? 35,
-          profitMargin: fetchedData.profitMargin ?? prev.profitMargin ?? 15,
-          enableComments: fetchedData.enableComments ?? fetchedData.showComments ?? prev.enableComments ?? true,
-          showPriceDetails: fetchedData.showPriceDetails ?? prev.showPriceDetails ?? true,
-          isStoreActive: fetchedData.isStoreActive ?? prev.isStoreActive ?? true,
-          showContactNumber: fetchedData.showContactNumber ?? prev.showContactNumber ?? true,
-          slogans: Array.isArray(fetchedData.slogans) ? fetchedData.slogans : prev.slogans
-        }));
-      }
-    } finally {
-      clearTimeout(safetyTimer);
-      setIsLoading(false);
     }
+
+    if (fetchedData) {
+      if (fetchedRate && fetchedRate > 0) {
+        setAedRateState(fetchedRate);
+        setSafeItem('sirikfit_aed_rate', String(fetchedRate));
+      }
+
+      setSafeItem('sirikfit_financial_settings', fetchedData);
+
+      // به‌روزرسانی کامل استیت شامل مقادیر مالی و تمامی تیک‌ها و تنظیمات عمومی
+      setSettingsState(prev => ({
+        ...prev,
+        ...fetchedData,
+        aedRate: fetchedRate || prev.aedRate,
+        manualAedRate: fetchedRate || prev.manualAedRate,
+        minOrderAmountToman: fetchedData.minOrderAmountToman !== undefined ? Number(fetchedData.minOrderAmountToman) : (prev.minOrderAmountToman ?? 0),
+        cargoRatePerKg: fetchedData.cargoRatePerKg ?? prev.cargoRatePerKg ?? 35,
+        profitMargin: fetchedData.profitMargin ?? prev.profitMargin ?? 15,
+        enableComments: fetchedData.enableComments ?? fetchedData.showComments ?? prev.enableComments ?? true,
+        showPriceDetails: fetchedData.showPriceDetails ?? prev.showPriceDetails ?? true,
+        isStoreActive: fetchedData.isStoreActive ?? prev.isStoreActive ?? true,
+        showContactNumber: fetchedData.showContactNumber ?? prev.showContactNumber ?? true,
+        showTrustBadges: fetchedData.showTrustBadges !== undefined ? Boolean(fetchedData.showTrustBadges) : (prev.showTrustBadges ?? true),
+        showEnamad: fetchedData.showEnamad !== undefined ? Boolean(fetchedData.showEnamad) : (prev.showEnamad ?? true),
+        showSamandehi: fetchedData.showSamandehi !== undefined ? Boolean(fetchedData.showSamandehi) : (prev.showSamandehi ?? true),
+        slogans: Array.isArray(fetchedData.slogans) ? fetchedData.slogans : prev.slogans
+      }));
+    }
+
+    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -224,9 +205,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     const updated = { ...settings, ...newSettings };
     setSettingsState(updated);
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('sirikfit_financial_settings', JSON.stringify(updated));
-    }
+    setSafeItem('sirikfit_financial_settings', updated);
 
     try {
       await saveSettingsToFirestore(updated);

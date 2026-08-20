@@ -2342,7 +2342,7 @@ app.get('/api/payment/config', async (req, res) => {
 // POST /api/payment/create - Initialize live payment gateway transaction
 app.post('/api/payment/create', async (req, res) => {
   try {
-    const { orderId, orderData, callbackUrl: clientCallbackUrl } = req.body;
+    const { orderId, amountToman: reqAmountToman, customerPhone, customerName, orderData, callbackUrl: clientCallbackUrl } = req.body;
     const store = readStore();
 
     let targetOrder = orderData;
@@ -2351,104 +2351,132 @@ app.post('/api/payment/create', async (req, res) => {
       if (found) targetOrder = found;
     }
 
-    if (!targetOrder) {
-      return res.status(400).json({ success: false, error: 'اطلاعات سفارش جهت اتصال به درگاه پرداخت یافت نشد.' });
+    if (!targetOrder && orderId) {
+      try {
+        const orderSnap = await getDoc(doc(db, 'orders', String(orderId)));
+        if (orderSnap.exists()) {
+          targetOrder = { id: orderSnap.id, ...orderSnap.data() } as any;
+        }
+      } catch (_e) {}
     }
 
-    // Ensure order exists in store and Firestore
-    const orderIndex = store.orders.findIndex(o => o.id === targetOrder.id);
-    if (orderIndex === -1) {
-      store.orders.unshift(targetOrder);
-    } else {
-      store.orders[orderIndex] = { ...store.orders[orderIndex], ...targetOrder };
-    }
-    await persistOrder(targetOrder);
-
-    const gatewayConfig = await getEffectiveGatewayConfig();
-    const activeGateway = gatewayConfig.activeGateway || 'zibal';
-
-    // 1. CARD TO CARD FLOW
-    if (activeGateway === 'card_to_card') {
-      return res.json({
-        success: true,
-        cardToCard: true,
-        cardToCardInfo: gatewayConfig.cardToCard,
-        orderId: targetOrder.id
-      });
+    const calculatedToman = reqAmountToman || targetOrder?.calculatedToman || targetOrder?.finalPriceToman || 0;
+    if (!calculatedToman || calculatedToman <= 0) {
+      return res.status(400).json({ success: false, error: 'مبلغ سفارش نامعتبر است.' });
     }
 
-    // Convert amount in Toman to Rials (1 Toman = 10 Rials)
-    const amountInRials = Math.max(10000, Math.round(Number(targetOrder.calculatedToman || 0) * 10));
+    if (targetOrder) {
+      const orderIndex = store.orders.findIndex(o => o.id === targetOrder.id);
+      if (orderIndex === -1) {
+        store.orders.unshift(targetOrder);
+      } else {
+        store.orders[orderIndex] = { ...store.orders[orderIndex], ...targetOrder };
+      }
+      await persistOrder(targetOrder);
+    }
+
+    // 1. Fetch current gateway configuration directly from Firestore (settings/gateways then settings/cms)
+    let gatewayConfig: any = {
+      activeGateway: 'zibal',
+      zibalMerchantId: '',
+      zibalSandbox: false,
+      merchantId: '',
+      callbackUrl: 'https://sirikfit.ir/api/payment/callback'
+    };
+
+    try {
+      const gwDoc = await getDoc(doc(db, 'settings', 'gateways'));
+      if (gwDoc.exists()) {
+        gatewayConfig = { ...gatewayConfig, ...gwDoc.data() };
+      } else {
+        const cmsDoc = await getDoc(doc(db, 'settings', 'cms'));
+        if (cmsDoc.exists() && cmsDoc.data()?.paymentGateway) {
+          gatewayConfig = { ...gatewayConfig, ...cmsDoc.data().paymentGateway };
+        }
+      }
+    } catch (e) {
+      console.warn('Could not read settings/gateways from Firestore, using defaults', e);
+    }
+
+    const isZibal = gatewayConfig.activeGateway === 'zibal' || !gatewayConfig.activeGateway;
+    const amountInRials = Math.max(10000, Math.round(Number(calculatedToman) * 10));
 
     // Resolve Absolute Callback URL
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
     const host = req.headers['x-forwarded-host'] || req.get('host') || 'sirikfit.ir';
     const serverCallbackUrl = `${protocol}://${host}/api/payment/callback`;
     const resolvedCallbackUrl = gatewayConfig.callbackUrl && gatewayConfig.callbackUrl.startsWith('http')
-      ? gatewayConfig.callbackUrl
-      : (clientCallbackUrl && clientCallbackUrl.startsWith('http') ? clientCallbackUrl : serverCallbackUrl);
+      ? gatewayConfig.callbackUrl.trim()
+      : (clientCallbackUrl && clientCallbackUrl.startsWith('http') ? clientCallbackUrl.trim() : 'https://sirikfit.ir/api/payment/callback');
 
-    // 2. ZIBAL GATEWAY (PRODUCTION & SANDBOX)
-    if (activeGateway === 'zibal') {
-      const isSandbox = gatewayConfig.isSandbox ?? false;
-      const rawMerchant = (gatewayConfig.merchantId || process.env.ZIBAL_MERCHANT || '').trim();
+    const effectiveOrderId = targetOrder?.id || orderId || `ord-${Date.now()}`;
+    const effectiveMobile = targetOrder?.phoneNumber || customerPhone || undefined;
+    const trackingCode = targetOrder?.trackingCode || effectiveOrderId;
 
-      let merchant = rawMerchant;
-      if (!merchant) {
+    // 2. STRICT ZIBAL ROUTING
+    if (isZibal) {
+      let merchant = (gatewayConfig.zibalMerchantId || gatewayConfig.merchantId || process.env.ZIBAL_MERCHANT || '').trim();
+      if (!merchant || gatewayConfig.zibalSandbox || gatewayConfig.isSandbox) {
         merchant = 'zibal';
       }
 
-      const description = `خرید از فروشگاه اینترنتی سیریک فیت - سفارش ${targetOrder.trackingCode || targetOrder.id}`;
-      const callbackUrl = resolvedCallbackUrl || "https://sirikfit.ir/api/payment/callback";
-
-      console.log(`[Zibal Payment Request] Merchant: ${merchant}, Amount(Rials): ${amountInRials}, Order: ${targetOrder.trackingCode}`);
+      console.log(`[Zibal Payment Request] Order: ${trackingCode}, Merchant: ${merchant}, Amount(Rials): ${amountInRials}`);
 
       const zibalRes = await fetch('https://gateway.zibal.ir/v1/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          merchant: merchant.trim(),
+          merchant: merchant,
           amount: amountInRials,
-          callbackUrl: callbackUrl,
-          description: "خرید از فروشگاه اینترنتی سیریک فیت",
-          orderId: targetOrder.id,
-          mobile: targetOrder.phoneNumber || undefined
+          callbackUrl: resolvedCallbackUrl,
+          description: `خرید از فروشگاه اینترنتی سیریک فیت - سفارش ${trackingCode}`,
+          orderId: String(effectiveOrderId),
+          mobile: effectiveMobile
         })
       });
 
-      const zibalData = await zibalRes.json();
-      console.log('[Zibal Response]:', zibalData);
+      const data = await zibalRes.json();
+      console.log('[Zibal Response]:', data);
 
-      if (zibalData.result === 100 || zibalData.result === 102) {
-        const trackId = String(zibalData.trackId);
-        targetOrder.paymentRefId = 'ZIBAL-' + trackId;
-        targetOrder.trackId = trackId;
-        targetOrder.paymentGateway = 'zibal';
-        await persistOrder(targetOrder);
+      if (data.result === 100 || data.result === 102) {
+        const trackId = String(data.trackId);
+        if (targetOrder) {
+          targetOrder.paymentRefId = 'ZIBAL-' + trackId;
+          targetOrder.trackId = trackId;
+          targetOrder.paymentGateway = 'zibal';
+          await persistOrder(targetOrder);
+        }
 
-        const redirectUrl = `https://gateway.zibal.ir/start/${trackId}`;
+        const paymentUrl = `https://gateway.zibal.ir/start/${trackId}`;
         return res.json({
           success: true,
-          url: redirectUrl,
-          redirectUrl,
-          trackId,
-          orderId: targetOrder.id
+          url: paymentUrl,
+          redirectUrl: paymentUrl,
+          trackId: trackId,
+          orderId: effectiveOrderId
         });
       } else {
-        const errMsg = zibalData.message || getZibalErrorMessage(zibalData.result);
-        return res.status(400).json({
-          success: false,
-          result: zibalData.result,
-          error: `خطا در اتصال به درگاه زیبال: ${errMsg}`
-        });
+        const errorMessages: Record<number, string> = {
+          102: 'مرچنت یافت نشد یا غیرفعال است (کد مرچنت زیبال را در پنل ادمین بررسی کنید).',
+          103: 'درگاه غیرفعال است.',
+          104: 'آدرس بازگشت (Callback URL) نامعتبر است.',
+          105: 'مبلغ تراکنش باید حداقل ۱,۰۰۰ تومان باشد.',
+          106: 'مبلغ پرداختی نامعتبر است.',
+          113: 'مبلغ تراکنش بیش از سقف مجاز است.'
+        };
+        const errorMsg = errorMessages[data.result] || `خطای زیبال: کد ${data.result} - ${data.message || ''}`;
+        return res.status(400).json({ success: false, error: errorMsg, result: data.result });
       }
     }
 
-    // 3. ZARINPAL GATEWAY
-    if (activeGateway === 'zarinpal') {
-      const isSandbox = gatewayConfig.isSandbox ?? false;
-      const rawMerchant = (gatewayConfig.merchantId || '').trim();
-      const zarinpalUrl = isSandbox
+    // 3. ZARINPAL ROUTING (ONLY if activeGateway is explicitly "zarinpal")
+    if (gatewayConfig.activeGateway === 'zarinpal') {
+      const zarinMerchant = (gatewayConfig.zarinpalMerchantId || gatewayConfig.merchantId || process.env.ZARINPAL_MERCHANT_ID || '').trim();
+      if (!zarinMerchant || zarinMerchant.length < 36) {
+        return res.status(400).json({ success: false, error: 'کد مرچنت زرینپال ۳۶ کاراکتری نامعتبر است.' });
+      }
+
+      const zarinpalUrl = (gatewayConfig.isSandbox ?? false)
         ? 'https://sandbox.zarinpal.com/pg/v4/payment/request.json'
         : 'https://api.zarinpal.com/pg/v4/payment/request.json';
 
@@ -2456,31 +2484,34 @@ app.post('/api/payment/create', async (req, res) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          merchant_id: rawMerchant || 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+          merchant_id: zarinMerchant,
           amount: amountInRials,
           callback_url: resolvedCallbackUrl,
-          description: `سفارش ${targetOrder.trackingCode} در فروشگاه اینترنتی سیریک فیت`,
-          metadata: { mobile: targetOrder.phoneNumber || '' }
+          description: `سفارش ${trackingCode} در فروشگاه اینترنتی سیریک فیت`,
+          metadata: { mobile: effectiveMobile }
         })
       });
 
       const zarinData = await zarinRes.json();
       if (zarinData?.data?.code === 100) {
         const authority = zarinData.data.authority;
-        targetOrder.paymentRefId = 'ZP-' + authority;
-        targetOrder.trackId = authority;
-        targetOrder.paymentGateway = 'zarinpal';
-        await persistOrder(targetOrder);
+        if (targetOrder) {
+          targetOrder.paymentRefId = 'ZP-' + authority;
+          targetOrder.trackId = authority;
+          targetOrder.paymentGateway = 'zarinpal';
+          await persistOrder(targetOrder);
+        }
 
-        const redirectUrl = isSandbox
+        const paymentUrl = (gatewayConfig.isSandbox ?? false)
           ? `https://sandbox.zarinpal.com/pg/StartPay/${authority}`
           : `https://payment.zarinpal.com/pg/StartPay/${authority}`;
 
         return res.json({
           success: true,
-          redirectUrl,
+          url: paymentUrl,
+          redirectUrl: paymentUrl,
           authority,
-          orderId: targetOrder.id
+          orderId: effectiveOrderId
         });
       } else {
         return res.status(400).json({
@@ -2490,10 +2521,9 @@ app.post('/api/payment/create', async (req, res) => {
       }
     }
 
-    // Fallback if provider not explicitly matched
     return res.status(400).json({
       success: false,
-      error: `درگاه ${activeGateway} در حال حاضر فعال نیست.`
+      error: `درگاه ${gatewayConfig.activeGateway} در حال حاضر فعال نیست.`
     });
   } catch (err: any) {
     console.error('Payment Create Critical Error:', err);

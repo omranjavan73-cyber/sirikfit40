@@ -49,6 +49,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId: order.id,
+          amountToman: order.calculatedToman,
+          customerPhone: order.phoneNumber,
+          customerName: order.customerName,
           orderData: order,
           callbackUrl: window.location.origin + '/api/payment/callback'
         })

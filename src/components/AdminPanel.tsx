@@ -328,10 +328,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [orderStoreFilter, setOrderStoreFilter] = useState<string>('ALL');
 
   // Payment Gateway Settings State
-  const [activeGateway, setActiveGateway] = useState<GatewayProvider>(cms?.paymentGateway?.activeGateway || 'zarinpal');
-  const [merchantId, setMerchantId] = useState<string>(cms?.paymentGateway?.merchantId || 'zarin_merchant_omex_8849102');
-  const [callbackUrl, setCallbackUrl] = useState<string>(cms?.paymentGateway?.callbackUrl || '/api/payment/callback');
-  const [isSandbox, setIsSandbox] = useState<boolean>(cms?.paymentGateway?.isSandbox ?? true);
+  const [activeGateway, setActiveGateway] = useState<GatewayProvider>(cms?.paymentGateway?.activeGateway || 'zibal');
+  const [merchantId, setMerchantId] = useState<string>(cms?.paymentGateway?.merchantId || cms?.paymentGateway?.zibalMerchantId || '');
+  const [callbackUrl, setCallbackUrl] = useState<string>(cms?.paymentGateway?.callbackUrl || 'https://sirikfit.ir/api/payment/callback');
+  const [isSandbox, setIsSandbox] = useState<boolean>(cms?.paymentGateway?.isSandbox ?? false);
   const [cardNumber, setCardNumber] = useState<string>(cms?.paymentGateway?.cardToCard?.cardNumber || '6037-9918-4421-9876');
   const [bankName, setBankName] = useState<string>(cms?.paymentGateway?.cardToCard?.bankName || 'بانک ملی ایران');
   const [cardholderName, setCardholderName] = useState<string>(cms?.paymentGateway?.cardToCard?.cardholderName || 'به نام مدیریت بازرگانی سیریک فیت پرو');
@@ -1203,9 +1203,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           if (fsCms.paymentGateway) {
             const gw = fsCms.paymentGateway;
             if (gw.activeGateway) setActiveGateway(gw.activeGateway);
-            if (gw.merchantId) setMerchantId(gw.merchantId);
+            if (gw.zibalMerchantId || gw.merchantId) setMerchantId(gw.zibalMerchantId || gw.merchantId || '');
             if (gw.callbackUrl) setCallbackUrl(gw.callbackUrl);
-            if (gw.isSandbox !== undefined) setIsSandbox(gw.isSandbox);
+            if (gw.isSandbox !== undefined || gw.zibalSandbox !== undefined) setIsSandbox(gw.zibalSandbox ?? gw.isSandbox);
             if (gw.cardToCard) {
               if (gw.cardToCard.cardNumber) setCardNumber(gw.cardToCard.cardNumber);
               if (gw.cardToCard.bankName) setBankName(gw.cardToCard.bankName);
@@ -1531,10 +1531,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
 
       if (cms.paymentGateway) {
-        setActiveGateway(cms.paymentGateway.activeGateway || 'zarinpal');
-        setMerchantId(cms.paymentGateway.merchantId || '');
-        setCallbackUrl(cms.paymentGateway.callbackUrl || '/api/payment/callback');
-        setIsSandbox(cms.paymentGateway.isSandbox ?? true);
+        setActiveGateway(cms.paymentGateway.activeGateway || 'zibal');
+        setMerchantId(cms.paymentGateway.zibalMerchantId || cms.paymentGateway.merchantId || '');
+        setCallbackUrl(cms.paymentGateway.callbackUrl || 'https://sirikfit.ir/api/payment/callback');
+        setIsSandbox(cms.paymentGateway.zibalSandbox ?? cms.paymentGateway.isSandbox ?? false);
         if (cms.paymentGateway.cardToCard) {
           setCardNumber(cms.paymentGateway.cardToCard.cardNumber || '');
           setBankName(cms.paymentGateway.cardToCard.bankName || '');
@@ -1720,10 +1720,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsSavingGateway(true);
     setSaveGatewaySuccess(false);
 
+    const cleanCallbackUrl = callbackUrl.trim() || 'https://sirikfit.ir/api/payment/callback';
+    const cleanMerchantId = merchantId.trim();
+
     const configPayload: PaymentGatewayConfig = {
       activeGateway,
-      merchantId,
-      callbackUrl,
+      merchantId: cleanMerchantId,
+      callbackUrl: cleanCallbackUrl,
       isSandbox,
       cardToCard: {
         cardNumber,
@@ -1733,15 +1736,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     };
 
-    const updatedCms = { ...(cms || {}), paymentGateway: configPayload };
+    const gatewaySettingsDoc = {
+      activeGateway: activeGateway === 'zarinpal' ? 'zarinpal' : 'zibal',
+      zibalMerchantId: activeGateway === 'zibal' ? cleanMerchantId : (cms?.paymentGateway?.zibalMerchantId || cleanMerchantId),
+      zibalSandbox: isSandbox,
+      zarinpalMerchantId: activeGateway === 'zarinpal' ? cleanMerchantId : (cms?.paymentGateway?.zarinpalMerchantId || ''),
+      merchantId: cleanMerchantId,
+      isSandbox,
+      callbackUrl: cleanCallbackUrl,
+      updatedAt: new Date().toISOString()
+    };
+
+    const updatedCms = {
+      ...(cms || {}),
+      paymentGateway: {
+        ...configPayload,
+        ...gatewaySettingsDoc
+      }
+    };
+
     if (cms) {
       onUpdateCms(updatedCms as any);
     }
 
     try {
-      await setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true });
+      await Promise.all([
+        setDoc(doc(db, 'settings', 'gateways'), sanitizePayloadForFirestore(gatewaySettingsDoc), { merge: true }),
+        setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true })
+      ]);
       setSaveGatewaySuccess(true);
-      if (showToast) showToast('تنظیمات درگاه پرداخت با موفقیت ذخیره شد', 'success');
+      if (showToast) showToast('تنظیمات درگاه زیبال و شاپرک با موفقیت ذخیره شد', 'success');
       if (onRefresh) onRefresh();
     } catch (fsErr: any) {
       console.error('Gateway save error:', fsErr);

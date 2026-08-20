@@ -2646,12 +2646,16 @@ app.post('/api/payment/create', async (req, res) => {
     const isSandbox = gatewayConfig.zibalSandbox ?? gatewayConfig.isSandbox ?? false;
     const rawMerchant = (gatewayConfig.zibalMerchantId || gatewayConfig.merchantId || '').trim();
 
-    // In Sandbox mode, fallback to default 'zibal' merchant; in live mode, use user-entered merchant
-    let merchant = 'zibal';
-    if (!isSandbox && rawMerchant && rawMerchant !== 'zibal' && rawMerchant !== '12345') {
-      merchant = rawMerchant;
-    } else if (isSandbox) {
-      merchant = rawMerchant || 'zibal';
+    // Determine Merchant ID:
+    // If config.zibalSandbox === false AND config.zibalMerchantId is non-empty:
+    // Use config.zibalMerchantId.trim() (Live Production Merchant).
+    // Otherwise (if sandbox is checked OR merchant is empty):
+    // Use "zibal" (Test Mode).
+    let targetMerchant = 'zibal';
+    if (!isSandbox && rawMerchant && rawMerchant.length > 0) {
+      targetMerchant = rawMerchant;
+    } else {
+      targetMerchant = 'zibal';
     }
 
     // Convert amount in Toman to Rials (1 Toman = 10 Rials), minimum 10,000 Rials
@@ -2669,13 +2673,13 @@ app.post('/api/payment/create', async (req, res) => {
     const description = `پرداخت سفارش ${targetOrder?.trackingCode || targetOrder?.id || orderId || ''} در فروشگاه سیریک فیت`;
     const clientPhone = customerPhone || mobile || targetOrder?.phoneNumber || '';
 
-    console.log(`[Zibal Payment Request] Merchant: ${merchant}, Amount(Rials): ${amountInRials}, Order: ${targetOrder?.trackingCode || targetOrder?.id || orderId}, Callback: ${resolvedCallbackUrl}`);
+    console.log(`[Zibal Payment Request] Merchant: ${targetMerchant}, Amount(Rials): ${amountInRials}, Order: ${targetOrder?.trackingCode || targetOrder?.id || orderId}, Callback: ${resolvedCallbackUrl}`);
 
     const zibalResponse = await axios.post('https://gateway.zibal.ir/v1/request', {
-      merchant,
+      merchant: targetMerchant,
       amount: amountInRials,
       callbackUrl: resolvedCallbackUrl,
-      description,
+      description: `پرداخت سفارش ${targetOrder?.trackingCode || targetOrder?.id || orderId || ''} - فروشگاه سیریک فیت`,
       orderId: String(targetOrder?.id || orderId || Date.now()),
       mobile: clientPhone || undefined
     }, {
@@ -2720,7 +2724,7 @@ app.post('/api/payment/create', async (req, res) => {
   }
 });
 
-// ALL /api/payment/callback - Handle bank gateway callback redirect
+// GET & ALL /api/payment/callback - Handle bank gateway callback redirect
 app.all('/api/payment/callback', async (req, res) => {
   try {
     const query = req.query || {};
@@ -2761,7 +2765,7 @@ app.all('/api/payment/callback', async (req, res) => {
         await persistOrder(order);
       }
       return res.redirect(
-        `/payment/receipt?status=failed&orderId=${order?.id || orderId || ''}&trackingCode=${order?.trackingCode || ''}&trackId=${trackId}&message=${encodeURIComponent('پرداخت انجام نشد یا توسط کاربر لغو گردید.')}`
+        `/payment/receipt?status=failed&orderId=${order?.id || orderId || ''}&trackingCode=${order?.trackingCode || ''}&trackId=${trackId}&message=${encodeURIComponent('پرداخت انجام نشد یا لغو گردید.')}`
       );
     }
 
@@ -2769,17 +2773,17 @@ app.all('/api/payment/callback', async (req, res) => {
     if (trackId) {
       const isSandbox = gatewayConfig.zibalSandbox ?? gatewayConfig.isSandbox ?? false;
       const rawMerchant = (gatewayConfig.zibalMerchantId || gatewayConfig.merchantId || '').trim();
-      let merchant = 'zibal';
-      if (!isSandbox && rawMerchant && rawMerchant !== 'zibal' && rawMerchant !== '12345') {
-        merchant = rawMerchant;
-      } else if (isSandbox) {
-        merchant = rawMerchant || 'zibal';
+      let targetMerchant = 'zibal';
+      if (!isSandbox && rawMerchant && rawMerchant.length > 0) {
+        targetMerchant = rawMerchant;
+      } else {
+        targetMerchant = 'zibal';
       }
 
-      console.log(`[Verifying Zibal Payment] trackId: ${trackId}, merchant: ${merchant}`);
+      console.log(`[Verifying Zibal Payment] trackId: ${trackId}, merchant: ${targetMerchant}`);
 
       const verifyResponse = await axios.post('https://gateway.zibal.ir/v1/verify', {
-        merchant,
+        merchant: targetMerchant,
         trackId: Number(trackId) || trackId
       }, {
         headers: { 'Content-Type': 'application/json' },

@@ -333,11 +333,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Payment Gateway Settings State (Exclusively Zibal Architecture)
   const [activeGateway, setActiveGateway] = useState<GatewayProvider>('zibal');
   const [zibalMerchantId, setZibalMerchantId] = useState<string>(
-    cms?.paymentGateway?.zibalMerchantId || cms?.paymentGateway?.merchantId || ''
+    cms?.paymentGateway?.zibalMerchantId || cms?.paymentGateway?.merchantId || '6a8490e3f37350835317f93e'
   );
-  const [zibalSandbox, setZibalSandbox] = useState<boolean>(
-    cms?.paymentGateway?.zibalSandbox ?? cms?.paymentGateway?.isSandbox ?? false
-  );
+  const [zibalSandbox, setZibalSandbox] = useState<boolean>(false);
   const [callbackUrl, setCallbackUrl] = useState<string>(
     cms?.paymentGateway?.callbackUrl || 'https://sirikfit.ir/api/payment/callback'
   );
@@ -1211,10 +1209,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           if (fsCms.paymentGateway) {
             const gw = fsCms.paymentGateway;
             setActiveGateway('zibal');
-            if (gw.zibalMerchantId !== undefined) setZibalMerchantId(gw.zibalMerchantId);
-            else if (gw.merchantId) setZibalMerchantId(gw.merchantId);
-            if (gw.zibalSandbox !== undefined) setZibalSandbox(gw.zibalSandbox);
-            else if (gw.isSandbox !== undefined) setZibalSandbox(gw.isSandbox);
+            const loaded = (gw.zibalMerchantId || gw.merchantId || '').trim();
+            setZibalMerchantId(loaded && loaded !== 'zibal' ? loaded : '6a8490e3f37350835317f93e');
+            setZibalSandbox(false);
             if (gw.callbackUrl) setCallbackUrl(gw.callbackUrl);
             if (gw.successMessage) setGatewaySuccessMessage(gw.successMessage);
           }
@@ -1224,8 +1221,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             const gwDocSnap = await getDoc(doc(db, 'settings', 'gateways'));
             if (gwDocSnap.exists()) {
               const gwData = gwDocSnap.data();
-              if (gwData.zibalMerchantId !== undefined) setZibalMerchantId(gwData.zibalMerchantId);
-              if (gwData.zibalSandbox !== undefined) setZibalSandbox(gwData.zibalSandbox);
+              const loaded = (gwData.zibalMerchantId || gwData.merchantId || '').trim();
+              if (loaded && loaded !== 'zibal') setZibalMerchantId(loaded);
+              setZibalSandbox(false);
               if (gwData.callbackUrl) setCallbackUrl(gwData.callbackUrl);
               if (gwData.successMessage) setGatewaySuccessMessage(gwData.successMessage);
             }
@@ -1732,18 +1730,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setSaveGatewaySuccess(false);
 
     const nowIso = new Date().toISOString();
-    const trimmedMerchant = zibalMerchantId.trim();
+    const trimmedMerchant = zibalMerchantId.trim() || '6a8490e3f37350835317f93e';
     const resolvedCallback = callbackUrl.trim() || 'https://sirikfit.ir/api/payment/callback';
     const resolvedSuccessMsg = gatewaySuccessMessage.trim() || 'با تشکر از خرید شما، سفارش شما با موفقیت ثبت و وارد فرآیند پردازش شد.';
 
     const configPayload: PaymentGatewayConfig = {
       activeGateway: 'zibal',
       zibalMerchantId: trimmedMerchant,
-      zibalSandbox: Boolean(zibalSandbox),
+      zibalSandbox: false,
       callbackUrl: resolvedCallback,
       successMessage: resolvedSuccessMsg,
       merchantId: trimmedMerchant,
-      isSandbox: Boolean(zibalSandbox),
+      isSandbox: false,
       updatedAt: nowIso
     };
 
@@ -1757,7 +1755,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       await setDoc(doc(db, 'settings', 'gateways'), {
         activeGateway: 'zibal',
         zibalMerchantId: trimmedMerchant,
-        zibalSandbox: Boolean(zibalSandbox),
+        zibalSandbox: false,
         callbackUrl: resolvedCallback,
         successMessage: resolvedSuccessMsg,
         updatedAt: nowIso

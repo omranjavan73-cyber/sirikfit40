@@ -7,8 +7,10 @@ interface AdminGatewaysProps {
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+export const HARDCODED_ZIBAL_LIVE_MERCHANT = '6a8490e3f37350835317f93e';
+
 export const AdminGateways: React.FC<AdminGatewaysProps> = ({ showToast }) => {
-  const [merchantId, setMerchantId] = useState<string>('');
+  const [merchantId, setMerchantId] = useState<string>(HARDCODED_ZIBAL_LIVE_MERCHANT);
   const [isSandbox, setIsSandbox] = useState<boolean>(false);
   const [callbackUrl, setCallbackUrl] = useState<string>('https://sirikfit.ir/api/payment/callback');
   const [successMessage, setSuccessMessage] = useState<string>('با تشکر از خرید شما، سفارش شما با موفقیت ثبت و وارد فرآیند پردازش شد.');
@@ -25,8 +27,12 @@ export const AdminGateways: React.FC<AdminGatewaysProps> = ({ showToast }) => {
         const gwDocSnap = await getDoc(doc(db, 'settings', 'gateways'));
         if (gwDocSnap.exists() && isMounted) {
           const data = gwDocSnap.data();
-          if (data.zibalMerchantId !== undefined) setMerchantId(data.zibalMerchantId);
-          else if (data.merchantId) setMerchantId(data.merchantId);
+          const loadedMerchant = (data.zibalMerchantId || data.merchantId || '').trim();
+          if (loadedMerchant && loadedMerchant !== 'zibal') {
+            setMerchantId(loadedMerchant);
+          } else {
+            setMerchantId(HARDCODED_ZIBAL_LIVE_MERCHANT);
+          }
 
           if (data.zibalSandbox !== undefined) setIsSandbox(Boolean(data.zibalSandbox));
           else if (data.isSandbox !== undefined) setIsSandbox(Boolean(data.isSandbox));
@@ -53,16 +59,16 @@ export const AdminGateways: React.FC<AdminGatewaysProps> = ({ showToast }) => {
     setSaveSuccess(false);
 
     const nowIso = new Date().toISOString();
-    const trimmedMerchant = merchantId.trim();
+    const trimmedMerchant = merchantId.trim() || HARDCODED_ZIBAL_LIVE_MERCHANT;
     const resolvedCallback = callbackUrl.trim() || 'https://sirikfit.ir/api/payment/callback';
     const resolvedSuccessMsg = successMessage.trim() || 'با تشکر از خرید شما، سفارش شما با موفقیت ثبت و وارد فرآیند پردازش شد.';
 
     const payload = {
       activeGateway: 'zibal',
       zibalMerchantId: trimmedMerchant,
-      zibalSandbox: Boolean(isSandbox),
+      zibalSandbox: false,
       merchantId: trimmedMerchant,
-      isSandbox: Boolean(isSandbox),
+      isSandbox: false,
       callbackUrl: resolvedCallback,
       successMessage: resolvedSuccessMsg,
       updatedAt: nowIso

@@ -413,10 +413,12 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       };
 
       const directPricingDoc = {
+        aedRate: parsedRate,
         minOrderAmountToman: parsedMinOrderToman,
         minOrderLimitEnabled: parsedMinOrderToman > 0,
-        aedRate: parsedRate,
-        updatedAt: Date.now()
+        profitPercentage: cleanBasePercent,
+        shippingAirRate: cleanBaseShip,
+        updatedAt: new Date().toISOString()
       };
 
       // Direct Firestore document updates
@@ -622,10 +624,11 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
             <span className="text-[11px] font-bold text-slate-500">انتخاب سریع:</span>
             {[
               { label: 'غیرفعال (۰)', value: '0' },
+              { label: '۱۰۰ هزار تومان', value: '100000' },
+              { label: '۵۰۰ هزار تومان', value: '500000' },
+              { label: '۱ میلیون تومان', value: '1000000' },
               { label: '۲ میلیون تومان', value: '2000000' },
-              { label: '۳ میلیون تومان', value: '3000000' },
-              { label: '۵ میلیون تومان', value: '5000000' },
-              { label: '۱۰ میلیون تومان', value: '10000000' }
+              { label: '۵ میلیون تومان', value: '5000000' }
             ].map((preset) => (
               <button
                 key={preset.value}

@@ -95,25 +95,19 @@ export const CartModal: React.FC<CartModalProps> = ({
   const discountAmountToman = (appliedDiscount && appliedDiscount.isValid) ? appliedDiscount.discountAmountToman : 0;
   const effectiveTotalToman = Math.max(0, cartTotalToman - discountAmountToman);
 
-  // Dynamic Minimum Order Limit from Admin Pricing Rules / Firestore
-  const minOrderLimitEnabled = cms?.pricingRules?.minOrderLimitEnabled !== undefined
-    ? Boolean(cms?.pricingRules?.minOrderLimitEnabled)
-    : ((settings as any)?.minOrderLimitEnabled !== undefined
-        ? Boolean((settings as any)?.minOrderLimitEnabled)
+  // Dynamic Minimum Order Limit strictly bound to settings (settings/pricing)
+  const minLimitEnabled = (settings?.minOrderLimitEnabled !== undefined)
+    ? Boolean(settings.minOrderLimitEnabled)
+    : (cms?.pricingRules?.minOrderLimitEnabled !== undefined
+        ? Boolean(cms?.pricingRules?.minOrderLimitEnabled)
         : true);
 
-  const rawMinOrder = Number(
-    cms?.pricingRules?.minOrderAmountToman ??
-    settings?.minOrderAmountToman ??
-    (settings as any)?.minOrderToman ??
-    0
-  );
-
-  const minOrderAmountToman = (minOrderLimitEnabled && !isNaN(rawMinOrder) && rawMinOrder > 0)
-    ? rawMinOrder
+  const minOrderAmountToman = minLimitEnabled
+    ? Math.max(0, Number(settings?.minOrderAmountToman ?? cms?.pricingRules?.minOrderAmountToman ?? (settings as any)?.minOrderToman ?? 0))
     : 0;
 
-  const isBelowMinOrder = minOrderAmountToman > 0 && effectiveTotalToman < minOrderAmountToman;
+  const currentCartTotal = Number(effectiveTotalToman || cartTotalToman || 0);
+  const isBelowMinOrder = minOrderAmountToman > 0 && currentCartTotal < minOrderAmountToman;
 
   const handleApplyPromoCode = async () => {
     if (!promoInput.trim()) return;
@@ -420,11 +414,8 @@ export const CartModal: React.FC<CartModalProps> = ({
 
             {/* Minimum Order Warning Box */}
             {isBelowMinOrder && minOrderAmountToman > 0 && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs font-bold flex items-center gap-2 text-right dir-rtl">
-                <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0" />
-                <span>
-                  حداقل مبلغ سفارش برای ثبت نهایی، {toPersianDigits(formatToman(minOrderAmountToman))} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
-                </span>
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3.5 flex items-center gap-2 text-xs md:text-sm my-3 dir-rtl text-right">
+                <span>⚠️ حداقل مبلغ سفارش برای ثبت نهایی، {minOrderAmountToman.toLocaleString('fa-IR')} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.</span>
               </div>
             )}
 

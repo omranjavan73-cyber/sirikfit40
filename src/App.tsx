@@ -347,7 +347,7 @@ function MainApp() {
     };
   }, []);
 
-  // 🟢 Real-time Firestore listeners for settings/app, settings/pricing, settings/pricingRules, settings/financial, settings/cms, and settings/general
+  // 🟢 Real-time Firestore listeners for settings/pricing, settings/app, settings/financial, settings/cms, and settings/general
   useEffect(() => {
     let unsubApp: (() => void) | null = null;
     let unsubPricing: (() => void) | null = null;
@@ -358,8 +358,12 @@ function MainApp() {
 
     const handlePricingUpdate = (data: any) => {
       if (!data) return;
-      const rawMin = data.minOrderAmountToman !== undefined ? Number(data.minOrderAmountToman) : (data.minOrderToman !== undefined ? Number(data.minOrderToman) : undefined);
-      const isEnabled = data.minOrderLimitEnabled !== undefined ? Boolean(data.minOrderLimitEnabled) : (rawMin !== undefined ? rawMin > 0 : undefined);
+      const rawMin = data.minOrderAmountToman !== undefined
+        ? Number(data.minOrderAmountToman)
+        : (data.minOrderToman !== undefined ? Number(data.minOrderToman) : undefined);
+      const isEnabled = data.minOrderLimitEnabled !== undefined
+        ? Boolean(data.minOrderLimitEnabled)
+        : (rawMin !== undefined ? rawMin > 0 : undefined);
 
       if (rawMin !== undefined || isEnabled !== undefined) {
         const resolvedMin = (isEnabled !== false && rawMin !== undefined && !isNaN(rawMin) && rawMin > 0) ? rawMin : 0;
@@ -386,6 +390,21 @@ function MainApp() {
     };
 
     try {
+      // 1. Primary Source of Truth: settings/pricing
+      unsubPricing = onSnapshot(doc(db, 'settings', 'pricing'), (snap) => {
+        if (snap.exists()) {
+          const pricingData = snap.data();
+          handlePricingUpdate(pricingData);
+          if (pricingData.aedRate && Number(pricingData.aedRate) > 0) {
+            const rate = Number(pricingData.aedRate);
+            setSettings(prev => ({ ...prev, aedRate: rate, manualAedRate: rate }));
+          }
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('Firestore pricing onSnapshot notice:', err);
+      });
+
+      // 2. App Settings: settings/app
       unsubApp = onSnapshot(doc(db, 'settings', 'app'), (snap) => {
         if (snap.exists()) {
           const data = snap.data();
@@ -403,7 +422,9 @@ function MainApp() {
           } else {
             setSettings(prev => ({ ...prev, ...data }));
           }
-          handlePricingUpdate(data);
+          if (data.minOrderAmountToman !== undefined || data.minOrderLimitEnabled !== undefined) {
+            handlePricingUpdate(data);
+          }
           if (data.features) {
             try {
               localStorage.setItem('sirikfit_features_config', JSON.stringify(data.features));
@@ -414,14 +435,7 @@ function MainApp() {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore app settings onSnapshot notice:', err);
       });
 
-      unsubPricing = onSnapshot(doc(db, 'settings', 'pricing'), (snap) => {
-        if (snap.exists()) {
-          handlePricingUpdate(snap.data());
-        }
-      }, (err) => {
-        if (!isFirestoreGrpcNoise(err)) console.warn('Firestore pricing onSnapshot notice:', err);
-      });
-
+      // 3. Pricing Rules Config: settings/pricingRules
       unsubPricingRules = onSnapshot(doc(db, 'settings', 'pricingRules'), (snap) => {
         if (snap.exists()) {
           handlePricingUpdate(snap.data());
@@ -430,6 +444,7 @@ function MainApp() {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore pricingRules onSnapshot notice:', err);
       });
 
+      // 4. Financial Settings: settings/financial
       unsubFinancial = onSnapshot(doc(db, 'settings', 'financial'), (snap) => {
         if (snap.exists()) {
           handlePricingUpdate(snap.data());
@@ -438,14 +453,23 @@ function MainApp() {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore financial onSnapshot notice:', err);
       });
 
+      // 5. CMS Settings: settings/cms (pure CMS content, do NOT overwrite pricing rules)
       unsubCms = onSnapshot(doc(db, 'settings', 'cms'), (snap) => {
         if (snap.exists()) {
           const cmsData = snap.data() as CmsConfig;
           if (cmsData) {
-            setCmsConfig(prev => ({ ...prev, ...cmsData }));
-            if (cmsData.pricingRules) {
-              handlePricingUpdate(cmsData.pricingRules);
-            }
+            setCmsConfig(prev => {
+              const merged = { ...prev, ...cmsData };
+              // Preserve active pricing rules from settings/pricing
+              if (prev?.pricingRules) {
+                merged.pricingRules = {
+                  ...(cmsData.pricingRules || {}),
+                  minOrderAmountToman: prev.pricingRules.minOrderAmountToman,
+                  minOrderLimitEnabled: prev.pricingRules.minOrderLimitEnabled
+                } as any;
+              }
+              return merged;
+            });
             try {
               localStorage.setItem('sirikfit_cms_config', JSON.stringify(cmsData));
             } catch (_e) {}

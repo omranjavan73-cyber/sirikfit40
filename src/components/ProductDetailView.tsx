@@ -512,28 +512,22 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   const cartTotalToman = calculatedCartTotalToman;
 
-  // Dynamic Minimum Order Amount in Toman
-  const minOrderLimitEnabled = cms?.pricingRules?.minOrderLimitEnabled !== undefined
-    ? Boolean(cms?.pricingRules?.minOrderLimitEnabled)
-    : ((settings as any)?.minOrderLimitEnabled !== undefined
-        ? Boolean((settings as any)?.minOrderLimitEnabled)
+  // Dynamic Minimum Order Amount in Toman strictly bound to settings (settings/pricing)
+  const minLimitEnabled = (settings?.minOrderLimitEnabled !== undefined)
+    ? Boolean(settings.minOrderLimitEnabled)
+    : (cms?.pricingRules?.minOrderLimitEnabled !== undefined
+        ? Boolean(cms?.pricingRules?.minOrderLimitEnabled)
         : true);
 
-  const rawMinOrder = Number(
-    cms?.pricingRules?.minOrderAmountToman ??
-    settings?.minOrderAmountToman ??
-    (settings as any)?.minOrderToman ??
-    0
-  );
-
-  const minOrderAmountToman = (minOrderLimitEnabled && !isNaN(rawMinOrder) && rawMinOrder > 0)
-    ? rawMinOrder
+  const minOrderAmountToman = minLimitEnabled
+    ? Math.max(0, Number(settings?.minOrderAmountToman ?? cms?.pricingRules?.minOrderAmountToman ?? (settings as any)?.minOrderToman ?? 0))
     : 0;
 
   // Effective Total with Discount Code Applied
   const discountAmountToman = (appliedDiscount && appliedDiscount.isValid) ? appliedDiscount.discountAmountToman : 0;
   const effectiveTotalToman = Math.max(0, cartTotalToman - discountAmountToman);
-  const isBelowMinOrder = minOrderAmountToman > 0 && effectiveTotalToman < minOrderAmountToman;
+  const currentCartTotal = Number(effectiveTotalToman || cartTotalToman || 0);
+  const isBelowMinOrder = minOrderAmountToman > 0 && currentCartTotal < minOrderAmountToman;
 
   const baseGoodsToman = Math.round(cartTotalAed * activeAedRate);
   const cargoShippingToman = Math.round(pricingResult.shippingCostAed * activeAedRate);
@@ -1659,12 +1653,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             </div>
 
             {/* Minimum Order Warning & Direct Payment Action Button */}
+            {/* Minimum Order Warning Box */}
             {isBelowMinOrder && minOrderAmountToman > 0 && (
-              <div className="p-3.5 bg-amber-50 border border-amber-200/90 rounded-[16px] text-amber-900 text-xs font-bold flex items-center gap-2 text-right dir-rtl">
-                <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0" />
-                <span>
-                  حداقل مبلغ سفارش برای ثبت نهایی، {toPersianDigits(formatToman(minOrderAmountToman))} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
-                </span>
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3.5 flex items-center gap-2 text-xs md:text-sm my-3 dir-rtl text-right">
+                <span>⚠️ حداقل مبلغ سفارش برای ثبت نهایی، {minOrderAmountToman.toLocaleString('fa-IR')} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.</span>
               </div>
             )}
 
@@ -1799,11 +1791,23 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               />
             </div>
 
+            {/* Minimum Order Warning Box in Step 2 */}
+            {isBelowMinOrder && minOrderAmountToman > 0 && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3.5 flex items-center gap-2 text-xs md:text-sm my-3 dir-rtl text-right">
+                <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+                <span>⚠️ حداقل مبلغ سفارش برای ثبت نهایی، {minOrderAmountToman.toLocaleString('fa-IR')} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.</span>
+              </div>
+            )}
+
             {/* Action Button */}
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="w-full bg-[#111111] hover:bg-black text-white font-black text-sm md:text-base py-4 rounded-[18px] transition shadow-md flex items-center justify-center gap-2 cursor-pointer border-none mt-3"
+              disabled={isSubmitting || (isBelowMinOrder && minOrderAmountToman > 0)}
+              className={`w-full font-black text-sm md:text-base py-4 rounded-[18px] transition shadow-md flex items-center justify-center gap-2 border-none mt-3 ${
+                isBelowMinOrder && minOrderAmountToman > 0
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                  : 'bg-[#111111] hover:bg-black text-white cursor-pointer'
+              }`}
             >
               <span>
                 {isSubmitting ? 'در حال ثبت سفارش...' : 'تأیید و پرداخت نهایی ←'}

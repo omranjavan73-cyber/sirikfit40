@@ -381,11 +381,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           </div>
 
           {isBelowMinOrder && minOrderToman > 0 && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs font-bold flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>
-                حداقل مبلغ سفارش برای ثبت نهایی، {toPersianDigits(formatToman(minOrderToman))} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
-              </span>
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3.5 flex items-center gap-2 text-xs md:text-sm my-3 dir-rtl text-right">
+              <span>⚠️ حداقل مبلغ سفارش برای ثبت نهایی، {minOrderToman.toLocaleString('fa-IR')} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.</span>
             </div>
           )}
 

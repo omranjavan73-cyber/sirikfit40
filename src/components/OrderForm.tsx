@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { ShoppingBag, ArrowRight, ShieldCheck, Zap, AlertCircle } from 'lucide-react';
 import type { FinancialSettings, Order, User } from '../types';
-import { formatToman, formatAed, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
+import { formatToman, formatAed, toPersianDigits, getEffectiveAedRate, isValidIranianMobile, cleanIranianMobile, isValidPostalCode, cleanPostalCode } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { saveOrderToFirestore } from '../firebase';
 
 interface OrderFormProps {
   product: {
+    id?: string;
     title: string;
     url: string;
     priceAed: number;
@@ -19,11 +21,12 @@ interface OrderFormProps {
     originalPriceAed?: number;
     servings?: string;
     origin?: string;
+    [key: string]: any;
   };
   settings: FinancialSettings;
   currentUser?: User | null;
   onOrderCreated: (order: Order) => void;
-  onCancel?: () => void;
+  onCancel: () => void;
 }
 
 export const OrderForm: React.FC<OrderFormProps> = ({
@@ -38,13 +41,16 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
   const [customerName, setCustomerName] = useState(currentUser?.name || '');
   const [phoneNumber, setPhoneNumber] = useState(currentUser?.phoneNumber || '');
-  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [postalCode, setPostalCode] = useState(currentUser?.postalCode || '');
+  const [deliveryAddress, setDeliveryAddress] = useState(currentUser?.address || '');
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
     if (currentUser) {
       if (currentUser.name && !customerName) setCustomerName(currentUser.name);
       if (currentUser.phoneNumber && !phoneNumber) setPhoneNumber(currentUser.phoneNumber);
+      if (currentUser.postalCode && !postalCode) setPostalCode(currentUser.postalCode);
+      if (currentUser.address && !deliveryAddress) setDeliveryAddress(currentUser.address);
     }
   }, [currentUser]);
 
@@ -66,29 +72,34 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     ? product.calculatedTomanOverride
     : Math.round(pricingResult.finalTotalToman / Math.max(1, qty));
 
+  const minOrderLimitEnabled = settings.minOrderLimitEnabled !== undefined 
+    ? Boolean(settings.minOrderLimitEnabled) 
+    : ((settings.minOrderAmountToman || 0) > 0);
+  const minOrderToman = minOrderLimitEnabled ? (settings.minOrderAmountToman || 0) : 0;
+  const isBelowMinOrder = minOrderToman > 0 && totalToman < minOrderToman;
+
   const handleSubmitOrder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    const minOrderLimitEnabled = settings.minOrderLimitEnabled !== undefined 
-      ? Boolean(settings.minOrderLimitEnabled) 
-      : ((settings.minOrderAmountToman || 0) > 0);
-    const minOrderToman = minOrderLimitEnabled ? (settings.minOrderAmountToman || 0) : 0;
-
-    if (minOrderToman > 0 && totalToman < minOrderToman) {
+    if (isBelowMinOrder && minOrderToman > 0) {
       setErrorMessage(`حداقل مبلغ سفارش برای ثبت نهایی، ${toPersianDigits(formatToman(minOrderToman))} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
       return;
     }
 
-    if (!customerName.trim()) {
-      setErrorMessage('لطفاً نام و نام خانوادگی خود را وارد کنید.');
+    if (!customerName.trim() || customerName.trim().length < 2) {
+      setErrorMessage('لطفاً نام و نام خانوادگی تحویل‌گیرنده را وارد کنید.');
       return;
     }
-    if (!phoneNumber.trim() || phoneNumber.length < 10) {
-      setErrorMessage('لطفاً شماره تماس معتبر وارد کنید.');
+    if (!isValidIranianMobile(phoneNumber)) {
+      setErrorMessage('لطفاً شماره موبایل معتبر ۱۱ رقمی (مثلاً ۰۹۱۲۱۲۳۴۵۶۷) وارد کنید.');
       return;
     }
-    if (!deliveryAddress.trim()) {
-      setErrorMessage('لطفاً آدرس دقیق تحویل را وارد کنید.');
+    if (!isValidPostalCode(postalCode)) {
+      setErrorMessage('لطفاً کد پستی معتبر ۱۰ رقمی (بدون خط تیره) وارد کنید.');
+      return;
+    }
+    if (!deliveryAddress.trim() || deliveryAddress.trim().length < 5) {
+      setErrorMessage('لطفاً آدرس دقیق تحویل در ایران را وارد کنید.');
       return;
     }
 
@@ -100,10 +111,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
       const orderPayload: Omit<Order, 'id'> = {
         userId: currentUser?.id,
         trackingCode,
-        customerName,
-        phoneNumber,
-        deliveryAddress,
-        notes,
+        customerName: customerName.trim(),
+        phoneNumber: cleanIranianMobile(phoneNumber),
+        postalCode: cleanPostalCode(postalCode),
+        deliveryAddress: deliveryAddress.trim(),
+        notes: notes.trim(),
         productTitle: `${qty}× ${product.title}`,
         productUrl: product.url,
         productImage: product.image,
@@ -130,7 +142,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     }
   };
 
-  // Helper badge text for product visual box
   const getProductBadge = (title: string) => {
     const t = title.toLowerCase();
     if (t.includes('omega') || t.includes('امگا')) return 'Ω3';
@@ -311,18 +322,36 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             />
           </div>
 
-          <div>
-            <label className="block text-[11px] font-bold text-neutral-600 mb-1">
-              شماره تماس جهت هماهنگی پیک <span className="text-rose-600">*</span>
-            </label>
-            <input
-              type="text"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              placeholder="09121234567"
-              className="w-full p-2.5 border border-neutral-200 rounded-xl text-xs font-bold text-neutral-900 focus:outline-none focus:border-black bg-[#F8FAFC] text-left dir-ltr"
-              dir="ltr"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label className="block text-[11px] font-bold text-neutral-600 mb-1">
+                شماره موبایل (۱۱ رقم) <span className="text-rose-600">*</span>
+              </label>
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="09121234567"
+                maxLength={11}
+                className="w-full p-2.5 border border-neutral-200 rounded-xl text-xs font-bold text-neutral-900 focus:outline-none focus:border-black bg-[#F8FAFC] text-left dir-ltr font-mono"
+                dir="ltr"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-neutral-600 mb-1">
+                کد پستی (۱۰ رقم) <span className="text-rose-600">*</span>
+              </label>
+              <input
+                type="text"
+                value={postalCode}
+                onChange={(e) => setPostalCode(e.target.value)}
+                placeholder="1234567890"
+                maxLength={10}
+                className="w-full p-2.5 border border-neutral-200 rounded-xl text-xs font-bold text-neutral-900 focus:outline-none focus:border-black bg-[#F8FAFC] text-left dir-ltr font-mono"
+                dir="ltr"
+              />
+            </div>
           </div>
 
           <div>
@@ -338,11 +367,37 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             />
           </div>
 
+          <div>
+            <label className="block text-[11px] font-bold text-neutral-600 mb-1">
+              توضیحات تکمیلی (اختیاری)
+            </label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="طعم، زمان تحویل و غیره..."
+              className="w-full p-2.5 border border-neutral-200 rounded-xl text-xs font-bold text-neutral-900 focus:outline-none focus:border-black bg-[#F8FAFC]"
+            />
+          </div>
+
+          {isBelowMinOrder && minOrderToman > 0 && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs font-bold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                حداقل مبلغ سفارش برای ثبت نهایی، {toPersianDigits(formatToman(minOrderToman))} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
+              </span>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={handleSubmitOrder}
-            disabled={isSubmitting}
-            className="w-full bg-black hover:bg-neutral-800 text-white font-extrabold text-xs sm:text-sm py-3.5 rounded-xl transition cursor-pointer shadow-md text-center mt-2"
+            disabled={isSubmitting || (isBelowMinOrder && minOrderToman > 0)}
+            className={`w-full font-extrabold text-xs sm:text-sm py-3.5 rounded-xl transition shadow-md text-center mt-2 ${
+              isBelowMinOrder && minOrderToman > 0
+                ? 'bg-neutral-300 text-neutral-500 cursor-not-allowed'
+                : 'bg-black hover:bg-neutral-800 text-white cursor-pointer'
+            }`}
           >
             {isSubmitting ? 'در حال ثبت و انتقال به درگاه...' : `پرداخت نهایی (${formatToman(totalToman)})`}
           </button>

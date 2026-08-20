@@ -3903,6 +3903,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <td className="p-3 align-top max-w-[180px]">
                           <div className="font-extrabold text-slate-900">{order.customerName}</div>
                           <div className="text-[11px] font-mono text-slate-600 dir-ltr">{order.phoneNumber}</div>
+                          {order.postalCode && (
+                            <div className="text-[10px] font-mono text-indigo-700 bg-indigo-50 px-1 py-0.5 rounded mt-0.5 inline-block dir-ltr">
+                              📮 {order.postalCode}
+                            </div>
+                          )}
                           {order.deliveryAddress && (
                             <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5 leading-snug" title={order.deliveryAddress}>
                               📍 {order.deliveryAddress}

@@ -51,6 +51,7 @@ export interface User {
   phoneNumber: string;
   email?: string;
   address?: string;
+  postalCode?: string;
   createdAt: string;
 }
 
@@ -388,6 +389,7 @@ export interface Order {
   customerName: string;
   phoneNumber: string;
   deliveryAddress: string;
+  postalCode?: string;
   notes?: string;
   productTitle: string;
   productUrl: string;

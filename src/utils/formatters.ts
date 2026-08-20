@@ -20,6 +20,34 @@ export function normalizeToEnglishDigits(str: string | number): string {
   return res;
 }
 
+export function cleanIranianMobile(phone: string | number | null | undefined): string {
+  if (!phone) return '';
+  let clean = normalizeToEnglishDigits(String(phone)).replace(/[^0-9+]/g, '');
+  if (clean.startsWith('+98')) {
+    clean = '0' + clean.slice(3);
+  } else if (clean.startsWith('98') && clean.length === 12) {
+    clean = '0' + clean.slice(2);
+  } else if (clean.startsWith('9') && clean.length === 10) {
+    clean = '0' + clean;
+  }
+  return clean;
+}
+
+export function isValidIranianMobile(phone: string | number | null | undefined): boolean {
+  const clean = cleanIranianMobile(phone);
+  return /^09[0-9]{9}$/.test(clean);
+}
+
+export function cleanPostalCode(code: string | number | null | undefined): string {
+  if (!code) return '';
+  return normalizeToEnglishDigits(String(code)).replace(/[^0-9]/g, '');
+}
+
+export function isValidPostalCode(code: string | number | null | undefined): boolean {
+  const clean = cleanPostalCode(code);
+  return /^[0-9]{10}$/.test(clean);
+}
+
 export function formatToman(amount: number | string | null | undefined): string {
   if (amount === null || amount === undefined) return '۰ تومان';
   const num = typeof amount === 'number' ? amount : parseFloat(String(amount));

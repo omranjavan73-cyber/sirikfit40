@@ -23,7 +23,7 @@ import {
   Loader2
 } from 'lucide-react';
 import type { FinancialSettings, Order, User, CartItem, CmsConfig, VariantDimension, VariantOption, ProductVariantMatrix, ProductVariantItem } from '../types';
-import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
+import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate, isValidIranianMobile, cleanIranianMobile, isValidPostalCode, cleanPostalCode } from '../utils/formatters';
 import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
@@ -382,7 +382,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   // Recipient Form States
   const [customerName, setCustomerName] = useState<string>(currentUser?.name || '');
   const [phoneNumber, setPhoneNumber] = useState<string>(currentUser?.phoneNumber || '');
-  const [deliveryAddress, setDeliveryAddress] = useState<string>('');
+  const [postalCode, setPostalCode] = useState<string>(currentUser?.postalCode || '');
+  const [deliveryAddress, setDeliveryAddress] = useState<string>(currentUser?.address || '');
   const [notes, setNotes] = useState<string>('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -398,6 +399,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     if (currentUser) {
       if (currentUser.name && !customerName) setCustomerName(currentUser.name);
       if (currentUser.phoneNumber && !phoneNumber) setPhoneNumber(currentUser.phoneNumber);
+      if (currentUser.postalCode && !postalCode) setPostalCode(currentUser.postalCode);
+      if (currentUser.address && !deliveryAddress) setDeliveryAddress(currentUser.address);
     }
   }, [currentUser]);
 
@@ -577,15 +580,19 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       return;
     }
 
-    if (!customerName.trim()) {
+    if (!customerName.trim() || customerName.trim().length < 2) {
       setErrorMessage('لطفاً نام و نام خانوادگی تحویل‌گیرنده را وارد کنید.');
       return;
     }
-    if (!phoneNumber.trim() || phoneNumber.length < 10) {
-      setErrorMessage('لطفاً شماره تماس معتبر (مثلاً ۰۹۱۲۱۲۳۴۵۶۷) وارد کنید.');
+    if (!isValidIranianMobile(phoneNumber)) {
+      setErrorMessage('لطفاً شماره موبایل معتبر ۱۱ رقمی (مثلاً ۰۹۱۲۱۲۳۴۵۶۷) وارد کنید.');
       return;
     }
-    if (!deliveryAddress.trim()) {
+    if (!isValidPostalCode(postalCode)) {
+      setErrorMessage('لطفاً کد پستی معتبر ۱۰ رقمی (بدون خط تیره) وارد کنید.');
+      return;
+    }
+    if (!deliveryAddress.trim() || deliveryAddress.trim().length < 5) {
       setErrorMessage('لطفاً آدرس دقیق تحویل در ایران را وارد کنید.');
       return;
     }
@@ -620,7 +627,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         body: JSON.stringify({
           userId: currentUser?.id,
           customerName: customerName.trim(),
-          phoneNumber: phoneNumber.trim(),
+          phoneNumber: cleanIranianMobile(phoneNumber),
+          postalCode: cleanPostalCode(postalCode),
           deliveryAddress: deliveryAddress.trim(),
           notes: notes.trim(),
           productTitle: orderProductTitle,
@@ -1579,10 +1587,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
-                  نام و نام خانوادگی تحویل‌گیرنده <span className="text-rose-600">*</span>
+                  نام و نام خانوادگی <span className="text-rose-600">*</span>
                 </label>
                 <input
                   type="text"
@@ -1595,14 +1603,30 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
               <div>
                 <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
-                  شماره تماس جهت هماهنگی پیک <span className="text-rose-600">*</span>
+                  شماره موبایل (۱۱ رقم) <span className="text-rose-600">*</span>
                 </label>
                 <input
-                  type="text"
+                  type="tel"
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
                   placeholder="09121234567"
-                  className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-left dir-ltr"
+                  maxLength={11}
+                  className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-left dir-ltr font-mono"
+                  dir="ltr"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
+                  کد پستی (۱۰ رقم) <span className="text-rose-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={postalCode}
+                  onChange={(e) => setPostalCode(e.target.value)}
+                  placeholder="1234567890"
+                  maxLength={10}
+                  className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-left dir-ltr font-mono"
                   dir="ltr"
                 />
               </div>
@@ -1717,18 +1741,36 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-extrabold text-slate-900 mb-1.5 text-right">
-                شماره تماس جهت هماهنگی پیک <span className="text-rose-600">*</span>
-              </label>
-              <input
-                type="text"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="09121234567"
-                className="w-full p-3.5 border border-slate-300 focus:border-slate-900 rounded-[14px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-left dir-ltr"
-                dir="ltr"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-extrabold text-slate-900 mb-1.5 text-right">
+                  شماره موبایل جهت هماهنگی پیک (۱۱ رقم) <span className="text-rose-600">*</span>
+                </label>
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="09121234567"
+                  maxLength={11}
+                  className="w-full p-3.5 border border-slate-300 focus:border-slate-900 rounded-[14px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-left dir-ltr font-mono"
+                  dir="ltr"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-extrabold text-slate-900 mb-1.5 text-right">
+                  کد پستی ۱۰ رقمی <span className="text-rose-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={postalCode}
+                  onChange={(e) => setPostalCode(e.target.value)}
+                  placeholder="1234567890"
+                  maxLength={10}
+                  className="w-full p-3.5 border border-slate-300 focus:border-slate-900 rounded-[14px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-left dir-ltr font-mono"
+                  dir="ltr"
+                />
+              </div>
             </div>
 
             <div>

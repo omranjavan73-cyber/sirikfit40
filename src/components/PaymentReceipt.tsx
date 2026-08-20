@@ -295,6 +295,18 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
               </div>
             )}
 
+            {order?.postalCode && (
+              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2.5">
+                <span className="text-slate-500 flex items-center gap-1.5 font-bold">
+                  <Package className="w-4 h-4 text-slate-400" />
+                  <span>کد پستی:</span>
+                </span>
+                <span className="font-bold text-slate-800 dir-ltr font-mono">
+                  {toPersianDigits(order.postalCode)}
+                </span>
+              </div>
+            )}
+
             {order?.deliveryAddress && (
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1 pt-1">
                 <span className="text-slate-500 flex items-center gap-1.5 font-bold shrink-0">

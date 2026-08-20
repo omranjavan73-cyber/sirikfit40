@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShoppingCart, ShoppingBag, X, Trash2, Plus, Minus, ArrowRight, CheckCircle2, AlertCircle, Tag, ShieldCheck } from 'lucide-react';
 import type { FinancialSettings, CartItem, CmsConfig, Order, User } from '../types';
-import { formatToman, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
+import { formatToman, toPersianDigits, getEffectiveAedRate, isValidIranianMobile, cleanIranianMobile, isValidPostalCode, cleanPostalCode } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
 
@@ -35,10 +35,20 @@ export const CartModal: React.FC<CartModalProps> = ({
   const [step, setStep] = useState<1 | 2>(1);
   const [customerName, setCustomerName] = useState<string>(currentUser?.name || '');
   const [phoneNumber, setPhoneNumber] = useState<string>(currentUser?.phoneNumber || '');
+  const [postalCode, setPostalCode] = useState<string>(currentUser?.postalCode || '');
   const [deliveryAddress, setDeliveryAddress] = useState<string>(currentUser?.address || '');
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+
+  useEffect(() => {
+    if (currentUser) {
+      if (currentUser.name && !customerName) setCustomerName(currentUser.name);
+      if (currentUser.phoneNumber && !phoneNumber) setPhoneNumber(currentUser.phoneNumber);
+      if (currentUser.postalCode && !postalCode) setPostalCode(currentUser.postalCode);
+      if (currentUser.address && !deliveryAddress) setDeliveryAddress(currentUser.address);
+    }
+  }, [currentUser]);
 
   // Discount code states
   const [promoInput, setPromoInput] = useState<string>('');
@@ -85,6 +95,26 @@ export const CartModal: React.FC<CartModalProps> = ({
   const discountAmountToman = (appliedDiscount && appliedDiscount.isValid) ? appliedDiscount.discountAmountToman : 0;
   const effectiveTotalToman = Math.max(0, cartTotalToman - discountAmountToman);
 
+  // Dynamic Minimum Order Limit from Admin Pricing Rules / Firestore
+  const minOrderLimitEnabled = cms?.pricingRules?.minOrderLimitEnabled !== undefined
+    ? Boolean(cms?.pricingRules?.minOrderLimitEnabled)
+    : ((settings as any)?.minOrderLimitEnabled !== undefined
+        ? Boolean((settings as any)?.minOrderLimitEnabled)
+        : true);
+
+  const rawMinOrder = Number(
+    cms?.pricingRules?.minOrderAmountToman ??
+    settings?.minOrderAmountToman ??
+    (settings as any)?.minOrderToman ??
+    0
+  );
+
+  const minOrderAmountToman = (minOrderLimitEnabled && !isNaN(rawMinOrder) && rawMinOrder > 0)
+    ? rawMinOrder
+    : 0;
+
+  const isBelowMinOrder = minOrderAmountToman > 0 && effectiveTotalToman < minOrderAmountToman;
+
   const handleApplyPromoCode = async () => {
     if (!promoInput.trim()) return;
     setIsApplyingPromo(true);
@@ -113,15 +143,25 @@ export const CartModal: React.FC<CartModalProps> = ({
 
   const handleSubmitOrder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!customerName.trim()) {
+
+    if (isBelowMinOrder && minOrderAmountToman > 0) {
+      setErrorMessage(`حداقل مبلغ سفارش برای ثبت نهایی، ${toPersianDigits(formatToman(minOrderAmountToman))} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
+      return;
+    }
+
+    if (!customerName.trim() || customerName.trim().length < 2) {
       setErrorMessage('لطفاً نام و نام خانوادگی تحویل‌گیرنده را وارد کنید.');
       return;
     }
-    if (!phoneNumber.trim() || phoneNumber.length < 10) {
-      setErrorMessage('لطفاً شماره تماس معتبر (مثلاً ۰۹۱۲۱۲۳۴۵۶۷) وارد کنید.');
+    if (!isValidIranianMobile(phoneNumber)) {
+      setErrorMessage('لطفاً شماره موبایل معتبر ۱۱ رقمی (مثلاً ۰۹۱۲۱۲۳۴۵۶۷) وارد کنید.');
       return;
     }
-    if (!deliveryAddress.trim()) {
+    if (!isValidPostalCode(postalCode)) {
+      setErrorMessage('لطفاً کد پستی معتبر ۱۰ رقمی (بدون خط تیره) وارد کنید.');
+      return;
+    }
+    if (!deliveryAddress.trim() || deliveryAddress.trim().length < 5) {
       setErrorMessage('لطفاً آدرس دقیق تحویل در ایران را وارد کنید.');
       return;
     }
@@ -141,7 +181,8 @@ export const CartModal: React.FC<CartModalProps> = ({
         body: JSON.stringify({
           userId: currentUser?.id,
           customerName: customerName.trim(),
-          phoneNumber: phoneNumber.trim(),
+          phoneNumber: cleanIranianMobile(phoneNumber),
+          postalCode: cleanPostalCode(postalCode),
           deliveryAddress: deliveryAddress.trim(),
           notes: notes.trim(),
           productTitle: orderProductTitle,
@@ -377,12 +418,27 @@ export const CartModal: React.FC<CartModalProps> = ({
               <span>✓ تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال</span>
             </div>
 
+            {/* Minimum Order Warning Box */}
+            {isBelowMinOrder && minOrderAmountToman > 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs font-bold flex items-center gap-2 text-right dir-rtl">
+                <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+                <span>
+                  حداقل مبلغ سفارش برای ثبت نهایی، {toPersianDigits(formatToman(minOrderAmountToman))} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
+                </span>
+              </div>
+            )}
+
             {/* Step 1 CTA or Step 2 Checkout Form */}
             {step === 1 ? (
               <button
                 type="button"
                 onClick={() => setStep(2)}
-                className="w-full bg-[#111111] hover:bg-black text-white font-extrabold text-xs py-3.5 px-4 rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+                disabled={isBelowMinOrder && minOrderAmountToman > 0}
+                className={`w-full font-extrabold text-xs py-3.5 px-4 rounded-xl transition flex items-center justify-center gap-2 shadow-sm ${
+                  isBelowMinOrder && minOrderAmountToman > 0
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                    : 'bg-[#111111] hover:bg-black text-white cursor-pointer'
+                }`}
               >
                 <span>ادامه فرآیند ثبت و پرداخت سفارش</span>
                 <ArrowRight className="w-4 h-4" />
@@ -391,7 +447,7 @@ export const CartModal: React.FC<CartModalProps> = ({
               <form onSubmit={handleSubmitOrder} className="space-y-3 pt-1 border-t border-slate-100">
                 <h4 className="font-black text-xs text-slate-900">اطلاعات تحویل‌گیرنده:</h4>
                 {errorMessage && (
-                  <div className="p-2 bg-rose-50 text-rose-700 text-xs rounded-xl font-bold flex items-center gap-1.5">
+                  <div className="p-2.5 bg-rose-50 text-rose-700 text-xs rounded-xl font-bold flex items-center gap-1.5 border border-rose-200">
                     <AlertCircle className="w-4 h-4 shrink-0" />
                     <span>{errorMessage}</span>
                   </div>
@@ -400,25 +456,38 @@ export const CartModal: React.FC<CartModalProps> = ({
                   type="text"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="نام و نام خانوادگی *"
-                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold"
+                  placeholder="نام و نام خانوادگی تحویل‌گیرنده *"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold text-right"
                   required
                 />
-                <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="شماره تماس جهت هماهنگی *"
-                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold text-left dir-ltr"
-                  dir="ltr"
-                  required
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="tel"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="شماره موبایل (۱۱ رقم) *"
+                    maxLength={11}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold text-left dir-ltr font-mono"
+                    dir="ltr"
+                    required
+                  />
+                  <input
+                    type="text"
+                    value={postalCode}
+                    onChange={(e) => setPostalCode(e.target.value)}
+                    placeholder="کد پستی (۱۰ رقم) *"
+                    maxLength={10}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold text-left dir-ltr font-mono"
+                    dir="ltr"
+                    required
+                  />
+                </div>
                 <textarea
                   value={deliveryAddress}
                   onChange={(e) => setDeliveryAddress(e.target.value)}
                   placeholder="آدرس دقیق تحویل در ایران *"
                   rows={2}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold resize-none"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold resize-none text-right"
                   required
                 />
                 <textarea
@@ -426,20 +495,24 @@ export const CartModal: React.FC<CartModalProps> = ({
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="توضیحات تکمیلی (اختیاری)"
                   rows={1}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold resize-none"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold resize-none text-right"
                 />
                 <div className="flex gap-2 pt-1">
                   <button
                     type="button"
                     onClick={() => setStep(1)}
-                    className="w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs py-3 rounded-xl transition"
+                    className="w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs py-3 rounded-xl transition cursor-pointer"
                   >
                     بازگشت
                   </button>
                   <button
                     type="submit"
-                    disabled={isSubmitting}
-                    className="flex-1 bg-[#D31027] hover:bg-rose-700 disabled:bg-slate-300 text-white font-black text-xs py-3 rounded-xl transition cursor-pointer"
+                    disabled={isSubmitting || (isBelowMinOrder && minOrderAmountToman > 0)}
+                    className={`flex-1 font-black text-xs py-3 rounded-xl transition ${
+                      isBelowMinOrder && minOrderAmountToman > 0
+                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                        : 'bg-[#D31027] hover:bg-rose-700 text-white cursor-pointer'
+                    }`}
                   >
                     {isSubmitting ? 'در حال ثبت...' : 'تایید و پرداخت نهایی'}
                   </button>

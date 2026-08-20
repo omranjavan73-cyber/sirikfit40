@@ -13,6 +13,7 @@ export interface SiteSettings {
   currencyApiUrl?: string;
   minOrderAed?: number;
   minOrderAmountToman?: number;
+  minOrderLimitEnabled?: boolean;
 
   // تنظیمات عمومی و ظاهری (اضافه شده)
   enableComments?: boolean;

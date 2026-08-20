@@ -121,13 +121,18 @@ function MainApp() {
     let margin = 15;
     let minOrderToman = 0;
     let minOrderAed = 0;
+    let minLimitEnabled = false;
 
     const directRate = getSafeItem<string>('sirikfit_aed_rate', '');
     if (directRate && !isNaN(Number(directRate)) && Number(directRate) > 0) {
       rate = Number(directRate);
     }
 
-    const saved = getSafeItem<any>('sirikfit_financial_settings', null) || getSafeItem<any>('omex_financial_settings', null);
+    const saved = getSafeItem<any>('sirikfit_financial_settings', null) ||
+      getSafeItem<any>('sirikfit_app_settings', null) ||
+      getSafeItem<any>('omex_pricing_rules', null) ||
+      getSafeItem<any>('omex_financial_settings', null);
+
     if (saved && typeof saved === 'object') {
       const exRate = Number(saved.exchangeRate || saved.aedRate || saved.manualAedRate);
       if (!isNaN(exRate) && exRate > 0 && !directRate) {
@@ -136,7 +141,11 @@ function MainApp() {
       if (typeof saved.cargoRatePerKg === 'number') cargo = saved.cargoRatePerKg;
       if (typeof saved.profitMargin === 'number') margin = saved.profitMargin;
       if (typeof saved.minOrderAmountToman === 'number') minOrderToman = saved.minOrderAmountToman;
+      else if (typeof saved.minOrderToman === 'number') minOrderToman = saved.minOrderToman;
+
       if (typeof saved.minOrderAed === 'number') minOrderAed = saved.minOrderAed;
+      if (typeof saved.minOrderLimitEnabled === 'boolean') minLimitEnabled = saved.minOrderLimitEnabled;
+      else if (minOrderToman > 0) minLimitEnabled = true;
     }
 
     return {
@@ -144,7 +153,8 @@ function MainApp() {
       manualAedRate: rate,
       cargoRatePerKg: cargo,
       profitMargin: margin,
-      minOrderAmountToman: minOrderToman,
+      minOrderAmountToman: minLimitEnabled ? minOrderToman : 0,
+      minOrderLimitEnabled: minLimitEnabled,
       minOrderAed: minOrderAed
     };
   });
@@ -337,11 +347,43 @@ function MainApp() {
     };
   }, []);
 
-  // 🟢 Real-time Firestore listeners for settings/app, settings/cms, and settings/general
+  // 🟢 Real-time Firestore listeners for settings/app, settings/pricing, settings/pricingRules, settings/financial, settings/cms, and settings/general
   useEffect(() => {
     let unsubApp: (() => void) | null = null;
+    let unsubPricing: (() => void) | null = null;
+    let unsubPricingRules: (() => void) | null = null;
+    let unsubFinancial: (() => void) | null = null;
     let unsubCms: (() => void) | null = null;
     let unsubGen: (() => void) | null = null;
+
+    const handlePricingUpdate = (data: any) => {
+      if (!data) return;
+      const rawMin = data.minOrderAmountToman !== undefined ? Number(data.minOrderAmountToman) : (data.minOrderToman !== undefined ? Number(data.minOrderToman) : undefined);
+      const isEnabled = data.minOrderLimitEnabled !== undefined ? Boolean(data.minOrderLimitEnabled) : (rawMin !== undefined ? rawMin > 0 : undefined);
+
+      if (rawMin !== undefined || isEnabled !== undefined) {
+        const resolvedMin = (isEnabled !== false && rawMin !== undefined && !isNaN(rawMin) && rawMin > 0) ? rawMin : 0;
+        const resolvedEnabled = isEnabled !== undefined ? isEnabled : (resolvedMin > 0);
+
+        setSettings(prev => ({
+          ...prev,
+          minOrderAmountToman: resolvedMin,
+          minOrderLimitEnabled: resolvedEnabled
+        }));
+
+        setCmsConfig(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            pricingRules: {
+              ...(prev.pricingRules || {}),
+              minOrderAmountToman: resolvedMin,
+              minOrderLimitEnabled: resolvedEnabled
+            } as any
+          };
+        });
+      }
+    };
 
     try {
       unsubApp = onSnapshot(doc(db, 'settings', 'app'), (snap) => {
@@ -361,6 +403,7 @@ function MainApp() {
           } else {
             setSettings(prev => ({ ...prev, ...data }));
           }
+          handlePricingUpdate(data);
           if (data.features) {
             try {
               localStorage.setItem('sirikfit_features_config', JSON.stringify(data.features));
@@ -371,11 +414,38 @@ function MainApp() {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore app settings onSnapshot notice:', err);
       });
 
+      unsubPricing = onSnapshot(doc(db, 'settings', 'pricing'), (snap) => {
+        if (snap.exists()) {
+          handlePricingUpdate(snap.data());
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('Firestore pricing onSnapshot notice:', err);
+      });
+
+      unsubPricingRules = onSnapshot(doc(db, 'settings', 'pricingRules'), (snap) => {
+        if (snap.exists()) {
+          handlePricingUpdate(snap.data());
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('Firestore pricingRules onSnapshot notice:', err);
+      });
+
+      unsubFinancial = onSnapshot(doc(db, 'settings', 'financial'), (snap) => {
+        if (snap.exists()) {
+          handlePricingUpdate(snap.data());
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('Firestore financial onSnapshot notice:', err);
+      });
+
       unsubCms = onSnapshot(doc(db, 'settings', 'cms'), (snap) => {
         if (snap.exists()) {
           const cmsData = snap.data() as CmsConfig;
           if (cmsData) {
             setCmsConfig(prev => ({ ...prev, ...cmsData }));
+            if (cmsData.pricingRules) {
+              handlePricingUpdate(cmsData.pricingRules);
+            }
             try {
               localStorage.setItem('sirikfit_cms_config', JSON.stringify(cmsData));
             } catch (_e) {}
@@ -422,6 +492,9 @@ function MainApp() {
 
     return () => {
       if (unsubApp) unsubApp();
+      if (unsubPricing) unsubPricing();
+      if (unsubPricingRules) unsubPricingRules();
+      if (unsubFinancial) unsubFinancial();
       if (unsubCms) unsubCms();
       if (unsubGen) unsubGen();
     };

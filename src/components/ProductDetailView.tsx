@@ -510,10 +510,22 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const cartTotalToman = calculatedCartTotalToman;
 
   // Dynamic Minimum Order Amount in Toman
-  const minOrderAmountToman = Math.max(
-    0,
-    Number(cms?.pricingRules?.minOrderAmountToman || settings?.minOrderAmountToman || (settings as any)?.minOrderToman || 0)
+  const minOrderLimitEnabled = cms?.pricingRules?.minOrderLimitEnabled !== undefined
+    ? Boolean(cms?.pricingRules?.minOrderLimitEnabled)
+    : ((settings as any)?.minOrderLimitEnabled !== undefined
+        ? Boolean((settings as any)?.minOrderLimitEnabled)
+        : true);
+
+  const rawMinOrder = Number(
+    cms?.pricingRules?.minOrderAmountToman ??
+    settings?.minOrderAmountToman ??
+    (settings as any)?.minOrderToman ??
+    0
   );
+
+  const minOrderAmountToman = (minOrderLimitEnabled && !isNaN(rawMinOrder) && rawMinOrder > 0)
+    ? rawMinOrder
+    : 0;
 
   // Effective Total with Discount Code Applied
   const discountAmountToman = (appliedDiscount && appliedDiscount.isValid) ? appliedDiscount.discountAmountToman : 0;
@@ -560,8 +572,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const handleSubmitOrder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    if (isBelowMinOrder) {
-      setErrorMessage(`حداقل مبلغ سفارش برای ارسال و ثبت نهایی، ${toPersianDigits(formatToman(minOrderAmountToman))} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
+    if (isBelowMinOrder && minOrderAmountToman > 0) {
+      setErrorMessage(`حداقل مبلغ سفارش برای ثبت نهایی، ${toPersianDigits(formatToman(minOrderAmountToman))} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
       return;
     }
 
@@ -1623,11 +1635,11 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             </div>
 
             {/* Minimum Order Warning & Direct Payment Action Button */}
-            {isBelowMinOrder && (
+            {isBelowMinOrder && minOrderAmountToman > 0 && (
               <div className="p-3.5 bg-amber-50 border border-amber-200/90 rounded-[16px] text-amber-900 text-xs font-bold flex items-center gap-2 text-right dir-rtl">
                 <AlertCircle className="w-4.5 h-4.5 text-amber-600 shrink-0" />
                 <span>
-                  حداقل مبلغ سفارش برای ثبت نهایی، {toPersianDigits(formatToman(minOrderAmountToman))} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
+                  حداقل مبلغ سفارش برای ثبت نهایی، {toPersianDigits(formatToman(minOrderAmountToman))} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.
                 </span>
               </div>
             )}
@@ -1636,9 +1648,9 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               <button
                 type="button"
                 onClick={() => handleSubmitOrder()}
-                disabled={isSubmitting || isBelowMinOrder}
+                disabled={isSubmitting || (isBelowMinOrder && minOrderAmountToman > 0)}
                 className={`w-full font-black text-xs md:text-sm py-3.5 rounded-[16px] transition shadow-md border-none text-center flex items-center justify-center gap-2 ${
-                  isBelowMinOrder
+                  isBelowMinOrder && minOrderAmountToman > 0
                     ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
                     : 'bg-[#111111] hover:bg-black text-white cursor-pointer'
                 }`}

@@ -63,6 +63,7 @@ export interface FinancialSettings {
   profitMargin: number; // e.g., 15 (%)
   minOrderAed?: number; // Deprecated: Minimum cart order in AED (e.g., 200)
   minOrderAmountToman?: number; // Minimum cart order in Toman (e.g., 5000000 or 0)
+  minOrderLimitEnabled?: boolean; // Whether minimum order limit is enforced
 }
 
 export interface StoreCardItem {
@@ -230,6 +231,7 @@ export interface ShippingIncrementRule {
 
 export interface PricingRulesConfig {
   minOrderAmountToman?: number;
+  minOrderLimitEnabled?: boolean;
   baseCommission: {
     percentage: number;
     isEnabled: boolean;

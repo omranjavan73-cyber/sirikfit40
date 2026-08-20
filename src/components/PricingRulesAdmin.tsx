@@ -183,7 +183,10 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       if (raw) populateFromData(JSON.parse(raw));
     } catch (_e) {}
 
-    // 2. Realtime Firestore listener
+    // 2. Realtime Firestore listeners
+    let unsubPricing: (() => void) | null = null;
+    let unsubPricingRules: (() => void) | null = null;
+
     try {
       unsubApp = onSnapshot(doc(db, 'settings', 'app'), (snap) => {
         if (snap.exists()) {
@@ -192,12 +195,30 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('PricingRules onSnapshot notice:', err);
       });
+
+      unsubPricing = onSnapshot(doc(db, 'settings', 'pricing'), (snap) => {
+        if (snap.exists()) {
+          populateFromData(snap.data());
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('Pricing onSnapshot notice:', err);
+      });
+
+      unsubPricingRules = onSnapshot(doc(db, 'settings', 'pricingRules'), (snap) => {
+        if (snap.exists()) {
+          populateFromData(snap.data());
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('PricingRulesConfig onSnapshot notice:', err);
+      });
     } catch (err) {
       console.warn('Error setting up PricingRules onSnapshot:', err);
     }
 
     return () => {
       if (unsubApp) unsubApp();
+      if (unsubPricing) unsubPricing();
+      if (unsubPricingRules) unsubPricingRules();
     };
   }, []);
 
@@ -385,13 +406,22 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         cargoRatePerKg: cleanBaseShip,
         profitMargin: cleanBasePercent,
         minOrderAmountToman: parsedMinOrderToman,
+        minOrderLimitEnabled: parsedMinOrderToman > 0,
         autoUpdateRates: false,
         currencyApiUrl: '',
         updatedAt: Date.now()
       };
 
+      const directPricingDoc = {
+        minOrderAmountToman: parsedMinOrderToman,
+        minOrderLimitEnabled: parsedMinOrderToman > 0,
+        aedRate: parsedRate,
+        updatedAt: Date.now()
+      };
+
       // Direct Firestore document updates
       await Promise.all([
+        setDoc(doc(db, 'settings', 'pricing'), sanitizePayloadForFirestore(directPricingDoc), { merge: true }),
         setDoc(doc(db, 'settings', 'app'), sanitizePayloadForFirestore(appSettingsPayload), { merge: true }),
         setDoc(doc(db, 'settings', 'financial'), sanitizePayloadForFirestore(directFinancialPayload), { merge: true }),
         setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore(directFinancialPayload), { merge: true }),
@@ -404,7 +434,8 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           manualAedRate: parsedRate,
           cargoRatePerKg: cleanBaseShip,
           profitMargin: cleanBasePercent,
-          minOrderAmountToman: parsedMinOrderToman
+          minOrderAmountToman: parsedMinOrderToman,
+          minOrderLimitEnabled: parsedMinOrderToman > 0
         });
       }
       if (onSavePricingRules) {

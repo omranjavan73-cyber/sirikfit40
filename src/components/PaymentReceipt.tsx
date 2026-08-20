@@ -55,6 +55,18 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
 
   const [order, setOrder] = useState<Order | null>(null);
   const [isLoadingOrder, setIsLoadingOrder] = useState(false);
+  const [customSuccessMessage, setCustomSuccessMessage] = useState<string>('');
+
+  useEffect(() => {
+    fetch('/api/payment/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data?.successMessage) {
+          setCustomSuccessMessage(data.successMessage);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     try {
@@ -196,7 +208,7 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
 
           <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
             {isSuccess
-              ? 'تراکنش شما توسط شاپرک تایید گردید و سفارش در سیستم فروشگاه اینترنتی سیریک فیت به ثبت رسید.'
+              ? (customSuccessMessage || cms?.paymentGateway?.successMessage || 'با تشکر از خرید شما، سفارش شما با موفقیت ثبت و وارد فرآیند پردازش شد.')
               : params.message
               ? decodeURIComponent(params.message)
               : 'تراکنش پرداخت توسط درگاه بانکی تایید نشد یا توسط کاربر لغو گردید.'}

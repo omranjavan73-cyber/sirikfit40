@@ -120,14 +120,14 @@ function MainApp() {
     let cargo = 35;
     let margin = 15;
     let minOrderToman = 0;
-    let minOrderLimitEnabled = false;
+    let minOrderAed = 0;
 
     const directRate = getSafeItem<string>('sirikfit_aed_rate', '');
     if (directRate && !isNaN(Number(directRate)) && Number(directRate) > 0) {
       rate = Number(directRate);
     }
 
-    const saved = getSafeItem<any>('sirikfit_financial_settings', null) || getSafeItem<any>('sirikfit_app_settings', null) || getSafeItem<any>('omex_financial_settings', null);
+    const saved = getSafeItem<any>('sirikfit_financial_settings', null) || getSafeItem<any>('omex_financial_settings', null);
     if (saved && typeof saved === 'object') {
       const exRate = Number(saved.exchangeRate || saved.aedRate || saved.manualAedRate);
       if (!isNaN(exRate) && exRate > 0 && !directRate) {
@@ -136,7 +136,7 @@ function MainApp() {
       if (typeof saved.cargoRatePerKg === 'number') cargo = saved.cargoRatePerKg;
       if (typeof saved.profitMargin === 'number') margin = saved.profitMargin;
       if (typeof saved.minOrderAmountToman === 'number') minOrderToman = saved.minOrderAmountToman;
-      if (typeof saved.minOrderLimitEnabled === 'boolean') minOrderLimitEnabled = saved.minOrderLimitEnabled;
+      if (typeof saved.minOrderAed === 'number') minOrderAed = saved.minOrderAed;
     }
 
     return {
@@ -145,7 +145,7 @@ function MainApp() {
       cargoRatePerKg: cargo,
       profitMargin: margin,
       minOrderAmountToman: minOrderToman,
-      minOrderLimitEnabled: minOrderLimitEnabled
+      minOrderAed: minOrderAed
     };
   });
 
@@ -835,8 +835,8 @@ function MainApp() {
                         storeName: 'انبار ایران (تحویل فوری)',
                         brand: 'انبار ایران',
                         category: local.category || 'موجودی ایران',
-                        description: local.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
-                        badge: local.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته',
+                        description: local.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری',
+                        badge: local.deliveryBadge || '⚡ ارسال فوری (انبار ایران)',
                         inStock: local.inStock ?? true,
                         isLocalInventory: true,
                         flavors: local.flavors || [],
@@ -1017,8 +1017,8 @@ function MainApp() {
                 brand: 'انبار ایران',
                 calculatedTomanOverride: item.priceToman,
                 category: item.category || 'موجودی ایران',
-                description: item.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
-                badge: item.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته',
+                description: item.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری',
+                badge: item.deliveryBadge || '⚡ ارسال فوری (انبار ایران)',
                 inStock: item.inStock ?? true,
                 isLocalInventory: true,
                 flavors: item.flavors || [],
@@ -1150,8 +1150,8 @@ function MainApp() {
             brand: 'انبار ایران',
             calculatedTomanOverride: priceToman,
             category: (item as any).category || 'موجودی ایران',
-            description: (item as any).description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
-            badge: '⚡ تحویل فوری ۲۴ ساعته',
+            description: (item as any).description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری',
+            badge: (item as any).deliveryBadge || '⚡ ارسال فوری (انبار ایران)',
             inStock: true,
             isLocalInventory: true,
             flavors: (item as any).flavors || [],

@@ -69,10 +69,15 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const handleSubmitOrder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    const minOrderLimitEnabled = Boolean(settings?.minOrderLimitEnabled ?? false);
-    const minOrderToman = settings?.minOrderAmountToman || 0;
-    if (minOrderLimitEnabled && minOrderToman > 0 && totalToman < minOrderToman) {
+    const minOrderToman = settings.minOrderAmountToman || 0;
+    if (minOrderToman > 0 && totalToman < minOrderToman) {
       setErrorMessage(`حداقل مبلغ سفارش برای ارسال و ثبت نهایی، ${toPersianDigits(formatToman(minOrderToman))} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
+      return;
+    }
+
+    const minOrderLimitAed = settings.minOrderAed || 0;
+    if (minOrderToman === 0 && minOrderLimitAed > 0 && (product.priceAed * qty) < minOrderLimitAed) {
+      setErrorMessage(`حداقل مبلغ سفارش برای ارسال، ${toPersianDigits(minOrderLimitAed)} درهم می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
       return;
     }
 

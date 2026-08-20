@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import type { FinancialSettings, Order, User, CartItem, CmsConfig, VariantDimension, VariantOption, ProductVariantMatrix, ProductVariantItem } from '../types';
 import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
+import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
 
@@ -366,6 +367,18 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     return p;
   }, [product?.priceAed, selectedVariants]);
 
+  const selectedFlavorOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('flavor') || dimId === 'flavors')?.[1] as VariantOption | undefined;
+  const selectedSizeOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('size') || dimId === 'sizes')?.[1] as VariantOption | undefined;
+
+  const localizedCaption = React.useMemo(() => {
+    if (!activeProd?.title) return '';
+    return generatePersianProductCaption({
+      title: activeProd.title,
+      selectedFlavor: selectedFlavorOpt?.name,
+      selectedSize: selectedSizeOpt?.name
+    });
+  }, [activeProd?.title, selectedFlavorOpt?.name, selectedSizeOpt?.name]);
+
   // Recipient Form States
   const [customerName, setCustomerName] = useState<string>(currentUser?.name || '');
   const [phoneNumber, setPhoneNumber] = useState<string>(currentUser?.phoneNumber || '');
@@ -501,12 +514,11 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     0,
     Number(cms?.pricingRules?.minOrderAmountToman || settings?.minOrderAmountToman || (settings as any)?.minOrderToman || 0)
   );
-  const minOrderLimitEnabled = Boolean(cms?.pricingRules?.minOrderLimitEnabled ?? settings?.minOrderLimitEnabled ?? false);
 
   // Effective Total with Discount Code Applied
   const discountAmountToman = (appliedDiscount && appliedDiscount.isValid) ? appliedDiscount.discountAmountToman : 0;
   const effectiveTotalToman = Math.max(0, cartTotalToman - discountAmountToman);
-  const isBelowMinOrder = minOrderLimitEnabled && minOrderAmountToman > 0 && effectiveTotalToman < minOrderAmountToman;
+  const isBelowMinOrder = minOrderAmountToman > 0 && effectiveTotalToman < minOrderAmountToman;
 
   const baseGoodsToman = Math.round(cartTotalAed * activeAedRate);
   const cargoShippingToman = Math.round(pricingResult.shippingCostAed * activeAedRate);
@@ -1092,7 +1104,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 </div>
 
                 <h1 className="font-black text-base sm:text-lg text-slate-900 leading-snug px-2">
-                  {product?.title || ''}
+                  {localizedCaption || product?.title || ''}
                 </h1>
               </div>
 
@@ -1101,6 +1113,14 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 <div className="space-y-3 pt-2 pb-1 border-t border-slate-100">
                   {dimensions.map((dim) => {
                     const currentSelected = selectedVariants[dim.id] || dim.options[0];
+                    const selectedLabel = currentSelected
+                      ? (dim.type === 'flavor'
+                        ? translateFlavor(currentSelected.name)
+                        : (dim.type === 'size'
+                          ? formatPersianSize(currentSelected.name)
+                          : (currentSelected.nameFa || currentSelected.name)))
+                      : '';
+
                     return (
                       <div key={dim.id} className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-3.5 space-y-2 text-right">
                         <div className="flex items-center justify-between">
@@ -1110,7 +1130,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                           </span>
                           {currentSelected && (
                             <span className="text-[10px] font-bold text-slate-500 bg-white border border-slate-200/80 px-2 py-0.5 rounded-md">
-                              انتخاب‌شده: <span className="text-slate-900 font-black">{currentSelected.nameFa || currentSelected.name}</span>
+                              انتخاب‌شده: <span className="text-slate-900 font-black">{selectedLabel}</span>
                             </span>
                           )}
                         </div>
@@ -1119,6 +1139,11 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                           {dim.options.map((opt) => {
                             const isSelected = (currentSelected?.id === opt.id) || (currentSelected?.name === opt.name);
                             const isAvailable = opt.inStock !== false;
+                            const localizedOpt = dim.type === 'flavor'
+                              ? translateFlavor(opt.name)
+                              : (dim.type === 'size'
+                                ? formatPersianSize(opt.name)
+                                : (opt.nameFa || (translateFlavor(opt.name) !== opt.name ? translateFlavor(opt.name) : formatPersianSize(opt.name))));
 
                             return (
                               <button
@@ -1187,7 +1212,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                 }`}
                               >
                                 {isSelected && isAvailable && <Check className="w-3 h-3 text-emerald-400" />}
-                                <span>{opt.nameFa || opt.name}</span>
+                                <span>{localizedOpt}</span>
                                 {!isAvailable && (
                                   <span className="text-[10px] text-rose-500 font-normal no-underline mr-1">
                                     (ناموجود)

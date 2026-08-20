@@ -17,7 +17,8 @@ import {
   Loader2
 } from 'lucide-react';
 import type { FinancialSettings, ProductVariantMatrix, ProductVariantItem } from '../types';
-import { formatToman, formatAed, formatPrice, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
+import { formatToman, formatAed, formatPrice, toPersianDigits, getEffectiveAedRate, deduplicateImageUrls } from '../utils/formatters';
+import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import { TouchImageMagnifier } from './TouchImageMagnifier';
 
 export interface ProductDetailModalProduct {
@@ -109,9 +110,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const rawList = currentProd ? (currentProd.images || currentProd.galleryImages || (currentProd.image ? [currentProd.image] : [])) : [];
   const fallbackImg = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
   
-  const galleryList = Array.from(
-    new Set(rawList.filter(Boolean))
-  );
+  const galleryList = deduplicateImageUrls(rawList, currentProd?.image || fallbackImg);
 
   // Derive flavors and sizes from currentProd.variantMatrix or currentProd.flavors/sizes or currentProd.variantGroups/variants
   const extractedFlavors = useMemo(() => {
@@ -188,6 +187,22 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       (selectedFlavor && v.flavor === selectedFlavor)
     );
   }, [currentProd, selectedSize, selectedFlavor]);
+
+  // Synchronize variant-specific image immediately upon variant selection
+  useEffect(() => {
+    if (matchedVariant?.image && matchedVariant.image !== selectedImage) {
+      setSelectedImage(matchedVariant.image);
+    }
+  }, [matchedVariant?.image]);
+
+  const localizedCaption = useMemo(() => {
+    if (!currentProd) return '';
+    return generatePersianProductCaption({
+      title: currentProd.title,
+      selectedFlavor: selectedFlavor || undefined,
+      selectedSize: selectedSize || undefined
+    });
+  }, [currentProd?.title, selectedFlavor, selectedSize]);
 
   if (!isOpen || !currentProd) return null;
 
@@ -599,7 +614,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           {/* PRODUCT TITLE */}
           <div className="space-y-1">
             <h2 className="font-black text-base sm:text-lg text-slate-900 leading-snug">
-              {product.title}
+              {localizedCaption || product.title}
             </h2>
           </div>
 
@@ -612,15 +627,15 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     <Coins className="w-3.5 h-3.5 text-amber-600" />
                     محل تحویل کالا:
                   </span>
-                  <span className="font-black text-emerald-700 font-extrabold">موجود در ایران (تحویل فوری ۲۴ الی ۴۸ ساعته)</span>
+                  <span className="font-black text-emerald-700 font-extrabold">{product.badge || 'موجود در انبار ایران (تحویل فوری)'}</span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs text-slate-600 border-t border-slate-200/60 pt-2">
                   <span className="font-bold flex items-center gap-1">
                     <Weight className="w-3.5 h-3.5 text-sky-600" />
-                    مدت زمان ارسال:
+                    نوع و مدت زمان ارسال:
                   </span>
-                  <span className="font-black text-slate-800">⚡ تحویل فوری درب منزل ۲۴ الی ۴۸ ساعته</span>
+                  <span className="font-black text-slate-800">{product.deliveryBadge || product.badge || '⚡ ارسال فوری (پست پیشتاز / تیپاکس)'}</span>
                 </div>
               </>
             ) : (
@@ -745,23 +760,44 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       انتخاب طعم (Flavor):
                     </label>
                     <div className="flex flex-wrap gap-1.5">
-                      {validFlavors.map((flv) => (
-                        <button
-                          key={flv}
-                          type="button"
-                          disabled={isVariantLoading}
-                          onClick={() => handleVariantSelect(flv, undefined)}
-                          className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition cursor-pointer ${
-                            isVariantLoading ? 'opacity-60 cursor-wait' : ''
-                          } ${
-                            selectedFlavor === flv
-                              ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-400'
-                          }`}
-                        >
-                          {flv}
-                        </button>
-                      ))}
+                      {validFlavors.map((flv) => {
+                        const itemMatch = currentProd.variantMatrix?.items?.find(it => it.flavor === flv || it.title === flv || it.name === flv);
+                        const isAvailable = itemMatch ? itemMatch.inStock !== false : true;
+                        const itemPrice = itemMatch ? (itemMatch.priceAED ?? itemMatch.priceAed) : null;
+                        const hasDiffPrice = itemPrice && itemPrice > 0 && itemPrice !== basePriceAed;
+                        const isSelected = selectedFlavor === flv;
+                        const translated = translateFlavor(flv);
+
+                        return (
+                          <button
+                            key={flv}
+                            type="button"
+                            disabled={!isAvailable || isVariantLoading}
+                            onClick={() => handleVariantSelect(flv, undefined)}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition flex items-center gap-1.5 ${
+                              !isAvailable
+                                ? 'bg-slate-100/80 text-slate-400 border-slate-200 cursor-not-allowed opacity-50 line-through'
+                                : isVariantLoading
+                                ? 'opacity-60 cursor-wait bg-slate-50 text-slate-500 border-slate-200'
+                                : isSelected
+                                ? 'bg-slate-900 text-white border-slate-900 shadow-2xs cursor-pointer'
+                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-400 cursor-pointer'
+                            }`}
+                          >
+                            <span>{translated}</span>
+                            {!isAvailable && (
+                              <span className="text-[10px] text-rose-500 font-normal no-underline mr-0.5">
+                                (ناموجود)
+                              </span>
+                            )}
+                            {isAvailable && hasDiffPrice && (
+                              <span className={`text-[10px] ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
+                                ({itemPrice} AED)
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -773,23 +809,44 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       انتخاب حجم / تعداد (Size):
                     </label>
                     <div className="flex flex-wrap gap-1.5">
-                      {validSizes.map((sz) => (
-                        <button
-                          key={sz}
-                          type="button"
-                          disabled={isVariantLoading}
-                          onClick={() => handleVariantSelect(undefined, sz)}
-                          className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition cursor-pointer ${
-                            isVariantLoading ? 'opacity-60 cursor-wait' : ''
-                          } ${
-                            selectedSize === sz
-                              ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-400'
-                          }`}
-                        >
-                          {sz}
-                        </button>
-                      ))}
+                      {validSizes.map((sz) => {
+                        const itemMatch = currentProd.variantMatrix?.items?.find(it => it.size === sz || it.title === sz || it.name === sz);
+                        const isAvailable = itemMatch ? itemMatch.inStock !== false : true;
+                        const itemPrice = itemMatch ? (itemMatch.priceAED ?? itemMatch.priceAed) : null;
+                        const hasDiffPrice = itemPrice && itemPrice > 0 && itemPrice !== basePriceAed;
+                        const isSelected = selectedSize === sz;
+                        const formattedSize = formatPersianSize(sz);
+
+                        return (
+                          <button
+                            key={sz}
+                            type="button"
+                            disabled={!isAvailable || isVariantLoading}
+                            onClick={() => handleVariantSelect(undefined, sz)}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition flex items-center gap-1.5 ${
+                              !isAvailable
+                                ? 'bg-slate-100/80 text-slate-400 border-slate-200 cursor-not-allowed opacity-50 line-through'
+                                : isVariantLoading
+                                ? 'opacity-60 cursor-wait bg-slate-50 text-slate-500 border-slate-200'
+                                : isSelected
+                                ? 'bg-slate-900 text-white border-slate-900 shadow-2xs cursor-pointer'
+                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-400 cursor-pointer'
+                            }`}
+                          >
+                            <span>{formattedSize}</span>
+                            {!isAvailable && (
+                              <span className="text-[10px] text-rose-500 font-normal no-underline mr-0.5">
+                                (ناموجود)
+                              </span>
+                            )}
+                            {isAvailable && hasDiffPrice && (
+                              <span className={`text-[10px] ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
+                                ({itemPrice} AED)
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

@@ -3,9 +3,10 @@ import React from 'react';
 interface SirikFitLogoProps {
   className?: string;
   size?: number;
+  light?: boolean;
 }
 
-export const SirikFitLogo: React.FC<SirikFitLogoProps> = ({ className = "w-12 h-12", size }) => {
+export const SirikFitLogo: React.FC<SirikFitLogoProps> = ({ className = "w-12 h-12", size, light: _light }) => {
   return (
     <svg
       viewBox="0 0 200 200"

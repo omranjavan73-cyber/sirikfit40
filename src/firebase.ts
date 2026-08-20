@@ -608,30 +608,62 @@ export async function fetchTicketsFromFirestore(): Promise<any[]> {
 }
 
 // ----------------------------------------------------
-// ADMIN AUXILIARIES
+// ADMIN AUXILIARIES & SECURITY SETTINGS
 // ----------------------------------------------------
-export async function saveAdminPasswordToFirestore(password: string) {
+export async function saveAdminPasswordToFirestore(password: string, backupEmail: string = 'omran.javan73@gmail.com') {
   try {
-    await setDoc(doc(db, 'settings', 'security'), { adminPassword: password }, { merge: true });
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('sirikfit_admin_password', password);
-    }
-  } catch (_e) {}
+    const payload = {
+      adminPasswordHash: password,
+      adminPassword: password, // For backward compatibility
+      backupEmail: backupEmail,
+      updatedAt: new Date().toISOString()
+    };
+    await setDoc(doc(db, 'settings', 'security'), payload, { merge: true });
+    // Also sync adminSecurity doc for legacy listeners if any
+    await setDoc(doc(db, 'settings', 'adminSecurity'), {
+      passwordHash: password,
+      recoveryEmail: backupEmail,
+      lastPasswordChange: new Date().toISOString()
+    }, { merge: true });
+  } catch (err) {
+    console.warn('Could not save admin password directly to Firestore (client-side):', err);
+  }
 }
 
-export async function getAdminPasswordFromFirestore() {
+export async function getAdminSecurityFromFirestore(): Promise<{
+  adminPasswordHash?: string;
+  adminPassword?: string;
+  backupEmail?: string;
+  updatedAt?: string;
+} | null> {
   try {
     const snap = await getDoc(doc(db, 'settings', 'security'));
-    if (snap.exists() && snap.data()?.adminPassword) {
-      return snap.data().adminPassword;
+    if (snap.exists()) {
+      const d = snap.data();
+      return {
+        adminPasswordHash: d.adminPasswordHash || d.adminPassword || d.passwordHash,
+        adminPassword: d.adminPassword || d.adminPasswordHash,
+        backupEmail: d.backupEmail || d.recoveryEmail || 'omran.javan73@gmail.com',
+        updatedAt: d.updatedAt || d.lastPasswordChange
+      };
     }
-  } catch (_e) {}
-  try {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('sirikfit_admin_password') || null;
+    const legacySnap = await getDoc(doc(db, 'settings', 'adminSecurity'));
+    if (legacySnap.exists()) {
+      const d = legacySnap.data();
+      return {
+        adminPasswordHash: d.passwordHash,
+        adminPassword: d.passwordHash,
+        backupEmail: d.recoveryEmail || 'omran.javan73@gmail.com',
+        updatedAt: d.lastPasswordChange
+      };
     }
   } catch (_e) {}
   return null;
+}
+
+export async function getAdminPasswordFromFirestore(): Promise<string | null> {
+  const sec = await getAdminSecurityFromFirestore();
+  return sec?.adminPasswordHash || sec?.adminPassword || null;
 }
 
 export async function checkFirestoreConnection(): Promise<{

@@ -92,7 +92,7 @@ export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
                 <h3 className="font-extrabold text-base sm:text-lg">موجودی انبار ایران (تحویل فوری)</h3>
                 <span className="bg-emerald-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
                   <Sparkles className="w-3 h-3" />
-                  <span>آماده ارسال ۲۴ ساعته</span>
+                  <span>آماده ارسال فوری</span>
                 </span>
               </div>
               <p className="text-xs text-purple-100 font-medium mt-0.5">ارسال مستقیم با پست پیشتاز و پیک اختصاصی در تهران</p>
@@ -237,8 +237,8 @@ export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
               storeName: 'انبار ایران (تحویل فوری)',
               brand: 'انبار ایران',
               category: selectedLocalForModal.category || 'موجودی ایران',
-              description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
-              badge: selectedLocalForModal.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته',
+              description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری',
+              badge: selectedLocalForModal.deliveryBadge || '⚡ ارسال فوری (انبار ایران)',
               flavors: selectedLocalForModal.flavors || [],
               sizes: selectedLocalForModal.sizes || []
             }}

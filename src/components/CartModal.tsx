@@ -111,21 +111,8 @@ export const CartModal: React.FC<CartModalProps> = ({
     setPromoMessage(null);
   };
 
-  const minOrderAmountToman = Math.max(
-    0,
-    Number(cms?.pricingRules?.minOrderAmountToman || settings?.minOrderAmountToman || (settings as any)?.minOrderToman || 0)
-  );
-  const minOrderLimitEnabled = Boolean(cms?.pricingRules?.minOrderLimitEnabled ?? settings?.minOrderLimitEnabled ?? false);
-  const isBelowMinOrder = minOrderLimitEnabled && minOrderAmountToman > 0 && effectiveTotalToman < minOrderAmountToman;
-
   const handleSubmitOrder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-
-    if (isBelowMinOrder) {
-      setErrorMessage(`حداقل مبلغ سفارش برای ارسال و ثبت نهایی، ${toPersianDigits(formatToman(minOrderAmountToman))} می‌باشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.`);
-      return;
-    }
-
     if (!customerName.trim()) {
       setErrorMessage('لطفاً نام و نام خانوادگی تحویل‌گیرنده را وارد کنید.');
       return;
@@ -384,15 +371,6 @@ export const CartModal: React.FC<CartModalProps> = ({
               </div>
             </div>
 
-            {isBelowMinOrder && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs font-bold flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>
-                  حداقل مبلغ سفارش برای ثبت، {toPersianDigits(formatToman(minOrderAmountToman))} می‌باشد.
-                </span>
-              </div>
-            )}
-
             {/* 1-Line Authenticity Verification Badge */}
             <div className="bg-emerald-50 border border-emerald-200/90 rounded-xl py-2 px-3 flex items-center justify-center gap-1.5 text-emerald-800 text-xs font-bold">
               <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -403,13 +381,7 @@ export const CartModal: React.FC<CartModalProps> = ({
             {step === 1 ? (
               <button
                 type="button"
-                onClick={() => {
-                  if (isBelowMinOrder) {
-                    setErrorMessage(`حداقل مبلغ سفارش برای ارسال و ثبت نهایی، ${toPersianDigits(formatToman(minOrderAmountToman))} می‌باشد.`);
-                    return;
-                  }
-                  setStep(2);
-                }}
+                onClick={() => setStep(2)}
                 className="w-full bg-[#111111] hover:bg-black text-white font-extrabold text-xs py-3.5 px-4 rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-sm"
               >
                 <span>ادامه فرآیند ثبت و پرداخت سفارش</span>

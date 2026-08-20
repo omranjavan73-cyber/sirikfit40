@@ -306,13 +306,10 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       const cleanMinShip = safeParseNumeric(minShippingCostAed, 20);
       const cleanMaxShip = safeParseNumeric(maxShippingCostAed, 40);
 
-      const isMinLimitActive = parsedMinOrderToman > 0;
-
       // Construct Clean Numeric AppSettings Object
       const appSettingsPayload = {
         aedRate: parsedRate,
         minOrderAmountToman: parsedMinOrderToman,
-        minOrderLimitEnabled: isMinLimitActive,
         baseCommission: {
           enabled: baseCommissionEnabled,
           percentage: cleanBasePercent
@@ -388,7 +385,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         cargoRatePerKg: cleanBaseShip,
         profitMargin: cleanBasePercent,
         minOrderAmountToman: parsedMinOrderToman,
-        minOrderLimitEnabled: isMinLimitActive,
         autoUpdateRates: false,
         currencyApiUrl: '',
         updatedAt: Date.now()
@@ -398,7 +394,6 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       await Promise.all([
         setDoc(doc(db, 'settings', 'app'), sanitizePayloadForFirestore(appSettingsPayload), { merge: true }),
         setDoc(doc(db, 'settings', 'financial'), sanitizePayloadForFirestore(directFinancialPayload), { merge: true }),
-        setDoc(doc(db, 'settings', 'pricing'), sanitizePayloadForFirestore(appSettingsPayload), { merge: true }),
         setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore(directFinancialPayload), { merge: true }),
         setDoc(doc(db, 'settings', 'pricingRules'), sanitizePayloadForFirestore(activePricingConfig), { merge: true })
       ]);
@@ -409,8 +404,7 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
           manualAedRate: parsedRate,
           cargoRatePerKg: cleanBaseShip,
           profitMargin: cleanBasePercent,
-          minOrderAmountToman: parsedMinOrderToman,
-          minOrderLimitEnabled: isMinLimitActive
+          minOrderAmountToman: parsedMinOrderToman
         });
       }
       if (onSavePricingRules) {

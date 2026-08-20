@@ -64,7 +64,7 @@ import {
   HelpCircle,
   Activity
 } from 'lucide-react';
-import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { 
   db, 
   checkFirestoreConnection, 
@@ -90,6 +90,8 @@ import {
 import StickyBottomSaveBar from './StickyBottomSaveBar';
 import { AdminSupportTickets } from './AdminSupportTickets';
 import { AdminFAQManager } from './AdminFAQManager';
+import { AdminLoginModal } from './AdminLoginModal';
+import { AdminForgotPasswordModal } from './AdminForgotPasswordModal';
 import { safeParseNumeric, sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
 
 export { sanitizePayloadForFirestore };
@@ -297,6 +299,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRefresh
 }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -327,15 +330,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [orderDateFilter, setOrderDateFilter] = useState<'ALL' | 'TODAY' | 'YESTERDAY' | 'LAST_3_DAYS'>('ALL');
   const [orderStoreFilter, setOrderStoreFilter] = useState<string>('ALL');
 
-  // Payment Gateway Settings State
-  const [activeGateway, setActiveGateway] = useState<GatewayProvider>(cms?.paymentGateway?.activeGateway || 'zibal');
-  const [merchantId, setMerchantId] = useState<string>(cms?.paymentGateway?.merchantId || cms?.paymentGateway?.zibalMerchantId || '');
-  const [callbackUrl, setCallbackUrl] = useState<string>(cms?.paymentGateway?.callbackUrl || 'https://sirikfit.ir/api/payment/callback');
-  const [isSandbox, setIsSandbox] = useState<boolean>(cms?.paymentGateway?.isSandbox ?? false);
-  const [cardNumber, setCardNumber] = useState<string>(cms?.paymentGateway?.cardToCard?.cardNumber || '6037-9918-4421-9876');
-  const [bankName, setBankName] = useState<string>(cms?.paymentGateway?.cardToCard?.bankName || 'بانک ملی ایران');
-  const [cardholderName, setCardholderName] = useState<string>(cms?.paymentGateway?.cardToCard?.cardholderName || 'به نام مدیریت بازرگانی سیریک فیت پرو');
-  const [shabaNumber, setShabaNumber] = useState<string>(cms?.paymentGateway?.cardToCard?.shabaNumber || 'IR680170000000109988772001');
+  // Payment Gateway Settings State (Exclusively Zibal Architecture)
+  const [activeGateway, setActiveGateway] = useState<GatewayProvider>('zibal');
+  const [zibalMerchantId, setZibalMerchantId] = useState<string>(
+    cms?.paymentGateway?.zibalMerchantId || cms?.paymentGateway?.merchantId || ''
+  );
+  const [zibalSandbox, setZibalSandbox] = useState<boolean>(
+    cms?.paymentGateway?.zibalSandbox ?? cms?.paymentGateway?.isSandbox ?? false
+  );
+  const [callbackUrl, setCallbackUrl] = useState<string>(
+    cms?.paymentGateway?.callbackUrl || 'https://sirikfit.ir/api/payment/callback'
+  );
+  const [gatewaySuccessMessage, setGatewaySuccessMessage] = useState<string>(
+    cms?.paymentGateway?.successMessage || 'با تشکر از خرید شما، سفارش شما با موفقیت ثبت و وارد فرآیند پردازش شد.'
+  );
 
   const [showMerchantSecret, setShowMerchantSecret] = useState<boolean>(false);
   const [isSavingGateway, setIsSavingGateway] = useState<boolean>(false);
@@ -351,7 +359,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [manualAedRateInput, setManualAedRateInput] = useState<string>(settings?.manualAedRate || settings?.aedRate ? String(settings.manualAedRate || settings.aedRate) : '');
   const [cargoRateInput, setCargoRateInput] = useState<string>(String(settings.cargoRatePerKg));
   const [profitMarginInput, setProfitMarginInput] = useState<string>(String(settings.profitMargin));
-  const [minOrderAedInput, setMinOrderAedInput] = useState<string>(String(settings.minOrderAed || 0));
+  const [minOrderAedInput, setMinOrderAedInput] = useState<string>(String(settings.minOrderAed || 200));
 
   const [isTestingRateApi, setIsTestingRateApi] = useState<boolean>(false);
   const [rateTestResult, setRateTestResult] = useState<{ message: string; type: 'success' | 'error' | 'warning'; rate?: number } | null>(null);
@@ -1202,17 +1210,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           if (fsCms.paymentGateway) {
             const gw = fsCms.paymentGateway;
-            if (gw.activeGateway) setActiveGateway(gw.activeGateway);
-            if (gw.zibalMerchantId || gw.merchantId) setMerchantId(gw.zibalMerchantId || gw.merchantId || '');
+            setActiveGateway('zibal');
+            if (gw.zibalMerchantId !== undefined) setZibalMerchantId(gw.zibalMerchantId);
+            else if (gw.merchantId) setZibalMerchantId(gw.merchantId);
+            if (gw.zibalSandbox !== undefined) setZibalSandbox(gw.zibalSandbox);
+            else if (gw.isSandbox !== undefined) setZibalSandbox(gw.isSandbox);
             if (gw.callbackUrl) setCallbackUrl(gw.callbackUrl);
-            if (gw.isSandbox !== undefined || gw.zibalSandbox !== undefined) setIsSandbox(gw.zibalSandbox ?? gw.isSandbox);
-            if (gw.cardToCard) {
-              if (gw.cardToCard.cardNumber) setCardNumber(gw.cardToCard.cardNumber);
-              if (gw.cardToCard.bankName) setBankName(gw.cardToCard.bankName);
-              if (gw.cardToCard.cardholderName) setCardholderName(gw.cardToCard.cardholderName);
-              if (gw.cardToCard.shabaNumber) setShabaNumber(gw.cardToCard.shabaNumber);
-            }
+            if (gw.successMessage) setGatewaySuccessMessage(gw.successMessage);
           }
+
+          // Direct fetch from settings/gateways collection
+          try {
+            const gwDocSnap = await getDoc(doc(db, 'settings', 'gateways'));
+            if (gwDocSnap.exists()) {
+              const gwData = gwDocSnap.data();
+              if (gwData.zibalMerchantId !== undefined) setZibalMerchantId(gwData.zibalMerchantId);
+              if (gwData.zibalSandbox !== undefined) setZibalSandbox(gwData.zibalSandbox);
+              if (gwData.callbackUrl) setCallbackUrl(gwData.callbackUrl);
+              if (gwData.successMessage) setGatewaySuccessMessage(gwData.successMessage);
+            }
+          } catch (_gwErr) {}
 
           if (fsCms.apiConfig) {
             const api = fsCms.apiConfig;
@@ -1531,16 +1548,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
 
       if (cms.paymentGateway) {
-        setActiveGateway(cms.paymentGateway.activeGateway || 'zibal');
-        setMerchantId(cms.paymentGateway.zibalMerchantId || cms.paymentGateway.merchantId || '');
+        setActiveGateway('zibal');
+        setZibalMerchantId(cms.paymentGateway.zibalMerchantId || cms.paymentGateway.merchantId || '');
         setCallbackUrl(cms.paymentGateway.callbackUrl || 'https://sirikfit.ir/api/payment/callback');
-        setIsSandbox(cms.paymentGateway.zibalSandbox ?? cms.paymentGateway.isSandbox ?? false);
-        if (cms.paymentGateway.cardToCard) {
-          setCardNumber(cms.paymentGateway.cardToCard.cardNumber || '');
-          setBankName(cms.paymentGateway.cardToCard.bankName || '');
-          setCardholderName(cms.paymentGateway.cardToCard.cardholderName || '');
-          setShabaNumber(cms.paymentGateway.cardToCard.shabaNumber || '');
-        }
+        setZibalSandbox(cms.paymentGateway.zibalSandbox ?? cms.paymentGateway.isSandbox ?? false);
       }
     }
   }, [cms]);
@@ -1714,58 +1725,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // Direct Payment Gateway Save Handler
+  // Direct Payment Gateway Save Handler (Pure Zibal)
   const handleSaveGatewaySettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setIsSavingGateway(true);
     setSaveGatewaySuccess(false);
 
-    const cleanCallbackUrl = callbackUrl.trim() || 'https://sirikfit.ir/api/payment/callback';
-    const cleanMerchantId = merchantId.trim();
+    const nowIso = new Date().toISOString();
+    const trimmedMerchant = zibalMerchantId.trim();
+    const resolvedCallback = callbackUrl.trim() || 'https://sirikfit.ir/api/payment/callback';
+    const resolvedSuccessMsg = gatewaySuccessMessage.trim() || 'با تشکر از خرید شما، سفارش شما با موفقیت ثبت و وارد فرآیند پردازش شد.';
 
     const configPayload: PaymentGatewayConfig = {
-      activeGateway,
-      merchantId: cleanMerchantId,
-      callbackUrl: cleanCallbackUrl,
-      isSandbox,
-      cardToCard: {
-        cardNumber,
-        bankName,
-        cardholderName,
-        shabaNumber
-      }
+      activeGateway: 'zibal',
+      zibalMerchantId: trimmedMerchant,
+      zibalSandbox: Boolean(zibalSandbox),
+      callbackUrl: resolvedCallback,
+      successMessage: resolvedSuccessMsg,
+      merchantId: trimmedMerchant,
+      isSandbox: Boolean(zibalSandbox),
+      updatedAt: nowIso
     };
 
-    const gatewaySettingsDoc = {
-      activeGateway: activeGateway === 'zarinpal' ? 'zarinpal' : 'zibal',
-      zibalMerchantId: activeGateway === 'zibal' ? cleanMerchantId : (cms?.paymentGateway?.zibalMerchantId || cleanMerchantId),
-      zibalSandbox: isSandbox,
-      zarinpalMerchantId: activeGateway === 'zarinpal' ? cleanMerchantId : (cms?.paymentGateway?.zarinpalMerchantId || ''),
-      merchantId: cleanMerchantId,
-      isSandbox,
-      callbackUrl: cleanCallbackUrl,
-      updatedAt: new Date().toISOString()
-    };
-
-    const updatedCms = {
-      ...(cms || {}),
-      paymentGateway: {
-        ...configPayload,
-        ...gatewaySettingsDoc
-      }
-    };
-
+    const updatedCms = { ...(cms || {}), paymentGateway: configPayload };
     if (cms) {
       onUpdateCms(updatedCms as any);
     }
 
     try {
-      await Promise.all([
-        setDoc(doc(db, 'settings', 'gateways'), sanitizePayloadForFirestore(gatewaySettingsDoc), { merge: true }),
-        setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true })
-      ]);
+      // 1. Persist directly to settings/gateways as specified
+      await setDoc(doc(db, 'settings', 'gateways'), {
+        activeGateway: 'zibal',
+        zibalMerchantId: trimmedMerchant,
+        zibalSandbox: Boolean(zibalSandbox),
+        callbackUrl: resolvedCallback,
+        successMessage: resolvedSuccessMsg,
+        updatedAt: nowIso
+      }, { merge: true });
+
+      // 2. Also persist to settings/cms for backward compatibility
+      await setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true });
+
       setSaveGatewaySuccess(true);
-      if (showToast) showToast('تنظیمات درگاه زیبال و شاپرک با موفقیت ذخیره شد', 'success');
+      if (showToast) showToast('تنظیمات درگاه پرداخت زیبال با موفقیت ذخیره شد', 'success');
       if (onRefresh) onRefresh();
     } catch (fsErr: any) {
       console.error('Gateway save error:', fsErr);
@@ -1899,7 +1901,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         currencyApiUrl: '',
         cargoRatePerKg: Math.max(0, safeParseNumeric(cargoRateInput, 35)),
         profitMargin: Math.max(0, safeParseNumeric(profitMarginInput, 15)),
-        minOrderAed: Math.max(0, safeParseNumeric(minOrderAedInput, 0)),
+        minOrderAed: Math.max(0, safeParseNumeric(minOrderAedInput, 200)),
         updatedAt: Date.now()
       };
 
@@ -2076,8 +2078,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         stockCount: 5,
         category: assignedCategory,
         categoryKey: assignedCategoryKey,
-        description: data?.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
-        deliveryBadge: '⚡ تحویل فوری ۲۴ ساعته',
+        description: data?.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری',
+        deliveryBadge: '⚡ ارسال فوری (انبار ایران)',
         inStock: true,
         isIranWarehouse: true,
         isLocalInventory: true,
@@ -2429,8 +2431,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       stockQuantity: 10,
       category: 'مکمل‌های ورزشی',
       categoryKey: getCanonicalCategoryKey('مکمل‌های ورزشی'),
-      description: 'تحویل ۱ تا ۲ روزه در سراسر کشور - پلمپ اورجینال',
-      deliveryBadge: '⚡ تحویل فوری ۲۴ ساعته',
+      description: 'تحویل فوری در سراسر کشور - پلمپ اورجینال',
+      deliveryBadge: '⚡ ارسال فوری (انبار ایران)',
       inStock: true
     };
     setLocalInventoryList(prev => [...prev, newItem]);
@@ -3007,52 +3009,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Login Modal / Screen if not authenticated
   if (!isAuthenticated) {
+    if (isForgotPasswordOpen) {
+      return (
+        <AdminForgotPasswordModal
+          isOpen={true}
+          onClose={() => {
+            setIsForgotPasswordOpen(false);
+          }}
+          onBackToLogin={() => setIsForgotPasswordOpen(false)}
+          showToast={showToast}
+        />
+      );
+    }
+
     return (
-      <div className="max-w-md mx-auto my-8 bg-white border border-neutral-200 rounded-3xl p-6 shadow-xl text-neutral-800 font-['Vazirmatn',sans-serif]">
-        <div className="text-center space-y-2 mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-black text-white flex items-center justify-center mx-auto shadow-md">
-            <Lock className="w-7 h-7" />
-          </div>
-          <h2 className="text-xl font-black text-neutral-900">ورود به پنل مدیریت SIRIK FIT</h2>
-          <p className="text-xs text-neutral-500 font-medium">برای دسترسی به داشبورد و تنظیمات، رمز عبور را وارد کنید</p>
-        </div>
-
-        {loginError && (
-          <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2 font-semibold">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{loginError}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="text-xs font-bold text-neutral-700 block mb-1.5">رمز عبور مدیر:</label>
-            <input
-              type="password"
-              required
-              value={passwordInput}
-              onChange={(e) => setPasswordInput(e.target.value)}
-              placeholder="رمز عبور را وارد کنید (پیش‌فرض: omex2025)"
-              className="w-full bg-neutral-50 border border-neutral-300 focus:border-black focus:bg-white text-neutral-900 text-sm px-4 py-2.5 rounded-xl focus:outline-none transition font-mono"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoggingIn}
-            className="w-full bg-black hover:bg-neutral-800 text-white font-extrabold text-sm py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
-          >
-            {isLoggingIn ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>در حال بررسی...</span>
-              </>
-            ) : (
-              <span>ورود به سامانه</span>
-            )}
-          </button>
-        </form>
-      </div>
+      <AdminLoginModal
+        isOpen={true}
+        onClose={() => {
+          // Stay on view or reset
+        }}
+        onLoginSuccess={(_token) => {
+          setIsAuthenticated(true);
+          fetchAdminOrders();
+        }}
+        onForgotPasswordClick={() => setIsForgotPasswordOpen(true)}
+        showToast={showToast}
+      />
     );
   }
 
@@ -4928,15 +4910,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                         <div>
                           <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                            بج ارسال:
+                            بج ارسال کالا:
                           </label>
-                          <input
-                            type="text"
-                            value={item.deliveryBadge || ''}
-                            onChange={(e) => handleUpdateLocalItemField(item.id, 'deliveryBadge', e.target.value)}
-                            placeholder="تحویل فوری / تحویل ۲۴ ساعته"
-                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
-                          />
+                          <div className="space-y-1.5">
+                            <select
+                              value={
+                                ['⚡ ارسال فوری (انبار ایران)', '✈️ ارسال سفارشی از دبی', '📦 تحویل با پست پیشتاز / تیپاکس', 'موجود در انبار ایران (تحویل فوری)', 'ارسال فوری'].includes(item.deliveryBadge || '')
+                                  ? item.deliveryBadge
+                                  : (item.deliveryBadge ? 'custom' : '⚡ ارسال فوری (انبار ایران)')
+                              }
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val !== 'custom') {
+                                  handleUpdateLocalItemField(item.id, 'deliveryBadge', val);
+                                }
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition cursor-pointer"
+                            >
+                              <option value="⚡ ارسال فوری (انبار ایران)">⚡ ارسال فوری (انبار ایران)</option>
+                              <option value="✈️ ارسال سفارشی از دبی">✈️ ارسال سفارشی از دبی</option>
+                              <option value="📦 تحویل با پست پیشتاز / تیپاکس">📦 تحویل با پست پیشتاز / تیپاکس</option>
+                              <option value="موجود در انبار ایران (تحویل فوری)">موجود در انبار ایران (تحویل فوری)</option>
+                              <option value="custom">✏️ سفارشی (متن دلخواه)</option>
+                            </select>
+                            <input
+                              type="text"
+                              value={item.deliveryBadge || ''}
+                              onChange={(e) => handleUpdateLocalItemField(item.id, 'deliveryBadge', e.target.value)}
+                              placeholder="مثال: ارسال فوری (انبار ایران)"
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
+                            />
+                          </div>
                         </div>
 
                         <div>
@@ -4947,7 +4951,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             type="text"
                             value={item.description || ''}
                             onChange={(e) => handleUpdateLocalItemField(item.id, 'description', e.target.value)}
-                            placeholder="اورجینال GNC، موجود در انبار تهران"
+                            placeholder="اورجینال GNC، موجود در انبار ایران"
                             className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-medium text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
                           />
                         </div>
@@ -7578,7 +7582,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         />
       )}
 
-      {/* SUB-TAB: PAYMENT GATEWAY SETTINGS (تنظیمات درگاه پرداخت) */}
+      {/* SUB-TAB: PAYMENT GATEWAY SETTINGS (تنظیمات درگاه اختصاصی پرداخت آنلاین شاپرک - زیبال) */}
       {activeAdminSubTab === 'gateway' && (
         <form onSubmit={handleSaveGatewaySettings} className="space-y-6">
           {/* Header Bar */}
@@ -7589,224 +7593,161 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
               <div>
                 <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
-                  <span>تنظیمات درگاه پرداخت آنلاین و کارت‌به‌کارت</span>
-                  <span className="bg-slate-100 text-slate-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border border-slate-200">
-                    شاپرک و واریز مستقیم
+                  <span>تنظیمات درگاه اختصاصی پرداخت آنلاین شاپرک (زیبال)</span>
+                  <span className="bg-emerald-50 text-emerald-700 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    درگاه فعال شاپرک
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  پیکربندی درگاه‌های زرین‌پال، زیبال، نکست‌پی، آیدی‌پال و اطلاعات حساب کارت به کارت
+                  پیکربندی مستقیم کد مرچنت زیبال، حالت زنده/آزمایشی و آدرس بازگشت تراکنش‌های بانکی
                 </p>
               </div>
             </div>
 
+            <button
+              type="submit"
+              disabled={isSavingGateway}
+              className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white font-extrabold text-xs px-5 py-3 rounded-2xl transition shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {isSavingGateway ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>در حال ذخیره...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>ذخیره تنظیمات درگاه</span>
+                </>
+              )}
+            </button>
           </div>
 
           {saveGatewaySuccess && (
             <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-2xl text-emerald-800 text-xs font-extrabold flex items-center gap-2.5 shadow-2xs">
               <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-              <span>تنظیمات درگاه پرداخت با موفقیت در سیستم و سرور ذخیره شد.</span>
+              <span>تنظیمات درگاه پرداخت زیبال با موفقیت ذخیره شد.</span>
             </div>
           )}
 
-          {/* Gateway Selector Cards Grid */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-            <div className="border-b border-slate-200 pb-3">
-              <h4 className="font-black text-sm text-slate-900 flex items-center gap-2">
-                <Wallet className="w-4.5 h-4.5 text-slate-700" />
-                <span>انتخاب درگاه پرداخت فعال در سایت:</span>
-              </h4>
-              <p className="text-xs text-slate-500 mt-0.5">
-                درگاه انتخاب شده به عنوان روش اصلی تسویه‌حساب سفارشات به کاربران نمایش داده می‌شود.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-              {[
-                { id: 'zarinpal', name: 'زرین‌پال', badge: 'ZarinPal' },
-                { id: 'zibal', name: 'زیبال', badge: 'Zibal' },
-                { id: 'nextpay', name: 'نکست‌پی', badge: 'NextPay' },
-                { id: 'idpay', name: 'آیدی‌پال', badge: 'IDPay' },
-                { id: 'card_to_card', name: 'کارت به کارت', badge: 'Manual' }
-              ].map(gw => {
-                const isSelected = activeGateway === gw.id;
-                return (
-                  <button
-                    key={gw.id}
-                    type="button"
-                    onClick={() => setActiveGateway(gw.id as GatewayProvider)}
-                    className={`p-4 rounded-2xl border-2 transition text-right cursor-pointer flex flex-col justify-between h-28 relative ${
-                      isSelected
-                        ? 'border-slate-900 bg-slate-900 text-white shadow-md'
-                        : 'border-slate-200 bg-white hover:border-slate-400 text-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
-                        isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
-                      }`}>
-                        {gw.badge}
-                      </span>
-                      {isSelected && (
-                        <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center">
-                          <Check className="w-3.5 h-3.5" />
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <span className="font-extrabold text-sm block">{gw.name}</span>
-                      <span className={`text-[10px] block mt-0.5 ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
-                        {gw.id === 'card_to_card' ? 'واریز دستی بانکی' : 'درگاه پرداخت آنلاین'}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Active Online Gateway Credentials Form (Show if not card-to-card) */}
-          {activeGateway !== 'card_to_card' && (
-            <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-              <div className="border-b border-slate-200 pb-3 flex items-center justify-between">
+          {/* Dedicated Single Zibal Gateway Settings Card */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-6">
+            <div className="border-b border-slate-200 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-xs">
+                  زیبال
+                </div>
                 <div>
                   <h4 className="font-black text-sm text-slate-900 flex items-center gap-2">
                     <Key className="w-4.5 h-4.5 text-slate-700" />
-                    <span>کلیدها و اطلاعات فنی درگاه {activeGateway.toUpperCase()}</span>
+                    <span>تنظیمات درگاه اختصاصی پرداخت آنلاین شاپرک (زیبال)</span>
                   </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">اطلاعات اتصال به ای‌پی‌ای (API Key / Merchant ID)</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    اتصال رسمی و مستقیم به درگاه پرداخت شاپرک از طریق ارائه‌دهنده زیبال
+                  </p>
                 </div>
-                <span className="text-xs font-extrabold px-3 py-1 bg-slate-100 rounded-xl text-slate-700">
-                  سرویس: {activeGateway}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-extrabold px-3 py-1 rounded-xl border ${
+                  zibalSandbox
+                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}>
+                  {zibalSandbox ? 'حالت آزمایشی (سندباکس)' : 'حالت واقعی (Live Real Payment)'}
                 </span>
               </div>
+            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Merchant ID / API Key Input */}
-                <div>
-                  <label className="text-xs font-extrabold text-slate-800 block mb-1">
-                    کد مرچنت یا کلید API اختصاصی (Merchant ID / API Key):
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showMerchantSecret ? 'text' : 'password'}
-                      value={merchantId}
-                      onChange={e => setMerchantId(e.target.value)}
-                      placeholder="e.g. zarin_merchant_8841920"
-                      className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition pr-10 font-mono"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowMerchantSecret(!showMerchantSecret)}
-                      className="absolute left-3 top-2.5 text-slate-500 hover:text-slate-800 cursor-pointer"
-                    >
-                      {showMerchantSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <span className="text-[10px] text-slate-500 block mt-1">
-                    این کد پین یا کلید از پنل کاربری درگاه بانکی اخذ می‌شود.
-                  </span>
-                </div>
-
-                {/* Callback URL */}
-                <div>
-                  <label className="text-xs font-extrabold text-slate-800 block mb-1">
-                    آدرس بازگشت تراکنش (Callback URL):
-                  </label>
-                  <input
-                    type="text"
-                    value={callbackUrl}
-                    onChange={e => setCallbackUrl(e.target.value)}
-                    placeholder="/api/payment/callback"
-                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition dir-ltr text-left font-mono"
-                  />
-                  <span className="text-[10px] text-slate-500 block mt-1">
-                    آدرسی که بانک پس از انجام تراکنش، کاربر را به آن هدایت می‌کند.
-                  </span>
-                </div>
-              </div>
-
-              {/* Sandbox / Test Mode Toggle */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between bg-slate-50 p-3.5 rounded-2xl">
-                <div>
-                  <span className="text-xs font-extrabold text-slate-900 block">حالت تست و آزمایش (Sandbox / Test Mode)</span>
-                  <span className="text-[11px] text-slate-500 block">
-                    در حالت تست، کارت‌های بانکی به صورت شبیه‌سازی شده پردازش می‌شوند و مبلغ واقعی کسر نمی‌گردد.
-                  </span>
-                </div>
-
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={isSandbox}
-                    onChange={e => setIsSandbox(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-14 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-rose-600"></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Field 1: Zibal Merchant ID */}
+              <div>
+                <label className="text-xs font-extrabold text-slate-800 block mb-1.5">
+                  کد مرچنت زیبال (Merchant ID / API Key):
                 </label>
-              </div>
-            </div>
-          )}
-
-          {/* Manual Card-to-Card Details Panel */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-            <div className="border-b border-slate-200 pb-3">
-              <h4 className="font-black text-sm text-slate-900 flex items-center gap-2">
-                <Building2 className="w-4.5 h-4.5 text-slate-700" />
-                <span>اطلاعات حساب و واریز کارت به کارت (کارت بانکی مدیریت)</span>
-              </h4>
-              <p className="text-xs text-slate-500 mt-0.5">
-                برای واریز مستقیم یا جایگزین درگاه بانکی، اطلاعات کارت را وارد کنید.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {/* Card Number */}
-              <div>
-                <label className="text-xs font-extrabold text-slate-800 block mb-1">شماره کارت ۱۶ رقمی (Card Number):</label>
-                <input
-                  type="text"
-                  value={cardNumber}
-                  onChange={e => setCardNumber(e.target.value)}
-                  placeholder="6037-9918-4421-9876"
-                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition dir-ltr text-center font-mono"
-                />
+                <div className="relative">
+                  <input
+                    type={showMerchantSecret ? 'text' : 'password'}
+                    value={zibalMerchantId}
+                    onChange={e => setZibalMerchantId(e.target.value)}
+                    placeholder="کد مرچنت اختصاصی زیبال را وارد کنید"
+                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-3 rounded-xl focus:outline-none transition pr-10 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowMerchantSecret(!showMerchantSecret)}
+                    className="absolute left-3 top-3 text-slate-500 hover:text-slate-800 cursor-pointer"
+                  >
+                    {showMerchantSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                  کد مرچنت اختصاصی ثبت‌شده در پنل زیبال (پشتیبانی از هر طول رشته).
+                </p>
               </div>
 
-              {/* Bank Name */}
+              {/* Field 3: Callback URL */}
               <div>
-                <label className="text-xs font-extrabold text-slate-800 block mb-1">نام بانک صادرکننده (Bank Name):</label>
+                <label className="text-xs font-extrabold text-slate-800 block mb-1.5">
+                  آدرس بازگشت (Callback URL):
+                </label>
                 <input
                   type="text"
-                  value={bankName}
-                  onChange={e => setBankName(e.target.value)}
-                  placeholder="مثال: بانک ملی ایران"
-                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition"
+                  value={callbackUrl}
+                  onChange={e => setCallbackUrl(e.target.value)}
+                  placeholder="https://sirikfit.ir/api/payment/callback"
+                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-3 rounded-xl focus:outline-none transition dir-ltr text-left font-mono"
                 />
-              </div>
-
-              {/* Cardholder Name */}
-              <div>
-                <label className="text-xs font-extrabold text-slate-800 block mb-1">نام و خانوادگی صاحب حساب:</label>
-                <input
-                  type="text"
-                  value={cardholderName}
-                  onChange={e => setCardholderName(e.target.value)}
-                  placeholder="به نام مدیریت بازرگانی سیریک فیت پرو"
-                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition"
-                />
+                <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                  آدرس بازگشت به سایت پس از انجام تراکنش در درگاه رسمی شاپرک.
+                </p>
               </div>
             </div>
 
-            <div>
-              <label className="text-xs font-extrabold text-slate-800 block mb-1">شماره شبا (اختیاری):</label>
-              <input
-                type="text"
-                value={shabaNumber}
-                onChange={e => setShabaNumber(e.target.value)}
-                placeholder="IR680170000000109988772001"
-                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold px-3.5 py-2.5 rounded-xl focus:outline-none transition dir-ltr text-left font-mono"
+            {/* Field 2: Sandbox Mode Switch */}
+            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50 p-4 rounded-2xl">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-extrabold text-slate-900">سوئیچ حالت آزمایشی / تستی (Sandbox Mode)</span>
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                    zibalSandbox ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                  }`}>
+                    {zibalSandbox ? 'سندباکس فعال' : 'پرداخت واقعی'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  {zibalSandbox
+                    ? 'در حالت تست (ON): استفاده خودکار از مرچنت تستی "zibal" بدون کسر وجه واقعی.'
+                    : 'در حالت واقعی (OFF): استفاده از مرچنت اختصاصی برای کسر وجه واقعی از حساب مشتری.'}
+                </p>
+              </div>
+
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={zibalSandbox}
+                  onChange={e => setZibalSandbox(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-14 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-amber-500"></div>
+              </label>
+            </div>
+
+            {/* Field 4: Custom Success Message */}
+            <div className="pt-4 border-t border-slate-100 space-y-2">
+              <label className="text-xs font-extrabold text-slate-800 block">
+                متن سفارشی رسید پس از پرداخت موفق (Custom Receipt Success Message):
+              </label>
+              <textarea
+                rows={3}
+                value={gatewaySuccessMessage}
+                onChange={e => setGatewaySuccessMessage(e.target.value)}
+                placeholder="پیام تشکر و راهنمای مراحل بعد که پس از پرداخت موفق به مشتری نمایش داده می‌شود..."
+                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 focus:bg-white text-slate-900 text-xs font-bold p-3.5 rounded-xl focus:outline-none transition resize-y leading-relaxed"
               />
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                این پیام در صفحه رسید پرداخت الکترونیک پس از تایید تراکنش در شاپرک به کاربر نمایش داده می‌شود.
+              </p>
             </div>
           </div>
         </form>

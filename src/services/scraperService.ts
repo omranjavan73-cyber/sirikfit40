@@ -11,8 +11,10 @@ import type {
 import { generateBilingualProductTitle } from '../utils/parseLink';
 import { GncAdapter } from './GncAdapter';
 import { DrNutritionAdapter } from './DrNutritionAdapter';
+import { GncParser } from './gncParser';
+import { DrNutritionParser } from './drNutritionParser';
 
-export { GncAdapter, DrNutritionAdapter };
+export { GncAdapter, DrNutritionAdapter, GncParser, DrNutritionParser };
 
 export interface ScraperAdapter {
   storeName: string;

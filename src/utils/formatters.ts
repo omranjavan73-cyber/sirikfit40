@@ -92,6 +92,58 @@ export function calculateFinalToman(
  * 3. Extract ONLY the URL string starting from "http://" or "https://" up to the first space or end of string.
  * 4. Return ONLY this extracted clean URL.
  */
+export function deduplicateImageUrls(
+  images: (string | null | undefined)[],
+  fallback?: string
+): string[] {
+  if (!Array.isArray(images)) return fallback ? [fallback] : [];
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const raw of images) {
+    if (!raw || typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith('data:image/svg')) continue;
+
+    // Filter out dummy icon placeholders, flags, pixel trackers
+    const lower = trimmed.toLowerCase();
+    if (
+      lower.includes('icon-') ||
+      lower.includes('/icon_') ||
+      lower.includes('pixel.gif') ||
+      lower.includes('placeholder.png') ||
+      lower.includes('flag-') ||
+      lower.includes('sprite.') ||
+      lower.includes('logo_') ||
+      lower.includes('/logo.')
+    ) {
+      continue;
+    }
+
+    // Normalize URL key (ignoring small resizing query params so high-res versions match)
+    let key = trimmed;
+    try {
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        const u = new URL(trimmed);
+        key = `${u.origin}${u.pathname}`.toLowerCase().replace(/\/+$/, '');
+      }
+    } catch (_e) {
+      key = trimmed.toLowerCase().split('?')[0];
+    }
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(trimmed);
+    }
+  }
+
+  if (result.length === 0 && fallback) {
+    return [fallback];
+  }
+  return result;
+}
+
 export function extractCleanUrl(input: string): string {
   if (!input || typeof input !== 'string') return '';
   const trimmed = input.trim();

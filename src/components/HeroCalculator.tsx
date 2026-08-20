@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link2, Sparkles, ArrowLeft, Weight, Coins, PackageCheck, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Info, ShieldCheck, ShoppingCart, CheckCircle2, Trash2, X } from 'lucide-react';
 import { FinancialSettings, ParsedProduct, CmsConfig, ProductVariantMatrix, ProductVariantItem } from '../types';
-import { formatToman, formatAed, toPersianDigits, extractCleanUrl, getEffectiveAedRate } from '../utils/formatters';
+import { formatToman, formatAed, toPersianDigits, extractCleanUrl, getEffectiveAedRate, deduplicateImageUrls } from '../utils/formatters';
+import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { getEffectiveGeminiKeysList, extractProductWithGeminiAI } from '../utils/geminiKey';
 import { parseProductLinkUniversal } from '../utils/parseLink';
 import { SpeedboatLoader } from './SpeedboatLoader';
+import { ImageMagnifier } from './ImageMagnifier';
 
 interface HeroCalculatorProps {
   settings: FinancialSettings;
@@ -220,7 +222,8 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
         const mainImg = result.image || cms?.heroImage || fallbackImage;
         setProductImage(mainImg);
-        const galleryList = (result.images && result.images.length > 0) ? result.images : [mainImg];
+        const rawList = (result.images && result.images.length > 0) ? result.images : (result.galleryImages || [mainImg]);
+        const galleryList = deduplicateImageUrls([mainImg, ...rawList], mainImg);
         setProductGallery(galleryList);
         if (result.storeName) setStoreName(result.storeName);
         if (result.brand) setBrandName(result.brand);
@@ -509,290 +512,344 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         )}
       </div>
 
-      {/* Extracted Product Rich Card */}
+      {/* Extracted Product Rich Card - 2-Column Responsive Layout */}
       {!isParsing && showResult && (
         <div ref={resultRef} id="compact-preview-card" className="mt-4 pt-3.5 border-t border-[#E5E5E5] relative z-10">
-          <div className="bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] rounded-[16px] p-4 shadow-2xs space-y-4">
+          <div className="bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] rounded-[18px] p-4 md:p-6 shadow-xs space-y-4 font-['Vazirmatn',sans-serif]">
             
-            {/* Main Product Info & Multi-Image Gallery */}
-            <div className="flex flex-col sm:flex-row items-start gap-3.5">
-              <div className="flex flex-col items-center gap-2 shrink-0">
-                <img
-                  src={productImage}
-                  alt={productTitle}
-                  referrerPolicy="no-referrer"
-                  className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-xl border border-[#E5E5E5] bg-white shadow-2xs shrink-0"
-                  onError={(e) => {
-                    const target = e.currentTarget;
-                    const currentSrc = target.src || '';
-                    if (productImage && !currentSrc.includes('images.weserv.nl') && !productImage.startsWith('data:')) {
-                      target.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(productImage);
-                    } else {
-                      target.src = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+              
+              {/* ==================================================================== */}
+              {/* COLUMN 1: LARGE IMAGE SHOWCASE WITH HOVER/TOUCH MAGNIFIER (Cols 1-5) */}
+              {/* ==================================================================== */}
+              <div className="md:col-span-5 flex flex-col items-center gap-3 w-full">
+                {/* Main Magnifier Container */}
+                <div className="w-full flex justify-center">
+                  <ImageMagnifier
+                    src={productImage}
+                    alt={productTitle}
+                    fallbackSrc="https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600"
+                    zoomScale={2.2}
+                    showHints={true}
+                    badge={
+                      originalPriceAed && originalPriceAed > priceAed ? (
+                        <span className="bg-rose-600 text-white text-[10px] sm:text-xs font-black px-2.5 py-1 rounded-full shadow-sm dir-ltr">
+                          -{Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100)}%
+                        </span>
+                      ) : null
                     }
-                  }}
-                />
-
-                {/* Thumbnails row if multiple images exist */}
-                {productGallery.length > 1 && (
-                  <div className="flex items-center gap-1 overflow-x-auto max-w-[160px] pb-1 dir-ltr">
-                    {productGallery.slice(0, 5).map((imgUrl, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setProductImage(imgUrl)}
-                        className={`w-7 h-7 rounded-md border overflow-hidden bg-white shrink-0 cursor-pointer transition ${
-                          productImage === imgUrl ? 'border-[#D31027] ring-2 ring-[#D31027]/20 scale-105' : 'border-slate-200 opacity-60 hover:opacity-100'
-                        }`}
-                      >
-                        <img
-                          src={imgUrl}
-                          alt={`تصویر ${idx + 1}`}
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            const target = e.currentTarget;
-                            if (!target.src.includes('images.weserv.nl')) {
-                              target.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(imgUrl);
-                            }
-                          }}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-1 space-y-2 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] bg-slate-200 text-slate-800 font-extrabold px-2.5 py-1 rounded-md uppercase tracking-wider">
-                    {storeName}
-                  </span>
-                  {/* Conditional Discount Badge ONLY when original price exists */}
-                  {originalPriceAed && originalPriceAed > priceAed && (
-                    <span className="text-[10px] bg-rose-600 text-white font-black px-2 py-0.5 rounded-md dir-ltr">
-                      -{Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100)}%
-                    </span>
-                  )}
+                    className="w-full max-w-[320px] h-[300px] md:max-w-none md:h-auto md:min-h-[380px] lg:min-h-[420px] bg-white border border-gray-200/90 rounded-2xl p-4 shadow-sm flex items-center justify-center relative overflow-hidden"
+                    imageClassName="object-contain w-full h-full max-h-[360px]"
+                  />
                 </div>
 
-                <h3 className="font-black text-sm sm:text-base text-[#111111] leading-snug">
-                  {productTitle}
-                </h3>
+                {/* Conditional Thumbnails Row: STRICTLY HIDDEN IF ONLY 1 IMAGE */}
+                {(() => {
+                  const cleanThumbnails = deduplicateImageUrls(
+                    productGallery.length > 0 ? productGallery : [productImage],
+                    productImage
+                  );
+                  if (cleanThumbnails.length <= 1) return null;
 
-                {/* Dynamic Specifications Grid (مشخصات واقعی کالا) */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                  <div className="bg-white p-2 rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-neutral-400 block font-bold">وزن محاسباتی:</span>
-                    <span className="text-[#111111] font-black">{weightKg} کیلوگرم</span>
-                  </div>
-                  <div className="bg-white p-2 rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-neutral-400 block font-bold">قیمت دبی:</span>
-                    <span className="text-[#111111] font-black dir-ltr">{formatAed(priceAed)}</span>
-                  </div>
-                  {(brandName || storeName) && (
-                    <div className="bg-white p-2 rounded-lg border border-slate-200">
-                      <span className="text-[10px] text-neutral-400 block font-bold">برند / فروشگاه:</span>
-                      <span className="text-[#111111] font-black truncate block">{brandName || storeName}</span>
+                  return (
+                    <div className="w-full flex items-center justify-center gap-2 overflow-x-auto py-1 px-1 dir-ltr no-scrollbar">
+                      {cleanThumbnails.slice(0, 6).map((imgUrl, idx) => {
+                        const isActive = productImage === imgUrl;
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setProductImage(imgUrl)}
+                            className={`relative w-13 h-13 sm:w-15 sm:h-15 rounded-xl overflow-hidden bg-white shrink-0 cursor-pointer transition-all duration-200 p-1 flex items-center justify-center ${
+                              isActive
+                                ? 'border-2 border-red-500 ring-2 ring-red-500/20 shadow-sm scale-105'
+                                : 'border border-gray-200 hover:border-gray-400 opacity-70 hover:opacity-100'
+                            }`}
+                            title={`تصویر ${idx + 1}`}
+                          >
+                            <img
+                              src={imgUrl}
+                              alt={`تصویر ${idx + 1}`}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-contain"
+                              onError={(e) => {
+                                const target = e.currentTarget;
+                                if (!target.src.includes('images.weserv.nl')) {
+                                  target.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(imgUrl);
+                                }
+                              }}
+                            />
+                          </button>
+                        );
+                      })}
                     </div>
-                  )}
-                  {categoryName && (
-                    <div className="bg-white p-2 rounded-lg border border-slate-200">
-                      <span className="text-[10px] text-neutral-400 block font-bold">دسته‌بندی:</span>
-                      <span className="text-[#111111] font-black truncate block">{categoryName}</span>
-                    </div>
-                  )}
-                </div>
+                  );
+                })()}
               </div>
-            </div>
 
-            {/* Interactive Variant Selection UI (گزینه‌های قابل انتخاب) */}
-            {(() => {
-              const validOptions = (productOptions || []).filter(
-                (opt) => opt && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(opt.trim().toLowerCase())
-              );
-              if (validOptions.length === 0) return null;
-              return (
-                <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black text-[#111111] flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-900 inline-block"></span>
-                      <span>گزینه‌های قابل انتخاب:</span>
+              {/* ==================================================================== */}
+              {/* COLUMN 2: SPECS, PRICING, VARIANTS & ACTIONS (Cols 6-12)             */}
+              {/* ==================================================================== */}
+              <div className="md:col-span-7 flex flex-col space-y-4 w-full text-right dir-rtl">
+                
+                {/* Store Badge, Brand & Title */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] bg-slate-900 text-white font-extrabold px-3 py-1 rounded-lg uppercase tracking-wider shadow-2xs">
+                      {storeName}
                     </span>
-                    {selectedOption && validOptions.includes(selectedOption) && (
-                      <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md dir-rtl">
-                        انتخاب‌شده: <span className="text-slate-900 font-black">{selectedOption}</span>
+                    {brandName && (
+                      <span className="text-[11px] bg-white border border-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded-lg">
+                        برند: {brandName}
+                      </span>
+                    )}
+                    {categoryName && (
+                      <span className="text-[11px] bg-white border border-slate-200 text-slate-600 font-medium px-2.5 py-1 rounded-lg">
+                        {categoryName}
                       </span>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-2 pt-0.5 dir-ltr">
-                    {validOptions.map((opt) => {
-                      const isSelected = selectedOption === opt;
-                      // Check if this option has a specific price in productVariantItems
-                      const matchedItem = productVariantItems.find(v =>
-                        v.title?.toLowerCase() === opt.toLowerCase() ||
-                        v.name?.toLowerCase() === opt.toLowerCase() ||
-                        v.size?.toLowerCase() === opt.toLowerCase() ||
-                        v.flavor?.toLowerCase() === opt.toLowerCase()
-                      );
-                      const optPrice = matchedItem ? (matchedItem.priceAED ?? matchedItem.priceAed) : null;
-                      const hasDifferentPrice = optPrice && optPrice > 0;
 
-                      return (
-                        <button
-                          key={opt}
-                          type="button"
-                          onClick={() => handleSelectOption(opt)}
-                          className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer inline-flex items-center gap-1.5 ${
-                            isSelected
-                              ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02]'
-                              : 'bg-slate-50 text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span>{opt}</span>
-                          {hasDifferentPrice && (
-                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${
-                              isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-800'
-                            }`}>
-                              {optPrice} AED
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <h3 className="font-black text-base sm:text-lg lg:text-xl text-[#111111] leading-snug">
+                    {productTitle}
+                  </h3>
                 </div>
-              );
-            })()}
 
-            {/* Product Features & Description Box (ویژگی‌های محصول) */}
-            {productDescription && (
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 space-y-1.5">
-                <span className="text-xs font-black text-[#111111] flex items-center gap-1.5">
-                  <span className="text-amber-500">✨</span>
-                  <span>ویژگی‌های محصول</span>
-                </span>
-                <p className="text-xs text-slate-600 font-medium leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-100/90">
-                  {productDescription}
-                </p>
-              </div>
-            )}
-
-            {/* Pre-Add Quantity Selector & Live Total Price Tag */}
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200/80">
-                <span className="text-xs font-bold text-slate-700">تعداد کالا:</span>
-                <div className="flex items-center gap-2.5 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
-                  <button
-                    type="button"
-                    onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                    className="w-7 h-7 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-800 font-black flex items-center justify-center cursor-pointer transition text-base border border-slate-200"
-                  >
-                    -
-                  </button>
-                  <span className="font-black text-sm text-slate-900 w-5 text-center dir-ltr">
-                    {toPersianDigits(quantity)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setQuantity((q) => q + 1)}
-                    className="w-7 h-7 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-800 font-black flex items-center justify-center cursor-pointer transition text-base border border-slate-200"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              {/* Live Bulk Discount Tier Badge */}
-              {(pricingResult.commissionPercent < 20 || quantity > 1) && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <span>✨</span>
-                    <span>کارمزد تخفیفی {toPersianDigits(pricingResult.commissionPercent)}٪</span>
-                  </span>
-                  <span className="text-[10px] font-bold text-emerald-700">
-                    ({quantity > 1 ? 'تخفیف خرید چندتایی' : 'تخفیف پله‌ای حجم'})
-                  </span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-1">
-                <div>
-                  <span className="text-xs font-bold text-neutral-500 block">جمع کل قابل پرداخت:</span>
-                  {quantity > 1 && (
-                    <span className="text-[10px] text-neutral-400 font-medium block">
-                      (میانگین هر واحد: {formatToman(Math.round(finalToman / quantity))})
+                {/* Dynamic Specifications Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] text-neutral-400 block font-bold mb-0.5 flex items-center gap-1">
+                      <Coins className="w-3 h-3 text-amber-500" />
+                      قیمت در امارات:
                     </span>
-                  )}
-                </div>
-                <div className="text-lg sm:text-xl font-black text-[#E11D48] tracking-tight">
-                  {formatToman(finalToman)}
-                </div>
-              </div>
-
-              <button
-                onClick={handleAddToCartClick}
-                className={`w-full font-extrabold text-sm py-3.5 px-5 rounded-[12px] transition flex items-center justify-center gap-2 cursor-pointer border-none shadow-2xs ${
-                  isAdded ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-[#111111] hover:bg-black text-white'
-                }`}
-              >
-                {isAdded ? (
-                  <>
-                    <CheckCircle2 className="w-4.5 h-4.5 text-white" />
-                    <span>✓ اضافه شد!</span>
-                  </>
-                ) : (
-                  <>
-                    <ShoppingCart className="w-4.5 h-4.5" />
-                    <span>افزودن به سبد خرید</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Price Breakdown Toggle */}
-            {(cms?.features?.showBreakdown ?? cms?.showPriceBreakdown ?? cms?.showBreakdown ?? true) && (
-              <div className="border-t border-slate-200 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowBreakdown(!showBreakdown)}
-                  className="flex items-center justify-between w-full text-xs font-black text-slate-700 hover:text-black transition cursor-pointer"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <Coins className="w-4 h-4 text-amber-600" />
-                    <span>مشاهده ریز قیمت</span>
+                    <span className="text-[#111111] font-black text-sm dir-ltr block text-left">
+                      {formatAed(priceAed)}
+                    </span>
                   </div>
-                  {showBreakdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
 
-                {showBreakdown && (
-                  <div className="mt-3 bg-white p-3.5 rounded-xl border border-slate-200 text-xs space-y-2 animate-fadeIn">
-                    <div className="flex justify-between items-center text-slate-600">
-                      <span>قیمت پایه کالا در دبی:</span>
-                      <span className="font-bold dir-ltr">{formatAed(totalAed)} ({formatToman(totalAed * settings.aedRate)})</span>
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] text-neutral-400 block font-bold mb-0.5 flex items-center gap-1">
+                      <Weight className="w-3 h-3 text-sky-500" />
+                      وزن تخمینی:
+                    </span>
+                    <span className="text-[#111111] font-black text-sm block">
+                      {weightKg} کیلوگرم
+                    </span>
+                  </div>
+
+                  <div className="col-span-2 sm:col-span-1 bg-gradient-to-br from-emerald-50 to-teal-50/70 p-3 rounded-xl border border-emerald-200/90 shadow-2xs">
+                    <span className="text-[10px] text-emerald-800 block font-bold mb-0.5 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-emerald-600" />
+                      قیمت تمام‌شده در ایران:
+                    </span>
+                    <span className="text-emerald-900 font-black text-sm sm:text-base block">
+                      {formatToman(Math.round(finalToman / quantity))}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Interactive Variant Selection UI (گزینه‌های قابل انتخاب) */}
+                {(() => {
+                  const validOptions = (productOptions || []).filter(
+                    (opt) => opt && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(opt.trim().toLowerCase())
+                  );
+                  if (validOptions.length === 0) return null;
+                  return (
+                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-[#111111] flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-slate-900 inline-block"></span>
+                          <span>گزینه‌های قابل انتخاب:</span>
+                        </span>
+                        {selectedOption && validOptions.includes(selectedOption) && (
+                          <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md dir-rtl">
+                            انتخاب‌شده: <span className="text-slate-900 font-black">{translateFlavor(selectedOption) !== selectedOption ? translateFlavor(selectedOption) : formatPersianSize(selectedOption)}</span>
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2 pt-0.5 dir-ltr">
+                        {validOptions.map((opt) => {
+                          const isSelected = selectedOption === opt;
+                          const matchedItem = productVariantItems.find(v =>
+                            v.title?.toLowerCase() === opt.toLowerCase() ||
+                            v.name?.toLowerCase() === opt.toLowerCase() ||
+                            v.size?.toLowerCase() === opt.toLowerCase() ||
+                            v.flavor?.toLowerCase() === opt.toLowerCase()
+                          );
+                          const isAvailable = matchedItem ? matchedItem.inStock !== false : true;
+                          const optPrice = matchedItem ? (matchedItem.priceAED ?? matchedItem.priceAed) : null;
+                          const hasDifferentPrice = optPrice && optPrice > 0 && optPrice !== priceAed;
+                          const localizedLabel = translateFlavor(opt) !== opt ? translateFlavor(opt) : formatPersianSize(opt);
+
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              disabled={!isAvailable}
+                              onClick={() => {
+                                if (!isAvailable) return;
+                                handleSelectOption(opt);
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all inline-flex items-center gap-1.5 ${
+                                !isAvailable
+                                  ? 'bg-slate-100/80 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50 line-through'
+                                  : isSelected
+                                  ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02] cursor-pointer'
+                                  : 'bg-slate-50 text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100 cursor-pointer'
+                              }`}
+                            >
+                              <span>{localizedLabel}</span>
+                              {!isAvailable && (
+                                <span className="text-[10px] text-rose-500 font-normal no-underline mr-0.5">
+                                  (ناموجود)
+                                </span>
+                              )}
+                              {isAvailable && hasDifferentPrice && (
+                                <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${
+                                  isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-800'
+                                }`}>
+                                  {optPrice} AED
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center text-slate-600">
-                      <span>نرخ تبدیل درهم روز:</span>
-                      <span className="font-bold">{formatToman(settings.aedRate)}</span>
+                  );
+                })()}
+
+                {/* Product Features & Description Box (ویژگی‌های محصول) */}
+                {productDescription && (
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
+                    <span className="text-xs font-black text-[#111111] flex items-center gap-1.5">
+                      <span className="text-amber-500">✨</span>
+                      <span>ویژگی‌های محصول</span>
+                    </span>
+                    <p className="text-xs text-slate-600 font-medium leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      {productDescription}
+                    </p>
+                  </div>
+                )}
+
+                {/* Quantity Selector & Live Total Price Tag */}
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-3 shadow-2xs">
+                  <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200/80">
+                    <span className="text-xs font-bold text-slate-700">تعداد کالا:</span>
+                    <div className="flex items-center gap-2.5 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                        className="w-7 h-7 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-800 font-black flex items-center justify-center cursor-pointer transition text-base border border-slate-200"
+                      >
+                        -
+                      </button>
+                      <span className="font-black text-sm text-slate-900 w-5 text-center dir-ltr">
+                        {toPersianDigits(quantity)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setQuantity((q) => q + 1)}
+                        className="w-7 h-7 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-800 font-black flex items-center justify-center cursor-pointer transition text-base border border-slate-200"
+                      >
+                        +
+                      </button>
                     </div>
-                    <div className="flex justify-between items-center text-slate-600">
-                      <span>کارمزد سفارش:</span>
-                      <span className="font-bold text-amber-700">{toPersianDigits(pricingResult.commissionPercent)}% ({formatToman(pricingResult.commissionAmountAed * settings.aedRate)})</span>
-                    </div>
-                    <div className="flex justify-between items-center text-slate-600">
-                      <span>هزینه ارسال دبی به ایران ({toPersianDigits(totalWeightKg)} کیلوگرم):</span>
-                      <span className="font-bold dir-ltr">
-                        {formatAed(pricingResult.shippingCostAed)} ({formatToman(pricingResult.shippingCostAed * settings.aedRate)})
+                  </div>
+
+                  {/* Live Bulk Discount Tier Badge */}
+                  {(pricingResult.commissionPercent < 20 || quantity > 1) && (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <span>✨</span>
+                        <span>کارمزد تخفیفی {toPersianDigits(pricingResult.commissionPercent)}٪</span>
+                      </span>
+                      <span className="text-[10px] font-bold text-emerald-700">
+                        ({quantity > 1 ? 'تخفیف خرید چندتایی' : 'تخفیف پله‌ای حجم'})
                       </span>
                     </div>
-                    <div className="border-t border-slate-100 pt-2 flex justify-between items-center font-black text-slate-900 text-sm">
-                      <span>مبلغ قابل پرداخت نهایی:</span>
-                      <span className="text-[#E11D48]">{formatToman(finalToman)}</span>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div>
+                      <span className="text-xs font-bold text-neutral-500 block">جمع کل قابل پرداخت:</span>
+                      {quantity > 1 && (
+                        <span className="text-[10px] text-neutral-400 font-medium block">
+                          (میانگین هر واحد: {formatToman(Math.round(finalToman / quantity))})
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-lg sm:text-xl font-black text-[#E11D48] tracking-tight">
+                      {formatToman(finalToman)}
                     </div>
                   </div>
+
+                  <button
+                    onClick={handleAddToCartClick}
+                    className={`w-full font-extrabold text-sm py-3.5 px-5 rounded-[12px] transition flex items-center justify-center gap-2 cursor-pointer border-none shadow-2xs ${
+                      isAdded ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-[#111111] hover:bg-black text-white'
+                    }`}
+                  >
+                    {isAdded ? (
+                      <>
+                        <CheckCircle2 className="w-4.5 h-4.5 text-white" />
+                        <span>✓ اضافه شد!</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-4.5 h-4.5" />
+                        <span>افزودن به سبد خرید</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Price Breakdown Toggle */}
+                {(cms?.features?.showBreakdown ?? cms?.showPriceBreakdown ?? cms?.showBreakdown ?? true) && (
+                  <div className="border-t border-slate-200 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowBreakdown(!showBreakdown)}
+                      className="flex items-center justify-between w-full text-xs font-black text-slate-700 hover:text-black transition cursor-pointer"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Coins className="w-4 h-4 text-amber-600" />
+                        <span>مشاهده ریز قیمت</span>
+                      </div>
+                      {showBreakdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+
+                    {showBreakdown && (
+                      <div className="mt-3 bg-white p-3.5 rounded-xl border border-slate-200 text-xs space-y-2 animate-fadeIn">
+                        <div className="flex justify-between items-center text-slate-600">
+                          <span>قیمت پایه کالا در دبی:</span>
+                          <span className="font-bold dir-ltr">{formatAed(totalAed)} ({formatToman(totalAed * settings.aedRate)})</span>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-600">
+                          <span>نرخ تبدیل درهم روز:</span>
+                          <span className="font-bold">{formatToman(settings.aedRate)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-600">
+                          <span>کارمزد سفارش:</span>
+                          <span className="font-bold text-amber-700">{toPersianDigits(pricingResult.commissionPercent)}% ({formatToman(pricingResult.commissionAmountAed * settings.aedRate)})</span>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-600">
+                          <span>هزینه ارسال دبی به ایران ({toPersianDigits(totalWeightKg)} کیلوگرم):</span>
+                          <span className="font-bold dir-ltr">
+                            {formatAed(pricingResult.shippingCostAed)} ({formatToman(pricingResult.shippingCostAed * settings.aedRate)})
+                          </span>
+                        </div>
+                        <div className="border-t border-slate-100 pt-2 flex justify-between items-center font-black text-slate-900 text-sm">
+                          <span>مبلغ قابل پرداخت نهایی:</span>
+                          <span className="text-[#E11D48]">{formatToman(finalToman)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
+
               </div>
-            )}
+            </div>
 
           </div>
         </div>

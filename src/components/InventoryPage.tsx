@@ -199,8 +199,8 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
               storeName: 'انبار ایران (تحویل فوری)',
               brand: 'انبار ایران',
               category: selectedLocalForModal.category || 'موجودی ایران',
-              description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری ۲۴ ساعته',
-              badge: selectedLocalForModal.deliveryBadge || '⚡ تحویل فوری ۲۴ ساعته',
+              description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری',
+              badge: selectedLocalForModal.deliveryBadge || '⚡ ارسال فوری (انبار ایران)',
               flavors: selectedLocalForModal.flavors || [],
               sizes: selectedLocalForModal.sizes || []
             }}

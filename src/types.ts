@@ -63,7 +63,6 @@ export interface FinancialSettings {
   profitMargin: number; // e.g., 15 (%)
   minOrderAed?: number; // Deprecated: Minimum cart order in AED (e.g., 200)
   minOrderAmountToman?: number; // Minimum cart order in Toman (e.g., 5000000 or 0)
-  minOrderLimitEnabled?: boolean; // Enable or disable minimum order restriction
 }
 
 export interface StoreCardItem {
@@ -199,33 +198,20 @@ export interface HomePageSettings {
   heroImageUrl?: string;
 }
 
-export type GatewayProvider = 'zarinpal' | 'zibal' | 'nextpay' | 'idpay' | 'card_to_card';
+export type GatewayProvider = 'zibal';
 
 export interface PaymentGatewayConfig {
-  activeGateway: GatewayProvider;
-  merchantId: string;
+  activeGateway: 'zibal';
+  zibalMerchantId: string;
+  zibalSandbox: boolean;
   callbackUrl: string;
-  isSandbox: boolean;
-  cardToCard: {
-    cardNumber: string;
-    bankName: string;
-    cardholderName: string;
-    shabaNumber?: string;
-  };
+  successMessage?: string;
+  merchantId?: string;
+  isSandbox?: boolean;
+  updatedAt?: string;
 }
 
-export interface GatewayProviderConfig {
-  activeGateway: GatewayProvider;
-  merchantId: string;
-  callbackUrl: string;
-  isSandbox: boolean;
-  cardToCard: {
-    cardNumber: string;
-    bankName: string;
-    cardholderName: string;
-    shabaNumber?: string;
-  };
-}
+export interface GatewayProviderConfig extends PaymentGatewayConfig {}
 
 export interface CommissionRule {
   id: string;
@@ -244,7 +230,6 @@ export interface ShippingIncrementRule {
 
 export interface PricingRulesConfig {
   minOrderAmountToman?: number;
-  minOrderLimitEnabled?: boolean;
   baseCommission: {
     percentage: number;
     isEnabled: boolean;
@@ -416,6 +401,7 @@ export interface Order {
   shippingStatus: ShippingStatus;
   createdAt: string;
   paymentRefId?: string;
+  paymentRefNumber?: string;
   trackId?: string;
   paidAt?: string;
   paymentGateway?: string;
@@ -425,6 +411,7 @@ export interface Order {
   discountCode?: string;
   discountAmountToman?: number;
   isLocalInventory?: boolean;
+  status?: string;
 }
 
 export interface ScrapedProductResult {
@@ -685,14 +672,46 @@ export interface FinancialExpense {
   category: ExpenseCategory;
   title: string;
   amount: number;
-  currency: 'TOMAN' | 'AED';
+  currency: 'AED' | 'TOMAN';
   amountToman: number;
   amountAed?: number;
   date: string;
   timestamp: number;
-  vendorName: string;
+  vendorName?: string;
   referenceNumber?: string;
   notes?: string;
-  createdBy?: string;
   createdAt: string;
 }
+
+export interface AdminSecuritySettings {
+  adminPasswordHash?: string;
+  adminPassword?: string;
+  passwordHash?: string;
+  backupEmail?: string;
+  adminEmail?: string;
+  recoveryEmail?: string;
+  updatedAt?: string;
+  lastPasswordChange?: string;
+  resetToken?: string;
+  resetTokenExpires?: number;
+  smtpConfig?: {
+    host: string;
+    port: number;
+    user: string;
+    pass: string;
+    fromEmail: string;
+    secure: boolean;
+  };
+}
+
+export interface PasswordResetOtpState {
+  step: 'REQUEST' | 'VERIFY';
+  email: string;
+  otpCode: string;
+  newPassword: string;
+  confirmPassword: string;
+  loading: boolean;
+  error?: string;
+  successMessage?: string;
+}
+

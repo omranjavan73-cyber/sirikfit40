@@ -434,7 +434,7 @@ export const AdminReviews: React.FC<AdminReviewsProps> = ({ showToast }) => {
 
                     {/* Content Box */}
                     <p className="text-xs sm:text-sm text-slate-800 font-extrabold leading-relaxed bg-slate-50/90 p-3.5 rounded-xl border border-slate-200/70 select-text">
-                      {rev.content}
+                      {rev.text || rev.content}
                     </p>
 
                     {/* Admin Reply Section */}
@@ -454,7 +454,7 @@ export const AdminReviews: React.FC<AdminReviewsProps> = ({ showToast }) => {
                           </button>
                         </div>
                         <p className="font-bold text-indigo-900 text-xs leading-relaxed">
-                          {rev.reply || rev.adminReply}
+                          {rev.adminReply || rev.reply}
                         </p>
                       </div>
                     )}
@@ -655,7 +655,7 @@ export const AdminReviews: React.FC<AdminReviewsProps> = ({ showToast }) => {
 
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-slate-700 font-bold leading-relaxed">
               <span className="text-[10px] text-slate-400 block mb-1">متن نظر کاربر:</span>
-              "{replyingReview.content}"
+              "{replyingReview.text || replyingReview.content}"
             </div>
 
             <form onSubmit={handleSaveReply} className="space-y-3.5">
@@ -709,7 +709,7 @@ export const AdminReviews: React.FC<AdminReviewsProps> = ({ showToast }) => {
             </div>
 
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-slate-700 font-bold text-right">
-              <p className="line-clamp-2">"{deletingReview.content}"</p>
+              <p className="line-clamp-2">"{deletingReview.text || deletingReview.content}"</p>
               <span className="text-[10px] text-slate-400 block mt-1">نویسنده: {deletingReview.authorName}</span>
             </div>
 

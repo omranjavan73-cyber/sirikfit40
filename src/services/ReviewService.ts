@@ -18,15 +18,19 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 export interface ReviewItem {
   id: string;
   authorName: string;
+  text: string;
   content: string;
-  createdAt: string;
+  rating: number;
+  likesCount: number;
   likes: number;
   dislikes?: number;
   category?: 'پیشنهاد' | 'انتقاد' | 'نظر';
+  status: 'approved' | 'pending' | 'rejected';
+  isApproved: boolean;
+  adminReply: string | null;
   reply?: string;
-  adminReply?: string;
-  isApproved?: boolean;
-  status?: 'approved' | 'pending';
+  createdAt: string;
+  updatedAt: string;
   timestamp?: number;
 }
 
@@ -34,56 +38,100 @@ export const DEFAULT_PUBLIC_REVIEWS: ReviewItem[] = [
   {
     id: 'rev-default-1',
     authorName: 'علی رضایی',
+    text: 'تجربه بسیار خوبی از خرید مکمل داشتم. ارسال سریع و بسته‌بندی کاملاً اورجینال و پلمپ بود.',
     content: 'تجربه بسیار خوبی از خرید مکمل داشتم. ارسال سریع و بسته‌بندی کاملاً اورجینال و پلمپ بود.',
-    createdAt: '۲ ساعت پیش',
+    rating: 5,
+    likesCount: 14,
     likes: 14,
     category: 'نظر',
     isApproved: true,
     status: 'approved',
+    adminReply: null,
+    reply: '',
+    createdAt: new Date(Date.now() - 7200000).toISOString(),
+    updatedAt: new Date(Date.now() - 7200000).toISOString(),
     timestamp: Date.now() - 7200000
   },
   {
     id: 'rev-default-2',
     authorName: 'سارا احمدی',
+    text: 'پیشنهاد می‌کنم تنوع پروتئین‌های ایزوله بیشتر بشه، پشتیبانی واتساپ هم خیلی پاسخگو بودن.',
     content: 'پیشنهاد می‌کنم تنوع پروتئین‌های ایزوله بیشتر بشه، پشتیبانی واتساپ هم خیلی پاسخگو بودن.',
-    createdAt: '۵ ساعت پیش',
+    rating: 5,
+    likesCount: 9,
     likes: 9,
     category: 'پیشنهاد',
     isApproved: true,
     status: 'approved',
+    adminReply: null,
+    reply: '',
+    createdAt: new Date(Date.now() - 18000000).toISOString(),
+    updatedAt: new Date(Date.now() - 18000000).toISOString(),
     timestamp: Date.now() - 18000000
   },
   {
     id: 'rev-default-3',
     authorName: 'محمدرضا کریمی',
+    text: 'قیمت‌ها با توجه به نرخ درهم دبی و اصالت کالاها واقعاً منصفانه‌ست. ممنون از سیریک فیت.',
     content: 'قیمت‌ها با توجه به نرخ درهم دبی و اصالت کالاها واقعاً منصفانه‌ست. ممنون از سیریک فیت.',
-    createdAt: '۱ روز پیش',
+    rating: 5,
+    likesCount: 18,
     likes: 18,
     category: 'نظر',
-    reply: 'با سلام و احترام، رضایت شما افتخار مجموعه سیریک فیت پرو است. سپاس از اعتماد شما.',
     adminReply: 'با سلام و احترام، رضایت شما افتخار مجموعه سیریک فیت پرو است. سپاس از اعتماد شما.',
+    reply: 'با سلام و احترام، رضایت شما افتخار مجموعه سیریک فیت پرو است. سپاس از اعتماد شما.',
     isApproved: true,
     status: 'approved',
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    updatedAt: new Date(Date.now() - 86400000).toISOString(),
     timestamp: Date.now() - 86400000
   }
 ];
 
-const LOCAL_STORAGE_KEY = 'sirikfit_user_reviews';
+const LOCAL_STORAGE_KEY = 'sirikfit_user_comments';
+
+function mapDocToReviewItem(id: string, data: any): ReviewItem {
+  const isApproved = data.status === 'approved' || (data.status !== 'pending' && data.status !== 'rejected' && data.isApproved === true);
+  const status: 'approved' | 'pending' | 'rejected' = isApproved ? 'approved' : (data.status === 'rejected' ? 'rejected' : 'pending');
+  const textContent = data.text || data.content || '';
+  const replyContent = data.adminReply || data.reply || null;
+  const count = typeof data.likesCount === 'number' ? data.likesCount : (typeof data.likes === 'number' ? data.likes : 0);
+
+  return {
+    id,
+    authorName: data.authorName || 'کاربر میهمان',
+    text: textContent,
+    content: textContent,
+    rating: typeof data.rating === 'number' ? data.rating : 5,
+    likesCount: count,
+    likes: count,
+    dislikes: data.dislikes || 0,
+    category: data.category || 'نظر',
+    status,
+    isApproved: status === 'approved',
+    adminReply: replyContent,
+    reply: replyContent || '',
+    createdAt: data.createdAt || new Date().toISOString(),
+    updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+    timestamp: data.timestamp || Date.now()
+  };
+}
 
 export const ReviewService = {
   /**
-   * Subscribe to strictly approved reviews for public store view in real-time.
+   * Subscribe to strictly approved comments for public store view in real-time.
    */
   subscribeApprovedReviews(callback: (reviews: ReviewItem[]) => void): () => void {
     if (!db) {
-      const cached = this.getCachedReviews().filter(r => r.isApproved !== false && r.status !== 'pending');
+      const cached = this.getCachedReviews().filter(r => r.status === 'approved');
       callback(cached.length > 0 ? cached : DEFAULT_PUBLIC_REVIEWS);
       return () => {};
     }
 
     try {
-      const reviewsRef = collection(db, 'reviews');
-      const q = query(reviewsRef, orderBy('createdAt', 'desc'), limit(100));
+      const commentsRef = collection(db, 'comments');
+      // Query comments with status == 'approved' ordered by createdAt desc
+      const q = query(commentsRef, where('status', '==', 'approved'), orderBy('createdAt', 'desc'), limit(100));
 
       const unsubscribe = onSnapshot(
         q,
@@ -91,49 +139,82 @@ export const ReviewService = {
           const list: ReviewItem[] = [];
           snapshot.forEach((docSnap) => {
             const data = docSnap.data();
-            const isApproved = data.isApproved === true || data.status === 'approved';
-            if (isApproved) {
-              list.push({
-                id: docSnap.id,
-                authorName: data.authorName || 'کاربر میهمان',
-                content: data.content || '',
-                createdAt: data.createdAt || 'چند لحظه پیش',
-                likes: data.likes || 0,
-                dislikes: data.dislikes || 0,
-                category: data.category || 'نظر',
-                reply: data.reply || data.adminReply || '',
-                adminReply: data.adminReply || data.reply || '',
-                isApproved: true,
-                status: 'approved',
-                timestamp: data.timestamp || Date.now()
-              });
+            // Safeguard: strictly verify status === 'approved'
+            if (data.status === 'approved' || (data.status !== 'pending' && data.isApproved === true)) {
+              list.push(mapDocToReviewItem(docSnap.id, data));
             }
           });
 
-          if (list.length > 0) {
-            callback(list);
-            this.setCachedReviews(list);
+          // Client-side safeguard
+          const publicComments = list.filter(c => c.status === 'approved');
+
+          if (publicComments.length > 0) {
+            callback(publicComments);
+            this.setCachedReviews(publicComments);
           } else {
-            callback(DEFAULT_PUBLIC_REVIEWS);
+            // Also check legacy reviews collection if comments collection is empty
+            this.fetchLegacyReviewsFallback((legacyList) => {
+              const approvedLegacy = legacyList.filter(c => c.status === 'approved');
+              if (approvedLegacy.length > 0) {
+                callback(approvedLegacy);
+              } else {
+                callback(DEFAULT_PUBLIC_REVIEWS);
+              }
+            });
           }
         },
         (err) => {
-          console.warn('Firestore reviews subscription warning:', err);
-          const cached = this.getCachedReviews().filter(r => r.isApproved !== false && r.status !== 'pending');
-          callback(cached.length > 0 ? cached : DEFAULT_PUBLIC_REVIEWS);
+          console.warn('Firestore comments subscription warning, falling back to client filter:', err);
+          // Fallback query without orderBy if index is building
+          try {
+            const simpleQ = query(commentsRef, where('status', '==', 'approved'), limit(100));
+            onSnapshot(simpleQ, (snap) => {
+              const fallbackList: ReviewItem[] = [];
+              snap.forEach((docSnap) => {
+                const item = mapDocToReviewItem(docSnap.id, docSnap.data());
+                if (item.status === 'approved') fallbackList.push(item);
+              });
+              const publicComments = fallbackList.filter(c => c.status === 'approved');
+              callback(publicComments.length > 0 ? publicComments : DEFAULT_PUBLIC_REVIEWS);
+            }, () => {
+              const cached = this.getCachedReviews().filter(r => r.status === 'approved');
+              callback(cached.length > 0 ? cached : DEFAULT_PUBLIC_REVIEWS);
+            });
+          } catch (_fallbackErr) {
+            const cached = this.getCachedReviews().filter(r => r.status === 'approved');
+            callback(cached.length > 0 ? cached : DEFAULT_PUBLIC_REVIEWS);
+          }
         }
       );
 
       return unsubscribe;
     } catch (e) {
-      handleFirestoreError(e, OperationType.LIST, 'reviews');
+      handleFirestoreError(e, OperationType.LIST, 'comments');
       callback(DEFAULT_PUBLIC_REVIEWS);
       return () => {};
     }
   },
 
   /**
-   * Subscribe to all reviews (approved + pending) for Admin Panel.
+   * Helper fallback to check legacy reviews collection if comments is empty
+   */
+  async fetchLegacyReviewsFallback(cb: (reviews: ReviewItem[]) => void) {
+    if (!db) return;
+    try {
+      const snap = await getDocs(query(collection(db, 'reviews'), limit(50)));
+      if (!snap.empty) {
+        const legacyList: ReviewItem[] = [];
+        snap.forEach((docSnap) => {
+          const item = mapDocToReviewItem(docSnap.id, docSnap.data());
+          if (item.status === 'approved') legacyList.push(item);
+        });
+        if (legacyList.length > 0) cb(legacyList);
+      }
+    } catch (_e) {}
+  },
+
+  /**
+   * Subscribe to all comments (approved + pending + rejected) for Admin Panel in real time.
    */
   subscribeAllReviews(callback: (reviews: ReviewItem[]) => void): () => void {
     if (!db) {
@@ -142,186 +223,262 @@ export const ReviewService = {
     }
 
     try {
-      const reviewsRef = collection(db, 'reviews');
-      const q = query(reviewsRef, orderBy('createdAt', 'desc'), limit(150));
+      const commentsRef = collection(db, 'comments');
+      const q = query(commentsRef, orderBy('createdAt', 'desc'), limit(150));
 
       const unsubscribe = onSnapshot(
         q,
         (snapshot) => {
           const list: ReviewItem[] = [];
           snapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            const isApproved = data.status === 'approved' || (data.status !== 'pending' && data.isApproved === true);
-            list.push({
-              id: docSnap.id,
-              authorName: data.authorName || 'کاربر میهمان',
-              content: data.content || '',
-              createdAt: data.createdAt || 'چند لحظه پیش',
-              likes: data.likes || 0,
-              dislikes: data.dislikes || 0,
-              category: data.category || 'نظر',
-              reply: data.reply || data.adminReply || '',
-              adminReply: data.adminReply || data.reply || '',
-              isApproved,
-              status: isApproved ? 'approved' : 'pending',
-              timestamp: data.timestamp || Date.now()
-            });
+            list.push(mapDocToReviewItem(docSnap.id, docSnap.data()));
           });
 
-          callback(list.length > 0 ? list : DEFAULT_PUBLIC_REVIEWS);
-          this.setCachedReviews(list.length > 0 ? list : DEFAULT_PUBLIC_REVIEWS);
+          if (list.length > 0) {
+            callback(list);
+            this.setCachedReviews(list);
+          } else {
+            // Check legacy collection
+            const reviewsRef = collection(db, 'reviews');
+            getDocs(query(reviewsRef, limit(100))).then((revSnap) => {
+              if (!revSnap.empty) {
+                const legacyList: ReviewItem[] = [];
+                revSnap.forEach((d) => legacyList.push(mapDocToReviewItem(d.id, d.data())));
+                callback(legacyList);
+              } else {
+                callback(DEFAULT_PUBLIC_REVIEWS);
+              }
+            }).catch(() => callback(DEFAULT_PUBLIC_REVIEWS));
+          }
         },
         (err) => {
-          console.warn('Admin reviews subscription warning:', err);
-          callback(this.getCachedReviews());
+          console.warn('Admin comments subscription warning, trying fallback without order:', err);
+          try {
+            onSnapshot(collection(db, 'comments'), (snap) => {
+              const fallbackList: ReviewItem[] = [];
+              snap.forEach((docSnap) => fallbackList.push(mapDocToReviewItem(docSnap.id, docSnap.data())));
+              callback(fallbackList.length > 0 ? fallbackList : DEFAULT_PUBLIC_REVIEWS);
+            }, () => {
+              callback(this.getCachedReviews());
+            });
+          } catch (_e) {
+            callback(this.getCachedReviews());
+          }
         }
       );
 
       return unsubscribe;
     } catch (e) {
-      handleFirestoreError(e, OperationType.LIST, 'reviews');
+      handleFirestoreError(e, OperationType.LIST, 'comments');
       callback(this.getCachedReviews());
       return () => {};
     }
   },
 
   /**
-   * Approve a review to immediately show in public store.
+   * Approve a comment: Updates Firestore document with { status: 'approved', updatedAt: ... }
    */
-  async approveReview(reviewId: string): Promise<void> {
-    if (!reviewId) return;
-    if (db && !reviewId.startsWith('rev-default-')) {
+  async approveReview(commentId: string): Promise<void> {
+    if (!commentId) return;
+    if (db && !commentId.startsWith('rev-default-')) {
+      const nowIso = new Date().toISOString();
       try {
-        const docRef = doc(db, 'reviews', reviewId);
-        await updateDoc(docRef, {
+        const commentRef = doc(db, 'comments', commentId);
+        await setDoc(commentRef, {
           status: 'approved',
-          isApproved: true
-        });
+          isApproved: true,
+          updatedAt: nowIso
+        }, { merge: true });
+
+        // Sync legacy collection if exists
+        try {
+          await updateDoc(doc(db, 'reviews', commentId), {
+            status: 'approved',
+            isApproved: true,
+            updatedAt: nowIso
+          });
+        } catch (_legacyErr) {}
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, `reviews/${reviewId}`);
+        handleFirestoreError(err, OperationType.UPDATE, `comments/${commentId}`);
         throw err;
       }
     }
   },
 
   /**
-   * Unapprove / move to pending to immediately hide from public store.
+   * Unpublish / move comment to pending: Updates Firestore document with { status: 'pending', updatedAt: ... }
    */
-  async unapproveReview(reviewId: string): Promise<void> {
-    if (!reviewId) return;
-    if (db && !reviewId.startsWith('rev-default-')) {
+  async unapproveReview(commentId: string): Promise<void> {
+    if (!commentId) return;
+    if (db && !commentId.startsWith('rev-default-')) {
+      const nowIso = new Date().toISOString();
       try {
-        const docRef = doc(db, 'reviews', reviewId);
-        await updateDoc(docRef, {
+        const commentRef = doc(db, 'comments', commentId);
+        await setDoc(commentRef, {
           status: 'pending',
-          isApproved: false
-        });
+          isApproved: false,
+          updatedAt: nowIso
+        }, { merge: true });
+
+        // Sync legacy collection if exists
+        try {
+          await updateDoc(doc(db, 'reviews', commentId), {
+            status: 'pending',
+            isApproved: false,
+            updatedAt: nowIso
+          });
+        } catch (_legacyErr) {}
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, `reviews/${reviewId}`);
+        handleFirestoreError(err, OperationType.UPDATE, `comments/${commentId}`);
         throw err;
       }
     }
   },
 
   /**
-   * Permanently delete a review document.
+   * Permanently delete a comment document from Firestore.
    */
-  async deleteReview(reviewId: string): Promise<void> {
-    if (!reviewId) return;
-    if (db && !reviewId.startsWith('rev-default-')) {
+  async deleteReview(commentId: string): Promise<void> {
+    if (!commentId) return;
+    if (db && !commentId.startsWith('rev-default-')) {
       try {
-        const docRef = doc(db, 'reviews', reviewId);
-        await deleteDoc(docRef);
+        await deleteDoc(doc(db, 'comments', commentId));
+        try {
+          await deleteDoc(doc(db, 'reviews', commentId));
+        } catch (_legacyErr) {}
       } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, `reviews/${reviewId}`);
+        handleFirestoreError(err, OperationType.DELETE, `comments/${commentId}`);
         throw err;
       }
     }
   },
 
   /**
-   * Reply to a review as Store Admin.
+   * Reply to a comment as Store Admin: Updates Firestore with { adminReply: ..., updatedAt: ... }
    */
-  async replyToReview(reviewId: string, replyText: string): Promise<void> {
-    if (!reviewId) return;
-    if (db && !reviewId.startsWith('rev-default-')) {
+  async replyToReview(commentId: string, replyText: string): Promise<void> {
+    if (!commentId) return;
+    if (db && !commentId.startsWith('rev-default-')) {
+      const nowIso = new Date().toISOString();
+      const trimmed = replyText.trim();
       try {
-        const docRef = doc(db, 'reviews', reviewId);
-        await updateDoc(docRef, {
-          reply: replyText.trim(),
-          adminReply: replyText.trim()
-        });
+        const commentRef = doc(db, 'comments', commentId);
+        await setDoc(commentRef, {
+          adminReply: trimmed,
+          reply: trimmed,
+          updatedAt: nowIso
+        }, { merge: true });
+
+        try {
+          await updateDoc(doc(db, 'reviews', commentId), {
+            adminReply: trimmed,
+            reply: trimmed,
+            updatedAt: nowIso
+          });
+        } catch (_legacyErr) {}
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, `reviews/${reviewId}`);
+        handleFirestoreError(err, OperationType.UPDATE, `comments/${commentId}`);
         throw err;
       }
     }
   },
 
   /**
-   * Save / update review details (author, content, category, status, reply).
+   * Update full comment details in Firestore.
    */
-  async updateReview(reviewId: string, updates: Partial<ReviewItem>): Promise<void> {
-    if (!reviewId) return;
-    if (db && !reviewId.startsWith('rev-default-')) {
+  async updateReview(commentId: string, updates: Partial<ReviewItem>): Promise<void> {
+    if (!commentId) return;
+    if (db && !commentId.startsWith('rev-default-')) {
+      const nowIso = new Date().toISOString();
+      const payload: any = {
+        ...updates,
+        updatedAt: nowIso
+      };
+      if (updates.content && !updates.text) payload.text = updates.content;
+      if (updates.text && !updates.content) payload.content = updates.text;
+      if (updates.reply && !updates.adminReply) payload.adminReply = updates.reply;
+      if (updates.adminReply && !updates.reply) payload.reply = updates.adminReply;
+
       try {
-        const docRef = doc(db, 'reviews', reviewId);
-        await updateDoc(docRef, {
-          ...updates,
-          status: updates.isApproved === true ? 'approved' : updates.status || (updates.isApproved === false ? 'pending' : undefined)
-        });
+        const commentRef = doc(db, 'comments', commentId);
+        await setDoc(commentRef, payload, { merge: true });
+
+        try {
+          await updateDoc(doc(db, 'reviews', commentId), payload);
+        } catch (_legacyErr) {}
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, `reviews/${reviewId}`);
+        handleFirestoreError(err, OperationType.UPDATE, `comments/${commentId}`);
         throw err;
       }
     }
   },
 
   /**
-   * User submits a new review (starts as pending by default).
+   * Public user submits a new comment (starts strictly as pending).
    */
-  async submitUserReview(review: { authorName: string; content: string; category?: 'پیشنهاد' | 'انتقاد' | 'نظر' }): Promise<ReviewItem> {
-    const newRev: ReviewItem = {
-      id: 'rev-' + Date.now(),
+  async submitUserReview(review: { authorName: string; content?: string; text?: string; category?: 'پیشنهاد' | 'انتقاد' | 'نظر'; rating?: number }): Promise<ReviewItem> {
+    const rawText = (review.text || review.content || '').trim();
+    const nowIso = new Date().toISOString();
+    const newCommentData = {
       authorName: review.authorName.trim() || 'کاربر میهمان',
-      content: review.content.trim(),
-      createdAt: 'هم‌اکنون',
+      text: rawText,
+      content: rawText,
+      rating: review.rating || 5,
+      likesCount: 0,
       likes: 0,
       dislikes: 0,
-      category: review.category || (review.content.includes('پیشنهاد') ? 'پیشنهاد' : review.content.includes('انتقاد') ? 'انتقاد' : 'نظر'),
+      category: review.category || (rawText.includes('پیشنهاد') ? 'پیشنهاد' : rawText.includes('انتقاد') ? 'انتقاد' : 'نظر'),
+      status: 'pending' as const,
       isApproved: false,
-      status: 'pending',
+      adminReply: null,
+      reply: '',
+      createdAt: nowIso,
+      updatedAt: nowIso,
       timestamp: Date.now()
     };
 
+    let generatedId = 'comm-' + Date.now();
+
     if (db) {
       try {
-        const docRef = await addDoc(collection(db, 'reviews'), {
-          ...newRev,
-          createdAt: new Date().toISOString()
-        });
-        newRev.id = docRef.id;
+        const docRef = await addDoc(collection(db, 'comments'), newCommentData);
+        generatedId = docRef.id;
       } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, 'reviews');
+        handleFirestoreError(err, OperationType.WRITE, 'comments');
       }
     }
 
-    return newRev;
+    return {
+      id: generatedId,
+      ...newCommentData
+    };
   },
 
   /**
-   * Like a review item.
+   * Like a comment item.
    */
-  async likeReview(reviewId: string, currentLikes: number): Promise<void> {
-    if (!reviewId) return;
-    if (db && !reviewId.startsWith('rev-default-')) {
+  async likeReview(commentId: string, currentLikes: number): Promise<void> {
+    if (!commentId) return;
+    if (db && !commentId.startsWith('rev-default-')) {
+      const nowIso = new Date().toISOString();
+      const updatedCount = currentLikes + 1;
       try {
-        const docRef = doc(db, 'reviews', reviewId);
-        await updateDoc(docRef, {
-          likes: currentLikes + 1
-        });
+        const commentRef = doc(db, 'comments', commentId);
+        await setDoc(commentRef, {
+          likesCount: updatedCount,
+          likes: updatedCount,
+          updatedAt: nowIso
+        }, { merge: true });
+
+        try {
+          await updateDoc(doc(db, 'reviews', commentId), {
+            likes: updatedCount,
+            likesCount: updatedCount,
+            updatedAt: nowIso
+          });
+        } catch (_legacyErr) {}
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, `reviews/${reviewId}`);
+        handleFirestoreError(err, OperationType.UPDATE, `comments/${commentId}`);
       }
     }
   },
@@ -329,7 +486,7 @@ export const ReviewService = {
   getCachedReviews(): ReviewItem[] {
     if (typeof window === 'undefined') return DEFAULT_PUBLIC_REVIEWS;
     try {
-      const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
+      const cached = localStorage.getItem(LOCAL_STORAGE_KEY) || localStorage.getItem('sirikfit_user_reviews');
       if (cached) {
         return JSON.parse(cached);
       }
@@ -341,6 +498,7 @@ export const ReviewService = {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(reviews));
+      localStorage.setItem('sirikfit_user_reviews', JSON.stringify(reviews));
     } catch (_e) {}
   }
 };

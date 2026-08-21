@@ -2555,6 +2555,7 @@ function getZibalErrorMessage(code: number): string {
 }
 
 export const HARDCODED_ZIBAL_LIVE_MERCHANT = '6a8490e3f37350835317f93e';
+export const ZIBAL_PROXY_BASE_URL = 'https://zibal-proxy.omranjavan73-wssuc.arvanedge.ir';
 
 async function getEffectiveGatewayConfig(): Promise<PaymentGatewayConfig> {
   let config: PaymentGatewayConfig = {
@@ -2615,7 +2616,7 @@ app.get('/api/payment/config', async (req, res) => {
   }
 });
 
-// POST /api/payment/create - Initialize live Zibal payment gateway transaction
+// POST /api/payment/create - Initialize live Zibal payment gateway transaction via Edge Proxy
 app.post('/api/payment/create', async (req, res) => {
   try {
     const { orderId, orderData, amountToman, customerPhone, mobile, phoneNumber } = req.body;
@@ -2656,9 +2657,9 @@ app.post('/api/payment/create', async (req, res) => {
       await persistOrder(targetOrder);
     }
 
-    console.log(`[Zibal Payment Request] Live Merchant: ${targetMerchant}, Amount(Rials): ${amountInRials}, Order: ${orderIdStr}, Callback: ${callbackUrl}`);
+    console.log(`[Zibal Payment Request via Proxy] Live Merchant: ${targetMerchant}, Amount(Rials): ${amountInRials}, Order: ${orderIdStr}, Callback: ${callbackUrl}`);
 
-    const zibalResponse = await axios.post('https://gateway.zibal.ir/v1/request', {
+    const zibalResponse = await axios.post(`${ZIBAL_PROXY_BASE_URL}/v1/request`, {
       merchant: targetMerchant,
       amount: amountInRials,
       callbackUrl,
@@ -2671,10 +2672,11 @@ app.post('/api/payment/create', async (req, res) => {
     });
 
     const zibalData = zibalResponse.data;
-    console.log('[Zibal Response]:', zibalData);
+    console.log('[Zibal Proxy Response]:', zibalData);
 
     if (zibalData.result === 100) {
       const trackId = String(zibalData.trackId);
+      // Customer browser redirection always uses official Zibal gateway address
       const startUrl = `https://gateway.zibal.ir/start/${trackId}`;
 
       if (targetOrder) {
@@ -2727,9 +2729,9 @@ app.all('/api/payment/callback', async (req, res) => {
 
     if (isGatewayOk && trackId) {
       const targetMerchant = HARDCODED_ZIBAL_LIVE_MERCHANT;
-      console.log(`[Verifying Zibal Payment] trackId: ${trackId}, live merchant: ${targetMerchant}`);
+      console.log(`[Verifying Zibal Payment via Proxy] trackId: ${trackId}, live merchant: ${targetMerchant}`);
 
-      const verifyResponse = await axios.post('https://gateway.zibal.ir/v1/verify', {
+      const verifyResponse = await axios.post(`${ZIBAL_PROXY_BASE_URL}/v1/verify`, {
         merchant: targetMerchant,
         trackId: String(trackId)
       }, {
@@ -6029,8 +6031,21 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.includes(path.sep + 'assets' + path.sep)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+        }
+      }
+    }));
     app.get('*', (req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

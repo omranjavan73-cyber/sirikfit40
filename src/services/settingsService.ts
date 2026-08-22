@@ -15,6 +15,14 @@ export const defaultLandingSettings: LandingSettings = {
   showRules: true,
   showTrustBadges: true,
   showEnamad: true,
+  showTelegram: true,
+  telegramActionText: 'چت آنلاین',
+  showEmail: true,
+  emailActionText: 'ارسال ایمیل',
+  showPhone: true,
+  phoneActionText: 'تماس تلفنی',
+  showHours: true,
+  showAddress: true,
   brandName: "سیریک فیت | SIRIK FIT",
   brandSubtitle: "تأمین و واردات مستقیم مکمل از دبی",
   aboutText: "سیریک فیت (SIRIK FIT) مرجع تخصصی تأمین و واردات مستقیم مکمل‌های ورزشی و غذایی اورجینال از معتبرترین برندهای جهانی و نمایندگی‌های امارات متحده عربی است.",
@@ -120,24 +128,41 @@ export const getLandingSettings = async (): Promise<LandingSettings> => {
 
 export const saveLandingSettings = async (settings: Partial<LandingSettings>): Promise<boolean> => {
   try {
-    const merged: LandingSettings = {
+    const sanitizedData: LandingSettings = {
       ...defaultLandingSettings,
-      ...settings
-    };
+      ...settings,
+      showTelegram: settings.showTelegram !== false,
+      telegramId: settings.telegramId || '@SIRIK_FIT_Support',
+      telegramActionText: settings.telegramActionText || 'چت آنلاین',
+      showEmail: settings.showEmail !== false,
+      supportEmail: settings.supportEmail || 'info@sirikfit.ir',
+      emailActionText: settings.emailActionText || 'ارسال ایمیل',
+      showPhone: settings.showPhone !== false,
+      supportPhone: settings.supportPhone || '021-91000000',
+      phoneActionText: settings.phoneActionText || 'تماس تلفنی',
+      showHours: settings.showHours !== false,
+      supportHours: settings.supportHours || 'پاسخگویی همه‌روزه، ساعت ۹ صبح الی ۲۳',
+      showAddress: settings.showAddress !== false,
+      officeLocation: settings.officeLocation || 'دفتر هماهنگی و ارسال مرسولات دبی و ایران',
+      brandName: settings.brandName || 'سیریک فیت | SIRIK FIT',
+      brandSubtitle: settings.brandSubtitle || 'تأمین و واردات مستقیم مکمل از دبی',
+      aboutText: settings.aboutText || defaultLandingSettings.aboutText,
+      updatedAt: new Date().toISOString()
+    } as any;
 
     if (db) {
       const docRef = doc(db, 'settings', 'landing');
-      await setDoc(docRef, { ...merged, updatedAt: new Date().toISOString() }, { merge: true });
+      await setDoc(docRef, sanitizedData, { merge: true });
     }
 
     if (typeof window !== 'undefined') {
-      localStorage.setItem('sirikfit_landing_settings', JSON.stringify(merged));
-      window.dispatchEvent(new CustomEvent('landingSettingsUpdated', { detail: merged }));
+      localStorage.setItem('sirikfit_landing_settings', JSON.stringify(sanitizedData));
+      window.dispatchEvent(new CustomEvent('landingSettingsUpdated', { detail: sanitizedData }));
     }
 
     return true;
-  } catch (err) {
-    console.error('Error saving landing settings:', err);
+  } catch (error) {
+    console.error('Error in saveLandingSettings:', error);
     return false;
   }
 };

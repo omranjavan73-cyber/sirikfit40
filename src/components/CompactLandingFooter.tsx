@@ -138,33 +138,39 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
                 </span>
                 <div className="flex flex-col gap-2">
                   {/* Telegram */}
-                  <a
-                    href={`https://t.me/${telegramUser}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-between p-2.5 !bg-white rounded-xl border border-gray-200 hover:border-sky-400 transition-all text-xs font-bold shadow-2xs group"
-                  >
-                    <span className="text-gray-900 dir-ltr group-hover:text-sky-600 transition-colors">@{telegramUser}</span>
-                    <span className="text-[11px] text-sky-600 bg-sky-50 px-2 py-0.5 rounded-md font-extrabold">تلگرام آنلاین</span>
-                  </a>
+                  {settings.showTelegram !== false && (
+                    <a
+                      href={`https://t.me/${telegramUser}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-between p-2.5 !bg-white rounded-xl border border-gray-200 hover:border-sky-400 transition-all text-xs font-bold shadow-2xs group"
+                    >
+                      <span className="text-gray-900 dir-ltr group-hover:text-sky-600 transition-colors">@{telegramUser}</span>
+                      <span className="text-[11px] text-sky-600 bg-sky-50 px-2 py-0.5 rounded-md font-extrabold">{settings.telegramActionText || 'تلگرام آنلاین'}</span>
+                    </a>
+                  )}
 
                   {/* Email */}
-                  <a
-                    href={`mailto:${settings.supportEmail || 'info@sirikfit.ir'}`}
-                    className="flex items-center justify-between p-2.5 !bg-white rounded-xl border border-gray-200 hover:border-gray-400 transition-all text-xs font-bold shadow-2xs group"
-                  >
-                    <span className="text-gray-900 dir-ltr group-hover:text-red-600 transition-colors">{settings.supportEmail || 'info@sirikfit.ir'}</span>
-                    <span className="text-[11px] text-gray-500 font-extrabold">ایمیل پشتیبانی</span>
-                  </a>
+                  {settings.showEmail !== false && (
+                    <a
+                      href={`mailto:${settings.supportEmail || 'info@sirikfit.ir'}`}
+                      className="flex items-center justify-between p-2.5 !bg-white rounded-xl border border-gray-200 hover:border-gray-400 transition-all text-xs font-bold shadow-2xs group"
+                    >
+                      <span className="text-gray-900 dir-ltr group-hover:text-red-600 transition-colors">{settings.supportEmail || 'info@sirikfit.ir'}</span>
+                      <span className="text-[11px] text-gray-500 font-extrabold">{settings.emailActionText || 'ایمیل پشتیبانی'}</span>
+                    </a>
+                  )}
 
                   {/* Phone */}
-                  <a
-                    href={`tel:${settings.supportPhone || '02191000000'}`}
-                    className="flex items-center justify-between p-2.5 !bg-white rounded-xl border border-gray-200 hover:border-emerald-400 transition-all text-xs font-bold shadow-2xs group"
-                  >
-                    <span className="text-gray-900 dir-ltr group-hover:text-emerald-600 transition-colors">{settings.supportPhone || '021-91000000'}</span>
-                    <span className="text-[11px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-extrabold">تماس تلفنی</span>
-                  </a>
+                  {settings.showPhone !== false && (
+                    <a
+                      href={`tel:${settings.supportPhone || '02191000000'}`}
+                      className="flex items-center justify-between p-2.5 !bg-white rounded-xl border border-gray-200 hover:border-emerald-400 transition-all text-xs font-bold shadow-2xs group"
+                    >
+                      <span className="text-gray-900 dir-ltr group-hover:text-emerald-600 transition-colors">{settings.supportPhone || '021-91000000'}</span>
+                      <span className="text-[11px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-extrabold">{settings.phoneActionText || 'تماس تلفنی'}</span>
+                    </a>
+                  )}
                 </div>
               </div>
             )}

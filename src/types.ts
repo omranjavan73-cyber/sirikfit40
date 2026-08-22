@@ -381,6 +381,26 @@ export const ENAMAD_CONFIG = {
   logoUrl: "https://trustseal.enamad.ir/logo.aspx?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
 };
 
+export interface ContactSettings {
+  showTelegram: boolean;
+  telegramId: string;
+  telegramActionText: string; // Default: 'چت آنلاین'
+
+  showEmail: boolean;
+  supportEmail: string;
+  emailActionText: string;    // Default: 'ارسال ایمیل'
+
+  showPhone: boolean;
+  supportPhone: string;
+  phoneActionText: string;    // Default: 'تماس تلفنی'
+
+  showHours: boolean;
+  supportHours: string;       // Default: 'پاسخگویی همه‌روزه، ساعت ۹ صبح الی ۲۳'
+
+  showAddress: boolean;
+  officeLocation: string;     // Default: 'دفتر هماهنگی و ارسال مرسولات دبی و ایران'
+}
+
 export interface LandingSettings {
   // 1. Visibility Toggles
   showBenefits: boolean;
@@ -390,6 +410,16 @@ export interface LandingSettings {
   showRules: boolean;
   showTrustBadges: boolean;
   showEnamad?: boolean;
+
+  // 1.1 Granular Contact Channel Toggles
+  showTelegram?: boolean;
+  telegramActionText?: string;
+  showEmail?: boolean;
+  emailActionText?: string;
+  showPhone?: boolean;
+  phoneActionText?: string;
+  showHours?: boolean;
+  showAddress?: boolean;
 
   // 2. Brand & About
   brandName: string;
@@ -419,6 +449,14 @@ export const defaultLandingSettings: LandingSettings = {
   showRules: true,
   showTrustBadges: true,
   showEnamad: true,
+  showTelegram: true,
+  telegramActionText: 'چت آنلاین',
+  showEmail: true,
+  emailActionText: 'ارسال ایمیل',
+  showPhone: true,
+  phoneActionText: 'تماس تلفنی',
+  showHours: true,
+  showAddress: true,
   brandName: "سیریک فیت | SIRIK FIT",
   brandSubtitle: "تأمین و واردات مستقیم مکمل از دبی",
   aboutText: "سیریک فیت (SIRIK FIT) مرجع تخصصی تأمین و واردات مستقیم مکمل‌های ورزشی و غذایی اورجینال از معتبرترین برندهای جهانی و نمایندگی‌های امارات متحده عربی است.",

@@ -341,82 +341,147 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
           </div>
         )}
 
-        {/* 3. Contact Channels */}
+        {/* 3. Contact Channels Card */}
         {activeSubTab === 'contact' && (
-          <div className="space-y-4">
-            <h4 className="font-black text-sm text-slate-900 pb-2 border-b border-slate-100">
-              پل‌های ارتباطی مستقیم و ساعات پاسخگویی
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
+          <div className="w-full bg-white border border-gray-200 p-5 rounded-3xl flex flex-col gap-4 text-right" dir="rtl">
+            <div className="flex flex-col gap-1 border-b pb-3">
+              <h3 className="text-sm font-black text-gray-900">
+                تنظیمات راه‌های ارتباط و پشتیبانی کاربران
+              </h3>
+              <p className="text-xs text-gray-500">
+                این اطلاعات در فوتر، مودال تماس و بخش‌های اطلاع‌رسانی اعمال می‌شود.
+              </p>
+            </div>
+
+            {/* 1. Telegram */}
+            <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-2xl border border-gray-200 gap-3">
+              <div className="flex-1 flex flex-col gap-1">
+                <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
                   <Send className="w-3.5 h-3.5 text-sky-500" />
                   <span>آیدی تلگرام پشتیبانی:</span>
-                </label>
+                </span>
                 <input
                   type="text"
                   value={settings.telegramId || ''}
-                  onChange={(e) => setSettings(p => ({ ...p, telegramId: e.target.value }))}
+                  onChange={(e) => setSettings({ ...settings, telegramId: e.target.value })}
                   placeholder="@SIRIK_FIT_Support"
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-black dir-ltr font-bold"
+                  className="w-full text-xs p-2.5 rounded-xl border border-gray-300 bg-white dir-ltr text-right font-bold"
                 />
               </div>
+              <label className="flex items-center gap-1.5 cursor-pointer font-bold text-xs select-none pt-4">
+                <input
+                  type="checkbox"
+                  checked={settings.showTelegram !== false}
+                  onChange={(e) => setSettings({ ...settings, showTelegram: e.target.checked })}
+                  className="w-4 h-4 rounded text-sky-600 cursor-pointer"
+                />
+                <span>نمایش؟</span>
+              </label>
+            </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
+            {/* 2. Official Email */}
+            <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-2xl border border-gray-200 gap-3">
+              <div className="flex-1 flex flex-col gap-1">
+                <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5 text-red-500" />
                   <span>ایمیل رسمی پشتیبانی:</span>
-                </label>
+                </span>
                 <input
                   type="email"
                   value={settings.supportEmail || ''}
-                  onChange={(e) => setSettings(p => ({ ...p, supportEmail: e.target.value }))}
+                  onChange={(e) => setSettings({ ...settings, supportEmail: e.target.value })}
                   placeholder="info@sirikfit.ir"
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-black dir-ltr font-bold"
+                  className="w-full text-xs p-2.5 rounded-xl border border-gray-300 bg-white dir-ltr text-right font-bold"
                 />
               </div>
+              <label className="flex items-center gap-1.5 cursor-pointer font-bold text-xs select-none pt-4">
+                <input
+                  type="checkbox"
+                  checked={settings.showEmail !== false}
+                  onChange={(e) => setSettings({ ...settings, showEmail: e.target.checked })}
+                  className="w-4 h-4 rounded text-red-600 cursor-pointer"
+                />
+                <span>نمایش؟</span>
+              </label>
+            </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
+            {/* 3. Phone */}
+            <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-2xl border border-gray-200 gap-3">
+              <div className="flex-1 flex flex-col gap-1">
+                <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
                   <Phone className="w-3.5 h-3.5 text-emerald-600" />
                   <span>شماره تماس پشتیبانی:</span>
-                </label>
+                </span>
                 <input
                   type="text"
                   value={settings.supportPhone || ''}
-                  onChange={(e) => setSettings(p => ({ ...p, supportPhone: e.target.value }))}
+                  onChange={(e) => setSettings({ ...settings, supportPhone: e.target.value })}
                   placeholder="021-91000000"
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-black dir-ltr font-bold"
+                  className="w-full text-xs p-2.5 rounded-xl border border-gray-300 bg-white dir-ltr text-right font-bold"
                 />
               </div>
+              <label className="flex items-center gap-1.5 cursor-pointer font-bold text-xs select-none pt-4">
+                <input
+                  type="checkbox"
+                  checked={settings.showPhone !== false}
+                  onChange={(e) => setSettings({ ...settings, showPhone: e.target.checked })}
+                  className="w-4 h-4 rounded text-emerald-600 cursor-pointer"
+                />
+                <span>نمایش؟</span>
+              </label>
+            </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-amber-500" />
-                  <span>ساعات پاسخگویی:</span>
-                </label>
+            {/* 4. Hours & Address */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-200 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-500" />
+                    <span>ساعات کاری و پاسخگویی:</span>
+                  </span>
+                  <label className="flex items-center gap-1 cursor-pointer font-bold text-xs select-none">
+                    <input
+                      type="checkbox"
+                      checked={settings.showHours !== false}
+                      onChange={(e) => setSettings({ ...settings, showHours: e.target.checked })}
+                      className="w-4 h-4 rounded text-amber-500 cursor-pointer"
+                    />
+                    <span>نمایش</span>
+                  </label>
+                </div>
                 <input
                   type="text"
                   value={settings.supportHours || ''}
-                  onChange={(e) => setSettings(p => ({ ...p, supportHours: e.target.value }))}
+                  onChange={(e) => setSettings({ ...settings, supportHours: e.target.value })}
                   placeholder="پاسخگویی همه‌روزه، ساعت ۹ صبح الی ۲۳"
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-black font-bold"
+                  className="text-xs p-2.5 rounded-xl border border-gray-300 bg-white font-medium"
                 />
               </div>
-            </div>
 
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-purple-500" />
-                <span>آدرس دفتر هماهنگی و لاجستیک:</span>
-              </label>
-              <input
-                type="text"
-                value={settings.officeLocation || ''}
-                onChange={(e) => setSettings(p => ({ ...p, officeLocation: e.target.value }))}
-                placeholder="دفتر هماهنگی و ارسال مرسولات دبی و ایران"
-                className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-black font-medium"
-              />
+              <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-200 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-purple-500" />
+                    <span>آدرس دفتر هماهنگی:</span>
+                  </span>
+                  <label className="flex items-center gap-1 cursor-pointer font-bold text-xs select-none">
+                    <input
+                      type="checkbox"
+                      checked={settings.showAddress !== false}
+                      onChange={(e) => setSettings({ ...settings, showAddress: e.target.checked })}
+                      className="w-4 h-4 rounded text-purple-600 cursor-pointer"
+                    />
+                    <span>نمایش</span>
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  value={settings.officeLocation || ''}
+                  onChange={(e) => setSettings({ ...settings, officeLocation: e.target.value })}
+                  placeholder="دفتر هماهنگی و ارسال مرسولات دبی و ایران"
+                  className="text-xs p-2.5 rounded-xl border border-gray-300 bg-white font-medium"
+                />
+              </div>
             </div>
           </div>
         )}

@@ -34,7 +34,7 @@ interface LandingSettingsAdminProps {
 export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSaved }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [activeSubTab, setActiveSubTab] = useState<'visibility' | 'brand' | 'contact' | 'benefits' | 'faqs' | 'rules'>('visibility');
+  const [activeSubTab, setActiveSubTab] = useState<'visibility' | 'brand' | 'contact' | 'trust' | 'benefits' | 'faqs' | 'rules'>('visibility');
 
   const [settings, setSettings] = useState<LandingSettings>(() => {
     if (typeof window !== 'undefined') {
@@ -212,6 +212,7 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
           { id: 'visibility', label: 'سوییچ‌های نمایش', icon: Eye },
           { id: 'brand', label: 'هویت برند و درباره ما', icon: Building2 },
           { id: 'contact', label: 'پل‌های تماس و ساعات کاری', icon: Headphones },
+          { id: 'trust', label: 'کد رسمی اینماد و نمادها', icon: ShieldCheck },
           { id: 'benefits', label: 'مزایا و خدمات (Benefits)', icon: Sparkles },
           { id: 'faqs', label: 'سوالات متداول (FAQs)', icon: HelpCircle },
           { id: 'rules', label: 'قوانین و مقررات (Rules)', icon: FileText }
@@ -405,6 +406,40 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
                 onChange={(e) => setSettings(p => ({ ...p, officeLocation: e.target.value }))}
                 placeholder="دفتر هماهنگی و ارسال مرسولات دبی و ایران"
                 className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-black font-medium"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Enamad & Trust Badges */}
+        {activeSubTab === 'trust' && (
+          <div className="space-y-4">
+            <h4 className="font-black text-sm text-slate-900 pb-2 border-b border-slate-100">
+              کد رسمی و نماد اعتماد الکترونیکی (اینماد - Enamad)
+            </h4>
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+              <label className="text-xs font-bold text-slate-700 block">
+                کد اختصاصی اینماد (HTML / Script / Link):
+              </label>
+              <textarea
+                rows={4}
+                value={settings.enamadCode || ''}
+                onChange={(e) => setSettings(p => ({ ...p, enamadCode: e.target.value }))}
+                placeholder="<a referrerpolicy='origin' target='_blank' href='https://trustseal.enamad.ir/...'><img src='...' /></a>"
+                className="w-full text-xs p-3 font-mono bg-white border border-slate-300 rounded-xl outline-none focus:border-black dir-ltr text-left"
+                dir="ltr"
+              />
+              <span className="text-[11px] text-slate-500 font-medium block">
+                کد پیش‌فرض رسمی اینماد سیریک فیت به صورت خودکار تنظیم شده و در فوتر رندر می‌شود.
+              </span>
+            </div>
+
+            {/* Live Preview of Enamad */}
+            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-2">
+              <span className="text-xs font-black text-slate-800 block">پیش‌نمایش زنده لوگوی اینماد:</span>
+              <div
+                className="p-3 bg-white rounded-2xl border border-gray-200 shadow-xs inline-flex items-center justify-center min-h-[90px] min-w-[90px]"
+                dangerouslySetInnerHTML={{ __html: settings.enamadCode || '' }}
               />
             </div>
           </div>

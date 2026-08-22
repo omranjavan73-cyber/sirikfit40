@@ -394,6 +394,7 @@ export interface LandingSettings {
   supportPhone: string;
   supportHours: string;
   officeLocation: string;
+  enamadCode?: string;
 
   // 4. Structured Lists
   benefits: Array<{ id: string; title: string; description: string; icon?: string }>;
@@ -410,13 +411,14 @@ export const defaultLandingSettings: LandingSettings = {
   showTrustBadges: true,
   brandName: "سیریک فیت | SIRIK FIT",
   brandSubtitle: "تأمین و واردات مستقیم مکمل از دبی",
-  aboutText: "سیریک فیت (SIRIK FIT) مرجع تخصصی تأمین و واردات مستقیم مکملهای ورزشی و غذایی اورجینال از معتبرترین برندهای جهانی و نمایندگیهای امارات متحده عربی است.",
+  aboutText: "سیریک فیت (SIRIK FIT) مرجع تخصصی تأمین و واردات مستقیم مکمل‌های ورزشی و غذایی اورجینال از معتبرترین برندهای جهانی و نمایندگی‌های امارات متحده عربی است.",
   deliveryGuaranteeBadge: "تضمین ۱۰۰٪ اصالت کالا | ارسال ۵ الی ۱۰ روز کاری",
   telegramId: "@SIRIK_FIT_Support",
   supportEmail: "info@sirikfit.ir",
   supportPhone: "021-91000000",
-  supportHours: "پاسخگویی همهروزه، ساعت ۹ صبح الی ۲۳",
+  supportHours: "پاسخگویی همه‌روزه، ساعت ۹ صبح الی ۲۳",
   officeLocation: "دفتر هماهنگی و ارسال مرسولات دبی و ایران",
+  enamadCode: `<a referrerpolicy='origin' target='_blank' href='https://trustseal.enamad.ir/?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8'><img referrerpolicy='origin' src='https://trustseal.enamad.ir/logo.aspx?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8' alt='نماد اعتماد الکترونیکی' style='cursor:pointer' code='jj9HCtmWurzgveMEKQyc6iOcMamK4RG8'></a>`,
   benefits: [
     { id: "b1", title: "اصالت ۱۰۰٪ کالا", description: "خرید مستقیم از نمایندگیهای رسمی دبی (GNC، Dr. Nutrition، Sporter)" },
     { id: "b2", title: "حمل ایمن و سریع", description: "ارسال تخصصی با کنترل دما و بستهبندی استاندارد" },

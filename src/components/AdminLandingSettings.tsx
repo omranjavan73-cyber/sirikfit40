@@ -40,7 +40,7 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
   showToast
 }) => {
   const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'visibility' | 'brand' | 'contact' | 'benefits' | 'faqs' | 'rules'>('visibility');
+  const [activeTab, setActiveTab] = useState<'visibility' | 'brand' | 'contact' | 'trust' | 'benefits' | 'faqs' | 'rules'>('visibility');
 
   const [settings, setSettings] = useState<LandingSettings>(() => {
     // 1. Check cms.landingSettings
@@ -309,6 +309,7 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
           { id: 'visibility', label: 'سوییچ‌های نمایش بخش‌ها', icon: Eye },
           { id: 'brand', label: 'معرفی برند و درباره ما', icon: Building2 },
           { id: 'contact', label: 'پل‌های تماس و پشتیبانی', icon: Headphones },
+          { id: 'trust', label: 'کد رسمی اینماد و نمادها', icon: ShieldCheck },
           { id: 'benefits', label: 'مزایا و خدمات (Pillars)', icon: Sparkles },
           { id: 'faqs', label: 'سوالات متداول (FAQ)', icon: HelpCircle },
           { id: 'rules', label: 'قوانین و تعهدات', icon: FileText }
@@ -522,6 +523,46 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
                 className="w-full bg-slate-50 border border-slate-200 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none font-medium"
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* TAB 3.5: TRUST BADGES & ENAMAD (کد رسمی اینماد و نمادها)             */}
+      {/* ==================================================================== */}
+      {activeTab === 'trust' && (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-5">
+          <div className="border-b border-slate-100 pb-3">
+            <h3 className="text-sm font-black text-slate-900">کد رسمی و نماد اعتماد الکترونیکی (اینماد - Enamad)</h3>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              کد HTML یا اسکریپت رسمی ارائه‌شده توسط مرکز توسعه تجارت الکترونیکی (اینماد)
+            </p>
+          </div>
+
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+            <label className="text-xs font-bold text-slate-700 block">
+              کد اختصاصی اینماد (HTML / Script / Link):
+            </label>
+            <textarea
+              rows={4}
+              value={settings.enamadCode || ''}
+              onChange={(e) => handleFieldChange('enamadCode', e.target.value)}
+              placeholder="<a referrerpolicy='origin' target='_blank' href='https://trustseal.enamad.ir/...'><img src='...' /></a>"
+              className="w-full text-xs p-3 font-mono bg-white border border-slate-300 rounded-xl outline-none focus:border-black dir-ltr text-left"
+              dir="ltr"
+            />
+            <span className="text-[11px] text-slate-500 font-medium block">
+              این کد مستقیماً در باکس اختصاصی نمادهای اعتماد فوتر سایت رندر می‌شود.
+            </span>
+          </div>
+
+          {/* Live Preview */}
+          <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-2">
+            <span className="text-xs font-black text-slate-800 block">پیش‌نمایش زنده لوگوی اینماد:</span>
+            <div
+              className="p-3 bg-white rounded-2xl border border-gray-200 shadow-xs inline-flex items-center justify-center min-h-[90px] min-w-[90px]"
+              dangerouslySetInnerHTML={{ __html: settings.enamadCode || '' }}
+            />
           </div>
         </div>
       )}

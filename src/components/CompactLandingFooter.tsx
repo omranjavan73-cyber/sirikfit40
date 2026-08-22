@@ -171,21 +171,10 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
               </div>
 
               {/* Official Enamad Badge */}
-              <div className="p-3 bg-white rounded-2xl border border-gray-200 shadow-xs flex items-center justify-center">
-                <a
-                  referrerPolicy="origin"
-                  target="_blank"
-                  rel="noreferrer"
-                  href="https://trustseal.enamad.ir/?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
-                >
-                  <img
-                    referrerPolicy="origin"
-                    src="https://trustseal.enamad.ir/logo.aspx?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
-                    alt="نماد اعتماد الکترونیکی اینماد سیریک فیت"
-                    className="cursor-pointer max-h-20 object-contain hover:scale-105 transition-transform"
-                  />
-                </a>
-              </div>
+              <div 
+                className="p-3 bg-white rounded-2xl border border-gray-200 shadow-xs flex items-center justify-center min-h-[90px] min-w-[90px]"
+                dangerouslySetInnerHTML={{ __html: settings.enamadCode || '<a referrerpolicy=\'origin\' target=\'_blank\' href=\'https://trustseal.enamad.ir/?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8\'><img referrerpolicy=\'origin\' src=\'https://trustseal.enamad.ir/logo.aspx?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8\' alt=\'نماد اعتماد الکترونیکی\' style=\'cursor:pointer\' code=\'jj9HCtmWurzgveMEKQyc6iOcMamK4RG8\'></a>' }}
+              />
             </div>
           )}
 

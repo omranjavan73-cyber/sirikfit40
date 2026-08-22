@@ -6232,265 +6232,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
-          {/* Section 0.6: FAQ Section Global Display Toggle */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-3">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          {/* Consolidated Notice to Landing Settings */}
+          <div className="bg-gradient-to-r from-red-50 to-slate-50 border border-red-200/80 rounded-3xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Building2 className="w-5 h-5" />
+              </div>
               <div>
-                <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
-                  <HelpCircle className="w-4.5 h-4.5 text-orange-500 shrink-0" />
-                  <span>نمایش بخش سوالات متداول در صفحه اصلی (FAQ Section)</span>
-                </h3>
+                <h4 className="font-black text-xs sm:text-sm text-slate-900">مدیریت یکپارچه لندینگ، سوالات متداول و نمادهای اعتماد</h4>
                 <p className="text-xs text-slate-600 font-medium mt-0.5">
-                  فعال یا غیرفعال‌سازی نمایش کارت هدایت به سوالات متداول و راهنمای خرید در صفحه اصلی سایت
+                  تنظیمات سوییچ‌های نمایش سوالات متداول (FAQ)، نمادهای اعتماد (اینماد و ساماندهی)، اطلاعات تماس و قوانین به تب اختصاصی «مدیریت لندینگ و اطلاع‌رسانی» منتقل و یکپارچه شده است.
                 </p>
-              </div>
-
-              {/* Toggle Switch */}
-              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                <span className="text-xs font-bold text-slate-700">
-                  {showFaqSection ? 'فعال (در حال نمایش)' : 'غیرفعال (مخفی)'}
-                </span>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={showFaqSection}
-                    onChange={(e) => setShowFaqSection(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-12 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-slate-900"></div>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 0.8: Trust Badges Management (نمادهای اعتماد و مجوزها) */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-xs space-y-5">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
-              <div>
-                <h3 className="font-black text-sm md:text-base text-slate-900 flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
-                  <span>نمادهای اعتماد و مجوزها (Trust Badges & Licenses)</span>
-                </h3>
-                <p className="text-xs text-slate-600 font-medium mt-1">
-                  تنظیم نمایش اینماد، ساماندهی و نمادهای اختصاصی با لینک و کدهای رسمی در فوتر سایت
-                </p>
-              </div>
-
-              {/* Master Toggle Switch */}
-              <div className="flex items-center gap-3 shrink-0 self-end sm:self-center bg-slate-50 p-2 rounded-2xl border border-slate-200">
-                <span className={`text-xs font-bold ${showTrustBadges ? 'text-emerald-700' : 'text-slate-500'}`}>
-                  {showTrustBadges ? 'بخش نمادها: فعال' : 'بخش نمادها: غیرفعال'}
-                </span>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={showTrustBadges}
-                    onChange={(e) => setShowTrustBadges(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-12 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                </label>
               </div>
             </div>
 
-            {showTrustBadges ? (
-              <div className="space-y-5">
-                {/* 1. Enamad Card */}
-                <div className={`p-4 rounded-2xl border transition-all ${showEnamad ? 'bg-emerald-50/30 border-emerald-200' : 'bg-slate-50 border-slate-200 opacity-75'}`}>
-                  <div className="flex items-center justify-between gap-3 pb-3 border-b border-emerald-100/60">
-                    <div className="flex items-center gap-2.5">
-                      <img
-                        referrerPolicy="origin"
-                        src="https://cdn.zarinpal.com/badges/trust-logos/enamad.png"
-                        alt="Enamad"
-                        className="w-8 h-8 object-contain shrink-0"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-900">نماد تجارت الکترونیکی (اینماد - Enamad)</h4>
-                        <p className="text-[11px] text-slate-500 font-medium mt-0.5">احراز هویت و مجوز رسمی از وزارت صمت</p>
-                      </div>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={showEnamad}
-                        onChange={(e) => setShowEnamad(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                    </label>
-                  </div>
-
-                  {showEnamad && (
-                    <div className="pt-3 space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-700 block">
-                        کد یا لینک اختصاصی اینماد (اختیاری - Enamad Iframe/Script/URL):
-                      </label>
-                      <input
-                        type="text"
-                        value={enamadHtml}
-                        onChange={(e) => setEnamadHtml(e.target.value)}
-                        placeholder="https://trustseal.enamad.ir/?id=... یا کد آی‌فریم"
-                        className="w-full bg-white border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-emerald-600 transition"
-                        dir="ltr"
-                      />
-                      <span className="text-[10px] text-slate-400 block">در صورت خالی بودن، لینک پیش‌فرض معتبر اینماد سیریک‌فیت درج می‌شود.</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* 2. Samandehi Card */}
-                <div className={`p-4 rounded-2xl border transition-all ${showSamandehi ? 'bg-blue-50/30 border-blue-200' : 'bg-slate-50 border-slate-200 opacity-75'}`}>
-                  <div className="flex items-center justify-between gap-3 pb-3 border-b border-blue-100/60">
-                    <div className="flex items-center gap-2.5">
-                      <img
-                        referrerPolicy="origin"
-                        src="https://cdn.zarinpal.com/badges/trust-logos/samandehi.png"
-                        alt="Samandehi"
-                        className="w-8 h-8 object-contain shrink-0"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-900">نشان ملی ثبت رسانه‌های دیجیتال (ساماندهی - Samandehi)</h4>
-                        <p className="text-[11px] text-slate-500 font-medium mt-0.5">ثبت در مرکز فناوری اطلاعات و رسانه‌های دیجیتال ارشاد</p>
-                      </div>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={showSamandehi}
-                        onChange={(e) => setShowSamandehi(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  {showSamandehi && (
-                    <div className="pt-3 space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-700 block">
-                        کد یا لینک اختصاصی ساماندهی (اختیاری - Samandehi Code/URL):
-                      </label>
-                      <input
-                        type="text"
-                        value={samandehiHtml}
-                        onChange={(e) => setSamandehiHtml(e.target.value)}
-                        placeholder="https://samandehi.ir/logo.aspx?... یا کد لوگو"
-                        className="w-full bg-white border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-blue-600 transition"
-                        dir="ltr"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* 3. Custom Badge Card */}
-                <div className={`p-4 rounded-2xl border transition-all ${showCustomBadge ? 'bg-purple-50/30 border-purple-200' : 'bg-slate-50 border-slate-200 opacity-75'}`}>
-                  <div className="flex items-center justify-between gap-3 pb-3 border-b border-purple-100/60">
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-900">نماد و مجوز اختصاصی دلخواه (Custom Badge & Seal)</h4>
-                      <p className="text-[11px] text-slate-500 font-medium mt-0.5">افزودن مجوز صنف، گواهی اصالت یا نشان بین‌المللی</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={showCustomBadge}
-                        onChange={(e) => setShowCustomBadge(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
-                    </label>
-                  </div>
-
-                  {showCustomBadge && (
-                    <div className="pt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="text-[11px] font-bold text-slate-700 block mb-1">عنوان نشان (Title):</label>
-                        <input
-                          type="text"
-                          value={customBadgeTitle}
-                          onChange={(e) => setCustomBadgeTitle(e.target.value)}
-                          placeholder="مثال: گواهی اصالت کالا"
-                          className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-purple-600 transition"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] font-bold text-slate-700 block mb-1">آدرس تصویر (Image URL):</label>
-                        <input
-                          type="text"
-                          value={customBadgeImg}
-                          onChange={(e) => setCustomBadgeImg(e.target.value)}
-                          placeholder="https://example.com/badge.png"
-                          className="w-full bg-white border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-purple-600 transition"
-                          dir="ltr"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] font-bold text-slate-700 block mb-1">لینک اعتبارسنجی (Redirect URL):</label>
-                        <input
-                          type="text"
-                          value={customBadgeLink}
-                          onChange={(e) => setCustomBadgeLink(e.target.value)}
-                          placeholder="https://example.com/verify"
-                          className="w-full bg-white border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-purple-600 transition"
-                          dir="ltr"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Quick Save Row */}
-                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                  <p className="text-[11px] text-slate-500">
-                    تغییرات بلافاصله پس از ذخیره در بخش نمادها و فوتر سایت اعمال خواهد شد.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleDirectCmsSave}
-                    disabled={isSavingCms}
-                    className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
-                  >
-                    {isSavingCms ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>در حال ذخیره...</span>
-                      </>
-                    ) : saveCmsSuccess ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>ذخیره شد!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Save className="w-3.5 h-3.5" />
-                        <span>ذخیره تغییرات نمادها</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
-                <p className="text-xs text-slate-600 font-medium text-center sm:text-right">
-                  بخش نمادهای اعتماد در صفحه اصلی و فوتر سایت پنهان شده است.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleDirectCmsSave}
-                  disabled={isSavingCms}
-                  className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>ذخیره وضعیت</span>
-                </button>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveAdminSubTab('landingSettings');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="px-4 py-2.5 bg-black hover:bg-slate-800 text-white text-xs font-black rounded-xl transition shadow-xs flex items-center gap-2 cursor-pointer shrink-0"
+            >
+              <Building2 className="w-4 h-4 text-red-500" />
+              <span>ورود به تنظیمات لندینگ</span>
+            </button>
           </div>
+
 
           {/* Section 0: Rotating Slogan Announcement Banner Management */}
           <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">

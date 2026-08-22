@@ -171,7 +171,7 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
               </div>
 
               {/* Official Enamad Badge */}
-              <div className="p-2.5 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-center hover:scale-105 transition-transform">
+              <div className="p-3 bg-white rounded-2xl border border-gray-200 shadow-xs flex items-center justify-center">
                 <a
                   referrerPolicy="origin"
                   target="_blank"
@@ -181,8 +181,8 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
                   <img
                     referrerPolicy="origin"
                     src="https://trustseal.enamad.ir/logo.aspx?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
-                    alt="نماد تجارت الکترونیکی اینماد"
-                    className="cursor-pointer max-h-20 object-contain"
+                    alt="نماد اعتماد الکترونیکی اینماد سیریک فیت"
+                    className="cursor-pointer max-h-20 object-contain hover:scale-105 transition-transform"
                   />
                 </a>
               </div>

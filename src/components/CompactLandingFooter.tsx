@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 import type { LandingSettings } from '../types';
 import { defaultLandingSettings } from '../types';
 import { getLandingSettings } from '../services/settingsService';
@@ -11,32 +13,84 @@ interface FooterProps {
 
 export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSettings }) => {
   const [activeModal, setActiveModal] = useState<'about' | 'benefits' | 'contact' | 'rules' | 'faq' | null>(null);
-  const [currentSettings, setCurrentSettings] = useState<LandingSettings>(() => ({
-    ...defaultLandingSettings,
-    ...(customSettings || {})
-  }));
+  const [currentSettings, setCurrentSettings] = useState<LandingSettings>(() => {
+    if (customSettings) return { ...defaultLandingSettings, ...customSettings };
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_landing_settings');
+        if (cached) return { ...defaultLandingSettings, ...JSON.parse(cached) };
+      } catch (_) {}
+    }
+    return defaultLandingSettings;
+  });
 
-  // Sync settings when customSettings changes or on mount
+  // Direct real-time Firestore onSnapshot subscription
   useEffect(() => {
-    if (customSettings) {
-      setCurrentSettings(prev => ({ ...prev, ...customSettings }));
+    let unsubscribeLanding: (() => void) | null = null;
+    let unsubscribeGeneral: (() => void) | null = null;
+
+    if (db) {
+      // Listen to settings/landing
+      try {
+        unsubscribeLanding = onSnapshot(doc(db, 'settings', 'landing'), (snap) => {
+          if (snap.exists()) {
+            const data = snap.data() as Partial<LandingSettings>;
+            if (data) {
+              setCurrentSettings(prev => ({ ...prev, ...data }));
+              try {
+                localStorage.setItem('sirikfit_landing_settings', JSON.stringify(data));
+              } catch (_) {}
+            }
+          }
+        });
+      } catch (err) {
+        console.error('Error listening to settings/landing:', err);
+      }
+
+      // Also listen to settings/general as sync fallback
+      try {
+        unsubscribeGeneral = onSnapshot(doc(db, 'settings', 'general'), (snap) => {
+          if (snap.exists()) {
+            const genData = snap.data() as any;
+            if (genData) {
+              setCurrentSettings(prev => ({
+                ...prev,
+                ...(genData.telegramId ? { telegramId: genData.telegramId } : {}),
+                ...(genData.supportPhone ? { supportPhone: genData.supportPhone } : {}),
+                ...(genData.supportEmail ? { supportEmail: genData.supportEmail } : {})
+              }));
+            }
+          }
+        });
+      } catch (_) {}
     } else {
       getLandingSettings().then((fetched) => {
         if (fetched) setCurrentSettings(fetched);
       });
     }
-  }, [customSettings]);
 
-  // Listen for real-time landing settings updates
-  useEffect(() => {
+    // Local custom event listener
     const handleUpdate = (e: any) => {
       if (e?.detail) {
-        setCurrentSettings(e.detail);
+        setCurrentSettings(prev => ({ ...prev, ...e.detail }));
       }
     };
     window.addEventListener('landingSettingsUpdated', handleUpdate);
-    return () => window.removeEventListener('landingSettingsUpdated', handleUpdate);
+
+    return () => {
+      if (unsubscribeLanding) unsubscribeLanding();
+      if (unsubscribeGeneral) unsubscribeGeneral();
+      window.removeEventListener('landingSettingsUpdated', handleUpdate);
+    };
   }, []);
+
+
+  // Update when prop changes
+  useEffect(() => {
+    if (customSettings) {
+      setCurrentSettings(prev => ({ ...prev, ...customSettings }));
+    }
+  }, [customSettings]);
 
   const settings = currentSettings;
   const telegramUser = (settings.telegramId || 'SIRIK_FIT_Support').replace('@', '').replace('https://t.me/', '');

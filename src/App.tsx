@@ -502,6 +502,10 @@ function MainApp() {
           if (cmsData) {
             setCmsConfig(prev => {
               const merged = { ...prev, ...cmsData };
+              // Preserve active landing settings from dedicated settings/landing doc
+              if (prev?.landingSettings) {
+                merged.landingSettings = prev.landingSettings;
+              }
               // Preserve active pricing rules from settings/pricing
               if (prev?.pricingRules) {
                 merged.pricingRules = {

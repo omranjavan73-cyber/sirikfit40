@@ -28,8 +28,8 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // Settings collection (app, cms, financial, general, pricing_rules, security, backupSchedule, adminSecurity)
-    match /settings/{settingId} {
+    // Settings collection (landing, app, cms, financial, general, pricing_rules, security, backupSchedule, adminSecurity)
+    match /settings/{document=**} {
       allow read, write: if true;
     }
 

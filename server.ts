@@ -899,11 +899,38 @@ app.get('/api/settings', async (req, res) => {
   res.json(store.settings);
 });
 
+// GET /api/landing-settings
+app.get('/api/landing-settings', async (req, res) => {
+  try {
+    const store = await getStoreData();
+    res.json({ ok: true, landingSettings: store.landingSettings || (store.cms as any)?.landingSettings || {} });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message });
+  }
+});
+
+// POST /api/landing-settings
+app.post('/api/landing-settings', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const store = readStore();
+    store.landingSettings = { ...(store.landingSettings || {}), ...payload, updatedAt: new Date().toISOString() };
+    if (store.cms) {
+      (store.cms as any).landingSettings = store.landingSettings;
+    }
+    await persistCms(store.cms);
+    res.json({ ok: true, success: true, landingSettings: store.landingSettings });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message });
+  }
+});
+
 // GET /api/cms
 app.get('/api/cms', async (req, res) => {
   const store = await getStoreData();
   res.json(store.cms);
 });
+
 
 // POST /api/cms
 app.post('/api/cms', async (req, res) => {
@@ -4872,71 +4899,79 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<Parse
 
   const urlCandidates = [enAeUrl, sporterUrl, targetUrl];
 
-  // Helper to extract Sporter specific prices from HTML
+  // Helper to extract Sporter specific prices from HTML using brute-force math
   const extractSporterPrices = (html: string): { price: number; originalPriceAed?: number; discountPercent?: number } => {
-    let currentPrice = 0;
-    let oldPrice: number | undefined;
+    const extractedPrices: number[] = [];
 
-    // 1. Check Magento / Sporter data-price-type tags
-    const finalPriceMatch = html.match(/data-price-type=["']finalPrice["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
-                            html.match(/class=["'][^"']*special-price[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
-                            html.match(/class=["'][^"']*price-final_price[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i);
-    if (finalPriceMatch && finalPriceMatch[1]) {
-      const p = parseFloat(normalizeToEnglishDigits(finalPriceMatch[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-      if (!isNaN(p) && p > 0) currentPrice = Math.round(p * 100) / 100;
-    }
+    try {
+      const $ = cheerio.load(html);
 
-    const oldPriceMatch = html.match(/data-price-type=["']oldPrice["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
-                          html.match(/class=["'][^"']*old-price[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
-                          html.match(/class=["'][^"']*regular-price[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i);
-    if (oldPriceMatch && oldPriceMatch[1]) {
-      const op = parseFloat(normalizeToEnglishDigits(oldPriceMatch[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-      if (!isNaN(op) && op > 0) oldPrice = Math.round(op * 100) / 100;
-    }
+      // 1. Extract from all possible price elements
+      $('.price-box .price, span.price, [data-price-type] .price, .special-price .price, .old-price .price, .price-final_price .price, .product-info-price .price, .price').each((_, el) => {
+        const txt = $(el).text().replace(/,/g, '').trim();
+        const m = txt.match(/[\d.]+/);
+        if (m) {
+          const val = parseFloat(m[0]);
+          if (!isNaN(val) && val > 0 && val < 50000) {
+            extractedPrices.push(Math.round(val * 100) / 100);
+          }
+        }
+      });
 
-    // 2. Check JSON-LD offers
-    if (currentPrice === 0) {
-      const ldMatches = Array.from(html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi));
-      for (const m of ldMatches) {
-        if (!m || !m[1]) continue;
+      // 2. Check JSON-LD offers
+      $('script[type="application/ld+json"]').each((_, el) => {
         try {
-          const parsed = JSON.parse(m[1]);
-          const items = Array.isArray(parsed) ? parsed : (parsed['@graph'] ? parsed['@graph'] : [parsed]);
+          const data = JSON.parse($(el).html() || '{}');
+          const items = data['@graph'] ? data['@graph'] : (Array.isArray(data) ? data : [data]);
           for (const item of items) {
-            if (item && item.offers) {
-              const off = Array.isArray(item.offers) ? item.offers[0] : item.offers;
-              if (off && (off.price || off.lowPrice)) {
-                const p = parseFloat(normalizeToEnglishDigits(String(off.price || off.lowPrice)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                if (!isNaN(p) && p > 0) currentPrice = Math.round(p * 100) / 100;
-                if (off.highPrice) {
-                  const hp = parseFloat(normalizeToEnglishDigits(String(off.highPrice)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                  if (!isNaN(hp) && hp > currentPrice) oldPrice = Math.round(hp * 100) / 100;
+            if (item && (item['@type'] === 'Product' || item.offers)) {
+              const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
+              if (offer) {
+                if (offer.price) {
+                  const p = parseFloat(String(offer.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                  if (!isNaN(p) && p > 0 && p < 50000) extractedPrices.push(Math.round(p * 100) / 100);
+                }
+                if (offer.lowPrice) {
+                  const lp = parseFloat(String(offer.lowPrice).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                  if (!isNaN(lp) && lp > 0 && lp < 50000) extractedPrices.push(Math.round(lp * 100) / 100);
+                }
+                if (offer.highPrice) {
+                  const hp = parseFloat(String(offer.highPrice).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                  if (!isNaN(hp) && hp > 0 && hp < 50000) extractedPrices.push(Math.round(hp * 100) / 100);
                 }
               }
             }
           }
         } catch (_) {}
+      });
+
+      // 3. Meta tags
+      const metaPriceMatch = $('meta[property="product:price:amount"], meta[property="og:price:amount"]').attr('content');
+      if (metaPriceMatch) {
+        const mp = parseFloat(metaPriceMatch.replace(/,/g, '').replace(/[^0-9.]/g, ''));
+        if (!isNaN(mp) && mp > 0 && mp < 50000) extractedPrices.push(Math.round(mp * 100) / 100);
+      }
+    } catch (_cheerioErr) {}
+
+    const uniquePrices = Array.from(new Set(extractedPrices)).filter(p => p > 0);
+
+    let currentPrice = 0;
+    let oldPrice: number | undefined;
+
+    if (uniquePrices.length > 0) {
+      // ACTIVE selling price is strictly Math.min
+      currentPrice = Math.min(...uniquePrices);
+      const maxPrice = Math.max(...uniquePrices);
+
+      // Strikethrough price is strictly Math.max if > currentPrice
+      if (maxPrice > currentPrice) {
+        oldPrice = maxPrice;
       }
     }
 
-    // 3. Check Magento priceBox config script
-    const priceBoxMatch = html.match(/"finalPrice"\s*:\s*\{\s*"amount"\s*:\s*([\d\.]+)/i);
-    if (priceBoxMatch && priceBoxMatch[1] && currentPrice === 0) {
-      const p = parseFloat(priceBoxMatch[1]);
-      if (!isNaN(p) && p > 0) currentPrice = Math.round(p * 100) / 100;
-    }
-    const priceBoxOldMatch = html.match(/"oldPrice"\s*:\s*\{\s*"amount"\s*:\s*([\d\.]+)/i);
-    if (priceBoxOldMatch && priceBoxOldMatch[1] && !oldPrice) {
-      const op = parseFloat(priceBoxOldMatch[1]);
-      if (!isNaN(op) && op > 0) oldPrice = Math.round(op * 100) / 100;
-    }
-
-    // Compute discount if valid
     let discountPercent: number | undefined;
     if (oldPrice && currentPrice > 0 && oldPrice > currentPrice) {
       discountPercent = Math.round(((oldPrice - currentPrice) / oldPrice) * 100);
-    } else if (oldPrice && oldPrice <= currentPrice) {
-      oldPrice = undefined;
     }
 
     return {
@@ -4945,6 +4980,8 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<Parse
       discountPercent
     };
   };
+
+
 
   // TIER 1: Direct HTTP Fetch Candidates
   for (const fetchUrl of urlCandidates) {
@@ -4991,7 +5028,7 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<Parse
   try {
     const jinaUrl = `https://r.jina.ai/${enAeUrl}`;
     const jinaCtrl = new AbortController();
-    const jinaTimer = setTimeout(() => jinaCtrl.abort(), 6000);
+    const jinaTimer = setTimeout(() => jinaCtrl.abort(), 8000);
     const jinaRes = await fetch(jinaUrl, {
       headers: {
         'Accept': 'text/plain, text/markdown',
@@ -5015,32 +5052,49 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<Parse
         const h1 = md.match(/^#\s+([^\n]+)/m);
         if (h1) title = cleanTitleStr(h1[1].replace(/\|\s*Sporter.*/i, '').trim());
 
-        const priceDiscountMatch = md.match(/AED\s*([\d,]+\.?\d*)\s+AED\s*([\d,]+\.?\d*)\s+([\d]+)%\s*OFF/i);
-        if (priceDiscountMatch) {
-          price = parseFloat(priceDiscountMatch[1].replace(/,/g, ''));
-          originalPriceAed = parseFloat(priceDiscountMatch[2].replace(/,/g, ''));
-          discountPercent = parseInt(priceDiscountMatch[3], 10);
-        } else {
-          const dualPriceMatch = md.match(/AED\s*([\d,]+\.?\d*)\s+AED\s*([\d,]+\.?\d*)/i);
-          if (dualPriceMatch) {
-            const p1 = parseFloat(dualPriceMatch[1].replace(/,/g, ''));
-            const p2 = parseFloat(dualPriceMatch[2].replace(/,/g, ''));
-            price = Math.min(p1, p2);
-            originalPriceAed = Math.max(p1, p2);
-            if (originalPriceAed > price) {
-              discountPercent = Math.round(((originalPriceAed - price) / originalPriceAed) * 100);
-            }
-          } else {
-            const singlePriceMatch = md.match(/AED\s*([\d,]+\.?\d*)/i);
-            if (singlePriceMatch) {
-              price = parseFloat(singlePriceMatch[1].replace(/,/g, ''));
+        // Extract active selling price vs strikethrough price from adjacent AED text lines
+        const adjacentPriceMatches = Array.from(md.matchAll(/AED\s*([\d,]+\.?\d*)[ \t]*(?:\r?\n+[ \t]*AED\s*([\d,]+\.?\d*))?/gi))
+          .filter(m => {
+            const raw = m[0].toLowerCase();
+            return !raw.includes('tamara') && !raw.includes('tabby') && !raw.includes('split');
+          });
+
+        for (const m of adjacentPriceMatches) {
+          const p1 = parseFloat(m[1].replace(/,/g, ''));
+          const p2 = m[2] ? parseFloat(m[2].replace(/,/g, '')) : undefined;
+
+          if (!isNaN(p1) && p1 > 0 && p1 < 50000) {
+            if (p2 !== undefined && !isNaN(p2) && p2 > 0 && p2 < 50000) {
+              price = Math.min(p1, p2);
+              originalPriceAed = Math.max(p1, p2);
+              if (originalPriceAed > price) {
+                discountPercent = Math.round(((originalPriceAed - price) / originalPriceAed) * 100);
+              }
+              break;
+            } else if (!price) {
+              price = p1;
             }
           }
         }
 
+        // Extract accurate weight
+        let weightKg = 0.5;
+        const weightMatch = md.match(/(?:Size|Weight|Net Wt\.?|حجم|وزن)[:\s]*([0-9.]+)\s*(grams?|g|kg|lbs?|oz|ml|servings?|capsules?|tablets?|softgels?)/i) ||
+                            md.match(/([0-9.]+)\s*(grams?|g|kg|lbs?|oz)\b/i);
+        if (weightMatch) {
+          const val = parseFloat(weightMatch[1]);
+          const unit = weightMatch[2].toLowerCase();
+          if (unit.startsWith('g')) weightKg = Math.round((val / 1000) * 1000) / 1000;
+          else if (unit === 'kg') weightKg = val;
+          else if (unit.startsWith('lb')) weightKg = Math.round((val * 0.453592) * 1000) / 1000;
+          else if (unit === 'oz') weightKg = Math.round((val * 0.0283495) * 1000) / 1000;
+        }
+
         Array.from(md.matchAll(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/gi)).forEach(m => {
           const s = sanitizeImageUrl(m[2].trim(), enAeUrl);
-          if (s && !gallery.includes(s) && !s.includes('logo') && !s.includes('icon') && !s.includes('.svg')) gallery.push(s);
+          if (s && !gallery.includes(s) && !s.includes('logo') && !s.includes('icon') && !s.includes('.svg') && !s.includes('Tamara') && !s.includes('searchIcon')) {
+            gallery.push(s);
+          }
         });
 
         if (title && price > 0) {
@@ -5057,12 +5111,14 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<Parse
             flavors,
             sizes,
             storeName,
+            weightKg,
             options: []
           };
         }
       }
     }
   } catch (_jinaErr) {}
+
 
   // TIER 3: Microlink Fallback
   const microlinkResult = await fetchWithMicrolink(enAeUrl, storeName);

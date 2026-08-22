@@ -96,6 +96,7 @@ export const defaultLandingSettings: LandingSettings = {
 };
 
 export const getLandingSettings = async (): Promise<LandingSettings> => {
+  // 1. Direct Firestore Fetch
   try {
     if (db) {
       const docRef = doc(db, 'settings', 'landing');
@@ -110,9 +111,25 @@ export const getLandingSettings = async (): Promise<LandingSettings> => {
       }
     }
   } catch (err) {
-    console.error('Error loading landing settings:', err);
+    console.error('Error loading landing settings from Firestore:', err);
   }
 
+  // 2. API Backend Fetch Fallback
+  try {
+    if (typeof window !== 'undefined') {
+      const res = await fetch('/api/landing-settings');
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.ok && json.landingSettings && Object.keys(json.landingSettings).length > 0) {
+          const merged: LandingSettings = { ...defaultLandingSettings, ...json.landingSettings };
+          localStorage.setItem('sirikfit_landing_settings', JSON.stringify(merged));
+          return merged;
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 3. LocalStorage Fallback
   if (typeof window !== 'undefined') {
     const cached = localStorage.getItem('sirikfit_landing_settings');
     if (cached) {
@@ -128,41 +145,42 @@ export const getLandingSettings = async (): Promise<LandingSettings> => {
 
 export const saveLandingSettings = async (settings: Partial<LandingSettings>): Promise<boolean> => {
   try {
-    const sanitizedData: LandingSettings = {
+    const payload: LandingSettings = {
       ...defaultLandingSettings,
       ...settings,
-      showTelegram: settings.showTelegram !== false,
-      telegramId: settings.telegramId || '@SIRIK_FIT_Support',
-      telegramActionText: settings.telegramActionText || 'چت آنلاین',
-      showEmail: settings.showEmail !== false,
-      supportEmail: settings.supportEmail || 'info@sirikfit.ir',
-      emailActionText: settings.emailActionText || 'ارسال ایمیل',
-      showPhone: settings.showPhone !== false,
-      supportPhone: settings.supportPhone || '021-91000000',
-      phoneActionText: settings.phoneActionText || 'تماس تلفنی',
-      showHours: settings.showHours !== false,
-      supportHours: settings.supportHours || 'پاسخگویی همه‌روزه، ساعت ۹ صبح الی ۲۳',
-      showAddress: settings.showAddress !== false,
-      officeLocation: settings.officeLocation || 'دفتر هماهنگی و ارسال مرسولات دبی و ایران',
-      brandName: settings.brandName || 'سیریک فیت | SIRIK FIT',
-      brandSubtitle: settings.brandSubtitle || 'تأمین و واردات مستقیم مکمل از دبی',
-      aboutText: settings.aboutText || defaultLandingSettings.aboutText,
       updatedAt: new Date().toISOString()
     } as any;
 
+    // 1. Firestore Write
     if (db) {
       const docRef = doc(db, 'settings', 'landing');
-      await setDoc(docRef, sanitizedData, { merge: true });
+      await setDoc(docRef, payload, { merge: true });
+      try {
+        await setDoc(doc(db, 'settings', 'general'), payload, { merge: true });
+      } catch (_) {}
     }
 
+    // 2. API Backend Write
+    try {
+      if (typeof window !== 'undefined') {
+        fetch('/api/landing-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).catch(() => {});
+      }
+    } catch (_) {}
+
+    // 3. LocalStorage & Custom Event Write
     if (typeof window !== 'undefined') {
-      localStorage.setItem('sirikfit_landing_settings', JSON.stringify(sanitizedData));
-      window.dispatchEvent(new CustomEvent('landingSettingsUpdated', { detail: sanitizedData }));
+      localStorage.setItem('sirikfit_landing_settings', JSON.stringify(payload));
+      window.dispatchEvent(new CustomEvent('landingSettingsUpdated', { detail: payload }));
     }
 
     return true;
-  } catch (error) {
-    console.error('Error in saveLandingSettings:', error);
+  } catch (err) {
+    console.error('Error saving landing settings:', err);
     return false;
   }
 };
+

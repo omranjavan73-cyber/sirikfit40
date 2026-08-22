@@ -23,6 +23,8 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 import type { LandingSettings, LandingBenefitItem, LandingFaqItem, LandingRuleItem } from '../../types';
 import { defaultLandingSettings, ENAMAD_CONFIG } from '../../types';
 import { getLandingSettings, saveLandingSettings } from '../../services/settingsService';
@@ -163,28 +165,29 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
   };
 
   // Save handler
-  const handleSave = async () => {
+  const handleSave = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
     setIsSaving(true);
     setStatusMessage(null);
     try {
       const payload: LandingSettings = {
         ...settings,
-        telegramId: settings.telegramId || '@SIRIK_FIT_Support',
-        supportPhone: settings.supportPhone || '021-91000000',
-        supportEmail: settings.supportEmail || 'info@sirikfit.ir',
         updatedAt: new Date().toISOString()
       };
-      const ok = await saveLandingSettings(payload);
-      if (ok) {
-        setSettings(payload);
-        setStatusMessage('تنظیمات با موفقیت در دیتابیس ذخیره شد');
-        if (onSaved) onSaved(payload);
-      } else {
-        setStatusMessage('خطا در ذخیره‌سازی تنظیمات در فایربیس.');
-      }
-    } catch (err) {
+      
+      // Multi-tier write: Firestore + API backend + localStorage + event
+      await saveLandingSettings(payload);
+      setSettings(payload);
+      setStatusMessage('تنظیمات با موفقیت در دیتابیس ذخیره شد');
+      if (onSaved) onSaved(payload);
+
+    } catch (err: any) {
       console.error('Error saving landing settings:', err);
-      setStatusMessage('خطا در ذخیره اطلاعات');
+      const errMsg = err?.message || String(err);
+      setStatusMessage('خطای دیتابیس: ' + errMsg);
+      if (typeof window !== 'undefined') {
+        alert('خطای دیتابیس: ' + errMsg);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -206,7 +209,7 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
 
         <button
           type="button"
-          onClick={handleSave}
+          onClick={(e) => handleSave(e)}
           disabled={isSaving}
           className="px-5 py-3 bg-black hover:bg-slate-900 text-white text-xs font-black rounded-2xl transition shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
         >

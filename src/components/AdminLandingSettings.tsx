@@ -24,6 +24,8 @@ import {
   ToggleLeft,
   ToggleRight
 } from 'lucide-react';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import type { CmsConfig, LandingSettings, LandingBenefitItem, LandingFaqItem, LandingRuleItem } from '../types';
 import { defaultLandingSettings, ENAMAD_CONFIG } from '../types';
 import { getLandingSettings, saveLandingSettings } from '../services/settingsService';
@@ -195,42 +197,50 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
   // -------------------------------------------------------------
   // Save Settings
   // -------------------------------------------------------------
-  const handleSave = async () => {
+  const handleSave = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
     setIsSaving(true);
     try {
-      // 1. Direct write to Firestore document `settings/landing` and sync to localStorage
-      await saveLandingSettings(settings);
+      const payload: LandingSettings = {
+        ...settings,
+        updatedAt: new Date().toISOString()
+      };
 
-      // 3. Sync to main CMS config for backward compatibility
+      // 1. Multi-tier write: Firestore (settings/landing + settings/general) + API backend + localStorage
+      await saveLandingSettings(payload);
+      setSettings(payload);
+
+
+      // 2. Sync to main CMS config for backward compatibility
       if (onSaveCms) {
         const updatedCms: CmsConfig = {
           ...(cms || ({} as any)),
-          landingSettings: settings,
+          landingSettings: payload,
           // Sync with legacy landingContent structure
           landingContent: {
-            showAboutUs: settings.showAbout,
-            showServices: settings.showBenefits,
-            showContactSupport: settings.showContact,
-            showTerms: settings.showRules,
-            aboutUsTitle: settings.brandName,
-            aboutUsDescription: settings.aboutText,
-            aboutUsBadge: settings.deliveryGuaranteeBadge,
+            showAboutUs: payload.showAbout,
+            showServices: payload.showBenefits,
+            showContactSupport: payload.showContact,
+            showTerms: payload.showRules,
+            aboutUsTitle: payload.brandName,
+            aboutUsDescription: payload.aboutText,
+            aboutUsBadge: payload.deliveryGuaranteeBadge,
             servicesTitle: 'خدمات و مزایای سیریک فیت',
-            servicesList: settings.benefits.map((b, i) => ({
+            servicesList: payload.benefits.map((b, i) => ({
               id: b.id || `pillar-${i}`,
               title: b.title,
               description: b.description,
               icon: b.icon || 'ShieldCheck'
             })),
             contactTitle: 'تماس با ما و پشتیبانی',
-            supportEmail: settings.supportEmail,
-            supportTelegram: settings.telegramId,
-            supportTelegramLink: `https://t.me/${settings.telegramId.replace('@', '')}`,
-            supportPhone: settings.supportPhone,
-            supportHours: settings.supportHours,
-            officeAddress: settings.officeLocation,
+            supportEmail: payload.supportEmail,
+            supportTelegram: payload.telegramId,
+            supportTelegramLink: `https://t.me/${payload.telegramId.replace('@', '')}`,
+            supportPhone: payload.supportPhone,
+            supportHours: payload.supportHours,
+            officeAddress: payload.officeLocation,
             termsTitle: 'قوانین و مقررات خرید',
-            termsList: settings.rules.map((r, i) => ({
+            termsList: payload.rules.map((r, i) => ({
               id: r.id || `term-${i}`,
               title: r.title,
               description: r.content
@@ -239,10 +249,10 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
           // Sync contact fields to homeContent
           homeContent: {
             ...(cms?.homeContent || ({} as any)),
-            telegramHandle: settings.telegramId,
-            telegramLink: `https://t.me/${settings.telegramId.replace('@', '')}`,
-            officePhone: settings.supportPhone,
-            adminDestinationEmail: settings.supportEmail
+            telegramHandle: payload.telegramId,
+            telegramLink: `https://t.me/${payload.telegramId.replace('@', '')}`,
+            officePhone: payload.supportPhone,
+            adminDestinationEmail: payload.supportEmail
           }
         };
 
@@ -250,9 +260,16 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
       }
 
       showToast('تنظیمات لندینگ و اطلاع‌رسانی با موفقیت ذخیره شد', 'success');
+      if (typeof window !== 'undefined') {
+        alert('تنظیمات با موفقیت در دیتابیس ذخیره شد');
+      }
     } catch (err: any) {
       console.error('Error saving landing settings:', err);
-      showToast('خطا در ذخیره‌سازی تنظیمات لندینگ', 'error');
+      const errMsg = err?.message || String(err);
+      showToast('خطای دیتابیس: ' + errMsg, 'error');
+      if (typeof window !== 'undefined') {
+        alert('خطای دیتابیس: ' + errMsg);
+      }
     } finally {
       setIsSaving(false);
     }

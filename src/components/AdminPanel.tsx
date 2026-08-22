@@ -2981,11 +2981,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       onUpdateCms(cleanCmsPayload as any);
 
       // ---------------------------------------------------------------
-      // STEP 3: Write DIRECTLY to Firestore in parallel
+      // STEP 3: Write DIRECTLY to Firestore in parallel (including settings/landing)
       // ---------------------------------------------------------------
+      const landingSyncPayload: Record<string, any> = {
+        updatedAt: new Date().toISOString()
+      };
+      if (currentHomeContent?.telegramHandle) landingSyncPayload.telegramId = currentHomeContent.telegramHandle;
+      if (currentHomeContent?.officePhone) landingSyncPayload.supportPhone = currentHomeContent.officePhone;
+      if (currentHomeContent?.adminDestinationEmail) landingSyncPayload.supportEmail = currentHomeContent.adminDestinationEmail;
+      if (currentHomeContent?.officeHours) landingSyncPayload.supportHours = currentHomeContent.officeHours;
+      if (currentHomeContent?.officeAddress) landingSyncPayload.officeLocation = currentHomeContent.officeAddress;
+      if (currentHomeContent?.siteTitle) landingSyncPayload.brandName = currentHomeContent.siteTitle;
+      if (currentHomeContent?.siteSubtitle) landingSyncPayload.brandSubtitle = currentHomeContent.siteSubtitle;
+      if (currentHomeContent?.aboutUsText) landingSyncPayload.aboutText = currentHomeContent.aboutUsText;
+      if (typeof showTrustBadges === 'boolean') landingSyncPayload.showTrustBadges = showTrustBadges;
+      if (typeof showEnamad === 'boolean') landingSyncPayload.showEnamad = showEnamad;
+
       await Promise.all([
         setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore(cleanGeneralPayload), { merge: true }),
         setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(cleanCmsPayload), { merge: true }),
+        setDoc(doc(db, 'settings', 'landing'), sanitizePayloadForFirestore(landingSyncPayload), { merge: true }),
         setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(cleanCmsPayload), { merge: true })
       ]);
 
@@ -2993,6 +3008,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setSaveCmsSuccess(true);
       if (showToast) showToast('تنظیمات عمومی با موفقیت در دیتابیس ذخیره شد', 'success');
       if (onRefresh) onRefresh();
+
 
     } catch (err: any) {
       console.error("Firebase CMS Save Error:", err);

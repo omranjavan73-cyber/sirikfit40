@@ -27,7 +27,9 @@ import { ContactSupportSection } from './components/ContactSupportSection';
 import { TermsSection } from './components/TermsSection';
 import { TermsModal } from './components/TermsModal';
 import { Footer } from './components/Footer';
-import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
+import { CompactLandingFooter } from './components/CompactLandingFooter';
+import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem, LandingSettings } from './types';
+import { defaultLandingSettings } from './types';
 import { toPersianDigits, getEffectiveAedRate, calculateFinalToman } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -122,6 +124,16 @@ function MainApp() {
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
+
+  const [landingSettings, setLandingSettings] = useState<LandingSettings>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('sirikfit_landing_settings');
+        if (saved) return { ...defaultLandingSettings, ...JSON.parse(saved) };
+      } catch (_) {}
+    }
+    return defaultLandingSettings;
+  });
 
   // Financial Settings State - Single Source of Truth initialized from LocalStorage FIRST
   const [settings, setSettings] = useState<FinancialSettings>(() => {
@@ -364,6 +376,7 @@ function MainApp() {
     let unsubFinancial: (() => void) | null = null;
     let unsubCms: (() => void) | null = null;
     let unsubGen: (() => void) | null = null;
+    let unsubLanding: (() => void) | null = null;
 
     const handlePricingUpdate = (data: any) => {
       if (!data) return;
@@ -519,6 +532,34 @@ function MainApp() {
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore general settings onSnapshot notice:', err);
       });
+
+      unsubLanding = onSnapshot(doc(db, 'settings', 'landing'), (snap) => {
+        if (snap.exists()) {
+          const landingData = snap.data() as Partial<LandingSettings>;
+          if (landingData) {
+            setLandingSettings(prev => ({
+              ...prev,
+              ...landingData
+            }));
+            setCmsConfig(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                landingSettings: {
+                  ...defaultLandingSettings,
+                  ...(prev.landingSettings || {}),
+                  ...landingData
+                }
+              };
+            });
+            try {
+              localStorage.setItem('sirikfit_landing_settings', JSON.stringify(landingData));
+            } catch (_) {}
+          }
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('Firestore landing settings onSnapshot notice:', err);
+      });
     } catch (fsErr) {
       console.warn('Error setting up Firestore onSnapshot listeners:', fsErr);
     }
@@ -530,6 +571,7 @@ function MainApp() {
       if (unsubFinancial) unsubFinancial();
       if (unsubCms) unsubCms();
       if (unsubGen) unsubGen();
+      if (unsubLanding) unsubLanding();
     };
   }, []);
 
@@ -1159,52 +1201,26 @@ function MainApp() {
             {/* Reviews & Suggestions Section (Global visibility controlled via Admin Panel -> General Settings) */}
             <ReviewsSection showReviewsSection={(cmsConfig?.features?.showReviews ?? cmsConfig?.features?.showComments ?? cmsConfig?.showReviewsSection ?? cmsConfig?.showReviews ?? cmsConfig?.showComments) !== false} cms={cmsConfig} />
 
-            {/* 4 Core Pillars: Services & Features Section */}
-            <ServicesFeaturesSection cms={cmsConfig} />
-
-            {/* About Us Section */}
-            <AboutUsSection cms={cmsConfig} />
-
-            {/* Support & Contact Section */}
-            <ContactSupportSection
-              cms={cmsConfig}
-              onOpenFAQ={() => {
-                setActiveTab('faq');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-            />
-
-            {/* Terms & Conditions Section */}
-            <TermsSection cms={cmsConfig} />
-
-            {/* Professional Footer */}
-            <Footer
-              cms={cmsConfig}
-              settings={settings}
+            {/* Compact Integrated Landing Footer (Screenshot 2700 Layout) */}
+            <CompactLandingFooter
+              settings={landingSettings}
               onOpenTerms={() => setIsTermsModalOpen(true)}
-              onOpenFAQ={() => {
+              onOpenRules={() => setIsTermsModalOpen(true)}
+              onOpenFaq={() => {
                 setActiveTab('faq');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              onOpenInventory={() => {
-                setActiveTab('inventory');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              onOpenDeals={() => {
-                setActiveTab('deals');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onOpenAbout={() => {
-                const el = document.getElementById('about-us-section');
-                if (el) el.scrollIntoView({ behavior: 'smooth' });
+                setActiveTab('faq');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              onOpenServices={() => {
-                const el = document.getElementById('services-section');
-                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              onOpenBenefits={() => {
+                setActiveTab('deals');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onOpenContact={() => {
-                const el = document.getElementById('contact-support-section');
-                if (el) el.scrollIntoView({ behavior: 'smooth' });
+                const tg = (landingSettings.telegramId || '@SIRIK_FIT_Support').replace('@', '').replace('https://t.me/', '');
+                window.open(`https://t.me/${tg}`, '_blank');
               }}
             />
           </div>

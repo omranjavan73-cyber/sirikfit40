@@ -354,6 +354,85 @@ export interface TermItem {
   description: string;
 }
 
+export interface LandingBenefitItem {
+  id: string;
+  title: string;
+  description: string;
+  icon?: string;
+}
+
+export interface LandingFaqItem {
+  id: string;
+  question: string;
+  answer: string;
+}
+
+export interface LandingRuleItem {
+  id: string;
+  title: string;
+  content: string;
+}
+
+export interface LandingSettings {
+  // 1. Visibility Toggles
+  showBenefits: boolean;
+  showAbout: boolean;
+  showContact: boolean;
+  showFaq: boolean;
+  showRules: boolean;
+  showTrustBadges: boolean;
+
+  // 2. Brand & About
+  brandName: string;
+  brandSubtitle: string;
+  aboutText: string;
+  deliveryGuaranteeBadge: string;
+
+  // 3. Contact & Support (Consolidated from General Settings)
+  telegramId: string;
+  supportEmail: string;
+  supportPhone: string;
+  supportHours: string;
+  officeLocation: string;
+
+  // 4. Structured Lists
+  benefits: Array<{ id: string; title: string; description: string; icon?: string }>;
+  faqs: Array<{ id: string; question: string; answer: string }>;
+  rules: Array<{ id: string; title: string; content: string }>;
+}
+
+export const defaultLandingSettings: LandingSettings = {
+  showBenefits: true,
+  showAbout: true,
+  showContact: true,
+  showFaq: true,
+  showRules: true,
+  showTrustBadges: true,
+  brandName: "سیریک فیت | SIRIK FIT",
+  brandSubtitle: "تأمین و واردات مستقیم مکمل از دبی",
+  aboutText: "سیریک فیت (SIRIK FIT) مرجع تخصصی تأمین و واردات مستقیم مکملهای ورزشی و غذایی اورجینال از معتبرترین برندهای جهانی و نمایندگیهای امارات متحده عربی است.",
+  deliveryGuaranteeBadge: "تضمین ۱۰۰٪ اصالت کالا | ارسال ۵ الی ۱۰ روز کاری",
+  telegramId: "@SIRIK_FIT_Support",
+  supportEmail: "info@sirikfit.ir",
+  supportPhone: "021-91000000",
+  supportHours: "پاسخگویی همهروزه، ساعت ۹ صبح الی ۲۳",
+  officeLocation: "دفتر هماهنگی و ارسال مرسولات دبی و ایران",
+  benefits: [
+    { id: "b1", title: "اصالت ۱۰۰٪ کالا", description: "خرید مستقیم از نمایندگیهای رسمی دبی (GNC، Dr. Nutrition، Sporter)" },
+    { id: "b2", title: "حمل ایمن و سریع", description: "ارسال تخصصی با کنترل دما و بستهبندی استاندارد" },
+    { id: "b3", title: "قیمت منصفانه و شفاف", description: "محاسبه خودکار و دقیق بر اساس نرخ زنده درهم بدون واسطه" },
+    { id: "b4", title: "مشاوره و پشتیبانی ۲۴/۷", description: "راهنمایی تخصصی جهت انتخاب مکملهای مناسب" }
+  ],
+  faqs: [
+    { id: "f1", question: "آیا محصولات دارای ضمانت اصالت هستند؟", answer: "بله، تمامی کالاها مستقیماً با فاکتور رسمی از دبی خریداری و با پلمپ شرکتی ارسال میشوند." },
+    { id: "f2", question: "زمان تحویل سفارش چقدر است؟", answer: "سفارشهای انبار ایران فوری (۱ الی ۲ روز) و سفارشهای مستقیم دبی ظرف ۵ الی ۱۰ روز کاری تحویل میگردند." }
+  ],
+  rules: [
+    { id: "r1", title: "ضمانت اصالت و سلامت فیزیکی", content: "کلیه سفارشها قبل از ارسال در دفتر دبی بازرسی و تست پلمپ میشوند." },
+    { id: "r2", title: "روند ثبت و پیگیری سفارش", content: "پس از ثبت سفارش، کد رهگیری پست و وضعیت ترخیص به کاربر پیامک میشود." }
+  ]
+};
+
 export interface LandingContentSettings {
   // Visibility switches
   showAboutUs: boolean;
@@ -473,6 +552,7 @@ export const DEFAULT_LANDING_CONTENT: LandingContentSettings = {
 };
 
 export interface CmsConfig {
+  landingSettings?: LandingSettings;
   landingContent?: LandingContentSettings;
   features?: FeatureToggles;
   promoPopup?: PromoPopupConfig;

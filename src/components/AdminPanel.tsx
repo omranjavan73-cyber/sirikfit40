@@ -7357,205 +7357,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </button>
             </div>
 
-            {/* Banner Title & Subtitle Inputs */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pb-2 border-b border-slate-100">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان بنر مشکی پشتیبانی:</label>
-                <input
-                  type="text"
-                  value={supportHeadline}
-                  onChange={(e) => setSupportHeadline(e.target.value)}
-                  placeholder="پشتیبانی و مشاوره تخصصی واردات دبی"
-                  className="w-full bg-slate-50 border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1.5">توضیحات زیرعنوان بنر پشتیبانی:</label>
-                <input
-                  type="text"
-                  value={supportSubtitle}
-                  onChange={(e) => setSupportSubtitle(e.target.value)}
-                  placeholder="پاسخگویی ۲۴ ساعته توسط کارشناسان تغذیه و لاجستیک"
-                  className="w-full bg-slate-50 border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                />
-              </div>
-            </div>
-
-            {/* Support Cards Management */}
-            <div className="space-y-4">
-              <h5 className="font-extrabold text-xs text-slate-800">تنظیمات کارت‌های پشتیبانی (نمایش / عنوان سفارشی / اطلاعات):</h5>
-
-              {/* Card 1: Telegram */}
-              <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                    <Send className="w-4 h-4 text-sky-500" />
-                    <span>کارت ۱: پشتیبانی تلگرام</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowTelegramCard(!showTelegramCard)}
-                    className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer ${
-                      showTelegramCard
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-rose-50 border-rose-200 text-rose-700'
-                    }`}
-                  >
-                    {showTelegramCard ? (
-                      <>
-                        <ToggleRight className="w-4 h-4 text-emerald-600" />
-                        <span>نمایش در سایت</span>
-                      </>
-                    ) : (
-                      <>
-                        <ToggleLeft className="w-4 h-4 text-rose-500" />
-                        <span>مخفی شده</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">عنوان سفارشی کارت:</label>
-                    <input
-                      type="text"
-                      value={telegramTitle}
-                      onChange={(e) => setTelegramTitle(e.target.value)}
-                      placeholder="ارتباط با پشتیبانی در تلگرام"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
+            {/* Centralized Support Banner */}
+            <div className="grid grid-cols-1 gap-3.5 pb-2">
+              <div className="bg-gradient-to-r from-red-50 to-slate-50 border border-red-200/80 rounded-2xl p-4.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Headphones className="w-5 h-5" />
                   </div>
                   <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">آیدی تلگرام:</label>
-                    <input
-                      type="text"
-                      value={telegramHandle}
-                      onChange={(e) => setTelegramHandle(e.target.value)}
-                      placeholder="@SIRIK_FIT_Support"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">لینک مستقیم تلگرام:</label>
-                    <input
-                      type="text"
-                      value={telegramLink}
-                      onChange={(e) => setTelegramLink(e.target.value)}
-                      placeholder="https://t.me/SIRIK_FIT_Support"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-medium"
-                    />
+                    <h5 className="font-black text-xs sm:text-sm text-slate-900">مدیریت متمرکز پل‌های تماس و پشتیبانی</h5>
+                    <p className="text-[11px] text-slate-600 font-medium mt-0.5">
+                      تنظیمات آیدی تلگرام، ایمیل، شماره تماس، ساعات کاری و آدرس به تب «مدیریت لندینگ و اطلاع‌رسانی» منتقل و یکپارچه شده است.
+                    </p>
                   </div>
                 </div>
-              </div>
 
-              {/* Card 2: Email */}
-              <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                    <Mail className="w-4 h-4 text-rose-500" />
-                    <span>کارت ۲: پشتیبانی ایمیل</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowEmailCard(!showEmailCard)}
-                    className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer ${
-                      showEmailCard
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-rose-50 border-rose-200 text-rose-700'
-                    }`}
-                  >
-                    {showEmailCard ? (
-                      <>
-                        <ToggleRight className="w-4 h-4 text-emerald-600" />
-                        <span>نمایش در سایت</span>
-                      </>
-                    ) : (
-                      <>
-                        <ToggleLeft className="w-4 h-4 text-rose-500" />
-                        <span>مخفی شده</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">عنوان سفارشی کارت:</label>
-                    <input
-                      type="text"
-                      value={emailTitle}
-                      onChange={(e) => setEmailTitle(e.target.value)}
-                      placeholder="ارتباط از طریق ایمیل پشتیبانی"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">آدرس ایمیل پشتیبانی:</label>
-                    <input
-                      type="text"
-                      value={adminDestinationEmail}
-                      onChange={(e) => setAdminDestinationEmail(e.target.value)}
-                      placeholder="omran.javan73@gmail.com"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-medium"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 3: Phone */}
-              <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                    <Phone className="w-4 h-4 text-indigo-600" />
-                    <span>کارت ۳: تلفن دفتر تهران</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowPhoneCard(!showPhoneCard)}
-                    className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer ${
-                      showPhoneCard
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-rose-50 border-rose-200 text-rose-700'
-                    }`}
-                  >
-                    {showPhoneCard ? (
-                      <>
-                        <ToggleRight className="w-4 h-4 text-emerald-600" />
-                        <span>نمایش در سایت</span>
-                      </>
-                    ) : (
-                      <>
-                        <ToggleLeft className="w-4 h-4 text-rose-500" />
-                        <span>مخفی شده</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">عنوان سفارشی کارت:</label>
-                    <input
-                      type="text"
-                      value={phoneTitle}
-                      onChange={(e) => setPhoneTitle(e.target.value)}
-                      placeholder="تماس تلفنی با واحد فروش"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">شماره تماس پشتیبانی:</label>
-                    <input
-                      type="text"
-                      value={supportPhone}
-                      onChange={(e) => setSupportPhone(e.target.value)}
-                      placeholder="02188888888"
-                      className="w-full bg-white border border-slate-200 focus:border-black text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-medium"
-                    />
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveAdminSubTab('landingSettings');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="px-4 py-2 bg-black hover:bg-slate-800 text-white text-xs font-black rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                >
+                  <Building2 className="w-3.5 h-3.5 text-red-500" />
+                  <span>انتقال به تنظیمات لندینگ</span>
+                </button>
               </div>
             </div>
           </div>

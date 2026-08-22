@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Save,
   RotateCcw,
@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Headphones,
   FileText,
+  HelpCircle,
   Mail,
   Send,
   Phone,
@@ -18,14 +19,19 @@ import {
   Sparkles,
   Plus,
   Trash2,
-  Check
+  Check,
+  Sparkle,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
-import type { CmsConfig, LandingContentSettings, ServicePillarItem, TermItem } from '../types';
-import { DEFAULT_LANDING_CONTENT } from '../types';
+import type { CmsConfig, LandingSettings, LandingBenefitItem, LandingFaqItem, LandingRuleItem } from '../types';
+import { defaultLandingSettings } from '../types';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface AdminLandingSettingsProps {
   cms: CmsConfig | null;
-  onSaveCms: (updatedCms: CmsConfig) => Promise<void>;
+  onSaveCms?: (updatedCms: CmsConfig) => Promise<void>;
   showToast: (msg: string, type: 'success' | 'error') => void;
 }
 
@@ -35,524 +41,694 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
   showToast
 }) => {
   const [isSaving, setIsSaving] = useState(false);
-  const [landing, setLanding] = useState<LandingContentSettings>(() => {
-    return {
-      ...DEFAULT_LANDING_CONTENT,
-      ...(cms?.landingContent || {})
-    };
+  const [activeTab, setActiveTab] = useState<'visibility' | 'brand' | 'contact' | 'benefits' | 'faqs' | 'rules'>('visibility');
+
+  const [settings, setSettings] = useState<LandingSettings>(() => {
+    // 1. Check cms.landingSettings
+    if (cms?.landingSettings) {
+      return { ...defaultLandingSettings, ...cms.landingSettings };
+    }
+    // 2. Check localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('sirikfit_landing_settings');
+        if (saved) return { ...defaultLandingSettings, ...JSON.parse(saved) };
+      } catch (_) {}
+    }
+    return { ...defaultLandingSettings };
   });
 
-  const handleToggle = (key: keyof LandingContentSettings) => {
-    setLanding(prev => ({
+  // Fetch directly from settings/landing on mount
+  useEffect(() => {
+    let isMounted = true;
+    const fetchLandingDoc = async () => {
+      try {
+        if (!db) return;
+        const snap = await getDoc(doc(db, 'settings', 'landing'));
+        if (snap.exists() && isMounted) {
+          const data = snap.data() as Partial<LandingSettings>;
+          setSettings(prev => ({
+            ...prev,
+            ...data
+          }));
+        }
+      } catch (err) {
+        console.warn('Could not fetch settings/landing from Firestore:', err);
+      }
+    };
+    fetchLandingDoc();
+    return () => { isMounted = false; };
+  }, []);
+
+  const handleToggle = (key: keyof Pick<LandingSettings, 'showBenefits' | 'showAbout' | 'showContact' | 'showFaq' | 'showRules' | 'showTrustBadges'>) => {
+    setSettings(prev => ({
       ...prev,
       [key]: !prev[key]
     }));
   };
 
-  const handleChange = (key: keyof LandingContentSettings, value: any) => {
-    setLanding(prev => ({
+  const handleFieldChange = (key: keyof LandingSettings, value: any) => {
+    setSettings(prev => ({
       ...prev,
       [key]: value
     }));
   };
 
-  const handleServiceChange = (index: number, field: keyof ServicePillarItem, val: string) => {
-    setLanding(prev => {
-      const list = [...(prev.servicesList || DEFAULT_LANDING_CONTENT.servicesList)];
-      list[index] = { ...list[index], [field]: val };
-      return { ...prev, servicesList: list };
+  // -------------------------------------------------------------
+  // Benefits Item Handlers
+  // -------------------------------------------------------------
+  const handleAddBenefit = () => {
+    const newId = `b_${Date.now()}`;
+    setSettings(prev => ({
+      ...prev,
+      benefits: [
+        ...(prev.benefits || []),
+        { id: newId, title: 'عنوان مزیت جدید', description: 'توضیحات مزیت و سرویس سیریک فیت' }
+      ]
+    }));
+  };
+
+  const handleUpdateBenefit = (index: number, field: 'title' | 'description', val: string) => {
+    setSettings(prev => {
+      const list = [...(prev.benefits || [])];
+      if (list[index]) {
+        list[index] = { ...list[index], [field]: val };
+      }
+      return { ...prev, benefits: list };
     });
   };
 
-  const handleTermChange = (index: number, field: keyof TermItem, val: string) => {
-    setLanding(prev => {
-      const list = [...(prev.termsList || DEFAULT_LANDING_CONTENT.termsList)];
-      list[index] = { ...list[index], [field]: val };
-      return { ...prev, termsList: list };
+  const handleDeleteBenefit = (index: number) => {
+    setSettings(prev => {
+      const list = [...(prev.benefits || [])];
+      list.splice(index, 1);
+      return { ...prev, benefits: list };
     });
   };
 
+  // -------------------------------------------------------------
+  // FAQs Item Handlers
+  // -------------------------------------------------------------
+  const handleAddFaq = () => {
+    const newId = `f_${Date.now()}`;
+    setSettings(prev => ({
+      ...prev,
+      faqs: [
+        ...(prev.faqs || []),
+        { id: newId, question: 'سوال جدید کاربر؟', answer: 'پاسخ شفاف و کامل به سوال کاربر.' }
+      ]
+    }));
+  };
+
+  const handleUpdateFaq = (index: number, field: 'question' | 'answer', val: string) => {
+    setSettings(prev => {
+      const list = [...(prev.faqs || [])];
+      if (list[index]) {
+        list[index] = { ...list[index], [field]: val };
+      }
+      return { ...prev, faqs: list };
+    });
+  };
+
+  const handleDeleteFaq = (index: number) => {
+    setSettings(prev => {
+      const list = [...(prev.faqs || [])];
+      list.splice(index, 1);
+      return { ...prev, faqs: list };
+    });
+  };
+
+  // -------------------------------------------------------------
+  // Rules Item Handlers
+  // -------------------------------------------------------------
+  const handleAddRule = () => {
+    const newId = `r_${Date.now()}`;
+    setSettings(prev => ({
+      ...prev,
+      rules: [
+        ...(prev.rules || []),
+        { id: newId, title: 'بند قانونی جدید', content: 'شرح شرایط و تعهدات خرید و مرجوعی.' }
+      ]
+    }));
+  };
+
+  const handleUpdateRule = (index: number, field: 'title' | 'content', val: string) => {
+    setSettings(prev => {
+      const list = [...(prev.rules || [])];
+      if (list[index]) {
+        list[index] = { ...list[index], [field]: val };
+      }
+      return { ...prev, rules: list };
+    });
+  };
+
+  const handleDeleteRule = (index: number) => {
+    setSettings(prev => {
+      const list = [...(prev.rules || [])];
+      list.splice(index, 1);
+      return { ...prev, rules: list };
+    });
+  };
+
+  // -------------------------------------------------------------
+  // Reset to Defaults
+  // -------------------------------------------------------------
   const handleResetToDefault = () => {
-    if (window.confirm('آیا از بازگردانی تمامی متون و تنظیمات لندینگ به حالت پیش‌فرض اطمینان دارید؟')) {
-      setLanding({ ...DEFAULT_LANDING_CONTENT });
-      showToast('تنظیمات به حالت پیش‌فرض بازگردانی شد', 'success');
+    if (window.confirm('آیا از بازگردانی تمامی تنظیمات لندینگ، تماس، مزایا و قوانین به حالت پیش‌فرض مطمئن هستید؟')) {
+      setSettings({ ...defaultLandingSettings });
+      showToast('تنظیمات لندینگ به حالت پیش‌فرض بازگردانی شد', 'success');
     }
   };
 
+  // -------------------------------------------------------------
+  // Save Settings
+  // -------------------------------------------------------------
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const updatedCms: CmsConfig = {
-        ...(cms || ({} as any)),
-        landingContent: landing,
-        // Sync shared fields with homeContent for backward compatibility
-        homeContent: {
-          ...(cms?.homeContent || ({} as any)),
-          telegramHandle: landing.supportTelegram,
-          telegramLink: landing.supportTelegramLink || `https://t.me/${landing.supportTelegram.replace('@', '')}`,
-          officePhone: landing.supportPhone,
-          supportHeadline: landing.contactTitle,
-          supportSubtitle: landing.contactSubtitle,
-          adminDestinationEmail: landing.supportEmail
-        }
-      };
+      // 1. Save to localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sirikfit_landing_settings', JSON.stringify(settings));
+      }
 
-      await onSaveCms(updatedCms);
-      showToast('تنظیمات لندینگ و صفحات با موفقیت ذخیره شد', 'success');
-    } catch (err) {
-      console.error('Error saving landing content:', err);
-      showToast('خطا در ذخیره تنظیمات لندینگ', 'error');
+      // 2. Direct write to Firestore document `settings/landing`
+      if (db) {
+        try {
+          await setDoc(doc(db, 'settings', 'landing'), {
+            ...settings,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        } catch (fsErr) {
+          console.warn('Direct Firestore save to settings/landing failed:', fsErr);
+        }
+      }
+
+      // 3. Sync to main CMS config for backward compatibility
+      if (onSaveCms) {
+        const updatedCms: CmsConfig = {
+          ...(cms || ({} as any)),
+          landingSettings: settings,
+          // Sync with legacy landingContent structure
+          landingContent: {
+            showAboutUs: settings.showAbout,
+            showServices: settings.showBenefits,
+            showContactSupport: settings.showContact,
+            showTerms: settings.showRules,
+            aboutUsTitle: settings.brandName,
+            aboutUsDescription: settings.aboutText,
+            aboutUsBadge: settings.deliveryGuaranteeBadge,
+            servicesTitle: 'خدمات و مزایای سیریک فیت',
+            servicesList: settings.benefits.map((b, i) => ({
+              id: b.id || `pillar-${i}`,
+              title: b.title,
+              description: b.description,
+              icon: b.icon || 'ShieldCheck'
+            })),
+            contactTitle: 'تماس با ما و پشتیبانی',
+            supportEmail: settings.supportEmail,
+            supportTelegram: settings.telegramId,
+            supportTelegramLink: `https://t.me/${settings.telegramId.replace('@', '')}`,
+            supportPhone: settings.supportPhone,
+            supportHours: settings.supportHours,
+            officeAddress: settings.officeLocation,
+            termsTitle: 'قوانین و مقررات خرید',
+            termsList: settings.rules.map((r, i) => ({
+              id: r.id || `term-${i}`,
+              title: r.title,
+              description: r.content
+            }))
+          },
+          // Sync contact fields to homeContent
+          homeContent: {
+            ...(cms?.homeContent || ({} as any)),
+            telegramHandle: settings.telegramId,
+            telegramLink: `https://t.me/${settings.telegramId.replace('@', '')}`,
+            officePhone: settings.supportPhone,
+            adminDestinationEmail: settings.supportEmail
+          }
+        };
+
+        await onSaveCms(updatedCms);
+      }
+
+      showToast('تنظیمات لندینگ و اطلاع‌رسانی با موفقیت ذخیره شد', 'success');
+    } catch (err: any) {
+      console.error('Error saving landing settings:', err);
+      showToast('خطا در ذخیره‌سازی تنظیمات لندینگ', 'error');
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="space-y-8 font-['Vazirmatn',sans-serif] text-right" dir="rtl">
-      {/* Top Banner / Actions */}
-      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h3 className="font-black text-lg sm:text-xl text-slate-900 flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-red-600" />
-            <span>تنظیمات لندینگ، درباره ما، خدمات و قوانین</span>
-          </h3>
-          <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
-            مدیریت کامل بخش‌های معرفی برند، مزایا و خدمات، اطلاعات پشتیبانی و شرایط حقوقی
-          </p>
+    <div className="space-y-6 font-['Vazirmatn',sans-serif] dir-rtl text-right">
+      
+      {/* Header Banner */}
+      <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-red-600 text-white flex items-center justify-center shadow-md shrink-0">
+            <Building2 className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
+              <span>مدیریت لندینگ و اطلاع‌رسانی</span>
+              <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">
+                مرجع واحد تنظیمات
+              </span>
+            </h2>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              مدیریت یکپارچه سوییچ‌های نمایش، معرفی برند، پل‌های ارتباطی تلگرام و تماس، سوالات متداول و قوانین
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2.5 w-full sm:w-auto">
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
           <button
             type="button"
             onClick={handleResetToDefault}
-            className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+            className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            title="بازگردانی پیش‌فرض"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>بازگردانی پیش‌فرض</span>
+            <span className="hidden sm:inline">بازگردانی پیش‌فرض</span>
           </button>
 
           <button
             type="button"
             onClick={handleSave}
             disabled={isSaving}
-            className="flex-1 sm:flex-none px-6 py-2.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs sm:text-sm font-black rounded-xl transition shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            className="px-5 py-2.5 bg-black hover:bg-slate-800 text-white rounded-xl text-xs font-black transition flex items-center gap-2 shadow-md disabled:opacity-50 cursor-pointer"
           >
-            <Save className="w-4 h-4" />
-            <span>{isSaving ? 'در حال ذخیره...' : 'ذخیره تغییرات لندینگ'}</span>
+            <Save className="w-4 h-4 text-red-500" />
+            <span>{isSaving ? 'در حال ذخیره...' : 'ذخیره سراسری تنظیمات'}</span>
           </button>
         </div>
       </div>
 
-      {/* SECTION 1: MASTER VISIBILITY SWITCHES */}
-      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
-        <h4 className="font-black text-sm sm:text-base text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
-          <Sparkles className="w-4.5 h-4.5 text-amber-500" />
-          <span>کلیدهای نمایش / عدم نمایش بخش‌ها در سایت</span>
-        </h4>
+      {/* Navigation Sub-Tabs */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+        {[
+          { id: 'visibility', label: 'سوییچ‌های نمایش بخش‌ها', icon: Eye },
+          { id: 'brand', label: 'معرفی برند و درباره ما', icon: Building2 },
+          { id: 'contact', label: 'پل‌های تماس و پشتیبانی', icon: Headphones },
+          { id: 'benefits', label: 'مزایا و خدمات (Pillars)', icon: Sparkles },
+          { id: 'faqs', label: 'سوالات متداول (FAQ)', icon: HelpCircle },
+          { id: 'rules', label: 'قوانین و تعهدات', icon: FileText }
+        ].map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 shrink-0 cursor-pointer border ${
+                isActive
+                  ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                  : 'bg-white text-slate-700 border-slate-200/90 hover:bg-slate-50'
+              }`}
+            >
+              <Icon className={`w-4 h-4 ${isActive ? 'text-red-400' : 'text-slate-400'}`} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Toggle 1: About Us */}
-          <div
-            onClick={() => handleToggle('showAboutUs')}
-            className={`p-4 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between gap-3 ${
-              landing.showAboutUs
-                ? 'bg-red-50/50 border-red-300 shadow-2xs'
-                : 'bg-slate-50 border-slate-200 opacity-60'
-            }`}
-          >
+      {/* ==================================================================== */}
+      {/* TAB 1: VISIBILITY TOGGLES (سوییچ‌های نمایش)                         */}
+      {/* ==================================================================== */}
+      {activeTab === 'visibility' && (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
+          <div className="border-b border-slate-100 pb-3">
+            <h3 className="text-sm font-black text-slate-900">سوییچ‌های فعال/غیرفعال‌سازی بخش‌های لندینگ</h3>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              با خاموش کردن هر سوییچ، بخش مربوطه بلافاصله از روی صفحه اصلی مخفی می‌شود.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {[
+              { key: 'showBenefits', title: 'نمایش بخش مزایا و خدمات', desc: '۴ ستون ویژگی‌ها، اصالت و حمل دبی' },
+              { key: 'showAbout', title: 'نمایش بخش درباره ما', desc: 'بیانیه برند و معرفی فروشگاه سیریک فیت' },
+              { key: 'showContact', title: 'نمایش اطلاعات تماس و پشتیبانی', desc: 'پل ارتباطی تلگرام، تلفن، ایمیل و ساعات کاری' },
+              { key: 'showFaq', title: 'نمایش سوالات متداول (FAQ)', desc: 'پاسخ به سوالات پرتکرار خریداران' },
+              { key: 'showRules', title: 'نمایش قوانین و مقررات خرید', desc: 'شرایط تعویض، اصالت و تحویل' },
+              { key: 'showTrustBadges', title: 'نمایش نمادهای اعتماد و اصالت', desc: 'بج‌های تضمین ۱۰۰٪ اصالت و پرداخت امن' }
+            ].map(item => {
+              const isEnabled = settings[item.key as keyof LandingSettings] as boolean;
+              return (
+                <div
+                  key={item.key}
+                  onClick={() => handleToggle(item.key as any)}
+                  className={`p-4 rounded-2xl border transition cursor-pointer flex items-center justify-between gap-3 ${
+                    isEnabled
+                      ? 'bg-emerald-50/50 border-emerald-200/80 shadow-2xs'
+                      : 'bg-slate-50/60 border-slate-200 opacity-70'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <span className="text-xs font-black text-slate-900 block">{item.title}</span>
+                    <span className="text-[11px] text-slate-500 block truncate mt-0.5">{item.desc}</span>
+                  </div>
+
+                  <div className={`p-1 rounded-xl transition ${isEnabled ? 'text-emerald-600' : 'text-slate-400'}`}>
+                    {isEnabled ? <ToggleRight className="w-8 h-8" /> : <ToggleLeft className="w-8 h-8" />}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* TAB 2: BRAND & ABOUT (معرفی برند و درباره ما)                         */}
+      {/* ==================================================================== */}
+      {activeTab === 'brand' && (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-5">
+          <div className="border-b border-slate-100 pb-3">
+            <h3 className="text-sm font-black text-slate-900">تنظیمات هویت برند و بخش درباره ما</h3>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              متن معرفی رسمی سیریک فیت و بج تضمین اصالت
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <span className="font-black text-xs sm:text-sm text-slate-900 block">بخش «درباره ما»</span>
-              <span className="text-[10px] text-slate-500 font-medium">معرفی و اهداف سیریک فیت</span>
+              <label className="text-xs font-bold text-slate-700 block mb-1.5">نام رسمی برند:</label>
+              <input
+                type="text"
+                value={settings.brandName}
+                onChange={(e) => handleFieldChange('brandName', e.target.value)}
+                placeholder="سیریک فیت | SIRIK FIT"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none font-bold"
+              />
             </div>
-            <div className={`w-9 h-5 rounded-full p-0.5 transition-colors ${landing.showAboutUs ? 'bg-red-600' : 'bg-slate-300'}`}>
-              <div className={`w-4 h-4 rounded-full bg-white transition-transform ${landing.showAboutUs ? '-translate-x-4' : 'translate-x-0'}`} />
-            </div>
-          </div>
 
-          {/* Toggle 2: Services */}
-          <div
-            onClick={() => handleToggle('showServices')}
-            className={`p-4 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between gap-3 ${
-              landing.showServices
-                ? 'bg-red-50/50 border-red-300 shadow-2xs'
-                : 'bg-slate-50 border-slate-200 opacity-60'
-            }`}
-          >
             <div>
-              <span className="font-black text-xs sm:text-sm text-slate-900 block">بخش «خدمات و مزایا»</span>
-              <span className="text-[10px] text-slate-500 font-medium">۴ ستون اصلی تمایز</span>
+              <label className="text-xs font-bold text-slate-700 block mb-1.5">شعار / زیرعنوان برند:</label>
+              <input
+                type="text"
+                value={settings.brandSubtitle}
+                onChange={(e) => handleFieldChange('brandSubtitle', e.target.value)}
+                placeholder="تأمین و واردات مستقیم مکمل از دبی"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none font-bold"
+              />
             </div>
-            <div className={`w-9 h-5 rounded-full p-0.5 transition-colors ${landing.showServices ? 'bg-red-600' : 'bg-slate-300'}`}>
-              <div className={`w-4 h-4 rounded-full bg-white transition-transform ${landing.showServices ? '-translate-x-4' : 'translate-x-0'}`} />
+
+            <div className="md:col-span-2">
+              <label className="text-xs font-bold text-slate-700 block mb-1.5">متن کامل درباره ما:</label>
+              <textarea
+                rows={4}
+                value={settings.aboutText}
+                onChange={(e) => handleFieldChange('aboutText', e.target.value)}
+                placeholder="سیریک فیت مرجع تخصصی تأمین مکمل‌های ورزشی اورجینال..."
+                className="w-full bg-slate-50 border border-slate-200 focus:border-black text-slate-900 text-xs p-3.5 rounded-xl focus:outline-none leading-relaxed font-medium"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-xs font-bold text-slate-700 block mb-1.5">بج ضمانت اصالت و تحویل:</label>
+              <input
+                type="text"
+                value={settings.deliveryGuaranteeBadge}
+                onChange={(e) => handleFieldChange('deliveryGuaranteeBadge', e.target.value)}
+                placeholder="تضمین ۱۰۰٪ اصالت کالا | ارسال ۵ الی ۱۰ روز کاری"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none font-bold"
+              />
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Toggle 3: Contact & Support */}
-          <div
-            onClick={() => handleToggle('showContactSupport')}
-            className={`p-4 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between gap-3 ${
-              landing.showContactSupport
-                ? 'bg-red-50/50 border-red-300 shadow-2xs'
-                : 'bg-slate-50 border-slate-200 opacity-60'
-            }`}
-          >
+      {/* ==================================================================== */}
+      {/* TAB 3: CONTACT & SUPPORT (پل‌های تماس و پشتیبانی)                     */}
+      {/* ==================================================================== */}
+      {activeTab === 'contact' && (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-5">
+          <div className="border-b border-slate-100 pb-3">
+            <h3 className="text-sm font-black text-slate-900">تنظیمات راه‌های ارتباط و پشتیبانی کاربران</h3>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              این اطلاعات در تمامی صفحات، هدر، فوتر و بخش تماس اعمال می‌شود.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <span className="font-black text-xs sm:text-sm text-slate-900 block">بخش «تماس و پشتیبانی»</span>
-              <span className="text-[10px] text-slate-500 font-medium">تلگرام، ایمیل، تلفن و دفتر</span>
+              <label className="text-xs font-bold text-slate-700 block mb-1.5 flex items-center gap-1.5">
+                <Send className="w-3.5 h-3.5 text-sky-500" />
+                <span>آیدی تلگرام پشتیبانی:</span>
+              </label>
+              <input
+                type="text"
+                value={settings.telegramId}
+                onChange={(e) => handleFieldChange('telegramId', e.target.value)}
+                placeholder="@SIRIK_FIT_Support"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none dir-ltr font-bold"
+              />
             </div>
-            <div className={`w-9 h-5 rounded-full p-0.5 transition-colors ${landing.showContactSupport ? 'bg-red-600' : 'bg-slate-300'}`}>
-              <div className={`w-4 h-4 rounded-full bg-white transition-transform ${landing.showContactSupport ? '-translate-x-4' : 'translate-x-0'}`} />
-            </div>
-          </div>
 
-          {/* Toggle 4: Terms */}
-          <div
-            onClick={() => handleToggle('showTerms')}
-            className={`p-4 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between gap-3 ${
-              landing.showTerms
-                ? 'bg-red-50/50 border-red-300 shadow-2xs'
-                : 'bg-slate-50 border-slate-200 opacity-60'
-            }`}
-          >
             <div>
-              <span className="font-black text-xs sm:text-sm text-slate-900 block">بخش «قوانین و مقررات»</span>
-              <span className="text-[10px] text-slate-500 font-medium">فوتر و پاپ‌آپ شرایط خرید</span>
+              <label className="text-xs font-bold text-slate-700 block mb-1.5 flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-red-500" />
+                <span>ایمیل رسمی پشتیبانی:</span>
+              </label>
+              <input
+                type="email"
+                value={settings.supportEmail}
+                onChange={(e) => handleFieldChange('supportEmail', e.target.value)}
+                placeholder="info@sirikfit.ir"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none dir-ltr font-bold"
+              />
             </div>
-            <div className={`w-9 h-5 rounded-full p-0.5 transition-colors ${landing.showTerms ? 'bg-red-600' : 'bg-slate-300'}`}>
-              <div className={`w-4 h-4 rounded-full bg-white transition-transform ${landing.showTerms ? '-translate-x-4' : 'translate-x-0'}`} />
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1.5 flex items-center gap-1.5">
+                <Phone className="w-3.5 h-3.5 text-emerald-500" />
+                <span>شماره تماس پشتیبانی:</span>
+              </label>
+              <input
+                type="text"
+                value={settings.supportPhone}
+                onChange={(e) => handleFieldChange('supportPhone', e.target.value)}
+                placeholder="021-91000000"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none dir-ltr font-bold"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1.5 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                <span>ساعات کاری و پاسخگویی:</span>
+              </label>
+              <input
+                type="text"
+                value={settings.supportHours}
+                onChange={(e) => handleFieldChange('supportHours', e.target.value)}
+                placeholder="پاسخگویی همه‌روزه، ساعت ۹ صبح الی ۲۳"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none font-bold"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-xs font-bold text-slate-700 block mb-1.5 flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-purple-500" />
+                <span>آدرس دفتر هماهنگی و لاجستیک:</span>
+              </label>
+              <input
+                type="text"
+                value={settings.officeLocation}
+                onChange={(e) => handleFieldChange('officeLocation', e.target.value)}
+                placeholder="دفتر هماهنگی و ارسال مرسولات دبی و ایران"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none font-medium"
+              />
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* SECTION 2: ABOUT US CUSTOMIZATION */}
-      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <h4 className="font-black text-sm sm:text-base text-slate-900 flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-red-600" />
-            <span>ویرایش محتوای «درباره ما» (About Us)</span>
-          </h4>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${landing.showAboutUs ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>
-            {landing.showAboutUs ? 'فعال در سایت' : 'غیرفعال'}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">عنوان اصلی بخش</label>
-            <input
-              type="text"
-              value={landing.aboutUsTitle}
-              onChange={(e) => handleChange('aboutUsTitle', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:border-red-500 outline-hidden font-bold"
-              placeholder="درباره سیریک فیت"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">زیرعنوان توضیحی</label>
-            <input
-              type="text"
-              value={landing.aboutUsSubtitle || ''}
-              onChange={(e) => handleChange('aboutUsSubtitle', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:border-red-500 outline-hidden"
-              placeholder="مرجع تخصصی واردات مستقیم مکمل..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">متن بج / نشان بالا</label>
-            <input
-              type="text"
-              value={landing.aboutUsBadge || ''}
-              onChange={(e) => handleChange('aboutUsBadge', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:border-red-500 outline-hidden"
-              placeholder="تضمین ۱۰۰٪ اصالت فیزیکی و آزمایشگاهی"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">متن کامل بیانیه و معرفی درباره ما</label>
-          <textarea
-            rows={4}
-            value={landing.aboutUsDescription}
-            onChange={(e) => handleChange('aboutUsDescription', e.target.value)}
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs sm:text-sm focus:bg-white focus:border-red-500 outline-hidden leading-relaxed"
-            placeholder="توضیحات جامع درباره نحوه کار، تخصص و اصالت کالاهای سیریک فیت..."
-          />
-        </div>
-
-        {/* 4 Highlights */}
-        <div>
-          <label className="block text-xs font-bold text-slate-700 mb-2">۴ ویژگی و دستاورد شاخص (نمایش در کارت‌های درباره ما)</label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <input
-              type="text"
-              value={landing.aboutUsHighlight1 || ''}
-              onChange={(e) => handleChange('aboutUsHighlight1', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:bg-white focus:border-red-500 outline-hidden"
-              placeholder="ویژگی ۱: تأمین مستقیم از نمایندگی‌ها..."
-            />
-            <input
-              type="text"
-              value={landing.aboutUsHighlight2 || ''}
-              onChange={(e) => handleChange('aboutUsHighlight2', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:bg-white focus:border-red-500 outline-hidden"
-              placeholder="ویژگی ۲: ارسال ایمن کارگو..."
-            />
-            <input
-              type="text"
-              value={landing.aboutUsHighlight3 || ''}
-              onChange={(e) => handleChange('aboutUsHighlight3', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:bg-white focus:border-red-500 outline-hidden"
-              placeholder="ویژگی ۳: محاسبه شفاف نرخ زنده..."
-            />
-            <input
-              type="text"
-              value={landing.aboutUsHighlight4 || ''}
-              onChange={(e) => handleChange('aboutUsHighlight4', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:bg-white focus:border-red-500 outline-hidden"
-              placeholder="ویژگی ۴: مشاوره ۲۴ ساعته..."
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 3: SERVICES & 4 PILLARS */}
-      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <h4 className="font-black text-sm sm:text-base text-slate-900 flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-emerald-600" />
-            <span>ویرایش ۴ ستون اصلی «خدمات و مزایا»</span>
-          </h4>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${landing.showServices ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>
-            {landing.showServices ? 'فعال در سایت' : 'غیرفعال'}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">عنوان بخش خدمات</label>
-            <input
-              type="text"
-              value={landing.servicesTitle}
-              onChange={(e) => handleChange('servicesTitle', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:border-red-500 outline-hidden font-bold"
-              placeholder="خدمات و مزایای سیریک فیت"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">زیرعنوان بخش خدمات</label>
-            <input
-              type="text"
-              value={landing.servicesSubtitle || ''}
-              onChange={(e) => handleChange('servicesSubtitle', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:border-red-500 outline-hidden"
-              placeholder="چرا ورزشکاران حرفه‌ای خرید از دبی را با سیریک فیت تجربه می‌کنند؟"
-            />
-          </div>
-        </div>
-
-        {/* 4 Pillar Cards Editor */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-          {(landing.servicesList || DEFAULT_LANDING_CONTENT.servicesList).map((pillar, idx) => (
-            <div key={idx} className="bg-[#F8FAFC] border border-slate-200/90 rounded-2xl p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-slate-700">ستون {idx + 1}</span>
-                <span className="text-[10px] text-slate-400 font-mono">ID: {pillar.id}</span>
-              </div>
-              <div>
-                <input
-                  type="text"
-                  value={pillar.title}
-                  onChange={(e) => handleServiceChange(idx, 'title', e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold focus:border-red-500 outline-hidden"
-                  placeholder="عنوان ستون"
-                />
-              </div>
-              <div>
-                <textarea
-                  rows={2}
-                  value={pillar.description}
-                  onChange={(e) => handleServiceChange(idx, 'description', e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs focus:border-red-500 outline-hidden leading-relaxed"
-                  placeholder="توضیحات کامل ستون"
-                />
-              </div>
+      {/* ==================================================================== */}
+      {/* TAB 4: BENEFITS & PILLARS (مزایا و ویژگی‌ها)                        */}
+      {/* ==================================================================== */}
+      {activeTab === 'benefits' && (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <h3 className="text-sm font-black text-slate-900">مدیریت مزایا و ویژگی‌های متمایز سیریک فیت</h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">ستون‌های ارزش و دلایل خرید از دبی</p>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* SECTION 4: CONTACT & SUPPORT CHANNELS */}
-      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <h4 className="font-black text-sm sm:text-base text-slate-900 flex items-center gap-2">
-            <Headphones className="w-5 h-5 text-red-600" />
-            <span>ویرایش اطلاعات تماس، پشتیبانی و آدرس‌ها</span>
-          </h4>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${landing.showContactSupport ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>
-            {landing.showContactSupport ? 'فعال در سایت' : 'غیرفعال'}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-              <Mail className="w-3.5 h-3.5 text-red-600" />
-              <span>ایمیل رسمی پشتیبانی</span>
-            </label>
-            <input
-              type="email"
-              dir="ltr"
-              value={landing.supportEmail}
-              onChange={(e) => handleChange('supportEmail', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-mono focus:bg-white focus:border-red-500 outline-hidden text-left"
-              placeholder="info@sirikfit.ir"
-            />
+            <button
+              type="button"
+              onClick={handleAddBenefit}
+              className="px-3 py-1.5 bg-black hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+            >
+              <Plus className="w-3.5 h-3.5 text-red-500" />
+              <span>افزودن مزیت جدید</span>
+            </button>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-              <Send className="w-3.5 h-3.5 text-sky-500" />
-              <span>آیدی تلگرام پشتیبانی</span>
-            </label>
-            <input
-              type="text"
-              dir="ltr"
-              value={landing.supportTelegram}
-              onChange={(e) => handleChange('supportTelegram', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-mono focus:bg-white focus:border-red-500 outline-hidden text-left"
-              placeholder="@SIRIK_FIT_Support"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-              <Phone className="w-3.5 h-3.5 text-emerald-600" />
-              <span>تلفن پشتیبانی و پیگیری</span>
-            </label>
-            <input
-              type="text"
-              dir="ltr"
-              value={landing.supportPhone}
-              onChange={(e) => handleChange('supportPhone', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-mono focus:bg-white focus:border-red-500 outline-hidden text-left"
-              placeholder="021-91000000"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-amber-600" />
-              <span>ساعات پاسخگویی</span>
-            </label>
-            <input
-              type="text"
-              value={landing.supportHours}
-              onChange={(e) => handleChange('supportHours', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:border-red-500 outline-hidden"
-              placeholder="پاسخگویی همه‌روزه، ساعت ۹ صبح الی ۲۳"
-            />
-          </div>
-
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5 text-slate-700" />
-              <span>آدرس دفتر هماهنگی و لاجستیک</span>
-            </label>
-            <input
-              type="text"
-              value={landing.officeAddress}
-              onChange={(e) => handleChange('officeAddress', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:border-red-500 outline-hidden"
-              placeholder="دفتر هماهنگی و ارسال مرسولات دبی و ایران"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 5: TERMS & LEGAL POLICIES */}
-      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <h4 className="font-black text-sm sm:text-base text-slate-900 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-slate-800" />
-            <span>ویرایش «قوانین و مقررات خرید» (Terms & Conditions)</span>
-          </h4>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${landing.showTerms ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>
-            {landing.showTerms ? 'فعال در سایت' : 'غیرفعال'}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">عنوان بخش قوانین</label>
-            <input
-              type="text"
-              value={landing.termsTitle}
-              onChange={(e) => handleChange('termsTitle', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:border-red-500 outline-hidden font-bold"
-              placeholder="قوانین و مقررات خرید از سیریک فیت"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">زیرعنوان بخش قوانین</label>
-            <input
-              type="text"
-              value={landing.termsSubtitle || ''}
-              onChange={(e) => handleChange('termsSubtitle', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:border-red-500 outline-hidden"
-              placeholder="شفافیت کامل، حفظ حقوق مشتریان..."
-            />
-          </div>
-        </div>
-
-        {/* 4 Term Items Editor */}
-        <div className="space-y-3 pt-2">
-          {(landing.termsList || DEFAULT_LANDING_CONTENT.termsList).map((term, idx) => (
-            <div key={idx} className="bg-[#F8FAFC] border border-slate-200/90 rounded-2xl p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-slate-800">بند {idx + 1} قوانین</span>
-                <span className="text-[10px] text-slate-400 font-mono">ID: {term.id}</span>
+          <div className="space-y-3">
+            {(settings.benefits || []).map((b, idx) => (
+              <div key={b.id || idx} className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800">مزیت شماره {idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBenefit(idx)}
+                    className="text-rose-500 hover:text-rose-700 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>حذف</span>
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">عنوان مزیت:</label>
+                    <input
+                      type="text"
+                      value={b.title}
+                      onChange={(e) => handleUpdateBenefit(idx, 'title', e.target.value)}
+                      className="w-full bg-white border border-slate-200 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none font-bold"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">توضیحات تکمیلی:</label>
+                    <input
+                      type="text"
+                      value={b.description}
+                      onChange={(e) => handleUpdateBenefit(idx, 'description', e.target.value)}
+                      className="w-full bg-white border border-slate-200 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none font-medium"
+                    />
+                  </div>
+                </div>
               </div>
-              <div>
-                <input
-                  type="text"
-                  value={term.title}
-                  onChange={(e) => handleTermChange(idx, 'title', e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold focus:border-red-500 outline-hidden"
-                  placeholder="عنوان بند (مثال: ضمانت اصالت و سلامت فیزیکی)"
-                />
-              </div>
-              <div>
-                <textarea
-                  rows={2}
-                  value={term.description}
-                  onChange={(e) => handleTermChange(idx, 'description', e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs focus:border-red-500 outline-hidden leading-relaxed"
-                  placeholder="متن کامل بند قانونی و شرایط استرداد/گارانتی..."
-                />
-              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* TAB 5: FAQS (سوالات متداول)                                          */}
+      {/* ==================================================================== */}
+      {activeTab === 'faqs' && (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <h3 className="text-sm font-black text-slate-900">مدیریت سوالات متداول (FAQ)</h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">پاسخ‌های آماده به پرسش‌های رایج خریداران</p>
             </div>
-          ))}
-        </div>
-      </div>
+            <button
+              type="button"
+              onClick={handleAddFaq}
+              className="px-3 py-1.5 bg-black hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+            >
+              <Plus className="w-3.5 h-3.5 text-red-500" />
+              <span>افزودن سوال جدید</span>
+            </button>
+          </div>
 
-      {/* Floating / Bottom Save Trigger */}
-      <div className="flex justify-end pt-2 pb-6">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isSaving}
-          className="w-full sm:w-auto px-8 py-3.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white text-sm font-black rounded-2xl transition shadow-lg hover:shadow-xl flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-        >
-          <Save className="w-5 h-5" />
-          <span>{isSaving ? 'در حال ذخیره...' : 'ذخیره نهایی تنظیمات لندینگ و قوانین'}</span>
-        </button>
-      </div>
+          <div className="space-y-3">
+            {(settings.faqs || []).map((faq, idx) => (
+              <div key={faq.id || idx} className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800">سوال شماره {idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteFaq(idx)}
+                    className="text-rose-500 hover:text-rose-700 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>حذف</span>
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">متن سوال:</label>
+                    <input
+                      type="text"
+                      value={faq.question}
+                      onChange={(e) => handleUpdateFaq(idx, 'question', e.target.value)}
+                      className="w-full bg-white border border-slate-200 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">پاسخ تشریحی:</label>
+                    <textarea
+                      rows={2}
+                      value={faq.answer}
+                      onChange={(e) => handleUpdateFaq(idx, 'answer', e.target.value)}
+                      className="w-full bg-white border border-slate-200 text-slate-900 text-xs p-3 rounded-xl focus:outline-none font-medium leading-relaxed"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* TAB 6: RULES & POLICIES (قوانین و تعهدات خرید)                      */}
+      {/* ==================================================================== */}
+      {activeTab === 'rules' && (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <h3 className="text-sm font-black text-slate-900">مدیریت قوانین و مقررات خرید</h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">بندهای حقوقی، ضمانت بازگشت و شرایط ترخیص</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAddRule}
+              className="px-3 py-1.5 bg-black hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+            >
+              <Plus className="w-3.5 h-3.5 text-red-500" />
+              <span>افزودن بند قانونی</span>
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {(settings.rules || []).map((rule, idx) => (
+              <div key={rule.id || idx} className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800">بند شماره {idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteRule(idx)}
+                    className="text-rose-500 hover:text-rose-700 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>حذف</span>
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">عنوان بند:</label>
+                    <input
+                      type="text"
+                      value={rule.title}
+                      onChange={(e) => handleUpdateRule(idx, 'title', e.target.value)}
+                      className="w-full bg-white border border-slate-200 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">متن بند قانونی:</label>
+                    <textarea
+                      rows={2}
+                      value={rule.content}
+                      onChange={(e) => handleUpdateRule(idx, 'content', e.target.value)}
+                      className="w-full bg-white border border-slate-200 text-slate-900 text-xs p-3 rounded-xl focus:outline-none font-medium leading-relaxed"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

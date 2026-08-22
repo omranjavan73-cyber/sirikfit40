@@ -221,7 +221,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
                 key={deal.id}
                 product={enrichedDeal}
                 viewMode={viewMode}
-                onSelect={(p) => setSelectedDealForModal(p)}
+                onSelect={() => onSelectDeal(enrichedDeal)}
                 onAddToCart={handleProductCardAddToCart}
                 showToast={(msg) => {
                   if (showToast) showToast(msg, 'success');
@@ -308,42 +308,6 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
         </div>
       )}
 
-      {/* 5. Product Detail Modal */}
-      {selectedDealForModal && (
-        <ProductDetailModal
-          isOpen={!!selectedDealForModal}
-          onClose={() => setSelectedDealForModal(null)}
-          product={{
-            id: selectedDealForModal.id,
-            title: selectedDealForModal.title,
-            url: selectedDealForModal.url,
-            priceAed: selectedDealForModal.priceAed,
-            originalPriceAed: selectedDealForModal.originalPriceAed,
-            discountPercent: selectedDealForModal.discountPercent,
-            weightKg: selectedDealForModal.weightKg,
-            image: selectedDealForModal.image,
-            storeName: selectedDealForModal.storeName,
-            brand: selectedDealForModal.brand,
-            category: selectedDealForModal.category,
-            badge: selectedDealForModal.badge,
-            profitMargin: selectedDealForModal.profitMargin ?? selectedDealForModal.marginPercent,
-            priceToman: getComputedToman(selectedDealForModal),
-            calculatedTomanOverride: getComputedToman(selectedDealForModal),
-            flavors: selectedDealForModal.flavors,
-            sizes: selectedDealForModal.sizes
-          }}
-          settings={settings}
-          onAddToCart={(productPayload, flavor, size) => {
-            if (onAddToCart) {
-              onAddToCart(productPayload, flavor, size);
-            } else {
-              onSelectDeal(productPayload);
-            }
-            if (showToast) showToast('کالا به سبد خرید اضافه شد', 'success');
-            setSelectedDealForModal(null);
-          }}
-        />
-      )}
     </div>
   );
 };

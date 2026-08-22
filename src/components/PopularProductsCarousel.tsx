@@ -95,7 +95,11 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
   }
 
   const handleItemClick = (prod: PopularProductItem) => {
-    setSelectedPopularForModal(prod);
+    if (onSelectProduct) {
+      onSelectProduct(prod);
+    } else if (onSelectCategory && prod.filterKey) {
+      onSelectCategory(prod.filterKey);
+    }
   };
 
   const defaultSettings: FinancialSettings = settings || {

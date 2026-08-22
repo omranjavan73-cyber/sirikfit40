@@ -99,7 +99,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                 brand: item.brand || 'انبار ایران'
               }}
               viewMode={viewMode}
-              onSelect={(p) => setSelectedLocalForModal(p)}
+              onSelect={() => onSelectLocalProduct(item)}
               onAddToCart={handleProductCardAddToCart}
               showToast={(msg) => {
                 if (showToast) showToast(msg, 'success');
@@ -153,38 +153,6 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
         </div>
       )}
 
-      {/* 5. Product Detail Modal */}
-      {selectedLocalForModal && (
-        <ProductDetailModal
-          isOpen={!!selectedLocalForModal}
-          onClose={() => setSelectedLocalForModal(null)}
-          product={{
-            id: selectedLocalForModal.id,
-            title: selectedLocalForModal.title,
-            image: selectedLocalForModal.image,
-            priceToman: selectedLocalForModal.priceToman,
-            calculatedTomanOverride: selectedLocalForModal.priceToman,
-            priceAed: selectedLocalForModal.priceAed || 0,
-            originalPriceToman: selectedLocalForModal.originalPriceToman,
-            description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران',
-            category: selectedLocalForModal.category || 'انبار ایران',
-            isLocalInventory: true,
-            isIranWarehouse: true,
-            flavors: selectedLocalForModal.flavors,
-            sizes: selectedLocalForModal.sizes
-          }}
-          settings={settings}
-          onAddToCart={(productPayload, flavor, size) => {
-            if (onAddToCart) {
-              onAddToCart(productPayload, flavor, size);
-            } else {
-              onSelectLocalProduct(selectedLocalForModal);
-            }
-            if (showToast) showToast('کالا به سبد خرید اضافه شد', 'success');
-            setSelectedLocalForModal(null);
-          }}
-        />
-      )}
     </div>
   );
 };

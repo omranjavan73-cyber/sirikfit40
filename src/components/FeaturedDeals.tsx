@@ -1,404 +1,348 @@
-import React, { useState } from 'react';
-import { Search, X, Tag, Dumbbell, Pill, Flame, Zap, Sparkles } from 'lucide-react';
-import type { FeaturedDeal, FinancialSettings, WarehouseCategory } from '../types';
-import { formatToman, formatAed, formatPrice, formatAedValue, toPersianDigits, calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
+﻿import React, { useState } from 'react';
+import { SlidersHorizontal, X, ShoppingBag, Check } from 'lucide-react';
+import type { FeaturedDeal, FinancialSettings } from '../types';
+import { calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 import { ProductDetailModal } from './ProductDetailModal';
-import { CategoryGridSection } from './CategoryGridSection';
-import { isCategoryMatch, DEFAULT_UNIFIED_CATEGORIES } from '../utils/categoryHelper';
+import { TwoTierCategoryNav } from './TwoTierCategoryNav';
+import { ProductCatalogCard } from './ProductCatalogCard';
+import { FloatingViewSwitcher } from './FloatingViewSwitcher';
+import { matchProductTaxonomy } from '../utils/taxonomyHelper';
 
 interface FeaturedDealsProps {
   deals?: FeaturedDeal[];
-  categories?: WarehouseCategory[];
   settings: FinancialSettings;
   onSelectDeal: (deal: FeaturedDeal) => void;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
+  showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
-
-const DEFAULT_CATEGORY_TILES: WarehouseCategory[] = DEFAULT_UNIFIED_CATEGORIES;
 
 const DEFAULT_DEALS: FeaturedDeal[] = [
   {
     id: 'deal-1',
-    title: 'پروتئین وی ON Gold Standard 5lb',
-    brand: 'Optimum',
-    category: 'مکمل ورزشی',
-    priceAed: 280,
-    originalPriceAed: 350,
+    title: 'مکمل پروتئین وی ON Gold Standard 5lb',
+    brand: 'Optimum Nutrition',
+    category: 'مکمل‌های ورزشی',
+    mainCategory: 'sports_nutrition',
+    subCategory: 'whey',
+    priceAed: 199.05,
+    originalPriceAed: 249,
     discountPercent: 20,
     weightKg: 2.27,
-    storeName: 'Dr. Nutrition',
+    storeName: 'GNC Store',
     isActive: true,
-    section: 'featured',
-    isFeaturedInCalculator: false,
-    isPopular: false,
-    isPopularSample: false,
-    badge: '💪 وی ۵ پوندی ON',
-    url: 'https://www.drnutrition.com'
+    badge: 'پیشنهاد ویژه',
+    url: 'https://gnc-mena.com'
   },
   {
     id: 'deal-2',
-    title: 'پمپ C4 Extreme Pre-Workout',
-    brand: 'Cellucor',
-    category: 'تخفیف ویژه',
-    priceAed: 135,
-    originalPriceAed: 170,
+    title: 'مکمل گینر افزایش وزن MuscleTech Mass Tech Elite',
+    brand: 'MuscleTech',
+    category: 'مکمل‌های ورزشی',
+    mainCategory: 'sports_nutrition',
+    subCategory: 'gainer',
+    priceAed: 170.48,
+    originalPriceAed: 215,
     discountPercent: 20,
-    weightKg: 0.6,
-    storeName: 'Dr. Nutrition',
+    weightKg: 3.18,
+    storeName: 'GNC Store',
     isActive: true,
-    section: 'discount',
-    isFeaturedInCalculator: false,
-    isPopular: false,
-    isPopularSample: false,
-    badge: '⚡ پمپ C4',
-    url: 'https://www.drnutrition.com'
+    badge: 'پیشنهاد ویژه',
+    url: 'https://gnc-mena.com'
   },
   {
     id: 'deal-3',
-    title: 'امگا ۳ Pharmacy Omega-3',
+    title: 'شیکر و قمقمه ورزشی GNC Shaker Bottle',
     brand: 'GNC',
-    category: 'ویتامین',
-    priceAed: 95,
-    originalPriceAed: 115,
+    category: 'مکمل‌های ورزشی',
+    mainCategory: 'sports_nutrition',
+    subCategory: 'accessories',
+    priceAed: 38.09,
+    originalPriceAed: 45,
     discountPercent: 15,
-    weightKg: 0.35,
-    storeName: 'Life Pharmacy',
+    weightKg: 0.3,
+    storeName: 'GNC Store',
     isActive: true,
-    section: 'bestseller',
-    isFeaturedInCalculator: false,
-    isPopular: false,
-    isPopularSample: false,
-    badge: '🐟 امگا ۳ GNC',
-    url: 'https://www.lifepharmacy.com'
+    badge: 'پیشنهاد ویژه',
+    url: 'https://gnc-mena.com'
   },
   {
     id: 'deal-4',
-    title: 'مولتی روزانه One Daily Men',
+    title: 'مکمل اورجینال GNC Lean Shake 25 414ml',
     brand: 'GNC',
-    category: 'مولتی‌ویتامین',
-    priceAed: 110,
-    originalPriceAed: 125,
-    discountPercent: 10,
-    weightKg: 0.35,
-    storeName: 'GNC UAE',
+    category: 'تغذیه سالم',
+    mainCategory: 'healthy_food',
+    subCategory: 'peanut_butter',
+    priceAed: 14.67,
+    originalPriceAed: 20,
+    discountPercent: 25,
+    weightKg: 0.45,
+    storeName: 'GNC Store',
     isActive: true,
-    section: 'featured',
-    isFeaturedInCalculator: false,
-    isPopular: false,
-    isPopularSample: false,
-    badge: '💊 مولتی GNC',
+    badge: 'پیشنهاد ویژه',
     url: 'https://gnc-mena.com'
+  },
+  {
+    id: 'deal-5',
+    title: 'مکمل آمینو اسید Project#1 Amino Evolution',
+    brand: 'GNC',
+    category: 'مکمل‌های ورزشی',
+    mainCategory: 'sports_nutrition',
+    subCategory: 'amino_bcaa',
+    priceAed: 118,
+    originalPriceAed: 140,
+    discountPercent: 15,
+    weightKg: 0.4,
+    storeName: 'GNC Store',
+    isActive: true,
+    badge: 'پیشنهاد ویژه',
+    url: 'https://gnc-mena.com'
+  },
+  {
+    id: 'deal-6',
+    title: 'Dr. Nutrition Applied Nutrition Joint Complex',
+    brand: 'Applied Nutrition',
+    category: 'دغدغه‌های سلامتی',
+    mainCategory: 'health_concerns',
+    subCategory: 'joints',
+    priceAed: 84.62,
+    originalPriceAed: 110,
+    discountPercent: 23,
+    weightKg: 0.35,
+    storeName: 'Dr. Nutrition',
+    isActive: true,
+    badge: 'پیشنهاد ویژه',
+    url: 'https://www.drnutrition.com'
   }
 ];
 
 export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   deals = [],
-  categories = [],
   settings,
   onSelectDeal,
-  onAddToCart
+  onAddToCart,
+  showToast
 }) => {
-  const [selectedCat, setSelectedCat] = useState<string>('all');
+  const [selectedMainCat, setSelectedMainCat] = useState<string>('sports_nutrition');
+  const [selectedSubCat, setSelectedSubCat] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [failedCatImages, setFailedCatImages] = useState<Record<string, boolean>>({});
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
+  const [selectedStoreFilter, setSelectedStoreFilter] = useState<string>('all');
   const [selectedDealForModal, setSelectedDealForModal] = useState<FeaturedDeal | null>(null);
 
   const rawDeals = (deals && deals.length > 0) ? deals : DEFAULT_DEALS;
   const activeDeals = (rawDeals || []).filter((d) => d && d.isActive !== false);
 
-  const categoryList = (categories && categories.length > 0) ? categories : DEFAULT_CATEGORY_TILES;
-
   const filteredDeals = activeDeals.filter((deal) => {
-    const q = searchQuery.trim().toLowerCase();
-    const title = (deal.title || '').toLowerCase();
-    const cat = (deal.category || '').toLowerCase();
-    const brand = (deal.brand || '').toLowerCase();
-    const store = (deal.storeName || '').toLowerCase();
+    // Store filter
+    if (selectedStoreFilter !== 'all') {
+      const dealStore = (deal.storeName || deal.brand || '').toLowerCase();
+      if (!dealStore.includes(selectedStoreFilter.toLowerCase())) return false;
+    }
 
-    const matchesSearch = !q || title.includes(q) || cat.includes(q) || brand.includes(q) || store.includes(q);
-    const matchesCat = isCategoryMatch(deal, selectedCat, categoryList);
-
-    return matchesSearch && matchesCat;
+    return matchProductTaxonomy(deal, selectedMainCat, selectedSubCat, searchQuery);
   });
 
-  return (
-    <div className="space-y-5 font-['Vazirmatn',sans-serif] animate-fade-in pb-16">
-      
-      {/* Top Header */}
-      <div className="text-right pb-1">
-        <h1 className="text-lg md:text-xl font-black text-slate-900 tracking-tight">
-          پیشنهاد خرید از دبی
-        </h1>
-      </div>
-
-      {/* Shared CategoryGridSection (Search Bar + Circular Category Row + All Categories Modal) */}
-      <CategoryGridSection
-        categories={categories}
-        selectedCat={selectedCat}
-        onSelectCategory={setSelectedCat}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchPlaceholder="...جستجوی پیشنهاد، برند یا دسته"
-        itemsCount={filteredDeals.length}
-      />
-
-      {/* Filtered Products List Header */}
-      <div className="flex items-center justify-between px-1 pt-1">
-        <h3 className="font-extrabold text-sm text-[#111111]">پیشنهادهای یافت‌شده</h3>
-        <span className="text-xs font-extrabold text-[#111111] bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] px-3 py-0.5 rounded-full">
-          {filteredDeals.length} کالا
-        </span>
-      </div>
-
-      {/* Main Deals Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-        {filteredDeals.map((deal) => (
-          <ProductCard
-            key={deal.id}
-            deal={deal}
-            settings={settings}
-            onSelect={onSelectDeal}
-            onCardClick={() => setSelectedDealForModal(deal)}
-          />
-        ))}
-      </div>
-
-      {/* Product Detail Modal */}
-      <ProductDetailModal
-        isOpen={!!selectedDealForModal}
-        onClose={() => setSelectedDealForModal(null)}
-        product={selectedDealForModal ? {
-          id: selectedDealForModal.id,
-          title: selectedDealForModal.title,
-          url: selectedDealForModal.url,
-          priceAed: selectedDealForModal.priceAed,
-          originalPriceAed: selectedDealForModal.originalPriceAed,
-          discountPercent: selectedDealForModal.discountPercent,
-          weightKg: selectedDealForModal.weightKg,
-          image: selectedDealForModal.image,
-          storeName: selectedDealForModal.storeName,
-          brand: selectedDealForModal.brand,
-          category: selectedDealForModal.category,
-          badge: selectedDealForModal.badge,
-          profitMargin: selectedDealForModal.profitMargin ?? selectedDealForModal.marginPercent,
-          priceToman: (selectedDealForModal.priceToman && selectedDealForModal.priceToman > 0)
-            ? selectedDealForModal.priceToman
-            : calculateFinalToman(
-                selectedDealForModal.priceAed,
-                selectedDealForModal.weightKg || 0.5,
-                settings.cargoRatePerKg,
-                (selectedDealForModal.profitMargin !== undefined ? selectedDealForModal.profitMargin : (selectedDealForModal.marginPercent !== undefined ? selectedDealForModal.marginPercent : settings.profitMargin)),
-                getEffectiveAedRate(settings)
-              ),
-          calculatedTomanOverride: (selectedDealForModal.priceToman && selectedDealForModal.priceToman > 0)
-            ? selectedDealForModal.priceToman
-            : calculateFinalToman(
-                selectedDealForModal.priceAed,
-                selectedDealForModal.weightKg || 0.5,
-                settings.cargoRatePerKg,
-                (selectedDealForModal.profitMargin !== undefined ? selectedDealForModal.profitMargin : (selectedDealForModal.marginPercent !== undefined ? selectedDealForModal.marginPercent : settings.profitMargin)),
-                getEffectiveAedRate(settings)
-              ),
-          flavors: selectedDealForModal.flavors,
-          sizes: selectedDealForModal.sizes
-        } : null}
-        settings={settings}
-        onAddToCart={(productPayload, flavor, size) => {
-          if (onAddToCart) {
-            onAddToCart(productPayload, flavor, size);
-          } else {
-            onSelectDeal({
-              id: selectedDealForModal?.id || 'modal-deal',
-              title: productPayload.title,
-              priceAed: productPayload.priceAed,
-              weightKg: productPayload.weightKg,
-              image: productPayload.image,
-              storeName: productPayload.storeName,
-              url: productPayload.url || 'https://www.drnutrition.com',
-              isActive: true,
-              category: selectedDealForModal?.category || 'محصول دبی',
-              profitMargin: selectedDealForModal?.profitMargin ?? selectedDealForModal?.marginPercent,
-              priceToman: productPayload.priceToman || selectedDealForModal?.priceToman,
-              originalPriceToman: selectedDealForModal?.originalPriceToman
-            });
-          }
-          setSelectedDealForModal(null);
-        }}
-      />
-
-    </div>
-  );
-};
-
-// Reusable Product Card EXACTLY Matching Screenshot 1 & 2
-const ProductCard: React.FC<{
-  deal: FeaturedDeal;
-  settings: FinancialSettings;
-  onSelect: (deal: FeaturedDeal) => void;
-  onCardClick?: () => void;
-}> = ({ deal, settings, onSelect, onCardClick }) => {
-  const [isAdded, setIsAdded] = useState(false);
-  const weight = deal.weightKg || 0.5;
-
-  const finalToman = (deal.priceToman && deal.priceToman > 0)
-    ? deal.priceToman
-    : calculateFinalToman(
-        deal.priceAed,
-        weight,
-        settings.cargoRatePerKg,
-        (deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : settings.profitMargin)),
-        getEffectiveAedRate(settings)
-      );
-
-  const computedDiscount = (deal.originalPriceAed && deal.originalPriceAed > deal.priceAed)
-    ? Math.round(((deal.originalPriceAed - deal.priceAed) / deal.originalPriceAed) * 100)
-    : 0;
-
-  const discountVal = (deal.discountPercent && deal.discountPercent > 0)
-    ? deal.discountPercent
-    : (computedDiscount > 0 ? computedDiscount : 0);
-
-  // Visual styling for Brand Logo Container & Badges (Matching Screenshot 1 & 2)
-  const getBrandVisual = (title: string, brandName?: string) => {
-    const t = title.toLowerCase();
-    const b = (brandName || '').toLowerCase();
-
-    if (t.includes('c4') || b.includes('cellucor')) {
-      return {
-        logoText: 'C4',
-        brandPill: 'Cellucor',
-        bgClass: 'bg-[#E0F2FE]',
-        textClass: 'text-[#0284C7]',
-        tagText: deal.category || 'تخفیف ویژه',
-        tagClass: 'text-[#D97706]'
-      };
-    }
-    if (t.includes('omega') || t.includes('امگا')) {
-      return {
-        logoText: 'Ω3',
-        brandPill: 'GNC',
-        bgClass: 'bg-[#DBEAFE]',
-        textClass: 'text-[#2563EB]',
-        tagText: deal.category || 'ویتامین',
-        tagClass: 'text-[#059669]'
-      };
-    }
-    if (t.includes('one daily') || t.includes('مولتی') || b.includes('gnc')) {
-      return {
-        logoText: 'GNC',
-        brandPill: 'GNC',
-        bgClass: 'bg-[#FEF3C7]',
-        textClass: 'text-[#D97706]',
-        tagText: deal.category || 'مولتی‌ویتامین',
-        tagClass: 'text-[#059669]'
-      };
-    }
-    return {
-      logoText: 'ON',
-      brandPill: 'Optimum',
-      bgClass: 'bg-[#DCFCE7]',
-      textClass: 'text-[#16A34A]',
-      tagText: deal.category || 'مکمل ورزشی',
-      tagClass: 'text-[#111111]'
-    };
+  const getComputedToman = (deal: FeaturedDeal) => {
+    if (deal.priceToman && deal.priceToman > 0) return deal.priceToman;
+    return calculateFinalToman(
+      deal.priceAed,
+      deal.weightKg || 0.5,
+      settings.cargoRatePerKg || 35,
+      deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : settings.profitMargin || 15),
+      getEffectiveAedRate(settings)
+    );
   };
 
-  const style = getBrandVisual(deal.title, deal.brand);
+  const handleProductCardAddToCart = (product: any) => {
+    const calculatedToman = getComputedToman(product);
+    const enrichedProduct = {
+      ...product,
+      calculatedToman: calculatedToman,
+      priceToman: calculatedToman
+    };
+
+    if (onAddToCart) {
+      onAddToCart(enrichedProduct);
+    } else {
+      onSelectDeal(enrichedProduct);
+    }
+  };
 
   return (
-    <div
-      onClick={onCardClick || (() => onSelect(deal))}
-      className="product-card bg-white border border-slate-200/90 rounded-[22px] p-3.5 shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col justify-between relative space-y-3 overflow-hidden"
-    >
-      {/* Top Left Floating Discount Badge or Custom Badge */}
-      {discountVal > 0 ? (
-        <span className="discount-badge absolute top-3 left-3 bg-[#E11D48] text-white text-[10px] font-black px-2 py-0.5 rounded-full z-20 dir-ltr shadow-2xs">
-          -{toPersianDigits(discountVal)}٪
-        </span>
-      ) : deal.badge ? (
-        <span className="discount-badge absolute top-3 left-3 bg-[#E11D48] text-white text-[10px] font-black px-2 py-0.5 rounded-full z-20 dir-rtl shadow-2xs">
-          {deal.badge}
-        </span>
-      ) : null}
+    <div className="space-y-4 font-['Vazirmatn',sans-serif] animate-fade-in pb-24 text-right">
+      {/* 1. Two-Tier Category Navigation & Clean Search Header */}
+      <TwoTierCategoryNav
+        selectedMainCat={selectedMainCat}
+        selectedSubCat={selectedSubCat}
+        onSelectMainCat={setSelectedMainCat}
+        onSelectSubCat={setSelectedSubCat}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="... جستجوی مکمل، برند یا ویتامین در آفرهای دبی"
+        totalCount={filteredDeals.length}
+      />
 
-      {/* Center Pastel Logo Box / Image Container with Overlapping Brand Pill */}
-      <div className="img-wrap relative w-full h-[130px] overflow-hidden rounded-[18px]">
-        <div className={`w-full h-full ${style.bgClass} flex items-center justify-center relative overflow-hidden rounded-[18px]`}>
-          {deal.image ? (
-            <img
-              src={deal.image}
-              alt={deal.title}
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover object-center block"
-              onError={(e) => {
-                const target = e.currentTarget;
-                const currentSrc = target.src || '';
-                if (deal.image && !currentSrc.includes('images.weserv.nl') && !deal.image.startsWith('data:')) {
-                  target.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(deal.image);
-                } else {
-                  target.style.display = 'none';
-                }
-              }}
-            />
-          ) : null}
-
-          {!deal.image && (
-            <span className={`font-black text-2xl md:text-3xl ${style.textClass} tracking-tight`}>
-              {style.logoText}
-            </span>
-          )}
-
-          {/* Bottom Right Overlapping Dark Brand Badge Pill */}
-          <span className="brand-badge absolute bottom-1.5 right-1.5 bg-[#27272A] text-white text-[9px] font-extrabold px-2 py-0.5 rounded-md shadow-2xs z-20">
-            {style.brandPill}
-          </span>
-        </div>
-      </div>
-
-      {/* Product Title & Category */}
-      <div className="space-y-1.5 text-right flex-1 flex flex-col justify-between">
-        <span className={`text-[10px] font-extrabold block text-emerald-600`}>
-          {deal.category || 'خرید مستقیم از دبی'}
-        </span>
-
-        <h4 className="font-extrabold text-xs md:text-sm text-slate-900 leading-snug line-clamp-2 min-h-[32px]">
-          {deal.title}
-        </h4>
-
-        {/* Pricing Row - Single unbroken row */}
-        <div className="flex items-center justify-between w-full pt-2 pb-1 border-t border-gray-100">
-          {/* Right side: Toman Price in a single unbroken line */}
-          <div className="flex items-baseline gap-1 text-red-600 font-extrabold text-xs sm:text-sm md:text-base whitespace-nowrap">
-            <span>{formatPrice(finalToman)}</span>
-            <span className="text-[10px] sm:text-[11px] md:text-xs font-bold">تومان</span>
+      {/* 2. Product Catalog List/Grid Section */}
+      {filteredDeals.length === 0 ? (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-12 text-center space-y-4 my-6 shadow-2xs">
+          <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+            <ShoppingBag className="w-8 h-8" />
           </div>
-
-          {/* Left side: AED Original Price */}
-          {deal.priceAed ? (
-            <div className="text-gray-400 text-xs font-semibold whitespace-nowrap dir-ltr">
-              <span>{formatAedValue(deal.priceAed)}</span>
-              <span className="text-[10px] ml-0.5">AED</span>
-            </div>
-          ) : null}
+          <div className="space-y-1">
+            <h3 className="font-extrabold text-sm text-slate-800">پیشنهادی با این مشخصات یافت نشد</h3>
+            <p className="text-xs text-slate-500 font-medium">می‌توانید فیلترها را پاک کنید یا از دسته‌بندی دیگری انتخاب نمایید.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedSubCat('all');
+              setSearchQuery('');
+              setSelectedStoreFilter('all');
+            }}
+            className="bg-slate-900 hover:bg-black text-white text-xs font-black px-6 py-2.5 rounded-2xl transition cursor-pointer"
+          >
+            مشاهده همه پیشنهادها
+          </button>
         </div>
-      </div>
+      ) : (
+        <div className={viewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3' : 'space-y-3'}>
+          {filteredDeals.map((deal) => {
+            const calculatedToman = getComputedToman(deal);
+            const enrichedDeal = {
+              ...deal,
+              calculatedToman,
+              priceToman: calculatedToman
+            };
 
-      {/* Full-width Action Button - Opens Product Details Modal or adds to cart */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (onCardClick) {
-            onCardClick();
-          } else {
-            onSelect(deal);
-          }
-        }}
-        className="w-full bg-slate-900 hover:bg-red-600 text-white text-xs font-bold py-2.5 rounded-xl transition-all duration-200 shadow-sm active:scale-95 mt-1 cursor-pointer flex items-center justify-center gap-1.5"
-      >
-        افزودن به سبد خرید
-      </button>
+            return (
+              <ProductCatalogCard
+                key={deal.id}
+                product={enrichedDeal}
+                viewMode={viewMode}
+                onSelect={(p) => setSelectedDealForModal(p)}
+                onAddToCart={handleProductCardAddToCart}
+                showToast={(msg) => {
+                  if (showToast) showToast(msg, 'success');
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
 
+      {/* 3. Floating View Mode Switcher & Filter Button (Docked above bottom bar) */}
+      <FloatingViewSwitcher
+        viewMode={viewMode}
+        onToggleViewMode={(mode) => setViewMode(mode)}
+        onOpenFilters={() => setIsFilterModalOpen(true)}
+      />
+
+      {/* 4. Filter Drawer / Modal */}
+      {isFilterModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in font-['Vazirmatn',sans-serif] dir-rtl">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl animate-slide-up">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-blue-700" />
+                <span>فیلترهای پیشرفته محصولات</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsFilterModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              {/* Store Filter */}
+              <div>
+                <label className="font-extrabold text-slate-800 block mb-2">فروشگاه مبدا دبی:</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'all', label: 'همه فروشگاه‌ها' },
+                    { id: 'gnc', label: 'GNC Store' },
+                    { id: 'dr nutrition', label: 'Dr. Nutrition' },
+                    { id: 'life', label: 'Life Pharmacy' }
+                  ].map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSelectedStoreFilter(s.id)}
+                      className={`p-2.5 rounded-xl border font-bold text-center transition cursor-pointer ${
+                        selectedStoreFilter === s.id
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedStoreFilter('all');
+                  setIsFilterModalOpen(false);
+                }}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2.5 rounded-xl transition cursor-pointer"
+              >
+                پاک کردن فیلترها
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsFilterModalOpen(false)}
+                className="flex-1 bg-blue-700 hover:bg-blue-800 text-white text-xs font-black py-2.5 rounded-xl transition cursor-pointer"
+              >
+                اعمال فیلتر
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Product Detail Modal */}
+      {selectedDealForModal && (
+        <ProductDetailModal
+          isOpen={!!selectedDealForModal}
+          onClose={() => setSelectedDealForModal(null)}
+          product={{
+            id: selectedDealForModal.id,
+            title: selectedDealForModal.title,
+            url: selectedDealForModal.url,
+            priceAed: selectedDealForModal.priceAed,
+            originalPriceAed: selectedDealForModal.originalPriceAed,
+            discountPercent: selectedDealForModal.discountPercent,
+            weightKg: selectedDealForModal.weightKg,
+            image: selectedDealForModal.image,
+            storeName: selectedDealForModal.storeName,
+            brand: selectedDealForModal.brand,
+            category: selectedDealForModal.category,
+            badge: selectedDealForModal.badge,
+            profitMargin: selectedDealForModal.profitMargin ?? selectedDealForModal.marginPercent,
+            priceToman: getComputedToman(selectedDealForModal),
+            calculatedTomanOverride: getComputedToman(selectedDealForModal),
+            flavors: selectedDealForModal.flavors,
+            sizes: selectedDealForModal.sizes
+          }}
+          settings={settings}
+          onAddToCart={(productPayload, flavor, size) => {
+            if (onAddToCart) {
+              onAddToCart(productPayload, flavor, size);
+            } else {
+              onSelectDeal(productPayload);
+            }
+            if (showToast) showToast('کالا به سبد خرید اضافه شد', 'success');
+            setSelectedDealForModal(null);
+          }}
+        />
+      )}
     </div>
   );
 };

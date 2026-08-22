@@ -71,7 +71,9 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
   useEffect(() => {
     try {
       const urlSearchParams = new URLSearchParams(window.location.search);
-      const statusParam = (urlSearchParams.get('status') || '').toLowerCase();
+      const rawStatus = urlSearchParams.get('status') || '';
+      const rawSuccess = urlSearchParams.get('success') || '';
+      const statusParam = (rawStatus || '').toLowerCase();
       const orderIdParam = urlSearchParams.get('orderId') || '';
       const trackingCodeParam = urlSearchParams.get('trackingCode') || '';
       const trackIdParam = urlSearchParams.get('trackId') || '';
@@ -80,8 +82,10 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
       const messageParam = urlSearchParams.get('message') || '';
       const gatewayParam = urlSearchParams.get('gateway') || 'زیبال';
 
+      const isPotentialSuccess = statusParam === 'success' || statusParam === 'ok' || statusParam === 'paid' || statusParam === '2' || rawSuccess === '1';
+
       setParams({
-        status: statusParam,
+        status: isPotentialSuccess ? 'success' : (statusParam || 'pending'),
         orderId: orderIdParam,
         trackingCode: trackingCodeParam,
         trackId: trackIdParam,
@@ -91,8 +95,29 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
         gateway: gatewayParam
       });
 
+      // If trackId is present and returning from gateway, call verify API
+      if (trackIdParam && isPotentialSuccess) {
+        fetch('/api/payment/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trackId: trackIdParam, orderId: orderIdParam })
+        })
+          .then(res => res.json())
+          .then(vData => {
+            if (vData.success && vData.refNumber) {
+              setParams(prev => ({
+                ...prev,
+                status: 'success',
+                refNumber: vData.refNumber,
+                orderId: vData.orderId || prev.orderId
+              }));
+            }
+          })
+          .catch(() => {});
+      }
+
       // If successful payment, clear cart in localStorage
-      if (statusParam === 'success' || statusParam === 'ok' || statusParam === 'paid') {
+      if (isPotentialSuccess) {
         try {
           localStorage.removeItem('omex_cart_items');
           localStorage.removeItem('sirikfit_cart_items');
@@ -103,27 +128,44 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
       // Fetch order details if orderId or trackingCode is present
       if (orderIdParam || trackingCodeParam) {
         setIsLoadingOrder(true);
-        const query = trackingCodeParam
-          ? `/api/orders?trackingCode=${encodeURIComponent(trackingCodeParam)}`
-          : `/api/orders`;
-        fetch(query)
-          .then((res) => res.json())
-          .then((data: Order[]) => {
-            if (Array.isArray(data)) {
-              const found = data.find(
-                (o) =>
-                  (orderIdParam && o.id === orderIdParam) ||
-                  (trackingCodeParam && o.trackingCode === trackingCodeParam)
-              );
-              if (found) {
-                setOrder(found);
-              } else if (data.length > 0 && trackingCodeParam) {
-                setOrder(data[0]);
+        // Try direct Firestore read first for instantaneous display
+        import('../firebase').then(({ db, doc, getDoc }) => {
+          const targetId = orderIdParam || trackingCodeParam;
+          getDoc(doc(db, 'orders', targetId))
+            .then(snap => {
+              if (snap.exists()) {
+                setOrder({ id: snap.id, ...snap.data() } as Order);
+                setIsLoadingOrder(false);
+              } else {
+                fetchFallbackOrder();
               }
-            }
-          })
-          .catch((err) => console.warn('Could not fetch order for receipt:', err))
-          .finally(() => setIsLoadingOrder(false));
+            })
+            .catch(() => fetchFallbackOrder());
+        }).catch(() => fetchFallbackOrder());
+
+        const fetchFallbackOrder = () => {
+          const query = trackingCodeParam
+            ? `/api/orders?trackingCode=${encodeURIComponent(trackingCodeParam)}`
+            : `/api/orders`;
+          fetch(query)
+            .then((res) => res.json())
+            .then((data: Order[]) => {
+              if (Array.isArray(data)) {
+                const found = data.find(
+                  (o) =>
+                    (orderIdParam && o.id === orderIdParam) ||
+                    (trackingCodeParam && o.trackingCode === trackingCodeParam)
+                );
+                if (found) {
+                  setOrder(found);
+                } else if (data.length > 0 && trackingCodeParam) {
+                  setOrder(data[0]);
+                }
+              }
+            })
+            .catch((err) => console.warn('Could not fetch order for receipt:', err))
+            .finally(() => setIsLoadingOrder(false));
+        };
       }
     } catch (e) {
       console.error('Error reading receipt parameters:', e);

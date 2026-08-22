@@ -53,20 +53,20 @@ export interface SeoSettings {
 }
 
 const DEFAULT_SEO_SETTINGS: SeoSettings = {
-  siteTitle: 'سیریک فیت | خرید مستقیم مکمل ورزشی و اورجینال از دبی',
-  brandSlogan: 'تضمین ۱۰۰٪ اصالت، تحویل مستقیم و قیمت رقابتی',
-  metaDescription: 'خرید مستقیم انواع مکمل‌های بدنسازی اورجینال، پروتئین وی، کراتین، پمپ، گلوتامین و ویتامین‌ها از فروشگاه‌های معتبر دبی (Dr Nutrition, GNC, Life Pharmacy) با ضمانت اصالت کالا و تحویل در سراسر ایران.',
-  keywords: 'مکمل ورزشی, پروتئین وی, خرید از دبی, مکمل اورجینال, کراتین, گینر, پمپ بدنسازی, سیریک فیت, sirikfit, dr nutrition uae, gnc dubai, خرید مستقیم مکمل',
+  siteTitle: 'سیریک فیت | خرید مستقیم مکمل از دبی | Sirik Fit',
+  brandSlogan: 'خرید مستقیم و بدون واسطه انواع مکمل‌های ورزشی، ویتامین و پروتئین اورجینال از امارات با ضمانت اصالت',
+  metaDescription: 'فروشگاه آنلاین سیریک فیت؛ مرجع خرید بدون واسطه مکملهای ورزشی، ویتامین و پروتئین اورجینال از نمایندگیهای معتبر دبی با ارسال سریع به سراسر ایران.',
+  keywords: 'سیریک فیت, sirikfit, sirikfit.ir, خرید مکمل از دبی, مکمل ورزشی اورجینال, پروتئین وی دبی, خرید ویتامین اصل, خرید پروتئین وی, مکمل اصل دبی',
   googleSiteVerification: '',
   bingSiteVerification: '',
   yandexVerification: '',
   googleAnalyticsId: '',
   googleTagManagerId: '',
-  canonicalUrl: 'https://sirikfit.com',
+  canonicalUrl: 'https://sirikfit.ir',
   robotsIndexing: 'index, follow',
-  ogTitle: 'سیریک فیت | فروشگاه اینترنتی و خرید مستقیم مکمل از دبی',
-  ogDescription: 'برآورد آنی قیمت تحویل در ایران و خرید مستقیم مکمل‌های ورزشی از نمایندگی‌های معتبر امارات با ضمانت اصالت کالا.',
-  ogImage: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&q=80&w=1200',
+  ogTitle: 'سیریک فیت | خرید مستقیم مکمل از دبی',
+  ogDescription: 'مرجع سفارش و تحویل فوری مکملهای اورجینال ورزشی از دبی در ایران.',
+  ogImage: 'https://sirikfit.ir/assets/og-preview.jpg',
   enableStructuredData: true,
   enableProductSchema: true,
   enableBreadcrumbSchema: true

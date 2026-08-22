@@ -289,14 +289,36 @@ export const AdminReviews: React.FC<AdminReviewsProps> = ({ showToast }) => {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className="bg-slate-900 hover:bg-black text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer shrink-0 shadow-xs active:scale-95"
-          >
-            <Plus className="w-4 h-4 text-emerald-400" />
-            <span>افزودن نظر جدید</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={async () => {
+                setIsSubmitting(true);
+                try {
+                  await ReviewService.batchSaveReviews(reviews);
+                  if (showToast) showToast('✅ تنظیمات و وضعیت تمامی نظرات با موفقیت در دیتابیس ذخیره شد.', 'success');
+                } catch (err: any) {
+                  if (showToast) showToast('❌ خطا در ذخیره تنظیمات نظرات: ' + (err.message || ''), 'error');
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}
+              disabled={isSubmitting}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
+            >
+              <Check className="w-4 h-4 text-white" />
+              <span>{isSubmitting ? 'در حال ذخیره...' : 'ذخیره تنظیمات'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              className="bg-slate-900 hover:bg-black text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+            >
+              <Plus className="w-4 h-4 text-emerald-400" />
+              <span>افزودن نظر جدید</span>
+            </button>
+          </div>
         </div>
 
         {/* Filter and Search Bar */}

@@ -254,6 +254,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
             size: v.size || (v.type === 'size' ? v.name : undefined),
             priceAED: v.priceAED ?? v.priceAed ?? v.price ?? result.priceAed ?? 0,
             priceAed: v.priceAed ?? v.priceAED ?? v.price ?? result.priceAed ?? 0,
+            weightKg: v.weightKg,
             originalPriceAED: v.originalPriceAED ?? v.originalPriceAed,
             image: v.imageUrl || v.imageThumbnail || v.image,
             inStock: v.inStock !== false
@@ -441,11 +442,14 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         </p>
       </div>
 
-      {/* URL Input Box */}
+      {/* URL Input Box with Orbiting Red Dot Indicator */}
       <div className="relative z-10 mb-4">
-        <div className="flex items-center gap-2 bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] focus-within:border-[#111111] rounded-[12px] px-3.5 py-2.5 mb-2.5 transition dir-ltr">
+        <div className="orbit-container relative flex items-center gap-2 bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] focus-within:border-[#111111] rounded-[12px] px-3.5 py-2.5 mb-2.5 transition dir-ltr">
+          {/* Glowing Orbiting Red Dot Traveling Around Input Border */}
+          <div className="orbiting-red-dot" aria-hidden="true" />
+          
           <div className="flex items-center gap-1.5 shrink-0">
-            <Link2 className="w-4 h-4 text-neutral-400" />
+            <Link2 className="w-5 h-5 text-red-500 shrink-0" />
             {urlInput.length > 0 && (
               <button
                 type="button"

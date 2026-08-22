@@ -76,6 +76,8 @@ export interface StoreCardItem {
   url: string;
   image: string;
   badge?: string;
+  brandColor?: string;
+  ctaText?: string;
   enabled?: boolean;
   active?: boolean;
   samplePriceAed?: number;
@@ -109,6 +111,8 @@ export interface FeaturedDeal {
   isPopular?: boolean;
   isActive: boolean;
   inStock?: boolean;
+  mainCategory?: string;
+  subCategory?: string;
   description?: string;
   flavors?: string[];
   sizes?: string[];
@@ -125,6 +129,8 @@ export interface LocalInventoryItem {
   stockCount?: number;
   category: string;
   categoryKey?: string;
+  mainCategory?: string;
+  subCategory?: string;
   description?: string;
   deliveryBadge?: string;
   inStock: boolean;
@@ -285,8 +291,23 @@ export interface FeatureToggles {
   showFaqSection?: boolean;
 }
 
+export interface PromoPopupConfig {
+  enabled: boolean;
+  targetPage: 'all' | 'home' | 'inventory' | 'deals';
+  template: 'template1' | 'template2' | 'template3';
+  imageUrl?: string;
+  title: string;
+  subtitle?: string;
+  discountText?: string;
+  couponCode?: string;
+  buttonText: string;
+  targetUrl: string;
+  delaySeconds: number;
+}
+
 export interface CmsConfig {
   features?: FeatureToggles;
+  promoPopup?: PromoPopupConfig;
   heroTitle: string;
   heroSubtitle: string;
   heroNotice: string;

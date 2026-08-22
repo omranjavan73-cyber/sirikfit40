@@ -62,9 +62,22 @@ import {
   Store,
   Layout,
   HelpCircle,
-  Activity
+  Activity,
+  MapPin,
+  MessageCircle,
+  ChevronDown,
+  ChevronUp,
+  Shield,
+  FolderTree,
+  FolderPlus,
+  Folder,
+  Edit,
+  Settings,
+  LayoutGrid,
+  List,
+  Link as LinkIcon
 } from 'lucide-react';
-import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, deleteDoc, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { 
   db, 
   checkFirestoreConnection, 
@@ -73,6 +86,7 @@ import {
   saveCmsToFirestore, 
   getCmsFromFirestore,
   fetchAllOrdersFromFirestore,
+  subscribeToOrders,
   fetchVisitorStatsFromFirestore,
   deleteOrderFromFirestore,
   saveOrderToFirestore,
@@ -90,9 +104,19 @@ import {
 import StickyBottomSaveBar from './StickyBottomSaveBar';
 import { AdminSupportTickets } from './AdminSupportTickets';
 import { AdminFAQManager } from './AdminFAQManager';
+import { AdminSmsSettings } from './AdminSmsSettings';
+import { AdminTaxonomyManager } from './AdminTaxonomyManager';
+import { AdminPromoPopupSettings } from './AdminPromoPopupSettings';
 import { AdminLoginModal } from './AdminLoginModal';
 import { AdminForgotPasswordModal } from './AdminForgotPasswordModal';
 import { safeParseNumeric, sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
+import { 
+  STORE_TAXONOMY, 
+  DEFAULT_TAXONOMY, 
+  getMainCategoryById, 
+  getSubcategoriesForMain, 
+  fetchTaxonomyFromFirestore 
+} from '../utils/taxonomyHelper';
 
 export { sanitizePayloadForFirestore };
 
@@ -129,6 +153,7 @@ import {
   FeatureToggles
 } from '../types';
 import { formatToman, formatAed, formatPersianDate, toPersianDigits, getEffectiveAedRate, normalizeToEnglishDigits } from '../utils/formatters';
+import { calculateSellingPriceToman, calculateTomanPrice } from '../utils/pricingCalculator';
 import { getEffectiveGeminiKeysList, setEffectiveGeminiKeysList } from '../utils/geminiKey';
 import { parseProductLinkUniversal } from '../utils/parseLink';
 import { getCanonicalCategoryKey, DEFAULT_UNIFIED_CATEGORIES } from '../utils/categoryHelper';
@@ -198,6 +223,8 @@ const DEFAULT_STORES: StoreCardItem[] = [
     description: 'بزرگترین مرجع تخصصی مکمل‌های ورزشی، ویتامین و پروتئین ایزوله در امارات و خاورمیانه',
     url: 'https://www.drnutrition.com/en-ae',
     badge: 'تخفیف ویژه دبی',
+    brandColor: '#9333ea',
+    ctaText: 'محاسبه و خرید از Dr. Nutrition',
     enabled: true,
     image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 200"><rect width="220" height="200" fill="%230a0a0c"/><text x="25" y="130" fill="%238B2FC9" font-weight="900" font-size="100" font-family="sans-serif" letter-spacing="-6">dnp</text><path d="M50 120 C 90 70, 135 40, 175 28 C 150 65, 110 110, 75 130 Z" fill="%2378BE20"/><path d="M60 112 Q 115 65, 163 35" stroke="%235A9614" stroke-width="3" fill="none"/></svg>'
   },
@@ -209,6 +236,8 @@ const DEFAULT_STORES: StoreCardItem[] = [
     description: 'بزرگترین زنجیره داروخانه آنلاین دبی - داروها، ویتامین‌ها، مکمل‌ها و محصولات آرایشی بهداشتی معتبر',
     url: 'https://www.lifepharmacy.com',
     badge: 'داروخانه آنلاین دبی',
+    brandColor: '#1e40af',
+    ctaText: 'محاسبه و خرید از Life Pharmacy',
     enabled: true,
     image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><path d="M100 15 C56 15 40 42 40 70 V135 H160 V70 C160 42 144 15 100 15 Z" fill="%231C3F94"/><circle cx="100" cy="55" r="9" fill="%23FFFFFF"/><path d="M100 68 C84 80 72 84 64 110 H136 C128 84 116 80 100 68 Z" fill="%23FFFFFF"/><text x="100" y="172" text-anchor="middle" fill="%23C42582" font-weight="900" font-size="36" font-family="sans-serif">LIFE%C2%AE</text></svg>'
   },
@@ -220,6 +249,8 @@ const DEFAULT_STORES: StoreCardItem[] = [
     description: 'نمایندگی رسمی برند جهانی GNC در امارات - انواع مولتی‌ویتامین‌ها، امگا ۳ و مکمل‌های سلامتی اورجینال',
     url: 'https://gnc-mena.com/',
     badge: 'ضمانت ۱۰۰٪ اورجینال',
+    brandColor: '#dc2626',
+    ctaText: 'محاسبه و خرید از GNC',
     enabled: true,
     image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><text x="100" y="115" text-anchor="middle" fill="%23E31837" font-weight="900" font-size="70" font-family="Arial,sans-serif" letter-spacing="-2">GNC</text><text x="100" y="145" text-anchor="middle" fill="%23E31837" font-weight="800" font-size="20" font-family="Arial,sans-serif" letter-spacing="4">LIVE WELL</text></svg>'
   }
@@ -304,20 +335,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo'
+  // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms'
+  // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup'
   const [activeAdminSubTab, setActiveAdminSubTab] = useState<
-    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo'
+    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup'
   >('dashboard');
 
-  // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples'
-  const [activeProductSubTab, setActiveProductSubTab] = useState<'inventory' | 'deals' | 'popular' | 'popularSamples'>('inventory');
+  // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories'
+  const [activeProductSubTab, setActiveProductSubTab] = useState<'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories'>('inventory');
   const [popularSamplesOrder, setPopularSamplesOrder] = useState<string[]>(cms?.popularSamplesOrder || []);
+  const [taxonomyList, setTaxonomyList] = useState<any[]>(DEFAULT_TAXONOMY);
+
+  useEffect(() => {
+    fetchTaxonomyFromFirestore().then((loaded) => {
+      if (Array.isArray(loaded) && loaded.length > 0) {
+        setTaxonomyList(loaded);
+      }
+    }).catch((e) => console.warn('Could not load dynamic taxonomy:', e));
+  }, []);
 
   useEffect(() => {
     if (activeAdminSubTab === 'inventory') {
       setActiveProductSubTab('inventory');
     } else if (activeAdminSubTab === 'deals') {
       setActiveProductSubTab('deals');
+    } else if (activeAdminSubTab === 'categories') {
+      setActiveProductSubTab('categories');
     }
   }, [activeAdminSubTab]);
 
@@ -329,6 +372,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('ALL');
   const [orderDateFilter, setOrderDateFilter] = useState<'ALL' | 'TODAY' | 'YESTERDAY' | 'LAST_3_DAYS'>('ALL');
   const [orderStoreFilter, setOrderStoreFilter] = useState<string>('ALL');
+  const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<Order | null>(null);
 
   // Payment Gateway Settings State (Exclusively Zibal Architecture)
   const [activeGateway, setActiveGateway] = useState<GatewayProvider>('zibal');
@@ -374,6 +418,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [storesList, setStoresList] = useState<StoreCardItem[]>(
     cms?.stores && cms.stores.length > 0 ? cms.stores : DEFAULT_STORES
   );
+  const [activeColorPickerStoreId, setActiveColorPickerStoreId] = useState<string | null>(null);
   const [dealsList, setDealsList] = useState<FeaturedDeal[]>(cms?.deals || []);
   const [showLocalInventory, setShowLocalInventory] = useState<boolean>(cms?.features?.showLocalInventory ?? cms?.showLocalInventory ?? true);
   const [warehouseBannerTitle, setWarehouseBannerTitle] = useState(cms?.warehouseBannerTitle || 'کالاهای موجود در انبار ایران (ارسال فوری)');
@@ -1560,12 +1605,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     loading: true
   });
 
-  // Check existing auth token and Firestore DB status
+  // Real-time Orders Subscription and Firestore DB status
   useEffect(() => {
     const token = localStorage.getItem('omex_admin_token');
     if (token) {
       setIsAuthenticated(true);
-      fetchAdminOrders();
     }
     checkFirestoreConnection().then((res) => {
       setDbStatus({
@@ -1580,6 +1624,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       });
     });
   }, []);
+
+  // Real-time live Firestore orders subscription
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    setIsLoadingOrders(true);
+    const unsubscribe = subscribeToOrders((liveOrders) => {
+      if (Array.isArray(liveOrders)) {
+        setOrders(liveOrders);
+      }
+      setIsLoadingOrders(false);
+    });
+
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [isAuthenticated]);
 
   // 🟢 [FIXED_BY_AI]: Added fallback authentication with omex2025 password when backend is unavailable
   const handleLogin = async (e: React.FormEvent) => {
@@ -1681,45 +1741,68 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleUpdateShippingStatus = async (orderId: string, status: ShippingStatus) => {
+  const handleUpdateShippingStatus = async (orderId: string, status: string) => {
     try {
       const existing = orders.find(o => o.id === orderId);
-      if (existing) {
-        const updated = { ...existing, shippingStatus: status, updatedAt: Date.now() };
-        await saveOrderToFirestore(updated);
-        setOrders(prev => prev.map(o => o.id === orderId ? updated : o));
-
-        const statusMap: Record<ShippingStatus, string> = {
-          PENDING_BUY: 'در انتظار خرید از دبی',
-          PURCHASED: 'تایید سفارش - خریداری شده',
-          DUBAI_WAREHOUSE: 'در انبار دبی',
-          SHIPPED_IRAN: 'ارسال شده به ایران',
-          COMPLETED: 'تحویل به مشتری (تکمیل شده)',
-          PENDING: 'در انتظار بررسی',
-          PROCESSING: 'در حال پردازش',
-          SHIPPED: 'ارسال شده',
-          DELIVERED: 'تحویل داده شده'
-        };
-        const statusLabel = statusMap[status] || status;
-        triggerOrderWebhook(updated, statusLabel);
+      const updatedTimestamp = new Date().toISOString();
+      
+      // Direct Firestore update
+      try {
+        await updateDoc(doc(db, 'orders', orderId), {
+          orderStatus: status,
+          shippingStatus: status,
+          updatedAt: updatedTimestamp
+        });
+      } catch (err) {
+        console.warn('Direct updateDoc notice, falling back to setDoc:', err);
+        await setDoc(doc(db, 'orders', orderId), {
+          ...(existing || {}),
+          orderStatus: status,
+          shippingStatus: status,
+          updatedAt: updatedTimestamp
+        }, { merge: true });
       }
+
+      const updated = { ...(existing || {}), id: orderId, orderStatus: status as any, shippingStatus: status as any, updatedAt: updatedTimestamp };
+      setOrders(prev => prev.map(o => o.id === orderId ? updated as Order : o));
+      showToast('وضعیت سفارش با موفقیت به‌روزرسانی شد.', 'success');
+
+      const statusMap: Record<string, string> = {
+        PENDING_UAE_PURCHASE: 'در انتظار خرید از دبی',
+        CONFIRMED: 'تایید سفارش',
+        SHIPPED_IRAN: 'ارسال شده به ایران',
+        DELIVERED: 'تحویل به مشتری',
+        PENDING_BUY: 'در انتظار خرید از دبی',
+        PURCHASED: 'تایید سفارش - خریداری شده',
+        COMPLETED: 'تحویل به مشتری (تکمیل شده)'
+      };
+      const statusLabel = statusMap[status] || status;
+      if (existing) triggerOrderWebhook(updated as Order, statusLabel);
+
       safeFetchJson(`/api/orders/${orderId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shippingStatus: status })
+        body: JSON.stringify({ orderStatus: status, shippingStatus: status })
       }).catch(() => {});
     } catch (err) {
       console.error('Error updating shipping status:', err);
+      showToast('خطا در به‌روزرسانی وضعیت سفارش.', 'error');
     }
   };
 
   const handleDeleteOrder = async (orderId: string) => {
-    if (!window.confirm('آیا از حذف این سفارش اطمینان دارید؟')) return;
+    if (!window.confirm('آیا از حذف این سفارش اطمینان کامل دارید؟ این عملیات غیرقابل بازگشت است.')) return;
     try {
-      await deleteOrderFromFirestore(orderId);
+      await deleteDoc(doc(db, 'orders', orderId));
       setOrders(prev => prev.filter(o => o.id !== orderId));
+      if (selectedOrderForDetails?.id === orderId) {
+        setSelectedOrderForDetails(null);
+      }
+      showToast('سفارش با موفقیت حذف شد.', 'success');
+      deleteOrderFromFirestore(orderId).catch(() => {});
     } catch (err) {
       console.error('Error deleting order:', err);
+      showToast('خطا در حذف سفارش.', 'error');
     }
   };
 
@@ -2042,75 +2125,106 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       e.preventDefault();
       e.stopPropagation();
     }
-    if (!newLocalUrlInput.trim()) return;
+    const targetUrl = newLocalUrlInput.trim();
+    if (!targetUrl || !targetUrl.toLowerCase().startsWith('http')) {
+      if (showToast) showToast('لطفاً یک لینک معتبر اینترنتی وارد نمایید.', 'error');
+      return;
+    }
+
     setIsExtractingNewLocalItem(true);
     try {
-      const savedKeys = getEffectiveGeminiKeysList(cms?.apiConfig?.geminiApiKeys || cms?.apiConfig?.geminiApiKey);
-      const data = await parseProductLinkUniversal({
-        url: newLocalUrlInput.trim(),
-        geminiKeys: savedKeys,
-        cmsConfig: cms
+      const response = await fetch('/api/parse-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: targetUrl, is_free_extraction: true })
       });
 
-      const priceAed = Number(data?.priceAed) || 150;
-      const weightKg = Number(data?.weightKg) || 0.8;
-      const marginPercent = 20; // Default profit margin = 20%
-      const currentAedRate = getEffectiveAedRate(settings, cms) || 0;
-      const cargoRate = settings?.cargoRatePerKg || 35;
-      const shippingFeeAed = (weightKg * cargoRate) || 20;
-      const calculatedPriceToman = Math.round(((priceAed * currentAedRate) + (shippingFeeAed * currentAedRate)) * (1 + (marginPercent / 100)));
+      const data = await response.json();
+      const priceAed = Number(data.priceAed || data.price || data.basePriceAED || 0);
 
-      const originalPriceAed = Number(data?.originalPriceAed) || 0;
-      const originalPriceToman = originalPriceAed > 0 ? Math.round(((originalPriceAed * currentAedRate) + (shippingFeeAed * currentAedRate)) * (1 + (marginPercent / 100))) : 0;
+      if ((data.ok || data.success) && data.title && priceAed > 0) {
+        const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+        const cargoRate = settings?.cargoRatePerKg || 35;
+        const marginPercent = settings?.profitMargin || 20;
+        const weightKg = Number(data.weightKg) || 0.8;
 
-      const assignedCategory = newLocalCategory || data?.category || 'مکمل‌های ورزشی';
-      const assignedCategoryKey = getCanonicalCategoryKey(assignedCategory);
+        const calculatedPriceToman = calculateTomanPrice(priceAed, weightKg, {
+          aedRate: currentAedRate,
+          cargoRatePerKg: cargoRate,
+          profitMargin: marginPercent
+        });
 
-      const newItem: LocalInventoryItem = {
-        id: 'local-' + Date.now(),
-        title: data?.title || 'محصول جدید انبار ایران',
-        image: data?.image || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
-        priceToman: calculatedPriceToman,
-        originalPriceToman: (originalPriceToman && originalPriceToman > calculatedPriceToman) ? originalPriceToman : 0,
-        stockQuantity: 5,
-        stockCount: 5,
-        category: assignedCategory,
-        categoryKey: assignedCategoryKey,
-        description: data?.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری',
-        deliveryBadge: '⚡ ارسال فوری (انبار ایران)',
-        inStock: true,
-        isIranWarehouse: true,
-        isLocalInventory: true,
-        isPopularSample: false,
-        priceAed: priceAed,
-        weightKg: weightKg,
-        marginPercent: marginPercent,
-        flavors: data?.flavors || [],
-        sizes: data?.sizes || [],
-        url: newLocalUrlInput.trim()
-      };
+        const originalPriceAed = Number(data.originalPriceAed) || 0;
+        const originalPriceToman = originalPriceAed > priceAed ? calculateTomanPrice(originalPriceAed, weightKg, {
+          aedRate: currentAedRate,
+          cargoRatePerKg: cargoRate,
+          profitMargin: marginPercent
+        }) : 0;
 
-      const updatedLocalList = [newItem, ...localInventoryList];
-      setLocalInventoryList(updatedLocalList);
-      setNewLocalUrlInput('');
+        const mainImage = data.mainImage || data.image || (Array.isArray(data.images) ? data.images[0] : '') || '';
+        const gallery = Array.isArray(data.galleryImages) && data.galleryImages.length > 0
+          ? data.galleryImages
+          : (Array.isArray(data.images) && data.images.length > 0 ? data.images : (mainImage ? [mainImage] : []));
 
-      // Immediate synchronized persistence
-      const updatedCms = {
-        ...(cms || {}),
-        localInventory: updatedLocalList
-      };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
-        localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
-        window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+        const assignedCategory = newLocalCategory || data.category || 'مکمل‌های ورزشی';
+        const assignedCategoryKey = getCanonicalCategoryKey(assignedCategory);
+
+        const newItem: LocalInventoryItem = {
+          id: 'local-' + Date.now(),
+          title: data.title,
+          brand: data.brand || data.storeName || 'دبی',
+          storeName: data.storeName || 'فروشگاه دبی',
+          image: mainImage || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
+          images: gallery,
+          galleryImages: gallery,
+          priceToman: calculatedPriceToman,
+          originalPriceToman: (originalPriceToman && originalPriceToman > calculatedPriceToman) ? originalPriceToman : 0,
+          stockQuantity: 5,
+          stockCount: 5,
+          category: assignedCategory,
+          categoryKey: assignedCategoryKey,
+          description: data.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری',
+          deliveryBadge: '⚡ ارسال فوری (انبار ایران)',
+          inStock: true,
+          isIranWarehouse: true,
+          isLocalInventory: true,
+          isPopularSample: false,
+          priceAed: priceAed,
+          weightKg: weightKg,
+          marginPercent: marginPercent,
+          flavors: Array.isArray(data.flavors) ? data.flavors : [],
+          sizes: Array.isArray(data.sizes) ? data.sizes : [],
+          variants: Array.isArray(data.variants) ? data.variants : [],
+          url: targetUrl
+        };
+
+        const updatedLocalList = [newItem, ...localInventoryList];
+        setLocalInventoryList(updatedLocalList);
+        setNewLocalUrlInput('');
+
+        // Immediate synchronized persistence
+        const updatedCms = {
+          ...(cms || {}),
+          localInventory: updatedLocalList
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+          localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+          window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+          window.dispatchEvent(new Event('storage'));
+        }
+        onUpdateCms(updatedCms as any);
+        await setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true });
+        await setDoc(doc(db, 'inventory', newItem.id), sanitizePayloadForFirestore(newItem)).catch(() => {});
+        if (showToast) showToast('محصول با موفقیت استخراج و به انبار ایران اضافه شد.', 'success');
+      } else {
+        // STRICT ERROR GUARD: ZERO DUMMY PRODUCTS
+        if (showToast) showToast(data.message || data.error || 'خطا در استخراج اطلاعات لینک؛ محصولی اضافه نشد.', 'error');
       }
-      onUpdateCms(updatedCms as any);
-      await setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true });
-      if (showToast) showToast('محصول جدید با موفقیت استخراج و به انبار ایران اضافه شد', 'success');
     } catch (err: any) {
       console.error('Error auto extracting local item:', err);
-      if (showToast) showToast('خطا در استخراج خودکار محصول. یک کالا به‌صورت دستی اضافه می‌شود.', 'error');
-      handleAddLocalItem();
+      // STRICT ERROR GUARD: ZERO DUMMY PRODUCTS
+      if (showToast) showToast('خطای ارتباط با سرور استخراج لینک؛ هیچ محصولی اضافه نشد.', 'error');
     } finally {
       setIsExtractingNewLocalItem(false);
     }
@@ -2122,89 +2236,117 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       e.preventDefault();
       e.stopPropagation();
     }
-    if (!newDealUrlInput.trim()) return;
+    const targetUrl = newDealUrlInput.trim();
+    if (!targetUrl || !targetUrl.toLowerCase().startsWith('http')) {
+      if (showToast) showToast('لطفاً یک لینک معتبر اینترنتی وارد نمایید.', 'error');
+      return;
+    }
+
     setIsExtractingNewDeal(true);
     try {
-      const savedKeys = getEffectiveGeminiKeysList(cms?.apiConfig?.geminiApiKeys || cms?.apiConfig?.geminiApiKey);
-      const data = await parseProductLinkUniversal({
-        url: newDealUrlInput.trim(),
-        geminiKeys: savedKeys,
-        cmsConfig: cms
+      const response = await fetch('/api/parse-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: targetUrl, is_free_extraction: true })
       });
 
-      const priceAed = Number(data?.priceAed) || 150;
-      const originalPriceAed = Number(data?.originalPriceAed) || 0;
-      const weightKg = Number(data?.weightKg) || 0.8;
-      const marginPercent = 20; // Default profit margin = 20%
-      const currentAedRate = getEffectiveAedRate(settings, cms) || 0;
-      const cargoRate = settings?.cargoRatePerKg || 35;
-      const shippingFeeAed = (weightKg * cargoRate) || 20;
-      const calculatedPriceToman = Math.round(((priceAed * currentAedRate) + (shippingFeeAed * currentAedRate)) * (1 + (marginPercent / 100)));
+      const data = await response.json();
+      const priceAed = Number(data.priceAed || data.price || data.basePriceAED || 0);
 
-      const originalPriceToman = originalPriceAed > 0 ? Math.round(((originalPriceAed * currentAedRate) + (shippingFeeAed * currentAedRate)) * (1 + (marginPercent / 100))) : 0;
+      if ((data.ok || data.success) && data.title && priceAed > 0) {
+        const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+        const cargoRate = settings?.cargoRatePerKg || 35;
+        const marginPercent = settings?.profitMargin || 20;
+        const weightKg = Number(data.weightKg) || 0.8;
 
-      let discountPercent = Number(data?.discountPercent) || 0;
-      if (!discountPercent && originalPriceAed > priceAed) {
-        discountPercent = Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100);
+        const calculatedPriceToman = calculateTomanPrice(priceAed, weightKg, {
+          aedRate: currentAedRate,
+          cargoRatePerKg: cargoRate,
+          profitMargin: marginPercent
+        });
+
+        const originalPriceAed = Number(data.originalPriceAed) || 0;
+        const originalPriceToman = originalPriceAed > priceAed ? calculateTomanPrice(originalPriceAed, weightKg, {
+          aedRate: currentAedRate,
+          cargoRatePerKg: cargoRate,
+          profitMargin: marginPercent
+        }) : 0;
+
+        let discountPercent = Number(data.discountPercent) || 0;
+        if (!discountPercent && originalPriceAed > priceAed) {
+          discountPercent = Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100);
+        }
+        const badgeText = discountPercent > 0 ? `-${discountPercent}%` : '🔥 پیشنهاد ویژه';
+
+        const mainImage = data.mainImage || data.image || (Array.isArray(data.images) ? data.images[0] : '') || '';
+        const gallery = Array.isArray(data.galleryImages) && data.galleryImages.length > 0
+          ? data.galleryImages
+          : (Array.isArray(data.images) && data.images.length > 0 ? data.images : (mainImage ? [mainImage] : []));
+
+        const assignedCategory = newDealCategory || data.category || 'مکمل‌های ورزشی';
+        const assignedCategoryKey = getCanonicalCategoryKey(assignedCategory);
+
+        const newDeal: FeaturedDeal = {
+          id: 'deal-' + Date.now(),
+          title: data.title,
+          brand: data.brand || data.storeName || 'دبی',
+          category: assignedCategory,
+          categoryKey: assignedCategoryKey,
+          priceAed,
+          originalPriceAed: (originalPriceAed > priceAed) ? originalPriceAed : 0,
+          discountPercent: discountPercent > 0 ? discountPercent : 0,
+          weightKg,
+          marginPercent,
+          profitMargin: marginPercent,
+          priceToman: calculatedPriceToman,
+          originalPriceToman: (originalPriceToman && originalPriceToman > calculatedPriceToman) ? originalPriceToman : 0,
+          stockQuantity: 10,
+          stockCount: 10,
+          image: mainImage || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
+          images: gallery,
+          galleryImages: gallery,
+          url: targetUrl,
+          storeName: data.storeName || 'فروشگاه دبی',
+          badge: badgeText,
+          description: data.description || 'پیشنهاد ویژه خرید مستقیم از دبی با بهترین قیمت',
+          section: 'featured',
+          isFeaturedInCalculator: false,
+          isPopularSample: false,
+          isPopular: false,
+          isActive: true,
+          inStock: true,
+          flavors: Array.isArray(data.flavors) ? data.flavors : [],
+          sizes: Array.isArray(data.sizes) ? data.sizes : [],
+          variants: Array.isArray(data.variants) ? data.variants : []
+        };
+
+        const updatedDealsList = [newDeal, ...dealsList];
+        setDealsList(updatedDealsList);
+        setNewDealUrlInput('');
+
+        // Immediate synchronized persistence
+        const updatedCms = {
+          ...(cms || {}),
+          deals: updatedDealsList
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+          localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+          window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+          window.dispatchEvent(new Event('storage'));
+        }
+        onUpdateCms(updatedCms as any);
+        await setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true });
+        await setDoc(doc(db, 'deals', newDeal.id), sanitizePayloadForFirestore(newDeal)).catch(() => {});
+        if (showToast) showToast('پیشنهاد ویژه جدید با موفقیت استخراج و ذخیره شد', 'success');
+      } else {
+        // STRICT ERROR GUARD: ZERO DUMMY PRODUCTS
+        if (showToast) showToast(data.message || data.error || 'خطا در استخراج اطلاعات لینک؛ محصولی اضافه نشد.', 'error');
       }
-      const badgeText = discountPercent > 0 ? `-${discountPercent}%` : '🔥 پیشنهاد ویژه';
-
-      const assignedCategory = newDealCategory || data?.category || 'مکمل‌های ورزشی';
-      const assignedCategoryKey = getCanonicalCategoryKey(assignedCategory);
-
-      const newDeal: FeaturedDeal = {
-        id: 'deal-' + Date.now(),
-        title: data?.title || 'محصول جدید پیشنهاد ویژه',
-        brand: data?.brand || data?.storeName || 'برند معتبر',
-        category: assignedCategory,
-        categoryKey: assignedCategoryKey,
-        priceAed,
-        originalPriceAed: (originalPriceAed > priceAed) ? originalPriceAed : 0,
-        discountPercent: discountPercent > 0 ? discountPercent : 0,
-        weightKg,
-        marginPercent,
-        profitMargin: marginPercent,
-        priceToman: calculatedPriceToman,
-        originalPriceToman: (originalPriceToman && originalPriceToman > calculatedPriceToman) ? originalPriceToman : 0,
-        stockQuantity: 10,
-        stockCount: 10,
-        image: data?.image || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
-        url: newDealUrlInput.trim(),
-        storeName: data?.storeName || 'دبی',
-        badge: badgeText,
-        description: data?.description || 'پیشنهاد ویژه خرید مستقیم از دبی با بهترین قیمت',
-        section: 'featured',
-        isFeaturedInCalculator: false,
-        isPopularSample: false,
-        isPopular: false,
-        isActive: true,
-        inStock: true,
-        flavors: data?.flavors || [],
-        sizes: data?.sizes || []
-      };
-
-      const updatedDealsList = [newDeal, ...dealsList];
-      setDealsList(updatedDealsList);
-      setNewDealUrlInput('');
-
-      // Immediate synchronized persistence
-      const updatedCms = {
-        ...(cms || {}),
-        deals: updatedDealsList
-      };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
-        localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
-        window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
-        window.dispatchEvent(new Event('storage'));
-      }
-      onUpdateCms(updatedCms as any);
-      await setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true });
-      if (showToast) showToast('پیشنهاد ویژه جدید با موفقیت استخراج و ذخیره شد', 'success');
     } catch (err: any) {
       console.error('Error auto extracting deal:', err);
-      if (showToast) showToast('خطا در استخراج پیشنهاد ویژه. یک مورد به‌صورت دستی اضافه می‌شود.', 'error');
-      handleAddDeal();
+      // STRICT ERROR GUARD: ZERO DUMMY PRODUCTS
+      if (showToast) showToast('خطای ارتباط با سرور استخراج لینک؛ هیچ محصولی اضافه نشد.', 'error');
     } finally {
       setIsExtractingNewDeal(false);
     }
@@ -2415,7 +2557,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleDeleteDeal = (id: string) => {
+    if (typeof window !== 'undefined' && !window.confirm('آیا از حذف این پیشنهاد اطمینان دارید؟')) return;
     setDealsList(prev => prev.filter(d => d.id !== id));
+    if (showToast) showToast('پیشنهاد ویژه با موفقیت حذف شد', 'success');
   };
 
   // Local Inventory Handlers
@@ -2456,14 +2600,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         // Dynamic Toman price calculation in real-time
         if (field === 'priceAed' || field === 'weightKg' || field === 'marginPercent') {
-          const aedRate = getEffectiveAedRate(settings, cms) || 0;
+          const aedRate = getEffectiveAedRate(settings, cms) || 51400;
           const cargoRate = settings?.cargoRatePerKg || 35;
           const baseAed = Number(updated.priceAed) || 0;
           const weight = Number(updated.weightKg) || 0.8;
           const margin = typeof updated.marginPercent === 'number' ? updated.marginPercent : 20;
-          const shippingFeeAed = (weight * cargoRate) || 20;
           
-          updated.priceToman = Math.round(((baseAed * aedRate) + (shippingFeeAed * aedRate)) * (1 + (margin / 100)));
+          updated.priceToman = calculateTomanPrice(baseAed, weight, {
+            aedRate,
+            cargoRatePerKg: cargoRate,
+            profitMargin: margin
+          });
         }
         return updated;
       }
@@ -2472,7 +2619,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleDeleteLocalItem = (id: string) => {
+    if (typeof window !== 'undefined' && !window.confirm('آیا از حذف این کالا از انبار ایران اطمینان دارید؟')) return;
     setLocalInventoryList(prev => prev.filter(item => item.id !== id));
+    if (showToast) showToast('کالا با موفقیت از انبار ایران حذف شد', 'success');
   };
 
   const handleUpdateWarehouseCategoryField = (id: string, field: keyof WarehouseCategory, value: any) => {
@@ -2916,6 +3065,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         return 'تست و عیب‌یابی اسکرپر';
       case 'seo':
         return 'مدیریت سئو و کنسول جستجوی گوگل';
+      case 'sms':
+        return 'سامانه پیامک و اطلاع‌رسانی پترن';
       default:
         return 'مدیریت و تنظیمات سیستم';
     }
@@ -3349,6 +3500,55 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </h4>
                 </div>
               </button>
+
+              {/* Card 15: سامانه پیامک و اطلاع‌رسانی پترن */}
+              {/* Card 15: سامانه پیامک و اطلاع‌رسانی پترن */}
+              <button
+                type="button"
+                onClick={() => { setActiveAdminSubTab('sms'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-amber-400 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+              >
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-amber-600 transition truncate">
+                    سامانه پیامک و OTP
+                  </h4>
+                </div>
+              </button>
+
+              {/* Card 16: پاپ‌آپ تبلیغاتی و آفرها */}
+              <button
+                type="button"
+                onClick={() => { setActiveAdminSubTab('promoPopup'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-amber-400 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+              >
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-amber-600 transition truncate">
+                    پاپ‌آپ تبلیغاتی و آفرها
+                  </h4>
+                </div>
+              </button>
+
+              {/* Card 17: درخت دسته‌بندی‌ها */}
+              <button
+                type="button"
+                onClick={() => { setActiveAdminSubTab('categories'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-blue-400 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+              >
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <FolderTree className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-blue-600 transition truncate">
+                    درخت دسته‌بندی‌ها
+                  </h4>
+                </div>
+              </button>
             </div>
           </div>
 
@@ -3743,415 +3943,506 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 {/* Top Filter & Search Bar */}
                 <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-2xs space-y-4">
-            <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  value={orderSearchQuery}
-                  onChange={(e) => setOrderSearchQuery(e.target.value)}
-                  placeholder="جستجو بر اساس نام، شماره، کد پیگیری یا عنوان محصول..."
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs pr-9 pl-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 font-medium"
-                />
-                <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
-              </div>
+                  <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={orderSearchQuery}
+                        onChange={(e) => setOrderSearchQuery(e.target.value)}
+                        placeholder="جستجو بر اساس نام، شماره، کد پیگیری یا عنوان محصول..."
+                        className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs pr-9 pl-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 font-medium"
+                      />
+                      <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+                    </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <select
-                  value={orderStatusFilter}
-                  onChange={(e) => setOrderStatusFilter(e.target.value)}
-                  className="bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold px-3 py-2.5 rounded-xl focus:outline-none cursor-pointer"
-                >
-                  <option value="ALL">همه وضعیت‌ها ({orders.length})</option>
-                  <option value="PAID">پرداخت شده</option>
-                  <option value="PENDING">در انتظار پرداخت</option>
-                  <option value="SHIPPED">ارسال شده / تکمیل شده</option>
-                </select>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <select
+                        value={orderStatusFilter}
+                        onChange={(e) => setOrderStatusFilter(e.target.value)}
+                        className="bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold px-3 py-2.5 rounded-xl focus:outline-none cursor-pointer"
+                      >
+                        <option value="ALL">همه وضعیت‌ها ({orders.length})</option>
+                        <option value="PAID">پرداخت شده</option>
+                        <option value="PENDING">در انتظار پرداخت</option>
+                        <option value="SHIPPED">ارسال شده / تکمیل شده</option>
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={fetchAdminOrders}
+                        className="bg-slate-100 hover:bg-slate-200 border border-slate-300 p-2.5 rounded-xl transition text-slate-700 cursor-pointer flex items-center gap-1 text-xs font-bold shrink-0"
+                        title="به‌روزرسانی لیست سفارشات"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${isLoadingOrders ? 'animate-spin text-slate-900' : ''}`} />
+                        <span className="hidden sm:inline">به‌روزرسانی</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Date & Store Filter Pills */}
+                  <div className="pt-3 border-t border-slate-100 grid grid-cols-1 lg:grid-cols-2 gap-3 text-xs">
+                    {/* Date Filters */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] font-black text-slate-600 flex items-center gap-1 shrink-0 ml-1">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                        <span>فیلتر تاریخ:</span>
+                      </span>
+                      {[
+                        { id: 'ALL', label: 'همه زمان‌ها' },
+                        { id: 'TODAY', label: 'امروز' },
+                        { id: 'YESTERDAY', label: 'دیروز' },
+                        { id: 'LAST_3_DAYS', label: '۲ الی ۳ روز گذشته' }
+                      ].map((df) => (
+                        <button
+                          key={df.id}
+                          type="button"
+                          onClick={() => setOrderDateFilter(df.id as any)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                            orderDateFilter === df.id
+                              ? 'bg-slate-900 text-white shadow-2xs'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {df.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Source Store Filters */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] font-black text-slate-600 flex items-center gap-1 shrink-0 ml-1">
+                        <Store className="w-3.5 h-3.5 text-slate-400" />
+                        <span>فروشگاه مبدا:</span>
+                      </span>
+                      {['ALL', 'GNC Store', 'Life Pharmacy', 'Dr Nutrition', 'انبار ایران', 'سایر'].map((sf) => (
+                        <button
+                          key={sf}
+                          type="button"
+                          onClick={() => setOrderStoreFilter(sf)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                            orderStoreFilter === sf
+                              ? 'bg-rose-600 text-white shadow-2xs'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {sf === 'ALL' ? 'همه' : sf}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Active Filter Result Counter */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/80">
+                    <span>تعداد سفارشات یافت شده: <strong className="text-slate-900 font-black">{filteredOrders.length}</strong> از {orders.length}</span>
+                    {(orderDateFilter !== 'ALL' || orderStoreFilter !== 'ALL' || orderStatusFilter !== 'ALL' || orderSearchQuery) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrderDateFilter('ALL');
+                          setOrderStoreFilter('ALL');
+                          setOrderStatusFilter('ALL');
+                          setOrderSearchQuery('');
+                        }}
+                        className="text-rose-600 hover:text-rose-700 underline font-bold cursor-pointer"
+                      >
+                        پاک کردن تمامی فیلترها
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Orders Data Table */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-4 shadow-2xs overflow-x-auto">
+                  {filteredOrders.length === 0 ? (
+                    <div className="py-12 text-center text-slate-400 text-xs font-medium space-y-2">
+                      <ShoppingBag className="w-8 h-8 text-slate-300 mx-auto" />
+                      <p>هیچ سفارشی مطابق فیلترهای انتخابی شما یافت نشد.</p>
+                    </div>
+                  ) : (
+                    <table className="w-full text-right text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100/90 text-slate-800 border-b border-slate-200 font-black text-xs">
+                          <th className="py-3 px-3.5 whitespace-nowrap">کد پیگیری / شناسه</th>
+                          <th className="py-3 px-3.5 whitespace-nowrap">تاریخ و ساعت</th>
+                          <th className="py-3 px-3.5 whitespace-nowrap">نام خریدار و شهر</th>
+                          <th className="py-3 px-3.5 whitespace-nowrap">شماره موبایل</th>
+                          <th className="py-3 px-3.5 whitespace-nowrap">مبلغ کل پرداختی</th>
+                          <th className="py-3 px-3.5 whitespace-nowrap">مرحله سفارش (وضعیت لجستیک)</th>
+                          <th className="py-3 px-3.5 whitespace-nowrap text-center">عملیات</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {(filteredOrders || []).map((order) => {
+                          let cleanPhone = (order.phoneNumber || (order as any).customer?.phone || '').replace(/[^0-9]/g, '');
+                          if (cleanPhone.startsWith('0')) cleanPhone = '98' + cleanPhone.substring(1);
+                          const displayPhone = cleanPhone ? `0${cleanPhone.replace(/^98/, '')}` : (order.phoneNumber || '-');
+
+                          const currentStatus = order.shippingStatus || order.orderStatus || 'PENDING_UAE_PURCHASE';
+                          const isPaid = order.paymentStatus === 'PAID' || (order as any).status === 'paid' || (order as any).status === 'SUCCESS';
+                          const customerName = (order as any).customer?.fullName || order.customerName || 'کاربر';
+                          const customerCity = (order as any).customer?.city || (order as any).city || (order.deliveryAddress ? order.deliveryAddress.split('،')[0].split('-')[0].trim() : '');
+                          const buyerDisplay = customerCity ? `${customerName} - ${customerCity}` : customerName;
+                          const totalAmount = order.calculatedToman || (order as any).totalAmount || (order as any).totalAmountToman || 0;
+
+                          return (
+                            <tr key={order.id} className="hover:bg-slate-50/90 transition group">
+                              {/* 1. Tracking / ID */}
+                              <td className="py-3 px-3.5 align-middle whitespace-nowrap">
+                                <span className="font-mono font-black text-slate-900 text-xs dir-ltr bg-slate-100 hover:bg-slate-200 border border-slate-200 px-2.5 py-1 rounded-lg inline-block">
+                                  {order.trackingCode || order.id}
+                                </span>
+                              </td>
+
+                              {/* 2. Date & Time */}
+                              <td className="py-3 px-3.5 align-middle whitespace-nowrap text-slate-600 font-bold text-xs">
+                                {formatPersianDate(order.createdAt)}
+                              </td>
+
+                              {/* 3. Customer Name & City */}
+                              <td className="py-3 px-3.5 align-middle whitespace-nowrap font-extrabold text-slate-900 text-xs">
+                                {buyerDisplay}
+                              </td>
+
+                              {/* 4. Phone Number */}
+                              <td className="py-3 px-3.5 align-middle whitespace-nowrap font-mono font-bold text-slate-700 text-xs dir-ltr">
+                                {displayPhone}
+                              </td>
+
+                              {/* 5. Total Paid Amount & Payment Status */}
+                              <td className="py-3 px-3.5 align-middle whitespace-nowrap">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-black text-slate-900 text-xs">
+                                    {formatToman(totalAmount)}
+                                  </span>
+                                  {isPaid ? (
+                                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-black px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 shadow-2xs">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                      پرداخت آنلاین
+                                    </span>
+                                  ) : (
+                                    <span className="bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-black px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 shadow-2xs">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                      در انتظار پرداخت
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* 6. Order Fulfillment Stage Dropdown */}
+                              <td className="py-3 px-3.5 align-middle whitespace-nowrap">
+                                <select
+                                  value={order.orderStatus || currentStatus}
+                                  onChange={(e) => handleUpdateShippingStatus(order.id, e.target.value)}
+                                  className="text-xs font-extrabold px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:border-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer shadow-2xs transition"
+                                >
+                                  <option value="PENDING_UAE_PURCHASE">⏳ در انتظار خرید از دبی</option>
+                                  <option value="CONFIRMED">🛍️ تایید سفارش / خرید از دبی</option>
+                                  <option value="SHIPPED_IRAN">✈️ ارسال شده به ایران</option>
+                                  <option value="DELIVERED">✅ تحویل به خریدار</option>
+                                </select>
+                              </td>
+
+                              {/* 7. Actions: Full Details Modal & Delete */}
+                              <td className="py-3 px-3.5 align-middle whitespace-nowrap text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedOrderForDetails(order)}
+                                    className="inline-flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-black text-white text-xs font-black px-3.5 py-1.5 rounded-xl transition shadow-2xs hover:shadow-xs cursor-pointer active:scale-95"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>مشاهده جزئیات کامل</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteOrder(order.id)}
+                                    className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-xl transition cursor-pointer"
+                                    title="حذف سفارش"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
+
+      {/* DETAILED ORDER MODAL / DRAWER */}
+      {selectedOrderForDetails && (() => {
+        const order = selectedOrderForDetails;
+        let cleanPhone = (order.phoneNumber || order.customerPhone || '').replace(/[^0-9]/g, '');
+        if (cleanPhone.startsWith('0')) cleanPhone = '98' + cleanPhone.substring(1);
+
+        const currentStatus = order.shippingStatus || 'PENDING_BUY';
+        const isPaid = order.paymentStatus === 'PAID';
+        const orderItems = Array.isArray(order.items) && order.items.length > 0
+          ? order.items
+          : [{
+              title: order.productTitle || 'محصول سفارشی',
+              image: order.productImage,
+              url: order.productUrl,
+              selectedOption: order.selectedOption,
+              priceAed: order.priceAed,
+              calculatedToman: order.calculatedToman,
+              quantity: (order as any).quantity || 1
+            }];
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto font-['Vazirmatn',sans-serif]">
+            <div className="bg-white border border-slate-200 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl space-y-5 p-6 animate-scale-up">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
+                    <ShoppingBag className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
+                      <span>جزئیات کامل سفارش</span>
+                      <span className="font-mono text-xs bg-slate-100 text-slate-800 px-2 py-0.5 rounded-lg border border-slate-200 dir-ltr">
+                        {order.trackingCode || order.id}
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      ثبت شده در تاریخ {formatPersianDate(order.createdAt)}
+                    </p>
+                  </div>
+                </div>
 
                 <button
                   type="button"
-                  onClick={fetchAdminOrders}
-                  className="bg-slate-100 hover:bg-slate-200 border border-slate-300 p-2.5 rounded-xl transition text-slate-700 cursor-pointer flex items-center gap-1 text-xs font-bold shrink-0"
-                  title="به‌روزرسانی لیست سفارشات"
+                  onClick={() => setSelectedOrderForDetails(null)}
+                  className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
                 >
-                  <RefreshCw className={`w-4 h-4 ${isLoadingOrders ? 'animate-spin text-slate-900' : ''}`} />
-                  <span className="hidden sm:inline">به‌روزرسانی</span>
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </div>
 
-            {/* Dynamic Date & Store Filter Pills */}
-            <div className="pt-3 border-t border-slate-100 grid grid-cols-1 lg:grid-cols-2 gap-3 text-xs">
-              {/* Date Filters */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] font-black text-slate-600 flex items-center gap-1 shrink-0 ml-1">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  <span>فیلتر تاریخ:</span>
-                </span>
-                {[
-                  { id: 'ALL', label: 'همه زمان‌ها' },
-                  { id: 'TODAY', label: 'امروز' },
-                  { id: 'YESTERDAY', label: 'دیروز' },
-                  { id: 'LAST_3_DAYS', label: '۲ الی ۳ روز گذشته' }
-                ].map((df) => (
-                  <button
-                    key={df.id}
-                    type="button"
-                    onClick={() => setOrderDateFilter(df.id as any)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
-                      orderDateFilter === df.id
-                        ? 'bg-slate-900 text-white shadow-2xs'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                    }`}
-                  >
-                    {df.label}
-                  </button>
-                ))}
+              {/* 1. Recipient & Shipping Information Card */}
+              <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-3">
+                <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-rose-500" />
+                  <span>مشخصات گیرنده و آدرس ارسال</span>
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="bg-white p-3 rounded-xl border border-slate-200/70 space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 block">نام و نام خانوادگی خریدار:</span>
+                    <span className="font-black text-slate-900 text-sm block">{(order as any).customer?.fullName || order.customerName || 'نامشخص'}</span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-slate-200/70 space-y-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 block">شماره تماس (کلیک برای اقدام):</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-slate-900 text-xs dir-ltr">{(order as any).customer?.phone || order.phoneNumber || order.customerPhone}</span>
+                      <a
+                        href={`tel:${cleanPhone}`}
+                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition"
+                      >
+                        <PhoneCall className="w-3 h-3" />
+                        <span>تماس</span>
+                      </a>
+                      <a
+                        href={`https://wa.me/${cleanPhone}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition"
+                      >
+                        <MessageCircle className="w-3 h-3" />
+                        <span>واتساپ</span>
+                      </a>
+                    </div>
+                  </div>
+
+                  {((order as any).customer?.postalCode || order.postalCode) && (
+                    <div className="bg-white p-3 rounded-xl border border-slate-200/70 space-y-1 sm:col-span-2">
+                      <span className="text-[10px] font-bold text-slate-400 block">کد پستی ۱۰ رقمی:</span>
+                      <span className="font-mono font-black text-indigo-700 text-sm bg-indigo-50 px-2.5 py-1 rounded-lg inline-block dir-ltr border border-indigo-100">
+                        📮 {(order as any).customer?.postalCode || order.postalCode}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="bg-white p-3 rounded-xl border border-slate-200/70 space-y-1 sm:col-span-2">
+                    <span className="text-[10px] font-bold text-slate-400 block">آدرس دقیق پستی:</span>
+                    <p className="font-medium text-slate-800 text-xs leading-relaxed">
+                      {(order as any).customer?.fullAddress || order.deliveryAddress || order.shippingAddress || 'ثبت نشده'}
+                    </p>
+                  </div>
+
+                  {((order as any).customer?.notes || order.notes) && (
+                    <div className="bg-amber-50/60 p-3 rounded-xl border border-amber-200/60 space-y-1 sm:col-span-2">
+                      <span className="text-[10px] font-bold text-amber-800 block">توضیحات و یادداشت مشتری:</span>
+                      <p className="font-medium text-amber-900 text-xs leading-relaxed">{(order as any).customer?.notes || order.notes}</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Source Store Filters */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] font-black text-slate-600 flex items-center gap-1 shrink-0 ml-1">
-                  <Store className="w-3.5 h-3.5 text-slate-400" />
-                  <span>فروشگاه مبدا:</span>
-                </span>
-                {['ALL', 'GNC Store', 'Life Pharmacy', 'Dr Nutrition', 'انبار ایران', 'سایر'].map((sf) => (
-                  <button
-                    key={sf}
-                    type="button"
-                    onClick={() => setOrderStoreFilter(sf)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
-                      orderStoreFilter === sf
-                        ? 'bg-rose-600 text-white shadow-2xs'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                    }`}
-                  >
-                    {sf === 'ALL' ? 'همه' : sf}
-                  </button>
-                ))}
-              </div>
-            </div>
+              {/* 2. Itemized Product List */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                  <Package className="w-4 h-4 text-blue-500" />
+                  <span>اقلام سفارش داده شده ({orderItems.length} قلم)</span>
+                </h4>
 
-            {/* Active Filter Result Counter */}
-            <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/80">
-              <span>تعداد سفارشات یافت شده: <strong className="text-slate-900 font-black">{filteredOrders.length}</strong> از {orders.length}</span>
-              {(orderDateFilter !== 'ALL' || orderStoreFilter !== 'ALL' || orderStatusFilter !== 'ALL' || orderSearchQuery) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOrderDateFilter('ALL');
-                    setOrderStoreFilter('ALL');
-                    setOrderStatusFilter('ALL');
-                    setOrderSearchQuery('');
-                  }}
-                  className="text-rose-600 hover:text-rose-700 underline font-bold cursor-pointer"
-                >
-                  پاک کردن تمامی فیلترها
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Orders Data Table */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-4 shadow-2xs overflow-x-auto">
-            {filteredOrders.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs font-medium space-y-2">
-                <ShoppingBag className="w-8 h-8 text-slate-300 mx-auto" />
-                <p>هیچ سفارشی مطابق فیلترهای انتخابی شما یافت نشد.</p>
-              </div>
-            ) : (
-              <table className="w-full text-right text-xs">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-700 border-b border-slate-200 font-extrabold text-[11px]">
-                    <th className="p-3">کد & تاریخ سفارش</th>
-                    <th className="p-3">اطلاعات خریدار</th>
-                    <th className="p-3 max-w-xs">خلاصه محصول & متغیر</th>
-                    <th className="p-3">لینک کالا در دبی</th>
-                    <th className="p-3">مبلغ پرداختی</th>
-                    <th className="p-3">چرخه ۴ مرحله‌ای سفارش (Quick Actions)</th>
-                    <th className="p-3 text-center">عملیات</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {(filteredOrders || []).map((order) => {
-                    let cleanPhone = order.phoneNumber.replace(/[^0-9]/g, '');
-                    if (cleanPhone.startsWith('0')) cleanPhone = '98' + cleanPhone.substring(1);
-
-                    const currentStatus = order.shippingStatus || 'PENDING_BUY';
-                    const isPaid = order.paymentStatus === 'PAID';
-                    const isConfirmed = currentStatus === 'PURCHASED' || currentStatus === 'PROCESSING' || currentStatus === 'DUBAI_WAREHOUSE' || currentStatus === 'SHIPPED_IRAN' || currentStatus === 'COMPLETED' || currentStatus === 'DELIVERED';
-                    const isShipped = currentStatus === 'SHIPPED_IRAN' || currentStatus === 'SHIPPED' || currentStatus === 'COMPLETED' || currentStatus === 'DELIVERED';
-                    const isDelivered = currentStatus === 'COMPLETED' || currentStatus === 'DELIVERED';
+                <div className="space-y-2">
+                  {orderItems.map((item: any, idx: number) => {
+                    const itemImg = item.imageUrl || item.image || item.productImage;
+                    const itemUrl = item.sourceUrl || item.url || item.productUrl || order.productUrl;
+                    const itemVariant = item.variant || item.selectedOption || order.selectedOption;
+                    const itemPriceToman = item.priceToman || item.calculatedToman || order.calculatedToman;
+                    const itemPriceAed = item.priceAED || item.priceAed;
 
                     return (
-                      <tr key={order.id} className="hover:bg-slate-50/90 transition group">
-                        {/* Order ID & Date */}
-                        <td className="p-3 align-top">
-                          <span className="font-mono font-bold text-slate-900 text-xs dir-ltr block bg-slate-100 px-2 py-0.5 rounded-md w-max">
-                            {order.trackingCode}
-                          </span>
-                          <span className="text-[10px] text-slate-500 block mt-1">
-                            {formatPersianDate(order.createdAt)}
-                          </span>
-                          {order.storeName && (
-                            <span className="text-[9px] bg-slate-200/80 text-slate-700 font-bold px-1.5 py-0.5 rounded mt-1 inline-block">
-                              {order.storeName}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Customer Details */}
-                        <td className="p-3 align-top max-w-[180px]">
-                          <div className="font-extrabold text-slate-900">{order.customerName}</div>
-                          <div className="text-[11px] font-mono text-slate-600 dir-ltr">{order.phoneNumber}</div>
-                          {order.postalCode && (
-                            <div className="text-[10px] font-mono text-indigo-700 bg-indigo-50 px-1 py-0.5 rounded mt-0.5 inline-block dir-ltr">
-                              📮 {order.postalCode}
+                      <div key={idx} className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-center gap-3">
+                          {itemImg ? (
+                            <img
+                              src={itemImg}
+                              alt={item.title || item.productTitle}
+                              className="w-14 h-14 object-cover rounded-xl border border-slate-100 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-14 h-14 bg-slate-100 rounded-xl flex items-center justify-center shrink-0 text-slate-400">
+                              <Package className="w-6 h-6" />
                             </div>
                           )}
-                          {order.deliveryAddress && (
-                            <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5 leading-snug" title={order.deliveryAddress}>
-                              📍 {order.deliveryAddress}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Product Summary */}
-                        <td className="p-3 align-top max-w-xs">
-                          <div className="font-bold text-slate-900 line-clamp-2 leading-tight">{order.productTitle}</div>
-                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                            <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-extrabold px-2 py-0.5 rounded-md">
-                              🎨 متغیر: {order.selectedOption || 'اصلی (پیش‌فرض)'}
-                            </span>
-                            <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-1.5 py-0.5 rounded-md">
-                              {formatAed(order.priceAed)}
-                            </span>
-                          </div>
-                        </td>
-
-                        {/* Direct Source Link & One-Click Copy Button */}
-                        <td className="p-3 align-top whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            <a
-                              href={order.productUrl || 'https://drnutrition.com'}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl transition shadow-2xs cursor-pointer shrink-0"
-                              title="باز کردن لینک اصلی کالا در دبی"
-                            >
-                              <ExternalLink className="w-3 h-3 text-amber-400 shrink-0" />
-                              <span>لینک در دبی</span>
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyProductUrl(order.productUrl || 'https://drnutrition.com', order.id)}
-                              className={`relative p-1.5 rounded-xl transition border cursor-pointer shrink-0 ${
-                                copiedOrderId === order.id
-                                  ? 'bg-emerald-500 text-white border-emerald-600 shadow-2xs'
-                                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200'
-                              }`}
-                              title={copiedOrderId === order.id ? 'کپی شد!' : 'کپی لینک کالا'}
-                            >
-                              {copiedOrderId === order.id ? (
-                                <Check className="w-3.5 h-3.5 text-white shrink-0" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
-                              )}
-                              {copiedOrderId === order.id && (
-                                <span className="absolute -top-7 right-1/2 translate-x-1/2 bg-emerald-800 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-md whitespace-nowrap pointer-events-none animate-fade-in z-20">
-                                  کپی شد!
+                          <div className="space-y-1">
+                            <h5 className="font-black text-slate-900 text-xs leading-snug line-clamp-2">{item.title || item.productTitle}</h5>
+                            <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                              {itemVariant && (
+                                <span className="bg-amber-50 text-amber-800 border border-amber-200 font-extrabold px-1.5 py-0.5 rounded">
+                                  {itemVariant}
                                 </span>
                               )}
-                            </button>
+                              <span className="bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded">
+                                تعداد: {toPersianDigits(item.quantity || 1)}
+                              </span>
+                              {itemPriceAed && (
+                                <span className="bg-blue-50 text-blue-700 font-bold px-1.5 py-0.5 rounded">
+                                  {formatAed(itemPriceAed)}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </td>
+                        </div>
 
-                        {/* Price Paid */}
-                        <td className="p-3 align-top">
-                          <div className="font-black text-rose-600 text-sm">
-                            {formatToman(order.calculatedToman)}
+                        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                          <div className="text-left">
+                            <span className="font-black text-rose-600 text-xs block">
+                              {formatToman(itemPriceToman)}
+                            </span>
                           </div>
-                          <div className="mt-1">
-                            {order.paymentStatus === 'PAID' ? (
-                              <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-extrabold px-2 py-0.5 rounded-md inline-flex items-center gap-1">
-                                <CheckCircle2 className="w-3 h-3" />
-                                پرداخت شده
-                              </span>
-                            ) : (
-                              <span className="bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-extrabold px-2 py-0.5 rounded-md inline-flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                در انتظار پرداخت
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* 4-STAGE INTERACTIVE LIFECYCLE & STATUS DROPDOWN */}
-                        <td className="p-3 align-top min-w-[260px] space-y-2">
-                          {/* 4 Quick Action Stage Pills */}
-                          <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-                            {/* Stage 1: پرداخت موفق */}
-                            <button
-                              type="button"
-                              onClick={() => handleUpdatePaymentStatus(order.id, isPaid ? 'PENDING' : 'PAID')}
-                              className={`px-2 py-1 rounded-lg border font-extrabold flex items-center gap-1 transition cursor-pointer ${
-                                isPaid
-                                  ? 'bg-emerald-500 text-white border-emerald-600 shadow-2xs'
-                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-                              }`}
-                              title="کلیک برای تغییر وضعیت پرداخت"
-                            >
-                              <span className="w-3 h-3 rounded-full flex items-center justify-center bg-white/20 text-[9px]">
-                                {isPaid ? '✓' : '۱'}
-                              </span>
-                              <span>پرداخت موفق</span>
-                            </button>
-
-                            {/* Stage 2: تایید سفارش */}
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateShippingStatus(order.id, 'PURCHASED')}
-                              className={`px-2 py-1 rounded-lg border font-extrabold flex items-center gap-1 transition cursor-pointer ${
-                                isConfirmed
-                                  ? 'bg-blue-600 text-white border-blue-700 shadow-2xs'
-                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-                              }`}
-                              title="کلیک برای تایید و خرید سفارش"
-                            >
-                              <span className="w-3 h-3 rounded-full flex items-center justify-center bg-white/20 text-[9px]">
-                                {isConfirmed ? '✓' : '۲'}
-                              </span>
-                              <span>تایید سفارش</span>
-                            </button>
-
-                            {/* Stage 3: ارسال شده */}
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateShippingStatus(order.id, 'SHIPPED_IRAN')}
-                              className={`px-2 py-1 rounded-lg border font-extrabold flex items-center gap-1 transition cursor-pointer ${
-                                isShipped
-                                  ? 'bg-sky-500 text-white border-sky-600 shadow-2xs'
-                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-                              }`}
-                              title="کلیک برای بارگیری و ارسال مرسوله"
-                            >
-                              <span className="w-3 h-3 rounded-full flex items-center justify-center bg-white/20 text-[9px]">
-                                {isShipped ? '✓' : '۳'}
-                              </span>
-                              <span>ارسال شده</span>
-                            </button>
-
-                            {/* Stage 4: تحویل به مشتری */}
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateShippingStatus(order.id, 'COMPLETED')}
-                              className={`px-2 py-1 rounded-lg border font-extrabold flex items-center gap-1 transition cursor-pointer ${
-                                isDelivered
-                                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
-                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-                              }`}
-                              title="کلیک برای ثبت تحویل نهایی به مشتری"
-                            >
-                              <span className="w-3 h-3 rounded-full flex items-center justify-center bg-white/20 text-[9px]">
-                                {isDelivered ? '✓' : '۴'}
-                              </span>
-                              <span>تحویل به مشتری</span>
-                            </button>
-                          </div>
-
-                          {/* Granular Status Selector */}
-                          <select
-                            value={currentStatus}
-                            onChange={(e) => handleUpdateShippingStatus(order.id, e.target.value as ShippingStatus)}
-                            className="text-[10px] font-bold px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:outline-none cursor-pointer w-full"
-                          >
-                            <option value="PENDING_BUY">⏳ در انتظار خرید از دبی</option>
-                            <option value="PURCHASED">🛍️ خریداری شده (تایید سفارش)</option>
-                            <option value="DUBAI_WAREHOUSE">🏢 در انبار دبی</option>
-                            <option value="SHIPPED_IRAN">✈️ ارسال شده به ایران</option>
-                            <option value="COMPLETED">✅ تحویل نهایی به مشتری (تکمیل)</option>
-                          </select>
-                        </td>
-
-                        {/* Action Buttons */}
-                        <td className="p-3 align-top text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                          {itemUrl && (
                             <a
-                              href={`tel:${cleanPhone}`}
-                              className="p-1.5 text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer"
-                              title="تماس تلفنی مستقیم با خریدار"
+                              href={itemUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="bg-slate-900 hover:bg-black text-white text-[10px] font-extrabold px-3 py-1.5 rounded-xl transition flex items-center gap-1 shrink-0"
                             >
-                              <PhoneCall className="w-3.5 h-3.5" />
+                              <ExternalLink className="w-3 h-3 text-amber-400" />
+                              <span>سورس دبی</span>
                             </a>
-
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  const res = await fetch('/api/notify/telegram', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ orderId: order.id, orderData: order })
-                                  });
-                                  const data = await res.json();
-                                  if (res.ok && data.success) {
-                                    alert('✅ هشدار سفارش به تلگرام ادمین ارسال شد!');
-                                  } else {
-                                    alert('❌ خطا در ارسال پیام تلگرام: ' + (data.error || 'پاسخ ناموفق'));
-                                  }
-                                } catch (e) {
-                                  alert('خطا در اتصال به سرور.');
-                                }
-                              }}
-                              className="p-1.5 text-sky-600 hover:bg-sky-50 border border-sky-200 rounded-lg transition cursor-pointer"
-                              title="ارسال مجدد پیام هشدار به تلگرام ادمین"
-                            >
-                              <Send className="w-3.5 h-3.5" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  const res = await fetch('/api/notify/email', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ orderId: order.id, orderData: order })
-                                  });
-                                  const data = await res.json();
-                                  if (res.ok && data.success) {
-                                    alert('✅ فاکتور سفارش به ایمیل ادمین ارسال شد!');
-                                  } else {
-                                    alert('❌ خطا در ارسال ایمیل: ' + (data.error || 'پاسخ ناموفق'));
-                                  }
-                                } catch (e) {
-                                  alert('خطا در اتصال به سرور.');
-                                }
-                              }}
-                              className="p-1.5 text-emerald-600 hover:bg-emerald-50 border border-emerald-200 rounded-lg transition cursor-pointer"
-                              title="ارسال مجدد فاکتور به ایمیل ادمین"
-                            >
-                              <Mail className="w-3.5 h-3.5" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteOrder(order.id)}
-                              className="p-1.5 text-rose-500 hover:bg-rose-50 border border-rose-200 rounded-lg transition cursor-pointer"
-                              title="حذف سفارش"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                          )}
+                        </div>
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
-            )}
+                </div>
+              </div>
+
+              {/* 3. Transaction & Payment Meta */}
+              <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-3">
+                <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                  <CreditCard className="w-4 h-4 text-emerald-500" />
+                  <span>اطلاعات تراکنش و درگاه بانکی</span>
+                </h4>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 block">مبلغ کل پرداختی:</span>
+                    <span className="font-black text-rose-600 text-xs block">{formatToman(order.calculatedToman || (order as any).totalAmount)}</span>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 block">وضعیت پرداخت:</span>
+                    <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded inline-block ${isPaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                      {isPaid ? '✅ پرداخت موفق' : '⏳ در انتظار'}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 block">درگاه پرداخت:</span>
+                    <span className="font-extrabold text-slate-800 text-[11px] block">{order.paymentGateway || order.paymentMethod || 'ZIBAL'}</span>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 space-y-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 block">کد پیگیری زیبال / شاپرک:</span>
+                    <span className="font-mono font-bold text-slate-900 text-[10px] block dir-ltr truncate">
+                      {order.trackId || order.paymentRefNumber || order.paymentRefId || '---'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Lifecycle Status Controller */}
+              <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-3">
+                <h4 className="text-xs font-black text-amber-400 flex items-center gap-1.5">
+                  <Truck className="w-4 h-4 text-amber-400" />
+                  <span>تغییر وضعیت چرخه ارسال سفارش</span>
+                </h4>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  {[
+                    { id: 'PENDING_UAE_PURCHASE', altId: 'PENDING_BUY', label: 'در انتظار خرید از دبی', color: 'bg-amber-500' },
+                    { id: 'CONFIRMED', altId: 'PURCHASED', label: 'تایید سفارش', color: 'bg-blue-600' },
+                    { id: 'SHIPPED_IRAN', altId: 'SHIPPED', label: 'ارسال شده به ایران', color: 'bg-sky-500' },
+                    { id: 'DELIVERED', altId: 'COMPLETED', label: 'تحویل به مشتری', color: 'bg-emerald-600' }
+                  ].map((stage) => {
+                    const isSelected = order.orderStatus === stage.id || currentStatus === stage.id || currentStatus === stage.altId;
+                    return (
+                      <button
+                        key={stage.id}
+                        type="button"
+                        onClick={async () => {
+                          await handleUpdateShippingStatus(order.id, stage.id);
+                          setSelectedOrderForDetails((prev) => prev ? { ...prev, orderStatus: stage.id as any, shippingStatus: stage.id as any } : null);
+                        }}
+                        className={`p-2.5 rounded-xl font-black text-[11px] transition text-center cursor-pointer border ${
+                          isSelected
+                            ? `${stage.color} text-white border-white/40 shadow-md ring-2 ring-white/20`
+                            : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        {stage.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Modal Footer Close Button */}
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedOrderForDetails(null)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-black text-xs px-5 py-2.5 rounded-xl transition cursor-pointer"
+                >
+                  بستن پنجره
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* SUB-TAB 2: ORDERS AUTOMATION & WEBHOOK SETTINGS */}
       {ordersActiveTab === 'settings' && (
@@ -4657,14 +4948,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <span className="font-black text-xs text-purple-950">خرید/استخراج با لینک (افزودن خودکار کالا به انبار ایران با لینک محصول):</span>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="url"
-                      value={newLocalUrlInput}
-                      onChange={(e) => setNewLocalUrlInput(e.target.value)}
-                      placeholder="https://www.drnutrition.com/product/optimum-nutrition-gold-standard-100-whey..."
-                      className="flex-1 bg-white border border-purple-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-purple-600 dir-ltr font-mono"
-                      dir="ltr"
-                    />
+                    <div className="relative flex-1">
+                      <input
+                        type="url"
+                        value={newLocalUrlInput}
+                        onChange={(e) => setNewLocalUrlInput(e.target.value)}
+                        placeholder="https://www.drnutrition.com/product/optimum-nutrition-gold-standard-100-whey..."
+                        className="w-full bg-white border border-purple-300 text-slate-900 text-xs px-3.5 py-2.5 pl-9 rounded-xl focus:outline-none focus:border-purple-600 dir-ltr font-mono"
+                        dir="ltr"
+                      />
+                      {newLocalUrlInput && (
+                        <button
+                          type="button"
+                          onClick={() => setNewLocalUrlInput('')}
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                          title="پاک کردن لینک"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500 hover:text-red-700 cursor-pointer" />
+                        </button>
+                      )}
+                    </div>
                     <select
                       value={newLocalCategory}
                       onChange={(e) => setNewLocalCategory(e.target.value)}
@@ -4792,7 +5095,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             value={item.priceAed || ''}
                             onChange={(e) => {
                               const val = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
+                              const currentWeight = item.weightKg !== undefined ? Number(item.weightKg) : 0.8;
+                              const currentMargin = item.marginPercent !== undefined ? Number(item.marginPercent) : 20;
+                              const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                              const cargoRate = settings?.cargoRatePerKg || 35;
+                              const newToman = calculateTomanPrice(val, currentWeight, {
+                                aedRate: currentAedRate,
+                                cargoRatePerKg: cargoRate,
+                                profitMargin: currentMargin
+                              });
                               handleUpdateLocalItemField(item.id, 'priceAed', val);
+                              handleUpdateLocalItemField(item.id, 'priceToman', newToman);
                             }}
                             placeholder="مثال: 150"
                             className="w-full bg-white border border-slate-200 text-slate-900 font-mono font-bold text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
@@ -4809,7 +5122,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             value={item.weightKg || ''}
                             onChange={(e) => {
                               const val = e.target.value === '' ? 0.8 : parseFloat(e.target.value) || 0.8;
+                              const currentAed = item.priceAed || 0;
+                              const currentMargin = item.marginPercent !== undefined ? Number(item.marginPercent) : 20;
+                              const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                              const cargoRate = settings?.cargoRatePerKg || 35;
+                              const newToman = calculateTomanPrice(currentAed, val, {
+                                aedRate: currentAedRate,
+                                cargoRatePerKg: cargoRate,
+                                profitMargin: currentMargin
+                              });
                               handleUpdateLocalItemField(item.id, 'weightKg', val);
+                              handleUpdateLocalItemField(item.id, 'priceToman', newToman);
                             }}
                             placeholder="مثال: 0.8"
                             className="w-full bg-white border border-slate-200 text-slate-900 font-mono font-bold text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
@@ -4825,7 +5148,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             value={item.marginPercent !== undefined ? item.marginPercent : 20}
                             onChange={(e) => {
                               const val = e.target.value === '' ? 20 : parseFloat(e.target.value) || 0;
+                              const currentAed = item.priceAed || 0;
+                              const currentWeight = item.weightKg !== undefined ? Number(item.weightKg) : 0.8;
+                              const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                              const cargoRate = settings?.cargoRatePerKg || 35;
+                              const newToman = calculateTomanPrice(currentAed, currentWeight, {
+                                aedRate: currentAedRate,
+                                cargoRatePerKg: cargoRate,
+                                profitMargin: val
+                              });
                               handleUpdateLocalItemField(item.id, 'marginPercent', val);
+                              handleUpdateLocalItemField(item.id, 'priceToman', newToman);
                             }}
                             placeholder="۲۰"
                             className="w-full bg-white border border-slate-200 text-slate-900 font-mono font-bold text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
@@ -4885,29 +5218,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       </div>
 
-                      {/* GRID ROW 2: Category, Delivery Badge, Description */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* GRID ROW 2: 2-Tier Taxonomy (Main Category & Sub-Category), Delivery Badge, Description */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                         <div>
                           <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                            دسته‌بندی:
+                            دسته‌بندی اصلی:
                           </label>
                           <select
-                            value={item.category || 'مکمل‌های ورزشی'}
-                            onChange={(e) => handleUpdateLocalItemField(item.id, 'category', e.target.value)}
+                            value={item.mainCategory || 'sports_nutrition'}
+                            onChange={(e) => {
+                              const newMain = e.target.value;
+                              const mainObj = getMainCategoryById(newMain);
+                              handleUpdateLocalItemField(item.id, 'mainCategory', newMain);
+                              handleUpdateLocalItemField(item.id, 'category', mainObj?.label || 'مکمل‌های ورزشی');
+                              handleUpdateLocalItemField(item.id, 'subCategory', 'all');
+                            }}
                             className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition cursor-pointer"
                           >
-                            <option value="پروتئین‌ها">پروتئین‌ها</option>
-                            <option value="ویتامین‌ها">ویتامین‌ها</option>
-                            <option value="مکمل‌های ورزشی">مکمل‌های ورزشی</option>
-                            <option value="قبل تمرین">قبل تمرین</option>
-                            <option value="امگا ۳">امگا ۳</option>
-                            <option value="پرفروش‌ها">پرفروش‌ها</option>
-                            <option value="سایر">سایر</option>
-                            {item.category && !['پروتئین‌ها', 'ویتامین‌ها', 'مکمل‌های ورزشی', 'قبل تمرین', 'امگا ۳', 'پرفروش‌ها', 'سایر'].includes(item.category) && (
-                              <option value={item.category}>
-                                {item.category}
-                              </option>
-                            )}
+                            {STORE_TAXONOMY.map(cat => (
+                              <option key={cat.id} value={cat.id}>{cat.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                            زیرمجموعه تخصصی:
+                          </label>
+                          <select
+                            value={item.subCategory || 'all'}
+                            onChange={(e) => handleUpdateLocalItemField(item.id, 'subCategory', e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition cursor-pointer"
+                          >
+                            {(getMainCategoryById(item.mainCategory || 'sports_nutrition') || STORE_TAXONOMY[4]).subCategories.map(sub => (
+                              <option key={sub.id} value={sub.id}>{sub.label}</option>
+                            ))}
                           </select>
                         </div>
 
@@ -4993,6 +5338,257 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
                           />
                         </div>
+                      </div>
+
+                      {/* SECTION 1: FLAVORS & DEDICATED IMAGES MANAGER */}
+                      <div className="bg-slate-100/80 border border-slate-200 rounded-2xl p-3.5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
+                            <span>مدیریت طعم‌ها و تصاویر اختصاصی (تغییر عکس با کلیک روی طعم):</span>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">
+                            (تصویر محصول با انتخاب هر طعم تغییر می‌کند)
+                          </span>
+                        </div>
+
+                        {Array.isArray(item.flavors) && item.flavors.length > 0 && (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-right text-[11px] border-collapse bg-white rounded-xl overflow-hidden border border-slate-200">
+                              <thead>
+                                <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
+                                  <th className="p-2.5">نام طعم</th>
+                                  <th className="p-2.5">لینک تصویر اختصاصی طعم</th>
+                                  <th className="p-2.5 text-center">وضعیت موجودی</th>
+                                  <th className="p-2.5 text-center">عملیات</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {item.flavors.map((flvItem: any, fIdx: number) => {
+                                  const fName = typeof flvItem === 'string' ? flvItem : (flvItem.flavor || flvItem.name || '');
+                                  const fImg = typeof flvItem === 'object' ? (flvItem.imageUrl || flvItem.image || '') : '';
+                                  const fStock = typeof flvItem === 'object' ? (flvItem.isAvailable !== false && flvItem.inStock !== false) : true;
+
+                                  return (
+                                    <tr key={fIdx} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50">
+                                      <td className="p-2 font-bold text-slate-900">
+                                        <input
+                                          type="text"
+                                          value={fName}
+                                          onChange={(e) => {
+                                            const curFlavors = [...item.flavors];
+                                            if (typeof curFlavors[fIdx] === 'object') {
+                                              curFlavors[fIdx] = { ...curFlavors[fIdx], flavor: e.target.value, name: e.target.value };
+                                            } else {
+                                              curFlavors[fIdx] = { flavor: e.target.value, name: e.target.value, imageUrl: '', inStock: true };
+                                            }
+                                            handleUpdateLocalItemField(item.id, 'flavors', curFlavors);
+                                          }}
+                                          placeholder="مثلاً: Chocolate"
+                                          className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg"
+                                        />
+                                      </td>
+                                      <td className="p-2">
+                                        <div className="flex items-center gap-1.5">
+                                          {fImg && (
+                                            <img src={fImg} alt={fName} className="w-7 h-7 object-contain rounded border border-slate-200 bg-white shrink-0" />
+                                          )}
+                                          <input
+                                            type="text"
+                                            value={fImg}
+                                            onChange={(e) => {
+                                              const curFlavors = [...item.flavors];
+                                              if (typeof curFlavors[fIdx] === 'object') {
+                                                curFlavors[fIdx] = { ...curFlavors[fIdx], imageUrl: e.target.value, image: e.target.value };
+                                              } else {
+                                                curFlavors[fIdx] = { flavor: fName, name: fName, imageUrl: e.target.value, inStock: true };
+                                              }
+                                              handleUpdateLocalItemField(item.id, 'flavors', curFlavors);
+                                            }}
+                                            placeholder="https://... یا تصویر طعم"
+                                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg dir-ltr font-mono"
+                                            dir="ltr"
+                                          />
+                                        </div>
+                                      </td>
+                                      <td className="p-2 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const curFlavors = [...item.flavors];
+                                            const nextStock = !fStock;
+                                            if (typeof curFlavors[fIdx] === 'object') {
+                                              curFlavors[fIdx] = { ...curFlavors[fIdx], inStock: nextStock, isAvailable: nextStock };
+                                            } else {
+                                              curFlavors[fIdx] = { flavor: fName, name: fName, imageUrl: fImg, inStock: nextStock, isAvailable: nextStock };
+                                            }
+                                            handleUpdateLocalItemField(item.id, 'flavors', curFlavors);
+                                          }}
+                                          className={`text-[10px] font-black px-2 py-1 rounded-full cursor-pointer transition ${
+                                            fStock
+                                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                              : 'bg-rose-100 text-rose-800 border border-rose-300'
+                                          }`}
+                                        >
+                                          {fStock ? '✓ موجود در انبار' : '✕ ناموجود'}
+                                        </button>
+                                      </td>
+                                      <td className="p-2 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const curFlavors = item.flavors.filter((_: any, i: number) => i !== fIdx);
+                                            handleUpdateLocalItemField(item.id, 'flavors', curFlavors);
+                                          }}
+                                          className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition cursor-pointer"
+                                          title="حذف این طعم"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = Array.isArray(item.flavors) ? [...item.flavors] : [];
+                            cur.push({
+                              id: `flv-${Date.now()}`,
+                              flavor: 'طعم جدید',
+                              name: 'طعم جدید',
+                              imageUrl: item.image || '',
+                              inStock: true,
+                              isAvailable: true
+                            });
+                            handleUpdateLocalItemField(item.id, 'flavors', cur);
+                          }}
+                          className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ افزودن طعم جدید با تصویر اختصاصی</span>
+                        </button>
+                      </div>
+
+                      {/* SECTION 2: SIZES & INDEPENDENT PRICING TABLE */}
+                      <div className="bg-slate-100/80 border border-slate-200 rounded-2xl p-3.5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-blue-600 inline-block"></span>
+                            <span>مدیریت سایزها و قیمت اختصاصی (تومان):</span>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">
+                            (تغییر آنی قیمت بر اساس سایز انتخابی)
+                          </span>
+                        </div>
+
+                        {(item as any).variants && (item as any).variants.length > 0 && (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-right text-[11px] border-collapse bg-white rounded-xl overflow-hidden border border-slate-200">
+                              <thead>
+                                <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
+                                  <th className="p-2.5">نام سایز / وزن</th>
+                                  <th className="p-2.5">قیمت (تومان)</th>
+                                  <th className="p-2.5 text-center">وضعیت موجودی</th>
+                                  <th className="p-2.5 text-center">عملیات</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(item as any).variants.map((v: any, vIdx: number) => {
+                                  const vStock = v.inStock !== false && v.isAvailable !== false;
+                                  return (
+                                    <tr key={v.id || vIdx} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50">
+                                      <td className="p-2 font-bold text-slate-900">
+                                        <input
+                                          type="text"
+                                          value={v.size || v.name || ''}
+                                          onChange={(e) => {
+                                            const updated = [...((item as any).variants || [])];
+                                            updated[vIdx] = { ...updated[vIdx], size: e.target.value, name: e.target.value };
+                                            handleUpdateLocalItemField(item.id, 'variants', updated);
+                                          }}
+                                          placeholder="مثلاً: 2 lbs"
+                                          className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg"
+                                        />
+                                      </td>
+                                      <td className="p-2">
+                                        <input
+                                          type="number"
+                                          value={v.priceToman || ''}
+                                          onChange={(e) => {
+                                            const updated = [...((item as any).variants || [])];
+                                            const val = parseFloat(e.target.value) || 0;
+                                            updated[vIdx] = { ...updated[vIdx], priceToman: val };
+                                            handleUpdateLocalItemField(item.id, 'variants', updated);
+                                          }}
+                                          className="w-32 bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg font-mono font-bold"
+                                        />
+                                      </td>
+                                      <td className="p-2 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const updated = [...((item as any).variants || [])];
+                                            const nextVStock = !vStock;
+                                            updated[vIdx] = { ...updated[vIdx], inStock: nextVStock, isAvailable: nextVStock };
+                                            handleUpdateLocalItemField(item.id, 'variants', updated);
+                                          }}
+                                          className={`text-[10px] font-black px-2 py-1 rounded-full cursor-pointer transition ${
+                                            vStock
+                                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                              : 'bg-rose-100 text-rose-800 border border-rose-300'
+                                          }`}
+                                        >
+                                          {vStock ? '✓ موجود' : '✕ ناموجود'}
+                                        </button>
+                                      </td>
+                                      <td className="p-2 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const updated = ((item as any).variants || []).filter((_: any, i: number) => i !== vIdx);
+                                            handleUpdateLocalItemField(item.id, 'variants', updated);
+                                          }}
+                                          className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition cursor-pointer"
+                                          title="حذف این متغیر"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = Array.isArray((item as any).variants) ? [...(item as any).variants] : [];
+                            const newId = `var-${Date.now()}`;
+                            cur.push({
+                              id: newId,
+                              name: 'سایز جدید',
+                              size: '2 lbs',
+                              flavor: 'پیش‌فرض',
+                              priceToman: item.priceToman || 3000000,
+                              inStock: true,
+                              isAvailable: true
+                            });
+                            handleUpdateLocalItemField(item.id, 'variants', cur);
+                          }}
+                          className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ افزودن سایز جدید با قیمت اختصاصی</span>
+                        </button>
                       </div>
 
                       {/* GRID ROW 3: Image URL & Upload Button */}
@@ -5220,22 +5816,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <span className="font-black text-xs text-amber-950">افزودن ۱۰۰٪ خودکار با چسباندن لینک محصول دبی (GNC / Dr. Nutrition / Sporter):</span>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="url"
-                      value={newDealUrlInput}
-                      onChange={(e) => setNewDealUrlInput(e.target.value)}
-                      placeholder="https://gnc-mena.com/products/optimum-nutrition-gold-standard-100-whey..."
-                      className="flex-1 bg-white border border-amber-300 text-slate-900 text-xs px-3 py-2.5 rounded-xl focus:outline-none focus:border-amber-600 dir-ltr font-mono"
-                      dir="ltr"
-                    />
+                    <div className="relative flex-1">
+                      <input
+                        type="url"
+                        value={newDealUrlInput}
+                        onChange={(e) => setNewDealUrlInput(e.target.value)}
+                        placeholder="https://gnc-mena.com/products/optimum-nutrition-gold-standard-100-whey..."
+                        className="w-full bg-white border border-amber-300 text-slate-900 text-xs px-3.5 py-2.5 pl-9 rounded-xl focus:outline-none focus:border-amber-600 dir-ltr font-mono"
+                        dir="ltr"
+                      />
+                      {newDealUrlInput && (
+                        <button
+                          type="button"
+                          onClick={() => setNewDealUrlInput('')}
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                          title="پاک کردن لینک"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500 hover:text-red-700 cursor-pointer" />
+                        </button>
+                      )}
+                    </div>
                     <select
                       value={newDealCategory}
                       onChange={(e) => setNewDealCategory(e.target.value)}
                       className="bg-white border border-amber-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl focus:outline-none focus:border-amber-600 font-bold shrink-0"
                     >
-                      {warehouseCategories.map((c) => (
-                        <option key={c.id} value={c.label}>
-                          {c.label} ({c.englishLabel || c.filterKey})
+                      <option value="همه کالاها (all)">همه کالاها (all)</option>
+                      {taxonomyList.map((c: any) => (
+                        <option key={c.id || c.name} value={c.name || c.label}>
+                          {c.name || c.label}
                         </option>
                       ))}
                     </select>
@@ -5350,7 +5959,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               value={deal.priceAed || ''}
                               onChange={(e) => {
                                 const val = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
+                                const currentWeight = deal.weightKg !== undefined ? Number(deal.weightKg) : 0.8;
+                                const currentMargin = deal.profitMargin !== undefined ? Number(deal.profitMargin) : 20;
+                                const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                                const cargoRate = settings?.cargoRatePerKg || 35;
+                                const newToman = calculateTomanPrice(val, currentWeight, {
+                                  aedRate: currentAedRate,
+                                  cargoRatePerKg: cargoRate,
+                                  profitMargin: currentMargin
+                                });
                                 handleUpdateDealField(deal.id, 'priceAed', val);
+                                handleUpdateDealField(deal.id, 'priceToman', newToman);
                               }}
                               onFocus={(e) => e.target.select()}
                               placeholder="مثال: 180"
@@ -5368,7 +5987,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               value={deal.weightKg || ''}
                               onChange={(e) => {
                                 const val = e.target.value === '' ? 0.8 : parseFloat(e.target.value) || 0.8;
+                                const currentAed = deal.priceAed || 0;
+                                const currentMargin = deal.profitMargin !== undefined ? Number(deal.profitMargin) : 20;
+                                const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                                const cargoRate = settings?.cargoRatePerKg || 35;
+                                const newToman = calculateTomanPrice(currentAed, val, {
+                                  aedRate: currentAedRate,
+                                  cargoRatePerKg: cargoRate,
+                                  profitMargin: currentMargin
+                                });
                                 handleUpdateDealField(deal.id, 'weightKg', val);
+                                handleUpdateDealField(deal.id, 'priceToman', newToman);
                               }}
                               onFocus={(e) => e.target.select()}
                               placeholder="مثال: 0.8"
@@ -5385,7 +6014,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               value={deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : 20)}
                               onChange={(e) => {
                                 const val = e.target.value === '' ? 20 : parseFloat(e.target.value) || 0;
+                                const currentAed = deal.priceAed || 0;
+                                const currentWeight = deal.weightKg !== undefined ? Number(deal.weightKg) : 0.8;
+                                const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                                const cargoRate = settings?.cargoRatePerKg || 35;
+                                const newToman = calculateTomanPrice(currentAed, currentWeight, {
+                                  aedRate: currentAedRate,
+                                  cargoRatePerKg: cargoRate,
+                                  profitMargin: val
+                                });
                                 handleUpdateDealField(deal.id, 'profitMargin', val);
+                                handleUpdateDealField(deal.id, 'priceToman', newToman);
                               }}
                               onFocus={(e) => e.target.select()}
                               placeholder="۲۰"
@@ -5449,29 +6088,47 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </div>
                         </div>
 
-                        {/* GRID ROW 2: Category, Brand/Store, Section */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {/* GRID ROW 2: 2-Tier Taxonomy (Main Category & Sub-Category), Brand/Store, Section */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          {/* 1. Main Category Selector */}
                           <div>
                             <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                              دسته‌بندی:
+                              دسته‌بندی اصلی:
                             </label>
                             <select
-                              value={deal.category || 'مکمل‌های ورزشی'}
-                              onChange={(e) => handleUpdateDealField(deal.id, 'category', e.target.value)}
+                              value={deal.mainCategory || deal.category || ''}
+                              onChange={(e) => {
+                                const newMain = e.target.value;
+                                handleUpdateDealField(deal.id, 'mainCategory', newMain);
+                                handleUpdateDealField(deal.id, 'category', newMain);
+                                handleUpdateDealField(deal.id, 'subCategory', 'همه موارد');
+                              }}
                               className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition cursor-pointer"
                             >
-                              <option value="مکمل‌های ورزشی">مکمل‌های ورزشی</option>
-                              <option value="پروتئین‌ها">پروتئین‌ها</option>
-                              <option value="ویتامین‌ها">ویتامین‌ها</option>
-                              <option value="قبل تمرین">قبل تمرین</option>
-                              <option value="امگا ۳">امگا ۳</option>
-                              <option value="پرفروش‌ها">پرفروش‌ها</option>
-                              <option value="سایر">سایر</option>
-                              {deal.category && !['مکمل‌های ورزشی', 'پروتئین‌ها', 'ویتامین‌ها', 'قبل تمرین', 'امگا ۳', 'پرفروش‌ها', 'سایر'].includes(deal.category) && (
-                                <option value={deal.category}>
-                                  {deal.category}
+                              <option value="">-- انتخاب دسته‌بندی اصلی --</option>
+                              {taxonomyList.map((cat: any) => (
+                                <option key={cat.id || cat.name} value={cat.name || cat.label}>
+                                  {cat.name || cat.label}
                                 </option>
-                              )}
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* 2. Cascading Sub-Category Selector */}
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                              زیرمجموعه تخصصی:
+                            </label>
+                            <select
+                              value={deal.subCategory || 'همه موارد'}
+                              onChange={(e) => handleUpdateDealField(deal.id, 'subCategory', e.target.value)}
+                              disabled={!deal.mainCategory && !deal.category}
+                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition cursor-pointer disabled:opacity-50"
+                            >
+                              <option value="همه موارد">همه موارد (پیش‌فرض)</option>
+                              {getSubcategoriesForMain(deal.mainCategory || deal.category || '', taxonomyList).filter(s => s !== 'همه موارد').map((subName: string, idx: number) => (
+                                <option key={idx} value={subName}>{subName}</option>
+                              ))}
                             </select>
                           </div>
 
@@ -5573,6 +6230,312 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </div>
                         </div>
 
+                        {/* SECTION 1: FLAVORS & DEDICATED IMAGES MANAGER */}
+                        <div className="bg-slate-100/80 border border-slate-200 rounded-2xl p-3.5 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
+                              <span>مدیریت طعم‌ها و تصاویر اختصاصی (تغییر عکس با کلیک روی طعم):</span>
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-medium">
+                              (تصویر محصول با انتخاب هر طعم تغییر می‌کند)
+                            </span>
+                          </div>
+
+                          {Array.isArray(deal.flavors) && deal.flavors.length > 0 && (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-right text-[11px] border-collapse bg-white rounded-xl overflow-hidden border border-slate-200">
+                                <thead>
+                                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
+                                    <th className="p-2.5">نام طعم</th>
+                                    <th className="p-2.5">لینک تصویر اختصاصی طعم</th>
+                                    <th className="p-2.5 text-center">وضعیت موجودی</th>
+                                    <th className="p-2.5 text-center">عملیات</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {deal.flavors.map((flvItem: any, fIdx: number) => {
+                                    const fName = typeof flvItem === 'string' ? flvItem : (flvItem.flavor || flvItem.name || '');
+                                    const fImg = typeof flvItem === 'object' ? (flvItem.imageUrl || flvItem.image || '') : '';
+                                    const fStock = typeof flvItem === 'object' ? (flvItem.isAvailable !== false && flvItem.inStock !== false) : true;
+
+                                    return (
+                                      <tr key={fIdx} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50">
+                                        <td className="p-2 font-bold text-slate-900">
+                                          <input
+                                            type="text"
+                                            value={fName}
+                                            onChange={(e) => {
+                                              const curFlavors = [...deal.flavors];
+                                              if (typeof curFlavors[fIdx] === 'object') {
+                                                curFlavors[fIdx] = { ...curFlavors[fIdx], flavor: e.target.value, name: e.target.value };
+                                              } else {
+                                                curFlavors[fIdx] = { flavor: e.target.value, name: e.target.value, imageUrl: '', inStock: true };
+                                              }
+                                              handleUpdateDealField(deal.id, 'flavors', curFlavors);
+                                            }}
+                                            placeholder="مثلاً: Chocolate"
+                                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg"
+                                          />
+                                        </td>
+                                        <td className="p-2">
+                                          <div className="flex items-center gap-1.5">
+                                            {fImg && (
+                                              <img src={fImg} alt={fName} className="w-7 h-7 object-contain rounded border border-slate-200 bg-white shrink-0" />
+                                            )}
+                                            <input
+                                              type="text"
+                                              value={fImg}
+                                              onChange={(e) => {
+                                                const curFlavors = [...deal.flavors];
+                                                if (typeof curFlavors[fIdx] === 'object') {
+                                                  curFlavors[fIdx] = { ...curFlavors[fIdx], imageUrl: e.target.value, image: e.target.value };
+                                                } else {
+                                                  curFlavors[fIdx] = { flavor: fName, name: fName, imageUrl: e.target.value, inStock: true };
+                                                }
+                                                handleUpdateDealField(deal.id, 'flavors', curFlavors);
+                                              }}
+                                              placeholder="https://... یا تصویر طعم"
+                                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg dir-ltr font-mono"
+                                              dir="ltr"
+                                            />
+                                          </div>
+                                        </td>
+                                        <td className="p-2 text-center">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const curFlavors = [...deal.flavors];
+                                              const nextStock = !fStock;
+                                              if (typeof curFlavors[fIdx] === 'object') {
+                                                curFlavors[fIdx] = { ...curFlavors[fIdx], inStock: nextStock, isAvailable: nextStock };
+                                              } else {
+                                                curFlavors[fIdx] = { flavor: fName, name: fName, imageUrl: fImg, inStock: nextStock, isAvailable: nextStock };
+                                              }
+                                              handleUpdateDealField(deal.id, 'flavors', curFlavors);
+                                            }}
+                                            className={`text-[10px] font-black px-2 py-1 rounded-full cursor-pointer transition ${
+                                              fStock
+                                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                                : 'bg-rose-100 text-rose-800 border border-rose-300'
+                                            }`}
+                                          >
+                                            {fStock ? '✓ موجود در دبی' : '✕ ناموجود'}
+                                          </button>
+                                        </td>
+                                        <td className="p-2 text-center">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const curFlavors = deal.flavors.filter((_: any, i: number) => i !== fIdx);
+                                              handleUpdateDealField(deal.id, 'flavors', curFlavors);
+                                            }}
+                                            className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition cursor-pointer"
+                                            title="حذف این طعم"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const cur = Array.isArray(deal.flavors) ? [...deal.flavors] : [];
+                              cur.push({
+                                id: `flv-${Date.now()}`,
+                                flavor: 'طعم جدید',
+                                name: 'طعم جدید',
+                                imageUrl: deal.image || '',
+                                inStock: true,
+                                isAvailable: true
+                              });
+                              handleUpdateDealField(deal.id, 'flavors', cur);
+                            }}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ افزودن طعم جدید با تصویر اختصاصی</span>
+                          </button>
+                        </div>
+
+                        {/* SECTION 2: SIZES & INDEPENDENT PRICING TABLE */}
+                        <div className="bg-slate-100/80 border border-slate-200 rounded-2xl p-3.5 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-blue-600 inline-block"></span>
+                              <span>مدیریت سایزها، قیمت‌های درهمی و وزن کارگو:</span>
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-medium">
+                              (تغییر آنی قیمت و کارگو برای خریدار بر اساس سایز انتخابی)
+                            </span>
+                          </div>
+
+                          {deal.variants && deal.variants.length > 0 && (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-right text-[11px] border-collapse bg-white rounded-xl overflow-hidden border border-slate-200">
+                                <thead>
+                                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
+                                    <th className="p-2.5">نام سایز / وزن</th>
+                                    <th className="p-2.5">قیمت خرید (AED)</th>
+                                    <th className="p-2.5">وزن کارگو (KG)</th>
+                                    <th className="p-2.5">قیمت تحویل ایران</th>
+                                    <th className="p-2.5 text-center">وضعیت موجودی</th>
+                                    <th className="p-2.5 text-center">عملیات</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {deal.variants.map((v: any, vIdx: number) => {
+                                    const vStock = v.inStock !== false && v.isAvailable !== false;
+                                    const vPriceAed = v.priceAED ?? v.priceAed ?? 0;
+                                    const vWeightKg = v.weightKg !== undefined ? Number(v.weightKg) : 0.8;
+                                    const autoToman = calculateSellingPriceToman(vPriceAed, vWeightKg, {
+                                      aedRate: settings?.aedRate || 52000,
+                                      cargoRatePerKg: settings?.cargoRatePerKg || 35,
+                                      profitMarginPercent: settings?.profitMargin || 20
+                                    });
+
+                                    return (
+                                      <tr key={v.id || vIdx} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50">
+                                        <td className="p-2 font-bold text-slate-900">
+                                          <input
+                                            type="text"
+                                            value={v.size || v.name || ''}
+                                            onChange={(e) => {
+                                              const updated = [...deal.variants];
+                                              updated[vIdx] = { ...updated[vIdx], size: e.target.value, name: e.target.value };
+                                              handleUpdateDealField(deal.id, 'variants', updated);
+                                            }}
+                                            placeholder="مثلاً: 2 lbs"
+                                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg"
+                                          />
+                                        </td>
+                                        <td className="p-2">
+                                          <input
+                                            type="number"
+                                            value={v.priceAED ?? v.priceAed ?? ''}
+                                            onChange={(e) => {
+                                              const updated = [...deal.variants];
+                                              const val = parseFloat(e.target.value) || 0;
+                                              const newToman = calculateSellingPriceToman(val, vWeightKg, {
+                                                aedRate: settings?.aedRate || 52000,
+                                                cargoRatePerKg: settings?.cargoRatePerKg || 35,
+                                                profitMarginPercent: settings?.profitMargin || 20
+                                              });
+                                              updated[vIdx] = { ...updated[vIdx], priceAED: val, priceAed: val, priceToman: newToman };
+                                              handleUpdateDealField(deal.id, 'variants', updated);
+                                            }}
+                                            className="w-20 bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg font-mono font-bold"
+                                          />
+                                        </td>
+                                        <td className="p-2">
+                                          <input
+                                            type="number"
+                                            step="0.1"
+                                            value={v.weightKg ?? ''}
+                                            onChange={(e) => {
+                                              const updated = [...deal.variants];
+                                              const val = parseFloat(e.target.value) || 0.8;
+                                              const newToman = calculateSellingPriceToman(vPriceAed, val, {
+                                                aedRate: settings?.aedRate || 52000,
+                                                cargoRatePerKg: settings?.cargoRatePerKg || 35,
+                                                profitMarginPercent: settings?.profitMargin || 20
+                                              });
+                                              updated[vIdx] = { ...updated[vIdx], weightKg: val, priceToman: newToman };
+                                              handleUpdateDealField(deal.id, 'variants', updated);
+                                            }}
+                                            className="w-16 bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg font-mono font-bold"
+                                          />
+                                        </td>
+                                        <td className="p-2">
+                                          <div className="space-y-1">
+                                            <input
+                                              type="number"
+                                              value={v.priceToman ?? autoToman}
+                                              onChange={(e) => {
+                                                const updated = [...deal.variants];
+                                                const val = parseFloat(e.target.value) || 0;
+                                                updated[vIdx] = { ...updated[vIdx], priceToman: val };
+                                                handleUpdateDealField(deal.id, 'variants', updated);
+                                              }}
+                                              placeholder={String(autoToman)}
+                                              className="w-24 bg-white border border-emerald-300 focus:border-emerald-500 text-xs px-2 py-1 rounded-lg font-mono font-bold text-emerald-900"
+                                            />
+                                            <span className="text-[9px] text-slate-400 block whitespace-nowrap">
+                                              فرمول: {formatToman(autoToman)}
+                                            </span>
+                                          </div>
+                                        </td>
+                                        <td className="p-2 text-center">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const updated = [...deal.variants];
+                                              const nextVStock = !vStock;
+                                              updated[vIdx] = { ...updated[vIdx], inStock: nextVStock, isAvailable: nextVStock };
+                                              handleUpdateDealField(deal.id, 'variants', updated);
+                                            }}
+                                            className={`text-[10px] font-black px-2 py-1 rounded-full cursor-pointer transition ${
+                                              vStock
+                                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                                : 'bg-rose-100 text-rose-800 border border-rose-300'
+                                            }`}
+                                          >
+                                            {vStock ? '✓ موجود' : '✕ ناموجود'}
+                                          </button>
+                                        </td>
+                                        <td className="p-2 text-center">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const updated = deal.variants.filter((_: any, i: number) => i !== vIdx);
+                                              handleUpdateDealField(deal.id, 'variants', updated);
+                                            }}
+                                            className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition cursor-pointer"
+                                            title="حذف این سایز"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const cur = Array.isArray(deal.variants) ? [...deal.variants] : [];
+                              const newId = `var-${Date.now()}`;
+                              cur.push({
+                                id: newId,
+                                name: '250 Gm',
+                                size: '250 Gm',
+                                flavor: 'پیش‌فرض',
+                                priceAED: deal.priceAed || 59.14,
+                                priceAed: deal.priceAed || 59.14,
+                                weightKg: deal.weightKg || 0.25,
+                                inStock: true,
+                                isAvailable: true
+                              });
+                              handleUpdateDealField(deal.id, 'variants', cur);
+                            }}
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ افزودن سایز جدید با قیمت اختصاصی</span>
+                          </button>
+                        </div>
+
                         {/* GRID ROW 5: Description */}
                         <div>
                           <label className="text-[11px] font-bold text-slate-600 block mb-1">توضیحات و ویژگی‌های کالا:</label>
@@ -5592,286 +6555,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           )}
 
-          {/* SUB-VIEW 3: POPULAR CATEGORIES (نمونه‌های محبوب و دسته‌بندی‌ها) */}
+          {/* SUB-VIEW 3: DYNAMIC HIERARCHICAL TAXONOMY (درخت دسته‌بندی و زیرمجموعه‌ها بدون تصویر) */}
           {activeProductSubTab === 'popular' && (
-            <div className="space-y-6">
-              {saveCmsSuccess && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>دسته‌بندی‌ها و نمونه‌های محبوب با موفقیت به‌روزرسانی شدند.</span>
-                </div>
-              )}
-
-              {/* FULL DYNAMIC CATEGORY MANAGEMENT SECTION */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-2xs space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                  <div>
-                    <h3 className="font-black text-base text-slate-900 flex items-center gap-2">
-                      <Layers className="w-5 h-5 text-indigo-600" />
-                      <span>مدیریت دسته‌بندی محصولات</span>
-                    </h3>
-                    <p className="text-xs text-slate-500 font-medium mt-0.5 leading-relaxed">
-                      این بخش تنها برای مدیریت فیلترها و دسته‌بندی‌های محصولات (پروتئین، ویتامین، قبل تمرین و...) در بالای صفحات انبار ایران و پیشنهادهای دبی به کار می‌رود.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={(e) => handleSaveProductsAndInventory(e)}
-                      disabled={isSavingProducts}
-                      className={`px-4 py-2 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer shrink-0 ${
-                        saveProductsSuccess
-                          ? 'bg-emerald-600 text-white'
-                          : isSavingProducts
-                          ? 'bg-slate-800 text-slate-300 cursor-not-allowed opacity-90'
-                          : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
-                      }`}
-                    >
-                      {isSavingProducts ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>در حال ذخیره...</span>
-                        </>
-                      ) : saveProductsSuccess ? (
-                        <>
-                          <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                          <span>ذخیره شد ✓</span>
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-4 h-4 text-emerald-200" />
-                          <span>ذخیره دسته‌بندی‌ها</span>
-                        </>
-                      )}
-                    </button>
-
-                    <span className="text-xs font-black px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl shrink-0">
-                      {warehouseCategories.length} دسته‌بندی • {warehouseCategories.filter(c => c.isPinned).length}/6 سنجاق‌شده
-                    </span>
-                  </div>
-                </div>
-
-                {/* Add New Category Form */}
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-                  <h4 className="font-black text-xs text-slate-900 flex items-center gap-1.5">
-                    <Plus className="w-4 h-4 text-emerald-600" />
-                    <span>افزودن دسته‌بندی جدید به فروشگاه</span>
-                  </h4>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div>
-                      <label className="text-[11px] font-extrabold text-slate-700 block mb-1">نام فارسی (زیر کارت):</label>
-                      <input
-                        type="text"
-                        value={newCatLabel}
-                        onChange={(e) => setNewCatLabel(e.target.value)}
-                        placeholder="مثال: کراتین"
-                        className="w-full bg-white border border-slate-300 text-slate-900 font-bold text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-extrabold text-slate-700 block mb-1">متن انگلیسی (روی تصویر):</label>
-                      <input
-                        type="text"
-                        value={newCatEnglishLabel}
-                        onChange={(e) => setNewCatEnglishLabel(e.target.value)}
-                        placeholder="مثال: CREATINE"
-                        className="w-full bg-white border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr"
-                        dir="ltr"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-extrabold text-slate-700 block mb-1">کلید فیلتر (Filter Key):</label>
-                      <input
-                        type="text"
-                        value={newCatFilterKey}
-                        onChange={(e) => setNewCatFilterKey(e.target.value)}
-                        placeholder="مثال: creatine"
-                        className="w-full bg-white border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr"
-                        dir="ltr"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-extrabold text-slate-700 block mb-1">تصویر / آیکون (لینک):</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newCatIconUrl}
-                          onChange={(e) => setNewCatIconUrl(e.target.value)}
-                          placeholder="https://..."
-                          className="flex-1 bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 font-mono dir-ltr"
-                          dir="ltr"
-                        />
-                        <label className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1">
-                          <Upload className="w-3.5 h-3.5" />
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                const compressed = await compressImageFile(file, 600, 600, 0.7);
-                                if (compressed) setNewCatIconUrl(compressed);
-                              }
-                            }}
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!newCatLabel) {
-                          alert('لطفاً نام فارسی دسته‌بندی را وارد کنید.');
-                          return;
-                        }
-                        handleAddWarehouseCategory(newCatLabel, newCatEnglishLabel, newCatFilterKey, newCatIconUrl);
-                        setNewCatLabel('');
-                        setNewCatEnglishLabel('');
-                        setNewCatFilterKey('');
-                        setNewCatIconUrl('');
-                      }}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-2xs"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>افزودن این دسته‌بندی</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Existing Categories List */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {warehouseCategories.map((cat, idx) => (
-                    <div key={cat.id || idx} className={`p-4 rounded-2xl border space-y-3 transition ${
-                      cat.isPinned ? 'bg-amber-50/50 border-amber-200' : 'bg-slate-50/80 border-slate-200'
-                    }`}>
-                      <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-black text-xs text-slate-900">دسته‌بندی {idx + 1}: {cat.label}</span>
-                          {cat.isPinned && (
-                            <span className="text-[10px] font-black bg-amber-400 text-slate-900 px-2 py-0.5 rounded-md">
-                              سنجاق ۳×۲
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleTogglePinWarehouseCategory(cat.id)}
-                            className={`text-[11px] font-bold px-2 py-1 rounded-lg transition ${
-                              cat.isPinned
-                                ? 'bg-amber-500 text-white hover:bg-amber-600'
-                                : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                            }`}
-                            title="تغییر وضعیت سنجاق در شبکه اصلی ۳×۲"
-                          >
-                            {cat.isPinned ? 'سنجاق شده' : '+ سنجاق کن'}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteWarehouseCategory(cat.id)}
-                            className="p-1 hover:bg-rose-100 text-rose-600 rounded-lg transition"
-                            title="حذف دسته‌بندی"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Category Image Preview & Input */}
-                      <div>
-                        <label className="text-[11px] font-extrabold text-slate-700 block mb-1">تصویر / آیکون (لینک یا آپلود):</label>
-                        <div className="flex flex-col sm:flex-row gap-2 items-center">
-                          <input
-                            type="text"
-                            value={cat.iconUrl || ''}
-                            onChange={(e) => handleUpdateWarehouseCategoryField(cat.id, 'iconUrl', e.target.value)}
-                            placeholder="https://... یا فایل آیکون"
-                            className="flex-1 bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 font-mono dir-ltr"
-                            dir="ltr"
-                          />
-                          <label className="bg-slate-900 hover:bg-black text-white text-xs font-bold px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1">
-                            <Upload className="w-3.5 h-3.5" />
-                            <span>آپلود</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={async (e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  const compressed = await compressImageFile(file, 600, 600, 0.7);
-                                  if (compressed) {
-                                    handleUpdateWarehouseCategoryField(cat.id, 'iconUrl', compressed);
-                                  }
-                                }
-                              }}
-                            />
-                          </label>
-                          {cat.iconUrl ? (
-                            <img
-                              src={cat.iconUrl}
-                              alt={cat.label}
-                              className="w-9 h-9 rounded-xl object-cover border border-slate-200 bg-white shrink-0"
-                              onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                            />
-                          ) : (
-                            <div className="w-9 h-9 rounded-xl bg-slate-200 text-slate-500 text-[10px] font-bold flex items-center justify-center shrink-0">
-                              تصویر
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[11px] font-extrabold text-slate-700 block mb-1">نام فارسی:</label>
-                          <input
-                            type="text"
-                            value={cat.label}
-                            onChange={(e) => handleUpdateWarehouseCategoryField(cat.id, 'label', e.target.value)}
-                            className="w-full bg-white border border-slate-300 text-slate-900 font-bold text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[11px] font-extrabold text-slate-700 block mb-1">متن روی تصویر:</label>
-                          <input
-                            type="text"
-                            value={cat.englishLabel || ''}
-                            onChange={(e) => handleUpdateWarehouseCategoryField(cat.id, 'englishLabel', e.target.value.toUpperCase())}
-                            placeholder="PROTEIN"
-                            className="w-full bg-white border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr uppercase"
-                            dir="ltr"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-[11px] font-extrabold text-slate-700 block mb-1">کلید فیلتر (Filter Key):</label>
-                        <input
-                          type="text"
-                          value={cat.filterKey}
-                          onChange={(e) => handleUpdateWarehouseCategoryField(cat.id, 'filterKey', e.target.value)}
-                          className="w-full bg-white border border-slate-300 text-slate-900 font-mono text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr"
-                          dir="ltr"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <AdminTaxonomyManager showToast={showToast} />
           )}
 
           {/* SUB-VIEW 4: POPULAR SAMPLES RE-ORDERING (ترتیب نمونه‌های محبوب) */}
@@ -6770,9 +7456,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
             <div className="space-y-4">
               {(storesList || []).map((store, index) => (
-                <div key={store.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 relative space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                    <span className="font-bold text-xs text-slate-700">فروشگاه {index + 1}: {store.title}</span>
+                <div key={store.id} className="p-4 sm:p-5 bg-slate-50 rounded-2xl border border-slate-200 relative space-y-4 font-['Vazirmatn',sans-serif]">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                    <span className="font-extrabold text-xs text-slate-800 flex items-center gap-1.5">
+                      <Store className="w-4 h-4 text-slate-500" />
+                      <span>فروشگاه {index + 1}: {store.title}</span>
+                    </span>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -6796,14 +7485,104 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                   </div>
 
+                  {/* 1. LIVE PREVIEW OF STORE CARD AND BUTTON */}
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200/90 space-y-2.5">
+                    <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-700">
+                      <span className="flex items-center gap-1.5 text-indigo-700">
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>پیش‌نمایش زنده کارت و دکمه در صفحه اصلی:</span>
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-normal">این کارت دقیقاً با همین رنگ و دکمه در سایت نمایش داده می‌شود</span>
+                    </div>
+
+                    <div className="max-w-md mx-auto bg-white border border-slate-200/90 rounded-[20px] p-4.5 transition shadow-xs text-right">
+                      <div className="flex items-start justify-between gap-3 mb-2.5">
+                        <div className="text-right flex-1 min-w-0">
+                          <h4
+                            className="font-black text-base leading-snug tracking-tight"
+                            style={{ color: store.brandColor || '#111111' }}
+                          >
+                            {store.title || 'نام فروشگاه'}
+                          </h4>
+                          {store.badge && (
+                            <span
+                              className="inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md mt-1"
+                              style={{
+                                backgroundColor: `${store.brandColor || '#111111'}12`,
+                                color: store.brandColor || '#111111',
+                                border: `1px solid ${store.brandColor || '#111111'}33`
+                              }}
+                            >
+                              <span
+                                className="w-1.5 h-1.5 rounded-full shrink-0"
+                                style={{ backgroundColor: store.brandColor || '#111111' }}
+                              />
+                              {store.badge}
+                            </span>
+                          )}
+                        </div>
+
+                        <div
+                          className="shrink-0 border border-slate-200/80"
+                          style={{
+                            width: '52px',
+                            height: '52px',
+                            borderRadius: '12px',
+                            background: '#f8fafc',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            overflow: 'hidden',
+                            padding: '4px'
+                          }}
+                        >
+                          {store.image ? (
+                            <img
+                              src={store.image}
+                              alt={store.title}
+                              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                            />
+                          ) : (
+                            <div className="text-[10px] text-slate-400 font-bold">بدون لوگو</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-slate-600 mb-3 leading-relaxed text-right line-clamp-2 font-medium">
+                        {store.description || 'توضیحات پیش‌فرض فروشگاه...'}
+                      </p>
+
+                      <div
+                        className="w-full text-white text-xs font-black py-2.5 px-3 rounded-[12px] transition flex items-center justify-center gap-2 shadow-2xs"
+                        style={{ backgroundColor: store.brandColor || '#111111' }}
+                      >
+                        <span>{store.ctaText || `محاسبه و خرید از ${store.shortTitle || store.title || 'فروشگاه'}`}</span>
+                        <span>←</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. STORE METADATA FIELDS */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     <div>
-                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">نام فروشگاه:</label>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">نام کامل فروشگاه:</label>
                       <input
                         type="text"
                         value={store.title}
                         onChange={(e) => handleUpdateStoreField(store.id, 'title', e.target.value)}
-                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none"
+                        placeholder="مثال: Dr Nutrition Dubai"
+                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-slate-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">نام کوتاه / برند:</label>
+                      <input
+                        type="text"
+                        value={store.shortTitle || ''}
+                        onChange={(e) => handleUpdateStoreField(store.id, 'shortTitle', e.target.value)}
+                        placeholder="مثال: Dr. Nutrition"
+                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-slate-900"
                       />
                     </div>
 
@@ -6813,8 +7592,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         type="text"
                         value={store.url}
                         onChange={(e) => handleUpdateStoreField(store.id, 'url', e.target.value)}
-                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none dir-ltr font-mono"
+                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none dir-ltr font-mono"
                         dir="ltr"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">زیرعنوان / شعار کوتاه:</label>
+                      <input
+                        type="text"
+                        value={store.subtitle || ''}
+                        onChange={(e) => handleUpdateStoreField(store.id, 'subtitle', e.target.value)}
+                        placeholder="مثال: بزرگترین مرجع مکمل دبی"
+                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-slate-900"
                       />
                     </div>
 
@@ -6824,21 +7614,133 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         type="text"
                         value={store.badge || ''}
                         onChange={(e) => handleUpdateStoreField(store.id, 'badge', e.target.value)}
-                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none"
+                        placeholder="مثال: ضمانت ۱۰۰٪ اورجینال"
+                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-slate-900"
                       />
                     </div>
 
-                    <div className="sm:col-span-2">
-                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">توضیحات کوتاه:</label>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">عنوان و متن روی دکمه (CTA):</label>
+                      <input
+                        type="text"
+                        value={store.ctaText || ''}
+                        onChange={(e) => handleUpdateStoreField(store.id, 'ctaText', e.target.value)}
+                        placeholder={`پیش‌فرض: محاسبه و خرید از ${store.shortTitle || store.title || 'فروشگاه'}`}
+                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-slate-900"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2 lg:col-span-3">
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">توضیحات کارت فروشگاه:</label>
                       <input
                         type="text"
                         value={store.description}
                         onChange={(e) => handleUpdateStoreField(store.id, 'description', e.target.value)}
-                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-1.5 rounded-lg focus:outline-none"
+                        className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-slate-900"
                       />
                     </div>
 
-                    <div className="sm:col-span-3 bg-white p-3 rounded-xl border border-slate-200 space-y-2 mt-1">
+                    {/* 3. COMPACT CORPORATE BRAND COLOR PICKER DROPDOWN */}
+                    <div className="sm:col-span-2 lg:col-span-3 relative">
+                      <label className="text-[11px] font-extrabold text-slate-800 block mb-1">
+                        رنگ سازمانی و استایل اختصاصی دکمه (Corporate Brand Color):
+                      </label>
+                      
+                      <button
+                        type="button"
+                        onClick={() => setActiveColorPickerStoreId(activeColorPickerStoreId === store.id ? null : store.id)}
+                        className="w-full bg-white border border-slate-300 hover:border-slate-400 text-slate-900 text-xs px-3 py-2.5 rounded-xl flex items-center justify-between transition cursor-pointer shadow-2xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-5 h-5 rounded-full border border-slate-300 shadow-2xs shrink-0"
+                            style={{ backgroundColor: store.brandColor || '#111111' }}
+                          />
+                          <span className="font-extrabold text-xs">
+                            {(() => {
+                              const color = store.brandColor || '#111111';
+                              const map: Record<string, string> = {
+                                '#dc2626': 'قرمز GNC',
+                                '#9333ea': 'بنفش Dr Nutrition',
+                                '#1e40af': 'آبی Life Pharmacy',
+                                '#f59e0b': 'نارنجی Amazon',
+                                '#10b981': 'سبز سلامت',
+                                '#0f172a': 'سرمه‌ای تیره',
+                                '#18181b': 'مشکی لوکس'
+                              };
+                              return map[color] || `رنگ اختصاصی (${color})`;
+                            })()}
+                          </span>
+                          <span className="font-mono text-[10px] text-slate-400 dir-ltr font-bold">
+                            {store.brandColor || '#111111'}
+                          </span>
+                        </div>
+                        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${activeColorPickerStoreId === store.id ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {/* Dropdown Menu */}
+                      {activeColorPickerStoreId === store.id && (
+                        <div className="absolute top-full right-0 left-0 mt-1.5 z-30 bg-white border border-slate-200 rounded-2xl p-3.5 shadow-xl space-y-3 animate-fade-in font-['Vazirmatn',sans-serif]">
+                          <div>
+                            <span className="text-[10px] font-black text-slate-400 block mb-1.5">پالت برندهای آماده:</span>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                              {[
+                                { name: 'قرمز GNC', hex: '#dc2626' },
+                                { name: 'بنفش Dr Nutrition', hex: '#9333ea' },
+                                { name: 'آبی Life Pharmacy', hex: '#1e40af' },
+                                { name: 'نارنجی Amazon', hex: '#f59e0b' },
+                                { name: 'سبز سلامت', hex: '#10b981' },
+                                { name: 'سرمه‌ای تیره', hex: '#0f172a' },
+                                { name: 'مشکی لوکس', hex: '#18181b' }
+                              ].map(p => (
+                                <button
+                                  key={p.hex}
+                                  type="button"
+                                  onClick={() => {
+                                    handleUpdateStoreField(store.id, 'brandColor', p.hex);
+                                    setActiveColorPickerStoreId(null);
+                                  }}
+                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition cursor-pointer ${
+                                    (store.brandColor || '#111111') === p.hex
+                                      ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                  }`}
+                                >
+                                  <span className="w-3.5 h-3.5 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: p.hex }} />
+                                  <span className="truncate">{p.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
+                            <span className="text-[10px] font-black text-slate-500 shrink-0">انتخابگر رنگ دلخواه (Color Picker + HEX):</span>
+                            <input
+                              type="color"
+                              value={store.brandColor || '#111111'}
+                              onChange={(e) => handleUpdateStoreField(store.id, 'brandColor', e.target.value)}
+                              className="w-8 h-8 rounded-lg border border-slate-300 p-0.5 cursor-pointer shrink-0 bg-white"
+                            />
+                            <input
+                              type="text"
+                              value={store.brandColor || '#111111'}
+                              onChange={(e) => handleUpdateStoreField(store.id, 'brandColor', e.target.value)}
+                              className="w-24 bg-slate-50 border border-slate-300 text-slate-900 text-xs px-2 py-1 rounded-lg dir-ltr font-mono text-center"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setActiveColorPickerStoreId(null)}
+                              className="mr-auto bg-slate-900 hover:bg-black text-white text-[10px] font-black px-3 py-1.5 rounded-lg transition cursor-pointer"
+                            >
+                              تایید
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 4. LOGO UPLOAD & PRESET OFFICIAL LOGOS */}
+                    <div className="sm:col-span-2 lg:col-span-3 bg-white p-3 rounded-xl border border-slate-200 space-y-2 mt-1">
                       <div className="flex items-center justify-between">
                         <label className="text-[11px] font-extrabold text-slate-800 flex items-center gap-1.5">
                           <ImageIcon className="w-3.5 h-3.5 text-slate-700" />
@@ -6850,7 +7752,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
 
                       <div className="flex flex-col sm:flex-row items-center gap-3">
-                        {/* Strict 64x64 Rounded Logo Container Box Preview */}
                         <div
                           className="shrink-0 border border-slate-200/90 shadow-2xs"
                           style={{
@@ -6895,7 +7796,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               dir="ltr"
                             />
 
-                            {/* File Upload Button */}
                             <label className="bg-slate-900 hover:bg-black text-white text-xs font-bold px-3 py-2 rounded-lg transition cursor-pointer shrink-0 flex items-center gap-1">
                               <Upload className="w-3.5 h-3.5" />
                               <span>آپلود فایل</span>
@@ -6916,33 +7816,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </label>
                           </div>
 
-                          {/* Preset official logo buttons */}
                           <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
                             <span className="font-bold text-slate-500">لوگوهای رسمی آماده:</span>
                             <button
                               type="button"
-                              onClick={() => handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><text x="100" y="115" text-anchor="middle" fill="%23E31837" font-weight="900" font-size="70" font-family="Arial,sans-serif" letter-spacing="-2">GNC</text><text x="100" y="145" text-anchor="middle" fill="%23E31837" font-weight="800" font-size="20" font-family="Arial,sans-serif" letter-spacing="4">LIVE WELL</text></svg>')}
+                              onClick={() => {
+                                handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><text x="100" y="115" text-anchor="middle" fill="%23E31837" font-weight="900" font-size="70" font-family="Arial,sans-serif" letter-spacing="-2">GNC</text><text x="100" y="145" text-anchor="middle" fill="%23E31837" font-weight="800" font-size="20" font-family="Arial,sans-serif" letter-spacing="4">LIVE WELL</text></svg>');
+                                handleUpdateStoreField(store.id, 'brandColor', '#dc2626');
+                              }}
                               className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
                             >
                               🔴 GNC UAE
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><path d="M100 15 C56 15 40 42 40 70 V135 H160 V70 C160 42 144 15 100 15 Z" fill="%231C3F94"/><circle cx="100" cy="55" r="9" fill="%23FFFFFF"/><path d="M100 68 C84 80 72 84 64 110 H136 C128 84 116 80 100 68 Z" fill="%23FFFFFF"/><text x="100" y="172" text-anchor="middle" fill="%23C42582" font-weight="900" font-size="36" font-family="sans-serif">LIFE%C2%AE</text></svg>')}
+                              onClick={() => {
+                                handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><path d="M100 15 C56 15 40 42 40 70 V135 H160 V70 C160 42 144 15 100 15 Z" fill="%231C3F94"/><circle cx="100" cy="55" r="9" fill="%23FFFFFF"/><path d="M100 68 C84 80 72 84 64 110 H136 C128 84 116 80 100 68 Z" fill="%23FFFFFF"/><text x="100" y="172" text-anchor="middle" fill="%23C42582" font-weight="900" font-size="36" font-family="sans-serif">LIFE%C2%AE</text></svg>');
+                                handleUpdateStoreField(store.id, 'brandColor', '#1e40af');
+                              }}
                               className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
                             >
                               🔵 Life Pharmacy
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 200"><rect width="220" height="200" fill="%230a0a0c"/><text x="25" y="130" fill="%238B2FC9" font-weight="900" font-size="100" font-family="sans-serif" letter-spacing="-6">dnp</text><path d="M50 120 C 90 70, 135 40, 175 28 C 150 65, 110 110, 75 130 Z" fill="%2378BE20"/><path d="M60 112 Q 115 65, 163 35" stroke="%235A9614" stroke-width="3" fill="none"/></svg>')}
+                              onClick={() => {
+                                handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 200"><rect width="220" height="200" fill="%230a0a0c"/><text x="25" y="130" fill="%238B2FC9" font-weight="900" font-size="100" font-family="sans-serif" letter-spacing="-6">dnp</text><path d="M50 120 C 90 70, 135 40, 175 28 C 150 65, 110 110, 75 130 Z" fill="%2378BE20"/><path d="M60 112 Q 115 65, 163 35" stroke="%235A9614" stroke-width="3" fill="none"/></svg>');
+                                handleUpdateStoreField(store.id, 'brandColor', '#9333ea');
+                              }}
                               className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
                             >
                               🟣 Dr Nutrition
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23232F3E"/><text x="100" y="105" text-anchor="middle" fill="%23FFFFFF" font-weight="900" font-size="38" font-family="sans-serif">amazon</text><text x="100" y="132" text-anchor="middle" fill="%23FF9900" font-weight="800" font-size="22" font-family="sans-serif">.ae</text><path d="M50 145 Q 100 165 150 145" stroke="%23FF9900" stroke-width="6" fill="none" stroke-linecap="round"/><path d="M142 138 L 152 146 L 140 152 Z" fill="%23FF9900"/></svg>')}
+                              onClick={() => {
+                                handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23232F3E"/><text x="100" y="105" text-anchor="middle" fill="%23FFFFFF" font-weight="900" font-size="38" font-family="sans-serif">amazon</text><text x="100" y="132" text-anchor="middle" fill="%23FF9900" font-weight="800" font-size="22" font-family="sans-serif">.ae</text><path d="M50 145 Q 100 165 150 145" stroke="%23FF9900" stroke-width="6" fill="none" stroke-linecap="round"/><path d="M142 138 L 152 146 L 140 152 Z" fill="%23FF9900"/></svg>');
+                                handleUpdateStoreField(store.id, 'brandColor', '#f59e0b');
+                              }}
                               className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
                             >
                               🟠 Amazon AE
@@ -8401,6 +9312,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }}
           showToast={showToast}
         />
+      )}
+
+      {/* SUB-TAB: PATTERN-BASED SMS NOTIFICATION & OTP SETTINGS */}
+      {activeAdminSubTab === 'sms' && (
+        <AdminSmsSettings showToast={showToast} />
+      )}
+
+      {/* SUB-TAB: PROMO POPUP ENGINE */}
+      {activeAdminSubTab === 'promoPopup' && (
+        <AdminPromoPopupSettings showToast={showToast} />
+      )}
+
+      {/* SUB-TAB: DYNAMIC CATEGORY TREE */}
+      {activeAdminSubTab === 'categories' && (
+        <AdminTaxonomyManager showToast={showToast} />
       )}
 
       {/* TOP-RIGHT TOAST NOTIFICATION */}

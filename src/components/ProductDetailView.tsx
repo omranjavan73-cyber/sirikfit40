@@ -256,17 +256,70 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     }
 
     const dims: VariantDimension[] = [];
+
+    // Priority 1: Direct multi-variant array with price/weight per variant
+    if (Array.isArray(activeProd.variants) && activeProd.variants.length > 0) {
+      const sizeItems: VariantOption[] = [];
+      activeProd.variants.forEach((v: any, idx: number) => {
+        const vName = typeof v === 'string' ? v : (v.size || v.name || '');
+        if (!vName) return;
+        const vPrice = v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : (activeProd?.priceAed || 0));
+        const vWeight = v.weightKg !== undefined ? Number(v.weightKg) : (activeProd?.weightKg || 0.8);
+        sizeItems.push({
+          id: v.id || `sz-var-${idx}`,
+          name: vName,
+          priceAed: vPrice,
+          weightKg: vWeight,
+          image: v.imageThumbnail || v.image,
+          inStock: v.inStock !== false,
+          url: v.url
+        } as any);
+      });
+
+      if (sizeItems.length > 0) {
+        dims.push({ id: 'sizes', name: 'وزن / سایز (Size)', type: 'size', options: sizeItems });
+      }
+
+      if (Array.isArray(activeProd.flavors) && activeProd.flavors.length > 0) {
+        dims.push({
+          id: 'flavors',
+          name: 'طعم (Flavor)',
+          type: 'flavor',
+          options: activeProd.flavors.map((f: any, idx: number) => {
+            const fName = typeof f === 'string' ? f : (f.flavor || f.name || '');
+            const fImg = typeof f === 'object' ? (f.imageUrl || f.image) : undefined;
+            const fAvail = typeof f === 'object' ? (f.isAvailable !== false && f.inStock !== false) : true;
+            return {
+              id: f.id || `flv-${idx}`,
+              name: fName,
+              priceAed: (typeof f === 'object' && (f.priceAED || f.priceAed)) ? (f.priceAED || f.priceAed) : (activeProd.priceAed || 0),
+              image: fImg,
+              inStock: fAvail
+            };
+          })
+        });
+      }
+      return dims;
+    }
+
+    // Priority 2: Standalone flavors and sizes arrays
     if (Array.isArray(activeProd.flavors) && activeProd.flavors.length > 0) {
       dims.push({
         id: 'flavors',
         name: 'طعم (Flavor)',
         type: 'flavor',
-        options: activeProd.flavors.map((f: string, idx: number) => ({
-          id: `flv-${idx}`,
-          name: f,
-          priceAed: activeProd.priceAed || 0,
-          inStock: true
-        }))
+        options: activeProd.flavors.map((f: any, idx: number) => {
+          const fName = typeof f === 'string' ? f : (f.flavor || f.name || '');
+          const fImg = typeof f === 'object' ? (f.imageUrl || f.image) : undefined;
+          const fAvail = typeof f === 'object' ? (f.isAvailable !== false && f.inStock !== false) : true;
+          return {
+            id: f.id || `flv-${idx}`,
+            name: fName,
+            priceAed: (typeof f === 'object' && (f.priceAED || f.priceAed)) ? (f.priceAED || f.priceAed) : (activeProd.priceAed || 0),
+            image: fImg,
+            inStock: fAvail
+          };
+        })
       });
     }
     if (Array.isArray(activeProd.sizes) && activeProd.sizes.length > 0) {
@@ -274,51 +327,20 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         id: 'sizes',
         name: 'وزن / سایز (Size)',
         type: 'size',
-        options: activeProd.sizes.map((s: string, idx: number) => ({
-          id: `sz-${idx}`,
-          name: s,
-          priceAed: activeProd.priceAed || 0,
-          inStock: true
-        }))
+        options: activeProd.sizes.map((s: any, idx: number) => {
+          const sName = typeof s === 'string' ? s : (s.size || s.name || '');
+          const sAvail = typeof s === 'object' ? (s.isAvailable !== false && s.inStock !== false) : true;
+          const sPrice = typeof s === 'object' && (s.priceAED || s.priceAed) ? (s.priceAED || s.priceAed) : (activeProd.priceAed || 0);
+          const sWeight = typeof s === 'object' && s.weightKg ? s.weightKg : (activeProd.weightKg || 0.8);
+          return {
+            id: s.id || `sz-${idx}`,
+            name: sName,
+            priceAed: sPrice,
+            weightKg: sWeight,
+            inStock: sAvail
+          };
+        })
       });
-    }
-    if (dims.length === 0 && Array.isArray(activeProd.variants) && activeProd.variants.length > 0) {
-      const flavorItems: VariantOption[] = [];
-      const sizeItems: VariantOption[] = [];
-      const genericItems: VariantOption[] = [];
-
-      activeProd.variants.forEach((v: any, idx: number) => {
-        const vName = typeof v === 'string' ? v : (v.name || '');
-        if (!vName) return;
-        const vPrice = v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : (activeProd?.priceAed || 0));
-        const vOpt: VariantOption = {
-          id: v.id || `var-${idx}`,
-          name: vName,
-          priceAed: vPrice,
-          image: v.imageThumbnail || v.image,
-          inStock: v.inStock !== false,
-          url: v.url
-        };
-
-        const lower = vName.toLowerCase();
-        if (lower.includes('kg') || lower.includes('lb') || lower.includes('gram') || lower.includes('oz') || lower.includes('serving') || lower.includes('سروینگ') || lower.includes('عددی') || lower.includes('کپسول') || lower.includes('قرص')) {
-          sizeItems.push(vOpt);
-        } else if (lower.includes('flavor') || lower.includes('chocolate') || lower.includes('vanilla') || lower.includes('strawberry') || lower.includes('طعم') || lower.includes('شکلات') || lower.includes('توت') || lower.includes('موز') || lower.includes('کوکی')) {
-          flavorItems.push(vOpt);
-        } else {
-          genericItems.push(vOpt);
-        }
-      });
-
-      if (flavorItems.length > 0) {
-        dims.push({ id: 'flavor', name: 'طعم (Flavor)', type: 'flavor', options: flavorItems });
-      }
-      if (sizeItems.length > 0) {
-        dims.push({ id: 'size', name: 'وزن / سایز (Size)', type: 'size', options: sizeItems });
-      }
-      if (genericItems.length > 0) {
-        dims.push({ id: 'variants', name: 'انتخاب نوع کالا', type: 'generic', options: genericItems });
-      }
     }
 
     if (dims.length === 0 && Array.isArray(activeProd.options) && activeProd.options.length > 0) {
@@ -367,6 +389,26 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     return p;
   }, [product?.priceAed, selectedVariants]);
 
+  // Dynamically calculate effective Weight KG based on selected variant
+  const selectedVariantWeightKg = React.useMemo(() => {
+    let w = product?.weightKg || 0.8;
+    Object.values(selectedVariants).forEach((v: any) => {
+      if (v?.weightKg && v.weightKg > 0) {
+        w = v.weightKg;
+      } else if (v?.name) {
+        if (v.name.includes('4') && v.name.toLowerCase().includes('lb')) w = 1.8;
+        else if (v.name.includes('5') && v.name.toLowerCase().includes('lb')) w = 2.3;
+        else if (v.name.includes('2') && v.name.toLowerCase().includes('lb')) w = 0.9;
+        else if (v.name.includes('10') && v.name.toLowerCase().includes('lb')) w = 4.5;
+        else if (v.name.toLowerCase().includes('kg')) {
+          const kgNum = parseFloat(v.name);
+          if (!isNaN(kgNum) && kgNum > 0) w = kgNum;
+        }
+      }
+    });
+    return w;
+  }, [product?.weightKg, selectedVariants]);
+
   const selectedFlavorOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('flavor') || dimId === 'flavors')?.[1] as VariantOption | undefined;
   const selectedSizeOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('size') || dimId === 'sizes')?.[1] as VariantOption | undefined;
 
@@ -410,7 +452,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   // Single Product Calculations with full null safety guards
   const priceAed = selectedVariantPriceAed || product?.priceAed || 280;
   const originalPriceAed = product?.originalPriceAed;
-  const weightKg = product?.weightKg || 0.5;
+  const weightKg = selectedVariantWeightKg || product?.weightKg || 0.8;
 
   const activeAedRate = getEffectiveAedRate(settings, cms) || settings?.aedRate || 55000;
   const effectiveMargin = (product as any)?.profitMargin !== undefined && (product as any)?.profitMargin !== null
@@ -595,6 +637,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     setIsSubmitting(true);
 
     try {
+      const orderId = `SF-${Date.now().toString().slice(-6)}`;
       const orderProductTitle = hasCart
         ? safeCartItems.map((i) => `${toPersianDigits(i.quantity || 1)} × ${i.title || ''}`).join(' | ')
         : (product ? `${toPersianDigits(qty)} × ${product.title || ''}` : '');
@@ -615,40 +658,113 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         ? safeCartItems.map((i) => i.selectedOption ? `${i.title} (${i.selectedOption})` : null).filter(Boolean).join(' | ')
         : (activeVariantSummary || product?.selectedOption);
 
-      const res = await fetch('/api/orders', {
+      const mappedItems = hasCart ? safeCartItems.map(item => ({
+        id: item.id || item.url || `item-${Date.now()}`,
+        title: item.title,
+        variant: item.selectedOption || item.selectedFlavor || item.selectedSize || "اصلی",
+        quantity: item.quantity || 1,
+        priceToman: item.calculatedToman || effectiveTotalToman,
+        priceAED: item.priceAed || 0,
+        imageUrl: item.image || '',
+        sourceUrl: item.url || ''
+      })) : [{
+        id: product?.id || product?.url || `item-${Date.now()}`,
+        title: product?.title || '',
+        variant: orderSelectedOption || 'اصلی',
+        quantity: qty || quantity || 1,
+        priceToman: effectiveTotalToman,
+        priceAED: product?.priceAed || 0,
+        imageUrl: product?.image || '',
+        sourceUrl: product?.url || ''
+      }];
+
+      const orderPayload = {
+        id: orderId,
+        orderId: orderId,
+        orderNumber: orderId,
+        trackingCode: orderId,
+        userId: currentUser?.id || undefined,
+        customer: {
+          fullName: customerName.trim(),
+          phone: cleanIranianMobile(phoneNumber),
+          postalCode: cleanPostalCode(postalCode), // Mandatory 10-digit Postal Code
+          fullAddress: deliveryAddress.trim(),
+          notes: notes ? notes.trim() : ""
+        },
+        customerName: customerName.trim(),
+        phoneNumber: cleanIranianMobile(phoneNumber),
+        postalCode: cleanPostalCode(postalCode),
+        deliveryAddress: deliveryAddress.trim(),
+        notes: notes ? notes.trim() : "",
+        productTitle: orderProductTitle,
+        productUrl: orderProductUrl,
+        productImage: orderProductImage,
+        storeName: orderStoreName || 'فروشگاه دبی',
+        priceAed: cartTotalAed,
+        weightKg: cartTotalWeightKg,
+        items: mappedItems,
+        totalAmountToman: Number(effectiveTotalToman),
+        calculatedToman: Number(effectiveTotalToman),
+        totalToman: Number(effectiveTotalToman),
+        selectedOption: orderSelectedOption || undefined,
+        discountCode: appliedDiscount?.discountCodeObj?.code,
+        discountAmountToman: discountAmountToman > 0 ? discountAmountToman : undefined,
+        paymentStatus: "PENDING_PAYMENT",
+        orderStatus: "PENDING_UAE_PURCHASE", // Step 1: در انتظار خرید از دبی
+        shippingStatus: "PENDING_UAE_PURCHASE",
+        gateway: "ZIBAL",
+        paymentGateway: "ZIBAL",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      // 1. Commit draft to Firestore
+      try {
+        const { doc, setDoc } = await import('firebase/firestore');
+        const { db, sanitizePayloadForFirestore } = await import('../firebase');
+        await setDoc(doc(db, "orders", orderId), sanitizePayloadForFirestore(orderPayload), { merge: true });
+      } catch (dbErr) {
+        console.warn('Firestore pre-payment persistence notice:', dbErr);
+      }
+
+      // Also cache locally
+      if (typeof window !== 'undefined') {
+        try {
+          const existingStr = localStorage.getItem('sirikfit_orders') || '[]';
+          const existing: any[] = JSON.parse(existingStr);
+          existing.unshift(orderPayload);
+          localStorage.setItem('sirikfit_orders', JSON.stringify(existing));
+        } catch (_e) {}
+      }
+
+      if (appliedDiscount?.discountCodeObj?.id) {
+        incrementDiscountUsage(appliedDiscount.discountCodeObj.id);
+      }
+      if (hasCart && onClearCart) {
+        onClearCart();
+      }
+
+      // 2. Call backend createPayment and redirect
+      const callbackUrl = `${window.location.origin}/payment-result?orderId=${orderId}`;
+      const paymentRes = await fetch('/api/payment/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
-          userId: currentUser?.id,
-          customerName: customerName.trim(),
-          phoneNumber: cleanIranianMobile(phoneNumber),
-          postalCode: cleanPostalCode(postalCode),
-          deliveryAddress: deliveryAddress.trim(),
-          notes: notes.trim(),
-          productTitle: orderProductTitle,
-          productUrl: orderProductUrl,
-          productImage: orderProductImage,
-          storeName: orderStoreName || 'فروشگاه دبی',
-          priceAed: cartTotalAed,
-          weightKg: cartTotalWeightKg,
-          calculatedToman: effectiveTotalToman,
-          selectedOption: orderSelectedOption || undefined,
-          discountCode: appliedDiscount?.discountCodeObj?.code,
-          discountAmountToman: discountAmountToman > 0 ? discountAmountToman : undefined
+          orderId: orderId,
+          orderData: orderPayload,
+          amountToman: effectiveTotalToman,
+          amount: effectiveTotalToman,
+          callbackUrl: callbackUrl
         })
       });
 
-      const data = await res.json();
-      if (res.ok && data.order) {
-        if (appliedDiscount?.discountCodeObj?.id) {
-          incrementDiscountUsage(appliedDiscount.discountCodeObj.id);
-        }
-        if (hasCart && onClearCart) {
-          onClearCart();
-        }
-        onOrderCreated(data.order);
+      const paymentData = await paymentRes.json();
+      const targetUrl = paymentData.paymentUrl || paymentData.redirectUrl || paymentData.url;
+      if (paymentRes.ok && paymentData.success && targetUrl) {
+        window.location.href = targetUrl;
+        return;
       } else {
-        setErrorMessage(data.error || 'خطا در ثبت سفارش.');
+        onOrderCreated(orderPayload as any);
       }
     } catch (e) {
       console.error('Error submitting order:', e);
@@ -1672,7 +1788,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 }`}
               >
                 <span>
-                  {isSubmitting ? 'در حال اتصال به درگاه...' : 'تأیید و پرداخت نهایی ←'}
+                  {isSubmitting ? 'در حال انتقال به درگاه بانکی شاپرک...' : 'تأیید و پرداخت نهایی ←'}
                 </span>
               </button>
             </div>
@@ -1810,7 +1926,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               }`}
             >
               <span>
-                {isSubmitting ? 'در حال ثبت سفارش...' : 'تأیید و پرداخت نهایی ←'}
+                {isSubmitting ? 'در حال انتقال به درگاه بانکی شاپرک...' : 'تأیید و پرداخت نهایی ←'}
               </span>
             </button>
           </div>

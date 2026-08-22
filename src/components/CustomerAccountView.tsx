@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   User as UserIcon,
   ShoppingBag,
@@ -16,12 +16,15 @@ import {
   Calendar,
   Phone,
   Mail,
-  LifeBuoy
+  LifeBuoy,
+  ArrowRight,
+  Edit3
 } from 'lucide-react';
 import type { Order, User } from '../types';
-import { formatToman, formatPersianDate } from '../utils/formatters';
+import { formatToman, formatPersianDate, toPersianDigits } from '../utils/formatters';
 import { UserSupportTickets } from './UserSupportTickets';
-import { fetchUserOrdersFromFirestore } from '../firebase';
+import { fetchUserOrdersFromFirestore, saveUserProfileToFirestore } from '../firebase';
+import { sendOtp, verifyOtp } from '../services/smsService';
 
 interface CustomerAccountViewProps {
   currentUser: User | null;
@@ -46,11 +49,37 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
   const [errorMessage, setErrorMessage] = useState('');
   const [accountTab, setAccountTab] = useState<'orders' | 'tickets'>('orders');
 
-  // Inline Auth form state for unauthenticated users
+  // Multi-step OTP Auth form state for unauthenticated users
+  const [step, setStep] = useState<1 | 2>(1);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const otpInputsRef = useRef<(HTMLInputElement | null)[]>([]);
+  const [countdown, setCountdown] = useState<number>(120);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
+
+  // Countdown timer effect for Step 2
+  useEffect(() => {
+    let timer: any;
+    if (step === 2 && countdown > 0) {
+      timer = setInterval(() => {
+        setCountdown((prev) => Math.max(0, prev - 1));
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [step, countdown]);
+
+  // Format timer as MM:SS (e.g. 02:00)
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   // Fetch strictly only the logged in user's orders
   const fetchPersonalOrders = async () => {
@@ -77,31 +106,168 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
     fetchPersonalOrders();
   }, [currentUser]);
 
-  const handleInlineLogin = (e: React.FormEvent) => {
+  // Step 1: Send OTP
+  const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
+    setAuthSuccess('');
 
-    if (!name.trim() || !phone.trim()) {
-      const msg = 'لطفاً نام و شماره تماس را وارد کنید';
+    const cleanMobile = phone.replace(/[^0-9]/g, '');
+    let formattedMobile = cleanMobile;
+    if (formattedMobile.startsWith('98')) formattedMobile = '0' + formattedMobile.substring(2);
+    if (!formattedMobile.startsWith('0')) formattedMobile = '0' + formattedMobile;
+
+    if (!/^09\d{9}$/.test(formattedMobile)) {
+      const msg = 'لطفاً شماره موبایل معتبر ۱۱ رقمی وارد نمایید (مثال: 09121234567)';
       setAuthError(msg);
       if (showToast) showToast(msg, 'error');
       return;
     }
 
-    const newUser: User = {
-      id: 'usr-' + Date.now(),
-      name: name.trim(),
-      phoneNumber: phone.trim(),
-      email: email.trim() || undefined,
-      createdAt: new Date().toISOString()
-    };
+    setIsSubmitting(true);
+    try {
+      const res = await sendOtp(formattedMobile, name);
+      if (res.success) {
+        setPhone(formattedMobile);
+        setStep(2);
+        setCountdown(res.expiresIn || 120);
+        setOtpDigits(['', '', '', '', '', '']);
+        const succMsg = 'کد تایید ۶ رقمی به شماره شما پیامک شد.';
+        setAuthSuccess(succMsg);
+        if (showToast) showToast(succMsg, 'success');
 
-    localStorage.setItem('omex_current_user', JSON.stringify(newUser));
-    const succMsg = 'ورود با موفقیت انجام شد';
-    if (showToast) showToast(succMsg, 'success');
+        // Focus first OTP input
+        setTimeout(() => {
+          if (otpInputsRef.current[0]) {
+            otpInputsRef.current[0].focus();
+          }
+        }, 100);
+      } else {
+        setAuthError(res.error || 'خطا در ارسال کد تایید.');
+        if (showToast) showToast(res.error || 'خطا در ارسال کد تایید', 'error');
+      }
+    } catch (_err) {
+      const errMsg = 'خطا در برقراری ارتباط با سرور.';
+      setAuthError(errMsg);
+      if (showToast) showToast(errMsg, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
-    if (onLoginSuccess) {
-      onLoginSuccess(newUser);
+  // Step 2: Handle OTP input changes
+  const handleOtpChange = (index: number, value: string) => {
+    const cleanVal = value.replace(/[^0-9]/g, '');
+    const newDigits = [...otpDigits];
+
+    if (cleanVal.length > 1) {
+      // Handle paste of multiple digits
+      const pasted = cleanVal.slice(0, 6).split('');
+      pasted.forEach((d, i) => {
+        if (index + i < 6) newDigits[index + i] = d;
+      });
+      setOtpDigits(newDigits);
+      const nextFocus = Math.min(5, index + pasted.length);
+      otpInputsRef.current[nextFocus]?.focus();
+    } else {
+      newDigits[index] = cleanVal;
+      setOtpDigits(newDigits);
+      if (cleanVal && index < 5) {
+        otpInputsRef.current[index + 1]?.focus();
+      }
+    }
+
+    // Auto submit if all 6 digits entered
+    const fullCode = newDigits.join('');
+    if (fullCode.length === 6 && !newDigits.includes('')) {
+      handleVerifyOtp(fullCode);
+    }
+  };
+
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+      otpInputsRef.current[index - 1]?.focus();
+    }
+  };
+
+  // Step 2: Verify OTP
+  const handleVerifyOtp = async (codeToVerify?: string) => {
+    const fullCode = codeToVerify || otpDigits.join('');
+    if (fullCode.length !== 6) {
+      setAuthError('لطفاً کد تایید ۶ رقمی را به صورت کامل وارد نمایید.');
+      return;
+    }
+
+    setAuthError('');
+    setIsSubmitting(true);
+
+    try {
+      const res = await verifyOtp(phone, fullCode, {
+        name: name.trim() || undefined,
+        email: email.trim() || undefined
+      });
+
+      if (res.success && res.user) {
+        const verifiedUser: User = {
+          id: res.user.id || 'usr-' + Date.now(),
+          name: name.trim() || res.user.name || 'کاربر گرامی',
+          phoneNumber: phone,
+          email: email.trim() || res.user.email || undefined,
+          createdAt: res.user.createdAt || new Date().toISOString()
+        };
+
+        localStorage.setItem('omex_current_user', JSON.stringify(verifiedUser));
+        if (res.token) {
+          localStorage.setItem('omex_auth_token', res.token);
+        }
+
+        await saveUserProfileToFirestore(verifiedUser).catch(() => {});
+
+        const succMsg = 'ورود با موفقیت انجام شد';
+        setAuthSuccess(succMsg);
+        if (showToast) showToast(succMsg, 'success');
+
+        if (onLoginSuccess) {
+          onLoginSuccess(verifiedUser);
+        }
+      } else {
+        const err = res.error || 'کد تایید وارد شده نامعتبر یا منقضی است.';
+        setAuthError(err);
+        if (showToast) showToast(err, 'error');
+      }
+    } catch (_err) {
+      const err = 'خطا در اعتبارسنجی کد تایید.';
+      setAuthError(err);
+      if (showToast) showToast(err, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Step 2: Resend OTP
+  const handleResendOtp = async () => {
+    if (countdown > 0 || isSubmitting) return;
+    setIsSubmitting(true);
+    setAuthError('');
+    try {
+      const res = await sendOtp(phone, name);
+      if (res.success) {
+        setCountdown(res.expiresIn || 120);
+        setOtpDigits(['', '', '', '', '', '']);
+        const succMsg = 'کد تایید جدید ارسال شد.';
+        setAuthSuccess(succMsg);
+        if (showToast) showToast(succMsg, 'success');
+        otpInputsRef.current[0]?.focus();
+      } else {
+        setAuthError(res.error || 'خطا در ارسال مجدد کد.');
+        if (showToast) showToast(res.error || 'خطا در ارسال مجدد کد', 'error');
+      }
+    } catch (_err) {
+      const err = 'خطا در اتصال به سرور پیامک.';
+      setAuthError(err);
+      if (showToast) showToast(err, 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -216,24 +382,26 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
   };
 
   // ----------------------------------------------------
-  // UNAUTHENTICATED USER STATE: Required Form Login Gate
+  // UNAUTHENTICATED USER STATE: 2-Step OTP Authentication
   // ----------------------------------------------------
   if (!currentUser) {
     return (
       <div className="max-w-md mx-auto my-6 bg-white border border-slate-200 rounded-[28px] p-6 md:p-8 shadow-xl text-slate-800 space-y-6 font-['Vazirmatn',sans-serif]">
         <div className="w-16 h-16 rounded-2xl bg-[#111111] text-white flex items-center justify-center mx-auto shadow-md">
-          <UserIcon className="w-8 h-8 text-white" />
+          <LogIn className="w-8 h-8 text-white" />
         </div>
 
         <div className="space-y-2 text-center">
           <span className="bg-slate-100 text-slate-900 border border-slate-200 text-[11px] font-extrabold px-3 py-1 rounded-full inline-block">
-            ورود به داشبورد کاربری
+            {step === 1 ? 'ورود / ثبت‌نام در سامانه' : 'تایید شماره موبایل'}
           </span>
           <h2 className="text-xl md:text-2xl font-black text-slate-900">
-            ورود و مشاهده سفارشات
+            {step === 1 ? 'ورود به حساب کاربری' : 'کد تایید یکبار مصرف (OTP)'}
           </h2>
           <p className="text-xs text-slate-500 leading-relaxed font-medium">
-            جهت پیگیری مرسوله‌ها و دسترسی به سوابق خرید، اطلاعات زیر را وارد نمایید.
+            {step === 1
+              ? 'جهت پیگیری سفارشات و دسترسی به پنل، نام و شماره موبایل خود را وارد کنید.'
+              : `کد تایید ۶ رقمی به شماره ${toPersianDigits(phone)} ارسال گردید.`}
           </p>
         </div>
 
@@ -244,68 +412,189 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
           </div>
         )}
 
-        <form onSubmit={handleInlineLogin} className="space-y-4 text-xs">
-          {/* Field 1: Name (Required) */}
-          <div>
-            <label className="font-extrabold text-slate-900 block mb-1.5 text-right">
-              نام و نام خانوادگی <span className="text-rose-600">* (الزامی)</span>
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="مثال: علیرضا حسینی"
-                className="w-full bg-[#F8FAFC] border border-slate-300 focus:border-[#111111] focus:bg-white text-slate-900 text-xs font-bold p-3.5 pr-9 rounded-xl focus:outline-none transition"
-              />
-              <UserIcon className="w-4 h-4 text-slate-400 absolute right-3 top-4" />
-            </div>
+        {authSuccess && (
+          <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-xs font-bold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{authSuccess}</span>
           </div>
+        )}
 
-          {/* Field 2: Phone (Required) */}
-          <div>
-            <label className="font-extrabold text-slate-900 block mb-1.5 text-right">
-              شماره تماس <span className="text-rose-600">* (الزامی)</span>
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="09121234567"
-                className="w-full bg-[#F8FAFC] border border-slate-300 focus:border-[#111111] focus:bg-white text-slate-900 text-xs font-bold p-3.5 pr-9 rounded-xl focus:outline-none text-left dir-ltr transition"
-                dir="ltr"
-              />
-              <Phone className="w-4 h-4 text-slate-400 absolute right-3 top-4" />
+        {/* ---------------------------------------------------- */}
+        {/* STEP 1: MOBILE & USER DETAILS */}
+        {/* ---------------------------------------------------- */}
+        {step === 1 && (
+          <form onSubmit={handleSendOtp} className="space-y-4 text-xs">
+            {/* Field 1: Phone (Required) */}
+            <div>
+              <label className="font-extrabold text-slate-900 block mb-1.5 text-right">
+                شماره موبایل <span className="text-rose-600">* (الزامی)</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="09121234567"
+                  maxLength={11}
+                  autoFocus
+                  required
+                  className="w-full bg-[#F8FAFC] border border-slate-300 focus:border-[#111111] focus:bg-white text-slate-900 text-sm font-bold p-3.5 pr-10 rounded-xl focus:outline-none text-left dir-ltr transition font-mono"
+                  dir="ltr"
+                />
+                <Phone className="w-4 h-4 text-slate-400 absolute right-3 top-4" />
+              </div>
+              <span className="text-[10px] text-slate-400 block mt-1">
+                کد تایید ۶ رقمی به این شماره ارسال خواهد شد.
+              </span>
             </div>
-          </div>
 
-          {/* Field 3: Email (Optional) */}
-          <div>
-            <label className="font-extrabold text-slate-900 block mb-1.5 text-right">
-              ایمیل <span className="text-slate-400 font-semibold">(اختیاری)</span>
-            </label>
-            <div className="relative">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="user@example.com"
-                className="w-full bg-[#F8FAFC] border border-slate-300 focus:border-[#111111] focus:bg-white text-slate-900 text-xs font-medium p-3.5 pr-9 rounded-xl focus:outline-none text-left dir-ltr transition"
-                dir="ltr"
-              />
-              <Mail className="w-4 h-4 text-slate-400 absolute right-3 top-4" />
+            {/* Field 2: Name (Optional) */}
+            <div>
+              <label className="font-extrabold text-slate-900 block mb-1.5 text-right">
+                نام و نام خانوادگی <span className="text-slate-400 font-semibold">(اختیاری)</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="مثال: علیرضا حسینی"
+                  className="w-full bg-[#F8FAFC] border border-slate-300 focus:border-[#111111] focus:bg-white text-slate-900 text-xs font-bold p-3.5 pr-10 rounded-xl focus:outline-none transition"
+                />
+                <UserIcon className="w-4 h-4 text-slate-400 absolute right-3 top-4" />
+              </div>
             </div>
-          </div>
 
-          <button
-            type="submit"
-            className="w-full bg-[#111111] hover:bg-black text-white font-black text-sm py-4 rounded-2xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer mt-2"
-          >
-            <LogIn className="w-4 h-4" />
-            <span>ورود / ثبت‌نام در سامانه</span>
-          </button>
-        </form>
+            {/* Field 3: Email (Optional) */}
+            <div>
+              <label className="font-extrabold text-slate-900 block mb-1.5 text-right">
+                ایمیل <span className="text-slate-400 font-semibold">(اختیاری)</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="user@example.com"
+                  className="w-full bg-[#F8FAFC] border border-slate-300 focus:border-[#111111] focus:bg-white text-slate-900 text-xs font-medium p-3.5 pr-10 rounded-xl focus:outline-none text-left dir-ltr transition"
+                  dir="ltr"
+                />
+                <Mail className="w-4 h-4 text-slate-400 absolute right-3 top-4" />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full bg-[#111111] hover:bg-black text-white font-black text-xs md:text-sm py-4 rounded-2xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer mt-2 disabled:opacity-50"
+            >
+              {isSubmitting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                  <span>در حال ارسال پیامک...</span>
+                </>
+              ) : (
+                <>
+                  <span>دریافت کد تایید</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+        )}
+
+        {/* ---------------------------------------------------- */}
+        {/* STEP 2: 6-DIGIT OTP VERIFICATION */}
+        {/* ---------------------------------------------------- */}
+        {step === 2 && (
+          <div className="space-y-4 text-xs text-center">
+            <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-3">
+              <div className="flex items-center gap-2 text-right">
+                <Phone className="w-4 h-4 text-slate-600" />
+                <span className="font-bold text-slate-900 dir-ltr font-mono">{phone}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>ویرایش شماره موبایل</span>
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="font-black text-slate-900 block text-right">
+                کد تایید ۶ رقمی را وارد کنید:
+              </label>
+
+              {/* 6 Discrete Digit Inputs */}
+              <div className="flex items-center justify-center gap-2 dir-ltr" dir="ltr">
+                {otpDigits.map((digit, idx) => (
+                  <input
+                    key={idx}
+                    ref={(el) => { otpInputsRef.current[idx] = el; }}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleOtpChange(idx, e.target.value)}
+                    onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                    className="w-11 h-12 text-center text-lg font-black font-mono border-2 border-slate-200 rounded-xl focus:border-slate-900 focus:bg-slate-50 focus:outline-none transition shadow-2xs"
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Countdown Timer & Resend Button */}
+            <div className="flex items-center justify-between text-xs pt-2">
+              <button
+                type="button"
+                onClick={handleResendOtp}
+                disabled={countdown > 0 || isSubmitting}
+                className={`font-bold flex items-center gap-1 cursor-pointer transition ${
+                  countdown === 0
+                    ? 'text-slate-900 hover:text-black underline'
+                    : 'text-slate-400 cursor-not-allowed'
+                }`}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSubmitting ? 'animate-spin' : ''}`} />
+                <span>ارسال مجدد کد</span>
+              </button>
+
+              <div className="text-slate-500 font-mono font-bold flex items-center gap-1 dir-ltr" dir="ltr">
+                <span>{formatTimer(countdown)}</span>
+                <span className="text-[10px] text-slate-400 font-sans">تا ارسال مجدد</span>
+              </div>
+            </div>
+
+            {/* Submit Verification Button */}
+            <button
+              type="button"
+              onClick={() => handleVerifyOtp()}
+              disabled={isSubmitting || otpDigits.join('').length !== 6}
+              className="w-full bg-[#111111] hover:bg-black text-white font-black text-xs md:text-sm py-4 rounded-2xl transition shadow-md flex items-center justify-center gap-2 mt-4 cursor-pointer disabled:opacity-50"
+            >
+              {isSubmitting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                  <span>در حال اعتبارسنجی...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>تایید و ورود به حساب کاربری</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        <div className="text-center text-[10px] text-slate-400 pt-2 border-t border-slate-100 flex items-center justify-center gap-1">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+          <span>سامانه هوشمند ارسال سریع پیامک sms.ir</span>
+        </div>
       </div>
     );
   }

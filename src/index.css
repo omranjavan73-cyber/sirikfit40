@@ -131,6 +131,31 @@ html, body, #root, #app {
   z-index: 20;
 }
 
+/* Solid Calm Orbiting Red Indicator along Input Border (Zero Glow) */
+@keyframes orbit-border-calm {
+  0% {
+    offset-distance: 0%;
+  }
+  100% {
+    offset-distance: 100%;
+  }
+}
 
+.orbit-container {
+  position: relative;
+  border-radius: 0.75rem;
+}
 
-
+.orbiting-red-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background-color: #ef4444 !important;
+  border-radius: 50% !important;
+  box-shadow: none !important;
+  filter: none !important;
+  offset-path: rect(0 100% 100% 0 round 0.75rem);
+  animation: orbit-border-calm 12s linear infinite;
+  pointer-events: none;
+  z-index: 10;
+}

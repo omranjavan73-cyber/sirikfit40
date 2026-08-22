@@ -41,7 +41,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-lg border-t border-slate-200/90 px-2 py-1.5 shadow-lg font-['Vazirmatn',sans-serif]">
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-lg border-t border-slate-200/90 px-2 py-1.5 shadow-lg font-['Vazirmatn',sans-serif]"
+      style={{ paddingBottom: 'calc(0.375rem + env(safe-area-inset-bottom, 0px))' }}
+    >
       <div className={`max-w-md mx-auto grid gap-1 ${showLocalInventory ? 'grid-cols-4' : 'grid-cols-3'}`}>
         {tabs.map((tab) => {
           const Icon = tab.icon;

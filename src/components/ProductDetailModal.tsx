@@ -115,12 +115,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   // Derive flavors and sizes from currentProd.variantMatrix or currentProd.flavors/sizes or currentProd.variantGroups/variants
   const extractedFlavors = useMemo(() => {
     if (!currentProd) return [];
-    if (currentProd.variantMatrix?.flavors && currentProd.variantMatrix.flavors.length > 0) {
-      return currentProd.variantMatrix.flavors.filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(f.trim().toLowerCase()));
+    const rawFlavors = (currentProd.variantMatrix?.flavors && currentProd.variantMatrix.flavors.length > 0)
+      ? currentProd.variantMatrix.flavors
+      : (Array.isArray(currentProd.flavors) && currentProd.flavors.length > 0)
+        ? currentProd.flavors
+        : [];
+    
+    if (rawFlavors.length > 0) {
+      return rawFlavors.map((f: any) => {
+        const name = typeof f === 'string' ? f : (f?.flavor || f?.name || '');
+        return String(name).trim();
+      }).filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(f.toLowerCase()));
     }
-    if (Array.isArray(currentProd.flavors) && currentProd.flavors.length > 0) {
-      return currentProd.flavors.filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(f.trim().toLowerCase()));
-    }
+
     const flavorGroup = currentProd.variantGroups?.find((g: any) => g.type === 'flavor' || g.id === 'flavors' || (g.name && (g.name.includes('طعم') || g.name.toLowerCase().includes('flavor'))));
     if (flavorGroup && Array.isArray(flavorGroup.options)) {
       return flavorGroup.options.map((opt: any) => typeof opt === 'string' ? opt : (opt.name || opt.label || '')).filter(Boolean);
@@ -130,12 +137,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   const extractedSizes = useMemo(() => {
     if (!currentProd) return [];
-    if (currentProd.variantMatrix?.sizes && currentProd.variantMatrix.sizes.length > 0) {
-      return currentProd.variantMatrix.sizes.filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(s.trim().toLowerCase()));
+    const rawSizes = (currentProd.variantMatrix?.sizes && currentProd.variantMatrix.sizes.length > 0)
+      ? currentProd.variantMatrix.sizes
+      : (Array.isArray(currentProd.sizes) && currentProd.sizes.length > 0)
+        ? currentProd.sizes
+        : [];
+
+    if (rawSizes.length > 0) {
+      return rawSizes.map((s: any) => {
+        const name = typeof s === 'string' ? s : (s?.size || s?.name || '');
+        return String(name).trim();
+      }).filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(s.toLowerCase()));
     }
-    if (Array.isArray(currentProd.sizes) && currentProd.sizes.length > 0) {
-      return currentProd.sizes.filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(s.trim().toLowerCase()));
-    }
+
     const sizeGroup = currentProd.variantGroups?.find((g: any) => g.type === 'size' || g.id === 'sizes' || (g.name && (g.name.includes('وزن') || g.name.includes('سایز') || g.name.toLowerCase().includes('size'))));
     if (sizeGroup && Array.isArray(sizeGroup.options)) {
       return sizeGroup.options.map((opt: any) => typeof opt === 'string' ? opt : (opt.name || opt.label || '')).filter(Boolean);
@@ -518,7 +532,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     <>
       <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn font-['Vazirmatn',sans-serif]">
         <div 
-          className="bg-white rounded-[28px] max-w-lg w-full p-5 sm:p-6 shadow-2xl relative space-y-5 border border-slate-100 max-h-[92vh] overflow-y-auto text-right dir-rtl"
+          className="bg-white rounded-[28px] max-w-lg w-full p-5 sm:p-6 shadow-2xl relative space-y-5 border border-slate-100 max-h-[92vh] overflow-y-auto text-right dir-rtl pb-28 sm:pb-6"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Top Floating Close Button */}
@@ -854,35 +868,37 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             );
           })()}
 
-          {/* QUANTITY & PRIMARY ACTION BUTTON */}
-          <div className="pt-2 flex items-center gap-3">
-            {/* Quantity Selector */}
-            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-2xl border border-slate-200 shrink-0">
-              <button
+          {/* Ultra-Compact Bottom Action Dock */}
+          <div className="w-full flex items-center gap-2 pt-2 pb-6 sm:pb-2 px-2 max-w-lg mx-auto">
+            {/* Compact Quantity Counter */}
+            <div className="flex items-center justify-between border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 px-2 py-1.5 gap-2 shadow-xs">
+              <button 
                 type="button"
                 onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                className="w-8 h-8 rounded-xl bg-white text-slate-900 font-black text-sm flex items-center justify-center shadow-2xs hover:bg-slate-200 cursor-pointer"
+                className="w-7 h-7 flex items-center justify-center text-base font-bold text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 active:scale-95 cursor-pointer"
               >
                 -
               </button>
-              <span className="font-black text-sm text-slate-900 w-6 text-center dir-ltr">
+              <span className="text-xs font-black text-gray-900 dark:text-white min-w-[16px] text-center dir-ltr">
                 {toPersianDigits(quantity)}
               </span>
-              <button
+              <button 
                 type="button"
                 onClick={() => setQuantity(quantity + 1)}
-                className="w-8 h-8 rounded-xl bg-white text-slate-900 font-black text-sm flex items-center justify-center shadow-2xs hover:bg-slate-200 cursor-pointer"
+                className="w-7 h-7 flex items-center justify-center text-base font-bold text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 active:scale-95 cursor-pointer"
               >
                 +
               </button>
             </div>
 
-            <button 
+            {/* Compact Add to Cart Button */}
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 handleAdd();
               }}
-              className="w-full bg-slate-900 hover:bg-[#D31027] text-white font-black py-3 px-4 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+              className="flex-1 bg-slate-900 hover:bg-slate-800 active:scale-98 text-white font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm text-xs transition-all cursor-pointer"
             >
               {isAdded ? (
                 <>
@@ -891,7 +907,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 </>
               ) : (
                 <>
-                  <ShoppingCart className="w-4 h-4" />
+                  <ShoppingCart className="w-4 h-4 text-white"/>
                   <span>افزودن به سبد خرید</span>
                 </>
               )}

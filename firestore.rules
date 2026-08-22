@@ -100,6 +100,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Transactions collection
+    match /transactions/{transactionId} {
+      allow read, write: if true;
+    }
+
     // Discount Codes collection
     match /discount_codes/{codeId} {
       allow read, write: if true;

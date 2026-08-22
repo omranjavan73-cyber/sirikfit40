@@ -7,7 +7,6 @@ import { HeroBanner } from './components/HeroBanner';
 import { FeaturedDeals } from './components/FeaturedDeals';
 import { StoreCards } from './components/StoreCards';
 import { ProductDetailView } from './components/ProductDetailView';
-import { PaymentModal } from './components/PaymentModal';
 import { CustomerAccountView } from './components/CustomerAccountView';
 import { AdminPanel } from './components/AdminPanel';
 import { SupportSection } from './components/SupportSection';
@@ -18,10 +17,10 @@ import { LocalInventorySection } from './components/LocalInventorySection';
 import { InventoryPage } from './components/InventoryPage';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { PopularProductsCarousel, PopularProductItem } from './components/PopularProductsCarousel';
-import { CircularCategoryRow } from './components/CircularCategoryRow';
 import { ReviewsSection } from './components/ReviewsSection';
 import { FAQView } from './components/FAQView';
 import { PaymentReceipt } from './components/PaymentReceipt';
+import { PromoPopupModal } from './components/PromoPopupModal';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
 import { toPersianDigits, getEffectiveAedRate, calculateFinalToman } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
@@ -33,8 +32,11 @@ import { getSafeItem, setSafeItem } from './utils/safeStorage';
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<TabType>(() => {
-    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/payment/receipt')) {
-      return 'receipt';
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname;
+      if (p.startsWith('/payment/receipt') || p.startsWith('/payment-result') || p.startsWith('/payment/result')) {
+        return 'receipt';
+      }
     }
     return 'main';
   });
@@ -533,29 +535,86 @@ function MainApp() {
       if (localSeoRaw) {
         try { localSeo = JSON.parse(localSeoRaw); } catch (_e) {}
       }
-      const activeSeo = seo || localSeo;
+      const activeSeo = seo || localSeo || {};
 
-      if (activeSeo?.siteTitle) {
-        document.title = activeSeo.siteTitle;
-      }
-      if (activeSeo?.metaDescription) {
-        let metaDesc = document.querySelector('meta[name="description"]');
-        if (!metaDesc) {
-          metaDesc = document.createElement('meta');
-          metaDesc.setAttribute('name', 'description');
-          document.head.appendChild(metaDesc);
+      const title = activeSeo.siteTitle || 'سیریک فیت | خرید مستقیم مکمل از دبی | Sirik Fit';
+      const description = activeSeo.metaDescription || 'فروشگاه آنلاین سیریک فیت؛ مرجع خرید بدون واسطه مکملهای ورزشی، ویتامین و پروتئین اورجینال از نمایندگیهای معتبر دبی با ارسال سریع به سراسر ایران.';
+      const keywords = activeSeo.keywords || 'سیریک فیت, sirikfit, sirikfit.ir, خرید مکمل از دبی, مکمل اصل دبی, خرید پروتئین وی, مکمل ورزشی اورجینال, پروتئین وی دبی, خرید ویتامین اصل';
+      const ogImage = activeSeo.ogImage || 'https://sirikfit.ir/assets/og-preview.jpg';
+      const canonicalUrl = activeSeo.canonicalUrl || 'https://sirikfit.ir/';
+      const ogTitle = activeSeo.ogTitle || title;
+      const ogDescription = activeSeo.ogDescription || description;
+
+      // 1. Document Title
+      document.title = title;
+
+      // Helper to update/create meta tag
+      const setMetaTag = (attrName: string, attrVal: string, contentVal: string) => {
+        let el = document.querySelector(`meta[${attrName}="${attrVal}"]`);
+        if (!el) {
+          el = document.createElement('meta');
+          el.setAttribute(attrName, attrVal);
+          document.head.appendChild(el);
         }
-        metaDesc.setAttribute('content', activeSeo.metaDescription);
+        el.setAttribute('content', contentVal);
+      };
+
+      // 2. Standard Meta Tags
+      setMetaTag('name', 'description', description);
+      setMetaTag('name', 'keywords', keywords);
+      setMetaTag('name', 'robots', activeSeo.robotsIndexing || 'index, follow');
+
+      // 3. Google Site Verification
+      if (activeSeo.googleSiteVerification) {
+        setMetaTag('name', 'google-site-verification', activeSeo.googleSiteVerification.replace(/<[^>]*>/g, '').trim());
       }
-      if (activeSeo?.googleSiteVerification) {
-        let gVerify = document.querySelector('meta[name="google-site-verification"]');
-        if (!gVerify) {
-          gVerify = document.createElement('meta');
-          gVerify.setAttribute('name', 'google-site-verification');
-          document.head.appendChild(gVerify);
+
+      // 4. Canonical Link
+      let canonicalEl = document.querySelector('link[rel="canonical"]');
+      if (!canonicalEl) {
+        canonicalEl = document.createElement('link');
+        canonicalEl.setAttribute('rel', 'canonical');
+        document.head.appendChild(canonicalEl);
+      }
+      canonicalEl.setAttribute('href', canonicalUrl);
+
+      // 5. Open Graph Meta Tags
+      setMetaTag('property', 'og:type', 'website');
+      setMetaTag('property', 'og:url', canonicalUrl);
+      setMetaTag('property', 'og:title', ogTitle);
+      setMetaTag('property', 'og:description', ogDescription);
+      setMetaTag('property', 'og:image', ogImage);
+      setMetaTag('property', 'og:site_name', 'سیریک فیت - Sirik Fit');
+      setMetaTag('property', 'og:locale', 'fa_IR');
+
+      // 6. Twitter Cards
+      setMetaTag('name', 'twitter:card', 'summary_large_image');
+      setMetaTag('name', 'twitter:title', ogTitle);
+      setMetaTag('name', 'twitter:description', ogDescription);
+      setMetaTag('name', 'twitter:image', ogImage);
+
+      // 7. Schema.org JSON-LD Structured Data
+      let jsonLdEl = document.querySelector('script[type="application/ld+json"]#sirikfit-live-jsonld');
+      if (!jsonLdEl) {
+        jsonLdEl = document.createElement('script');
+        jsonLdEl.setAttribute('type', 'application/ld+json');
+        jsonLdEl.setAttribute('id', 'sirikfit-live-jsonld');
+        document.head.appendChild(jsonLdEl);
+      }
+      jsonLdEl.textContent = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'OnlineStore',
+        'name': 'سیریک فیت - Sirik Fit',
+        'url': canonicalUrl.replace(/\/$/, ''),
+        'logo': 'https://sirikfit.ir/favicon.svg',
+        'description': description,
+        'potentialAction': {
+          '@type': 'SearchAction',
+          'target': `${canonicalUrl.replace(/\/$/, '')}/?search={search_term_string}`,
+          'query-input': 'required name=search_term_string'
         }
-        gVerify.setAttribute('content', activeSeo.googleSiteVerification.replace(/<[^>]*>/g, '').trim());
-      }
+      }, null, 2);
+
     } catch (_e) {}
   }, [cmsConfig]);
 
@@ -603,7 +662,7 @@ function MainApp() {
       if (fsSettings) {
         setSettings(prev => {
           const fsRate = Number(fsSettings.aedRate || fsSettings.manualAedRate || 0);
-          const effectiveRate = (localRate && localRate > 0) ? localRate : (fsRate > 0 ? fsRate : prev.aedRate);
+          const effectiveRate = fsRate > 0 ? fsRate : ((localRate && localRate > 0) ? localRate : prev.aedRate);
           return {
             ...prev,
             ...fsSettings,
@@ -706,10 +765,49 @@ function MainApp() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const redirectToBankPayment = async (order: Order) => {
+    const rawAmount =
+      order.calculatedToman ??
+      (order as any).totalToman ??
+      (order as any).totalPrice ??
+      (order as any).amount ??
+      0;
+
+    const sanitizedAmount = typeof rawAmount === 'string'
+      ? Math.round(Number(String(rawAmount).replace(/[^0-9.]/g, '')))
+      : Math.round(Number(rawAmount) || 0);
+
+    const orderId = order.id || order.trackingCode;
+
+    try {
+      const res = await fetch('/api/payment/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          orderId: orderId,
+          orderData: order,
+          amountToman: sanitizedAmount,
+          amount: sanitizedAmount,
+          callbackUrl: window.location.origin + '/api/payment/callback'
+        })
+      });
+
+      const data = await res.json();
+      const targetUrl = data.paymentUrl || data.redirectUrl || data.url;
+      if (res.ok && data.success && targetUrl) {
+        window.location.href = targetUrl;
+      } else {
+        showToast(data.error || 'خطا در دریافت لینک پرداخت زیبال.', 'error');
+      }
+    } catch (err) {
+      console.error('Direct bank redirect error:', err);
+      showToast('خطا در اتصال به درگاه بانکی.', 'error');
+    }
+  };
+
   const handleOrderCreated = (newOrder: Order) => {
     setSelectedProduct(null);
-    setPendingOrderForPayment(newOrder);
-    setIsPaymentModalOpen(true);
+    redirectToBankPayment(newOrder);
   };
 
   const handlePaymentSuccess = () => {
@@ -809,7 +907,10 @@ function MainApp() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col font-['Vazirmatn',sans-serif] selection:bg-[#7C3AED] selection:text-white pb-24">
+    <div
+      className="min-h-screen min-h-[100dvh] bg-[#F8FAFC] text-slate-800 flex flex-col font-['Vazirmatn',sans-serif] selection:bg-[#7C3AED] selection:text-white pb-24"
+      style={{ paddingBottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))' }}
+    >
       {/* Toast Notification Banner */}
       {toast && (
         <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 animate-bounce">
@@ -1166,8 +1267,7 @@ function MainApp() {
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onRetryPayment={(ord) => {
-              setPendingOrderForPayment(ord);
-              setIsPaymentModalOpen(true);
+              redirectToBankPayment(ord);
             }}
           />
         )}
@@ -1184,8 +1284,7 @@ function MainApp() {
             }}
             showToast={showToast}
             onPayPendingOrder={(order) => {
-              setPendingOrderForPayment(order);
-              setIsPaymentModalOpen(true);
+              redirectToBankPayment(order);
             }}
           />
         )}
@@ -1213,20 +1312,6 @@ function MainApp() {
           setActiveTab('account');
         }}
       />
-
-      {/* Payment Gateway Modal */}
-      {pendingOrderForPayment && (
-        <PaymentModal
-          order={pendingOrderForPayment}
-          isOpen={isPaymentModalOpen}
-          onClose={() => {
-            setIsPaymentModalOpen(false);
-            setPendingOrderForPayment(null);
-            setActiveTab('account');
-          }}
-          onPaymentSuccess={handlePaymentSuccess}
-        />
-      )}
 
       {/* Iran In-Stock Local Inventory Modal */}
       <LocalInventoryModal
@@ -1257,6 +1342,12 @@ function MainApp() {
           setActiveTab('detail');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
+      />
+
+      {/* Promo & Offer Popup Engine */}
+      <PromoPopupModal
+        config={cmsConfig?.promoPopup}
+        currentTab={activeTab}
       />
 
       {/* Public Bottom Navigation Bar */}

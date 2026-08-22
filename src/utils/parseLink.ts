@@ -862,7 +862,7 @@ export async function parseProductLinkUniversal(params: {
   // Call backend /api/parse-link Microservice
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     const res = await fetch('/api/parse-link', {
       method: 'POST',

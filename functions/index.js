@@ -1,6 +1,15 @@
 process.env.IS_FIREBASE_FUNCTION = "true";
 const { onRequest } = require("firebase-functions/v2/https");
-const serverModule = require("./dist/server.cjs");
-const app = serverModule.default || serverModule.app || serverModule;
 
-exports.api = onRequest({ cors: true, maxInstances: 10, timeoutSeconds: 60 }, app);
+let app;
+function getApp() {
+  if (!app) {
+    const serverModule = require("./dist/server.cjs");
+    app = serverModule.default || serverModule.app || serverModule;
+  }
+  return app;
+}
+
+exports.api = onRequest({ cors: true, maxInstances: 10, timeoutSeconds: 60 }, (req, res) => {
+  return getApp()(req, res);
+});

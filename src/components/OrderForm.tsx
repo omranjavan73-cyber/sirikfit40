@@ -108,14 +108,24 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
     try {
       const trackingCode = `SF-${Date.now().toString().slice(-6)}`;
-      const orderPayload: Omit<Order, 'id'> = {
-        userId: currentUser?.id,
+      const orderPayload: any = {
+        id: trackingCode,
+        orderId: trackingCode,
+        orderNumber: trackingCode,
         trackingCode,
+        userId: currentUser?.id,
+        customer: {
+          fullName: customerName.trim(),
+          phone: cleanIranianMobile(phoneNumber),
+          postalCode: cleanPostalCode(postalCode), // Mandatory 10-digit Postal Code
+          fullAddress: deliveryAddress.trim(),
+          notes: notes ? notes.trim() : ""
+        },
         customerName: customerName.trim(),
         phoneNumber: cleanIranianMobile(phoneNumber),
         postalCode: cleanPostalCode(postalCode),
         deliveryAddress: deliveryAddress.trim(),
-        notes: notes.trim(),
+        notes: notes ? notes.trim() : "",
         productTitle: `${qty}× ${product.title}`,
         productUrl: product.url,
         productImage: product.image,
@@ -126,9 +136,25 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         cargoRatePerKg: settings.cargoRatePerKg || 35,
         profitMargin: settings.profitMargin || 15,
         calculatedToman: totalToman,
+        totalAmountToman: totalToman,
+        totalToman: totalToman,
+        items: [{
+          id: product.id || product.url || `item-${Date.now()}`,
+          title: product.title,
+          variant: (product as any).selectedOption || 'اصلی',
+          quantity: qty,
+          priceToman: singleToman,
+          priceAED: product.priceAed || 0,
+          imageUrl: product.image || '',
+          sourceUrl: product.url || ''
+        }],
         createdAt: new Date().toISOString(),
-        paymentStatus: 'PENDING',
-        shippingStatus: 'PENDING_BUY'
+        updatedAt: new Date().toISOString(),
+        paymentStatus: 'PENDING_PAYMENT',
+        orderStatus: 'PENDING_UAE_PURCHASE',
+        shippingStatus: 'PENDING_UAE_PURCHASE',
+        gateway: 'ZIBAL',
+        paymentGateway: 'ZIBAL'
       };
 
       const createdOrderId = await saveOrderToFirestore(orderPayload);

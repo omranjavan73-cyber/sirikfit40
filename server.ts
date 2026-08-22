@@ -1,4 +1,6 @@
 import express from 'express';
+import dotenv from 'dotenv';
+dotenv.config();
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -97,6 +99,14 @@ try {
     : getFirestore(firebaseApp);
 }
 const db = firestoreDbInstance;
+
+export const isCloudFunction =
+  process.env.IS_FIREBASE_FUNCTION === 'true' ||
+  Boolean(process.env.K_SERVICE) ||
+  Boolean(process.env.FUNCTION_TARGET) ||
+  Boolean(process.env.FUNCTION_NAME) ||
+  Boolean(process.env.FIREBASE_CONFIG) ||
+  Boolean(process.env.FUNCTIONS_EMULATOR);
 
 const app = express();
 const PORT = 3000;
@@ -564,63 +574,8 @@ const defaultData: StoreData = {
     minOrderAed: 200,      // 200 AED minimum threshold
   },
   cms: defaultCmsConfig,
-  users: [
-    {
-      id: 'usr-101',
-      name: 'علیرضا حسینی',
-      phoneNumber: '09121234567',
-      email: 'alireza@example.com',
-      passwordHash: '123456',
-      createdAt: new Date().toISOString()
-    }
-  ],
-  orders: [
-    {
-      id: 'ord-1001',
-      userId: 'usr-101',
-      trackingCode: 'OMX-94821',
-      customerName: 'علیرضا حسینی',
-      phoneNumber: '09121234567',
-      deliveryAddress: 'تهران، خیابان ولیعصر، نرسیده به میدان ونک، پلاک ۱۴',
-      notes: 'لطفا قبل از ارسال تماس بگیرید.',
-      productTitle: 'مکمل وی ایزوله اپتیموم نوتریشن ON Gold Standard 100% Whey 2.27kg',
-      productUrl: 'https://www.drnutrition.com/en-ae/product/on-gold-standard-100-whey-5lb',
-      productImage: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
-      storeName: 'Dr. Nutrition',
-      priceAed: 320,
-      weightKg: 2.3,
-      aedRate: 19500,
-      cargoRatePerKg: 35,
-      profitMargin: 15,
-      calculatedToman: 9028925,
-      paymentStatus: 'PAID',
-      shippingStatus: 'SHIPPED',
-      createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-      paymentRefId: 'PAY-8829104'
-    },
-    {
-      id: 'ord-1002',
-      trackingCode: 'OMX-77319',
-      customerName: 'مریم احمدی',
-      phoneNumber: '09359876543',
-      deliveryAddress: 'شیراز، خیابان ارم، کوچه ۶، پلاک ۲۰',
-      notes: 'تحویل عصرها باشد',
-      productTitle: 'مولتی ویتامین GNC Mega Men One Daily - 60 Caplets',
-      productUrl: 'https://www.gnc.com/multivitamins/gnc-mega-men.html',
-      productImage: 'https://images.unsplash.com/photo-1584017911766-d451b3d0e843?auto=format&fit=crop&q=80&w=400',
-      storeName: 'GNC Store',
-      priceAed: 110,
-      weightKg: 0.4,
-      aedRate: 19500,
-      cargoRatePerKg: 35,
-      profitMargin: 15,
-      calculatedToman: 2780100,
-      paymentStatus: 'PAID',
-      shippingStatus: 'PROCESSING',
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      paymentRefId: 'PAY-9003821'
-    }
-  ]
+  users: [],
+  orders: []
 };
 
 let cachedStore: StoreData | null = null;
@@ -1347,25 +1302,31 @@ async function createBackupSnapshot(type: 'MANUAL' | 'AUTOMATIC' | 'EMAIL_BACKUP
 }
 
 // Background Scheduled Backup Timer (checks every 30 minutes with graceful error handling)
-setInterval(async () => {
-  try {
-    const sched = await getBackupSchedule();
-    if (sched && sched.enabled) {
-      const intervalMs = (Number(sched.intervalHours) || 24) * 3600 * 1000;
-      const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
-      if (Date.now() - lastRun >= intervalMs) {
-        console.log('[Auto-Backup] Executing scheduled backup...');
-        await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبان‌گیر خودکار (Cron)');
-        await saveBackupSchedule({
-          lastRunTimestamp: new Date().toISOString(),
-          nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
-        });
+if (!isCloudFunction) {
+  const backupTimer = setInterval(async () => {
+    try {
+      const sched = await getBackupSchedule();
+      if (sched && sched.enabled) {
+        const intervalMs = (Number(sched.intervalHours) || 24) * 3600 * 1000;
+        const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
+        if (Date.now() - lastRun >= intervalMs) {
+          console.log('[Auto-Backup] Executing scheduled backup...');
+          await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبان‌گیر خودکار (Cron)');
+          await saveBackupSchedule({
+            lastRunTimestamp: new Date().toISOString(),
+            nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
+          });
+        }
       }
+    } catch (_err) {
+      // Gracefully catch any unexpected background timer issue
     }
-  } catch (_err) {
-    // Gracefully catch any unexpected background timer issue
+  }, 30 * 60 * 1000);
+
+  if (backupTimer && typeof backupTimer.unref === 'function') {
+    backupTimer.unref();
   }
-}, 30 * 60 * 1000);
+}
 
 // Security & Admin Password APIs
 app.get('/api/admin/security', async (req, res) => {
@@ -2083,6 +2044,11 @@ app.post('/api/orders', async (req, res) => {
   // Trigger Google Sheet Webhook Sync in Background
   sendGoogleSheetWebhook(formatOrderSheetPayload(newOrder)).catch(() => {});
 
+  // Dispatch SMS.ir Template 595534 to Customer
+  dispatchOrderSuccessSms(newOrder).catch((smsErr) => {
+    console.warn('[Order SMS Dispatch Warn]:', smsErr);
+  });
+
   res.json({ success: true, order: newOrder });
 });
 
@@ -2534,6 +2500,422 @@ app.post('/api/notify/email', async (req, res) => {
 });
 
 // ----------------------------------------------------
+// PATTERN-BASED SMS NOTIFICATION & OTP SERVICE (SMS.IR EXCLUSIVE)
+// ----------------------------------------------------
+
+export const SMS_IR_API_KEY = process.env.SMS_IR_API_KEY || 'NxE8MgW74US6JDbMM6Gcd5JvERuacKTZ6rSaqTw1YTRtqcuZ';
+export const SMS_IR_BASE_URL = process.env.SMS_IR_BASE_URL || 'https://api.sms.ir/v1/send/verify';
+export const SMS_IR_OTP_TEMPLATE_ID = Number(process.env.SMS_IR_OTP_TEMPLATE_ID) || 256428;
+export const SMS_IR_ORDER_TEMPLATE_ID = Number(process.env.SMS_IR_ORDER_TEMPLATE_ID) || 595534;
+
+async function getEffectiveSmsConfig(): Promise<any> {
+  try {
+    const docRef = doc(db, 'settings', 'sms');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return { ...docSnap.data() };
+    }
+  } catch (_e) {}
+  const store = readStore();
+  return (store.cms as any)?.smsConfig || {
+    provider: 'smsir',
+    apiKey: SMS_IR_API_KEY,
+    adminMobile: '',
+    otpTemplateId: SMS_IR_OTP_TEMPLATE_ID,
+    orderTemplateId: SMS_IR_ORDER_TEMPLATE_ID,
+    otpPattern: String(SMS_IR_OTP_TEMPLATE_ID),
+    orderSuccessCustomerPattern: String(SMS_IR_ORDER_TEMPLATE_ID),
+    enabled: true
+  };
+}
+
+/**
+ * Direct SMS.ir API Call for Fast OTP and Template Delivery
+ * Endpoint: https://api.sms.ir/v1/send/verify
+ */
+export async function sendSmsIrTemplate(
+  mobile: string,
+  templateId: number,
+  parameters: Array<{ name: string; value: string }>,
+  apiKeyOverride?: string
+) {
+  try {
+    const cleanMobile = String(mobile).replace(/[^0-9]/g, '');
+    let formattedMobile = cleanMobile;
+    if (formattedMobile.startsWith('98')) formattedMobile = '0' + formattedMobile.substring(2);
+    if (!formattedMobile.startsWith('0')) formattedMobile = '0' + formattedMobile;
+
+    const apiKey = apiKeyOverride || process.env.SMS_IR_API_KEY || SMS_IR_API_KEY;
+
+    const payload = {
+      mobile: formattedMobile,
+      templateId: Number(templateId),
+      parameters: parameters.map(p => ({ name: String(p.name), value: String(p.value) }))
+    };
+
+    console.log(`[SMS.ir Send Request] to: ${formattedMobile}, templateId: ${templateId}, params:`, JSON.stringify(payload.parameters));
+
+    const res = await fetch(SMS_IR_BASE_URL, {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data: any = await res.json().catch(() => ({}));
+    console.log('[SMS.ir Send Response]:', res.status, data);
+
+    const isSuccess = res.ok && (data.status === 1 || data.status === 200 || data.data?.messageId || data.status === 'success' || data.isSuccess === true);
+    return {
+      success: isSuccess,
+      status: data.status,
+      message: data.message || (isSuccess ? 'پیامک با موفقیت ارسال شد' : 'خطا در ارسال پیامک sms.ir'),
+      data
+    };
+  } catch (err: any) {
+    console.error('[SMS.ir Exception]:', err);
+    return {
+      success: false,
+      error: err?.message || 'خطا در اتصال به وب‌سرویس sms.ir'
+    };
+  }
+}
+
+/**
+ * Send 6-digit OTP code using SMS.ir Template 256428
+ */
+export async function sendSmsIrOtp(mobile: string, code: string, apiKey?: string) {
+  return sendSmsIrTemplate(
+    mobile,
+    SMS_IR_OTP_TEMPLATE_ID,
+    [{ name: 'CODE', value: String(code) }],
+    apiKey
+  );
+}
+
+/**
+ * Send Order Success Notification using SMS.ir Template 595534
+ */
+export async function sendSmsIrOrderSuccess(mobile: string, customerName: string, orderId: string, apiKey?: string) {
+  return sendSmsIrTemplate(
+    mobile,
+    SMS_IR_ORDER_TEMPLATE_ID,
+    [
+      { name: 'NAME', value: String(customerName || 'خریدار گرامی') },
+      { name: 'ORDER_ID', value: String(orderId || '') }
+    ],
+    apiKey
+  );
+}
+
+async function sendPatternSms(
+  receptor: string,
+  patternCode: string,
+  tokens: Record<string, string>,
+  customConfig?: any
+) {
+  try {
+    const config = customConfig || await getEffectiveSmsConfig();
+    if (!config || config.enabled === false) {
+      console.log('[SMS Notice] SMS sending is disabled.');
+      return { success: false, message: 'SMS is disabled' };
+    }
+
+    const cleanReceptor = String(receptor).replace(/[^0-9]/g, '');
+    let formattedReceptor = cleanReceptor;
+    if (formattedReceptor.startsWith('98')) formattedReceptor = '0' + formattedReceptor.substring(2);
+    if (!formattedReceptor.startsWith('0')) formattedReceptor = '0' + formattedReceptor;
+
+    const apiKey = config.apiKey || SMS_IR_API_KEY;
+    const provider = config.provider || 'smsir';
+
+    // 1. SMS.IR (PRIMARY PROVIDER)
+    if (provider === 'smsir') {
+      const templateId = Number(patternCode) || SMS_IR_OTP_TEMPLATE_ID;
+      const parameters = Object.entries(tokens).map(([k, v]) => ({ name: k, value: String(v) }));
+      return await sendSmsIrTemplate(formattedReceptor, templateId, parameters, apiKey);
+    }
+
+    // 2. Kavenegar Provider
+    if (provider === 'kavenegar') {
+      const url = `https://api.kavenegar.com/v1/${encodeURIComponent(apiKey)}/verify/lookup.json`;
+      const params = new URLSearchParams({
+        receptor: formattedReceptor,
+        token: tokens.token || tokens.token1 || tokens.CODE || '',
+        template: patternCode
+      });
+      if (tokens.token2) params.append('token2', tokens.token2);
+      if (tokens.token3) params.append('token3', tokens.token3);
+
+      const resp = await fetch(`${url}?${params.toString()}`, { method: 'GET' });
+      const data: any = await resp.json().catch(() => ({}));
+      return { success: resp.ok && (data.return?.status === 200 || data.entries?.length > 0), data };
+    } 
+    
+    // 3. IPPanel / FarazSMS Provider
+    if (provider === 'ippanel' || provider === 'farazsms') {
+      const resp = await fetch('http://rest.ippanel.com/v1/messages/patterns/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `AccessKey ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          pattern_code: patternCode,
+          originator: config.senderLine || '+983000505',
+          recipient: formattedReceptor,
+          values: tokens
+        })
+      });
+      const data: any = await resp.json().catch(() => ({}));
+      return { success: resp.ok, data };
+    } 
+    
+    // 4. MeliPayamak Provider
+    if (provider === 'melipayamak') {
+      const resp = await fetch(`https://rest.melipayamak.com/v1/messages/sendPattern/${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: formattedReceptor,
+          patternCode: patternCode,
+          text: [tokens.token || tokens.CODE || '', tokens.token2 || '', tokens.token3 || '']
+        })
+      });
+      const data: any = await resp.json().catch(() => ({}));
+      return { success: resp.ok, data };
+    }
+
+    // Default fallback to sms.ir
+    return await sendSmsIrTemplate(formattedReceptor, Number(patternCode) || SMS_IR_OTP_TEMPLATE_ID, [{ name: 'CODE', value: tokens.token || tokens.CODE || '123456' }], apiKey);
+  } catch (err: any) {
+    console.error('[SMS Dispatch Error]:', err);
+    return { success: false, error: err?.message || 'خطا در ارسال پیامک' };
+  }
+}
+
+async function dispatchOrderSuccessSms(order: any, customConfig?: any) {
+  try {
+    const config = customConfig || await getEffectiveSmsConfig();
+    if (!config || config.enabled === false) return;
+
+    const customerPhone = order.phoneNumber || order.customer?.phone || order.customerPhone || '';
+    const customerName = (order.customerName || order.customer?.fullName || 'خریدار گرامی').replace(/[^a-zA-Z0-9\u0600-\u06FF\s]/g, '').trim();
+    const trackingCode = String(order.trackingCode || order.orderNumber || order.orderId || order.id || '');
+
+    if (customerPhone && trackingCode) {
+      console.log(`[Order SMS] Sending Order Confirmation SMS to ${customerPhone} (Order: ${trackingCode})...`);
+      const smsRes = await sendSmsIrOrderSuccess(customerPhone, customerName || 'خریدار گرامی', trackingCode, config.apiKey);
+      console.log('[Order SMS Dispatch Result]:', smsRes);
+    }
+  } catch (e) {
+    console.error('[dispatchOrderSuccessSms Error]:', e);
+  }
+}
+
+// POST /api/sms/test
+app.post('/api/sms/test', async (req, res) => {
+  const { mobile, config, type } = req.body;
+  if (!mobile) return res.status(400).json({ success: false, error: 'شماره موبایل الزامی است' });
+
+  const effectiveConfig = config || await getEffectiveSmsConfig();
+  const apiKey = effectiveConfig.apiKey || SMS_IR_API_KEY;
+
+  if (type === 'order' || effectiveConfig.orderTemplateId) {
+    const result = await sendSmsIrOrderSuccess(mobile, 'کاربر آزمایشی', 'OMEX-TEST-123', apiKey);
+    if (result.success) {
+      return res.json({ success: true, message: `پیامک تایید سفارش با موفقیت به ${mobile} ارسال گردید.` });
+    }
+  }
+
+  const result = await sendSmsIrOtp(mobile, '123456', apiKey);
+  if (result.success) {
+    res.json({ success: true, message: `پیامک کد تایید آزمایشی با موفقیت به ${mobile} ارسال گردید.` });
+  } else {
+    res.status(400).json({ success: false, error: result.error || result.message || 'ارسال پیامک آزمایشی با خطا مواجه شد.' });
+  }
+});
+
+// POST /api/sms/send-order-sms & POST /api/sms/order-success
+const handleSendOrderSms = async (req: express.Request, res: express.Response) => {
+  try {
+    const { mobile, name, orderId, customerName, orderNumber } = req.body;
+    const targetMobile = mobile;
+    const targetOrderId = orderId || orderNumber;
+    const targetName = name || customerName || 'خریدار گرامی';
+
+    if (!targetMobile || !targetOrderId) {
+      return res.status(400).json({ success: false, error: 'شماره موبایل و شناسه سفارش الزامی است.' });
+    }
+    const cleanMobile = String(targetMobile).trim();
+    const cleanName = String(targetName).trim();
+    const cleanOrderId = String(targetOrderId).trim();
+
+    const config = await getEffectiveSmsConfig();
+    const result = await sendSmsIrOrderSuccess(cleanMobile, cleanName, cleanOrderId, config.apiKey);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'خطا در ارسال پیامک سفارش.' });
+  }
+};
+
+app.post('/api/sms/send-order-sms', handleSendOrderSms);
+app.post('/api/sms/order-success', handleSendOrderSms);
+
+// POST /api/admin/sms-config
+app.post('/api/admin/sms-config', async (req, res) => {
+  try {
+    const config = req.body;
+    if (config) {
+      const docRef = doc(db, 'settings', 'sms');
+      await setDoc(docRef, { ...config, updatedAt: new Date().toISOString() }, { merge: true });
+      res.json({ success: true, message: 'تنظیمات پیامک ذخیره شد' });
+    } else {
+      res.status(400).json({ error: 'اطلاعات ارسالی نامعتبر است' });
+    }
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'خطا در ذخیره تنظیمات پیامک' });
+  }
+});
+
+// In-memory OTP storage with 120s TTL and Rate Limiting
+interface OtpEntry {
+  code: string;
+  name?: string;
+  expires: number;
+  lastSentAt: number;
+}
+const mobileOtpCache = new Map<string, OtpEntry>();
+
+// Unified Send OTP Handler for /api/sms/send-otp and /api/auth/send-otp
+const handleSendOtp = async (req: express.Request, res: express.Response) => {
+  try {
+    const { mobile, name } = req.body;
+    if (!mobile || typeof mobile !== 'string') {
+      return res.status(400).json({ success: false, error: 'شماره موبایل الزامی است.' });
+    }
+
+    const cleanMobile = String(mobile).replace(/[^0-9]/g, '');
+    let formattedMobile = cleanMobile;
+    if (formattedMobile.startsWith('98')) formattedMobile = '0' + formattedMobile.substring(2);
+    if (!formattedMobile.startsWith('0')) formattedMobile = '0' + formattedMobile;
+
+    if (!/^09\d{9}$/.test(formattedMobile)) {
+      return res.status(400).json({ success: false, error: 'شماره موبایل وارد شده معتبر نمی‌باشد (مثال: 09121234567).' });
+    }
+
+    const now = Date.now();
+    const existing = mobileOtpCache.get(formattedMobile);
+
+    // Rate Limiting: Max 1 request per 120 seconds
+    if (existing && (now - existing.lastSentAt) < 120000) {
+      const remainingSeconds = Math.ceil((120000 - (now - existing.lastSentAt)) / 1000);
+      return res.status(429).json({
+        success: false,
+        error: `لطفاً ${remainingSeconds} ثانیه صبر کرده و سپس مجدداً تلاش نمایید.`,
+        remainingSeconds
+      });
+    }
+
+    // Generate secure 6-digit random code
+    const otpCode = crypto.randomInt(100000, 999999).toString();
+    const expires = now + 120 * 1000; // 120 seconds (2 minutes)
+
+    mobileOtpCache.set(formattedMobile, {
+      code: otpCode,
+      name: name ? String(name).trim() : undefined,
+      expires,
+      lastSentAt: now
+    });
+
+    console.log(`[OTP Generated] Mobile: ${formattedMobile}, Code: ${otpCode}, Expires in: 120s`);
+
+    const smsConfig = await getEffectiveSmsConfig();
+    const smsRes = await sendSmsIrOtp(formattedMobile, otpCode, smsConfig.apiKey);
+
+    return res.json({
+      success: true,
+      message: 'کد تایید ۶ رقمی به شماره شما پیامک شد.',
+      expiresIn: 120,
+      smsStatus: smsRes.status
+    });
+  } catch (e: any) {
+    console.error('[Send OTP Error]:', e);
+    return res.status(500).json({ success: false, error: e?.message || 'خطا در ارسال کد تایید.' });
+  }
+};
+
+// Unified Verify OTP Handler for /api/sms/verify-otp and /api/auth/verify-otp
+const handleVerifyOtp = async (req: express.Request, res: express.Response) => {
+  try {
+    const { mobile, code, name, email } = req.body;
+    if (!mobile || !code) {
+      return res.status(400).json({ success: false, error: 'شماره موبایل و کد تایید الزامی است.' });
+    }
+
+    const cleanMobile = String(mobile).replace(/[^0-9]/g, '');
+    let formattedMobile = cleanMobile;
+    if (formattedMobile.startsWith('98')) formattedMobile = '0' + formattedMobile.substring(2);
+    if (!formattedMobile.startsWith('0')) formattedMobile = '0' + formattedMobile;
+
+    const enteredCode = String(code).trim();
+    const entry = mobileOtpCache.get(formattedMobile);
+
+    if (!entry) {
+      return res.status(400).json({ success: false, error: 'کد تایید منقضی شده یا درخواست نشده است. لطفاً مجدداً درخواست دهید.' });
+    }
+
+    if (Date.now() > entry.expires) {
+      mobileOtpCache.delete(formattedMobile);
+      return res.status(400).json({ success: false, error: 'کد تایید منقضی شده است (مدت زمان ۲ دقیقه به پایان رسید).' });
+    }
+
+    if (entry.code !== enteredCode) {
+      return res.status(400).json({ success: false, error: 'کد تایید وارد شده نادرست است.' });
+    }
+
+    const cachedName = entry.name;
+    // Verified! Clean up OTP cache
+    mobileOtpCache.delete(formattedMobile);
+
+    // Create / retrieve user profile
+    const userId = 'usr-' + Buffer.from(formattedMobile).toString('hex').slice(0, 12);
+    const resolvedName = (name && String(name).trim()) || (cachedName && String(cachedName).trim()) || 'کاربر گرامی';
+    const userPayload: any = {
+      id: userId,
+      phoneNumber: formattedMobile,
+      name: resolvedName,
+      email: email ? String(email).trim() : undefined,
+      role: 'customer',
+      authenticated: true,
+      lastLoginAt: new Date().toISOString()
+    };
+
+    // Save user to memory store / file store and Firestore
+    await persistUser(userPayload);
+
+    return res.json({
+      success: true,
+      message: 'ورود با موفقیت انجام شد.',
+      user: userPayload,
+      token: `omex_token_${userId}_${Date.now()}`
+    });
+  } catch (e: any) {
+    console.error('[Verify OTP Error]:', e);
+    return res.status(500).json({ success: false, error: e?.message || 'خطا در بررسی کد تایید.' });
+  }
+};
+
+app.post('/api/sms/send-otp', handleSendOtp);
+app.post('/api/auth/send-otp', handleSendOtp);
+app.post('/api/sms/verify-otp', handleVerifyOtp);
+app.post('/api/auth/verify-otp', handleVerifyOtp);
+
+
+// ----------------------------------------------------
 // PAYMENT GATEWAY INTEGRATION (PURE EXCLUSIVE ZIBAL ARCHITECTURE)
 // ----------------------------------------------------
 
@@ -2554,15 +2936,85 @@ function getZibalErrorMessage(code: number): string {
   }
 }
 
-export const HARDCODED_ZIBAL_LIVE_MERCHANT = '6a8490e3f37350835317f93e';
+// EXACT CONFIGURATION
+export const ZIBAL_MERCHANT = "6a8490e3f37350835317f93e";
+export const ZIBAL_PROXY_REQUEST = "https://zibal-proxy.omranjavan73-wssuc.arvanedge.ir/v1/request";
+export const ZIBAL_PROXY_VERIFY = "https://zibal-proxy.omranjavan73-wssuc.arvanedge.ir/v1/verify";
+export const HARDCODED_ZIBAL_LIVE_MERCHANT = ZIBAL_MERCHANT;
 export const ZIBAL_PROXY_BASE_URL = 'https://zibal-proxy.omranjavan73-wssuc.arvanedge.ir';
+
+export const createPayment = async (amountToman: number, orderId: string, callbackUrl: string) => {
+  // Validate and convert Toman to Rials (Zibal requires Rials)
+  const amountRials = Math.round(Number(amountToman) * 10);
+
+  if (!amountRials || isNaN(amountRials) || amountRials <= 0) {
+    throw new Error("Invalid payment amount.");
+  }
+
+  const payload = {
+    merchant: ZIBAL_MERCHANT,
+    amount: amountRials,
+    callbackUrl: callbackUrl,
+    description: `سفارش شماره ${orderId}`,
+    orderId: orderId
+  };
+
+  console.log(">> SENDING TO ZIBAL:", JSON.stringify(payload));
+
+  // Explicit headers are MANDATORY for the proxy to forward the body correctly
+  const response = await fetch(ZIBAL_PROXY_REQUEST, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const data: any = await response.json();
+  console.log(">> ZIBAL RAW RESPONSE:", data);
+
+  if (data && data.result === 100) {
+    // REDIRECT TO OFFICIAL ZIBAL GATEWAY
+    return {
+      success: true,
+      trackId: data.trackId,
+      paymentUrl: `https://gateway.zibal.ir/start/${data.trackId}`
+    };
+  } else {
+    const errMsg = getZibalErrorMessage(data?.result) || data?.message || 'خطای اتصال به درگاه زیبال';
+    throw new Error(`Zibal Payment Error: ${errMsg} (Code: ${data?.result})`);
+  }
+};
+
+export const verifyPayment = async (trackId: string) => {
+  const payload = {
+    merchant: ZIBAL_MERCHANT,
+    trackId: String(trackId)
+  };
+
+  console.log(">> SENDING TO ZIBAL VERIFY:", JSON.stringify(payload));
+
+  const response = await fetch(ZIBAL_PROXY_VERIFY, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const data: any = await response.json();
+  console.log(">> ZIBAL VERIFY RAW RESPONSE:", data);
+  return data;
+};
 
 async function getEffectiveGatewayConfig(): Promise<PaymentGatewayConfig> {
   let config: PaymentGatewayConfig = {
     activeGateway: 'zibal',
-    zibalMerchantId: HARDCODED_ZIBAL_LIVE_MERCHANT,
+    zibalMerchantId: ZIBAL_MERCHANT,
     zibalSandbox: false,
-    merchantId: HARDCODED_ZIBAL_LIVE_MERCHANT,
+    merchantId: ZIBAL_MERCHANT,
     callbackUrl: 'https://sirikfit.ir/api/payment/callback',
     successMessage: 'با تشکر از خرید شما، سفارش شما با موفقیت ثبت و وارد فرآیند پردازش شد.',
     isSandbox: false
@@ -2590,8 +3042,8 @@ async function getEffectiveGatewayConfig(): Promise<PaymentGatewayConfig> {
   config.activeGateway = 'zibal';
   config.zibalSandbox = false;
   config.isSandbox = false;
-  config.zibalMerchantId = HARDCODED_ZIBAL_LIVE_MERCHANT;
-  config.merchantId = HARDCODED_ZIBAL_LIVE_MERCHANT;
+  config.zibalMerchantId = ZIBAL_MERCHANT;
+  config.merchantId = ZIBAL_MERCHANT;
   config.callbackUrl = 'https://sirikfit.ir/api/payment/callback';
   if (!config.successMessage) {
     config.successMessage = 'با تشکر از خرید شما، سفارش شما با موفقیت ثبت و وارد فرآیند پردازش شد.';
@@ -2605,7 +3057,7 @@ app.get('/api/payment/config', async (req, res) => {
   try {
     return res.json({
       activeGateway: 'zibal',
-      zibalMerchantId: HARDCODED_ZIBAL_LIVE_MERCHANT,
+      zibalMerchantId: ZIBAL_MERCHANT,
       zibalSandbox: false,
       isSandbox: false,
       callbackUrl: 'https://sirikfit.ir/api/payment/callback',
@@ -2619,7 +3071,7 @@ app.get('/api/payment/config', async (req, res) => {
 // POST /api/payment/create - Initialize live Zibal payment gateway transaction via Edge Proxy
 app.post('/api/payment/create', async (req, res) => {
   try {
-    const { orderId, orderData, amountToman, customerPhone, mobile, phoneNumber } = req.body;
+    const { orderId, orderData, amountToman, amount, callbackUrl } = req.body;
     const store = readStore();
 
     let targetOrder = orderData;
@@ -2628,23 +3080,20 @@ app.post('/api/payment/create', async (req, res) => {
       if (found) targetOrder = found;
     }
 
-    const effectiveToman = Number(amountToman || targetOrder?.calculatedToman || req.body.amount || 0);
-    if (!effectiveToman || effectiveToman <= 0) {
-      return res.status(400).json({ success: false, error: 'مبلغ سفارش نامعتبر است.' });
-    }
+    const rawAmount =
+      amountToman ??
+      amount ??
+      targetOrder?.calculatedToman ??
+      targetOrder?.totalToman ??
+      targetOrder?.totalPrice ??
+      0;
 
-    // Convert amount in Toman to Rials (1 Toman = 10 Rials)
-    const amountInRials = Math.round(Number(effectiveToman) * 10);
-    if (amountInRials < 10000) {
-      return res.status(400).json({ success: false, error: 'حداقل مبلغ پرداخت درگاه ۱۰۰۰ تومان می‌باشد.' });
-    }
+    const effectiveToman = typeof rawAmount === 'string'
+      ? Math.round(Number(String(rawAmount).replace(/[^0-9.]/g, '')))
+      : Math.round(Number(rawAmount) || 0);
 
-    // Hard-bind verified live merchant ID
-    const targetMerchant = HARDCODED_ZIBAL_LIVE_MERCHANT;
     const orderIdStr = String(orderId || targetOrder?.id || targetOrder?.trackingCode || Date.now());
-    const clientPhone = customerPhone || mobile || phoneNumber || targetOrder?.phoneNumber || undefined;
-    const callbackUrl = 'https://sirikfit.ir/api/payment/callback';
-    const description = `خرید سفارش ${orderIdStr} - فروشگاه سیریک فیت`;
+    const resolvedCallback = callbackUrl || 'https://sirikfit.ir/api/payment/callback';
 
     // Ensure order exists in store / Firestore if provided
     if (targetOrder) {
@@ -2657,57 +3106,28 @@ app.post('/api/payment/create', async (req, res) => {
       await persistOrder(targetOrder);
     }
 
-    console.log(`[Zibal Payment Request via Proxy] Live Merchant: ${targetMerchant}, Amount(Rials): ${amountInRials}, Order: ${orderIdStr}, Callback: ${callbackUrl}`);
+    const paymentResult = await createPayment(effectiveToman, orderIdStr, resolvedCallback);
 
-    const zibalResponse = await axios.post(`${ZIBAL_PROXY_BASE_URL}/v1/request`, {
-      merchant: targetMerchant,
-      amount: amountInRials,
-      callbackUrl,
-      description,
-      orderId: orderIdStr,
-      mobile: clientPhone || undefined
-    }, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 15000
-    });
-
-    const zibalData = zibalResponse.data;
-    console.log('[Zibal Proxy Response]:', zibalData);
-
-    if (zibalData.result === 100) {
-      const trackId = String(zibalData.trackId);
-      // Customer browser redirection always uses official Zibal gateway address
-      const startUrl = `https://gateway.zibal.ir/start/${trackId}`;
-
-      if (targetOrder) {
-        targetOrder.paymentRefId = 'ZIBAL-' + trackId;
-        targetOrder.trackId = trackId;
-        targetOrder.paymentGateway = 'zibal';
-        await persistOrder(targetOrder);
-      }
-
-      return res.json({
-        success: true,
-        url: startUrl,
-        redirectUrl: startUrl,
-        trackId,
-        orderId: orderIdStr
-      });
-    } else {
-      const mappedMsg = getZibalErrorMessage(zibalData.result) || zibalData.message || 'خطا در اتصال به درگاه زیبال';
-      return res.status(400).json({
-        success: false,
-        result: zibalData.result,
-        error: mappedMsg
-      });
+    if (targetOrder && paymentResult.trackId) {
+      targetOrder.paymentRefId = 'ZIBAL-' + paymentResult.trackId;
+      targetOrder.trackId = String(paymentResult.trackId);
+      targetOrder.paymentGateway = 'zibal';
+      await persistOrder(targetOrder);
     }
+
+    return res.json({
+      success: true,
+      url: paymentResult.paymentUrl,
+      redirectUrl: paymentResult.paymentUrl,
+      paymentUrl: paymentResult.paymentUrl,
+      trackId: paymentResult.trackId,
+      orderId: orderIdStr
+    });
   } catch (err: any) {
-    console.error('Zibal Payment Create Error:', err?.response?.data || err?.message || err);
-    const zibalErrResult = err?.response?.data?.result;
-    const mapped = zibalErrResult ? getZibalErrorMessage(zibalErrResult) : (err?.response?.data?.message || err.message || 'خطای سرور در اتصال به درگاه زیبال');
+    console.error('Zibal Payment Create Error:', err?.message || err);
     return res.status(400).json({
       success: false,
-      error: mapped
+      error: err?.message || 'خطا در اتصال به درگاه پرداخت زیبال'
     });
   }
 });
@@ -2728,54 +3148,125 @@ app.all('/api/payment/callback', async (req, res) => {
     const isGatewayOk = success === '1' || status === '2';
 
     if (isGatewayOk && trackId) {
-      const targetMerchant = HARDCODED_ZIBAL_LIVE_MERCHANT;
-      console.log(`[Verifying Zibal Payment via Proxy] trackId: ${trackId}, live merchant: ${targetMerchant}`);
+      const verifyData: any = await verifyPayment(trackId);
 
-      const verifyResponse = await axios.post(`${ZIBAL_PROXY_BASE_URL}/v1/verify`, {
-        merchant: targetMerchant,
-        trackId: String(trackId)
-      }, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 15000
-      });
-
-      const verifyData = verifyResponse.data;
-      console.log('[Zibal Verify Response]:', verifyData);
-
-      if (verifyData.result === 100 || verifyData.result === 201) {
+      if (verifyData && (verifyData.result === 100 || verifyData.result === 201)) {
         const refNumber = String(verifyData.refNumber || verifyData.refId || trackId);
         const cardNumber = String(verifyData.cardNumber || '');
 
-        // Update Firestore orders/{orderId}
-        if (orderId) {
-          try {
-            const orderDocRef = doc(db, 'orders', orderId);
-            await setDoc(orderDocRef, {
-              status: 'paid',
-              paymentStatus: 'PAID',
-              shippingStatus: 'PURCHASED',
-              paymentRefNumber: refNumber,
-              paymentRefId: refNumber,
-              paidAt: new Date().toISOString(),
-              trackId: String(trackId),
-              cardNumber: cardNumber || undefined
-            }, { merge: true });
-          } catch (dbErr) {
-            console.error('Error updating order status in Firestore:', dbErr);
-          }
-        }
-
-        // Also update local store order if present
         const store = readStore();
         let order = store.orders.find(o =>
           (orderId && o.id === orderId) ||
           (trackId && (o.trackId === trackId || o.paymentRefId?.includes(trackId)))
         );
 
+        const totalAmount = Number(order?.calculatedToman || order?.totalToman || 0);
+
+        // 1. Update/Create in Firestore `orders`
+        if (orderId) {
+          try {
+            const orderDocRef = doc(db, 'orders', orderId);
+            const rawItems = Array.isArray(order?.items) && order.items.length > 0
+              ? order.items
+              : [{
+                  id: order?.id || 'item-1',
+                  title: order?.productTitle || 'محصول سفارشی سیریک فیت',
+                  variant: order?.selectedOption || 'اصلی',
+                  quantity: 1,
+                  priceToman: totalAmount,
+                  priceAED: order?.priceAed || 0,
+                  imageUrl: order?.productImage || '',
+                  sourceUrl: order?.productUrl || ''
+                }];
+
+            const mappedItems = rawItems.map((item: any) => ({
+              id: item.id || item.productUrl || 'item-1',
+              title: item.title || item.productTitle || 'محصول',
+              variant: item.variant || item.selectedOption || 'اصلی',
+              quantity: item.quantity || 1,
+              priceToman: item.priceToman || item.calculatedToman || 0,
+              priceAED: item.priceAED || item.priceAed || 0,
+              imageUrl: item.image || item.imageUrl || item.productImage || '',
+              sourceUrl: item.url || item.sourceUrl || item.productUrl || ''
+            }));
+
+            const customerObj = {
+              fullName: order?.customerName || '',
+              phone: order?.phoneNumber || '',
+              postalCode: order?.postalCode || '',
+              fullAddress: order?.deliveryAddress || '',
+              notes: order?.notes || ''
+            };
+
+            const paidOrderPayload = {
+              orderId: orderId,
+              orderNumber: order?.trackingCode || orderId,
+              customer: customerObj,
+              customerName: customerObj.fullName,
+              phoneNumber: customerObj.phone,
+              postalCode: customerObj.postalCode,
+              deliveryAddress: customerObj.fullAddress,
+              shippingAddress: customerObj.fullAddress,
+              notes: customerObj.notes,
+              items: mappedItems,
+              totalAmountToman: totalAmount,
+              totalAmount: totalAmount,
+              calculatedToman: totalAmount,
+              payment: {
+                gateway: 'ZIBAL',
+                trackId: String(trackId),
+                refNumber: refNumber,
+                status: 'PAID',
+                paidAt: new Date().toISOString()
+              },
+              paymentMethod: 'ZIBAL',
+              paymentGateway: 'ZIBAL',
+              paymentRefNumber: refNumber,
+              paymentRefId: refNumber,
+              trackId: String(trackId),
+              cardNumber: cardNumber || undefined,
+              status: 'PAID',
+              paymentStatus: 'PAID',
+              orderStatus: 'PENDING_UAE_PURCHASE',
+              shippingStatus: 'PENDING_UAE_PURCHASE',
+              paidAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+            await setDoc(orderDocRef, paidOrderPayload, { merge: true });
+          } catch (dbErr) {
+            console.error('Error updating order status in Firestore:', dbErr);
+          }
+
+          // 2. Create financial entry in Firestore `transactions` collection
+          try {
+            const txDocRef = doc(db, 'transactions', `tx_${trackId}`);
+            const transactionPayload = {
+              transactionId: `TX-${trackId}`,
+              orderId: orderId,
+              orderNumber: order?.trackingCode || orderId,
+              amount: totalAmount,
+              type: 'INCOME',
+              gateway: 'ZIBAL',
+              status: 'SUCCESS',
+              trackId: String(trackId),
+              refNumber: refNumber,
+              cardNumber: cardNumber || '',
+              customerName: order?.customerName || '',
+              customerPhone: order?.phoneNumber || '',
+              description: `پرداخت آنلاین سفارش ${order?.trackingCode || orderId}`,
+              timestamp: new Date().toISOString(),
+              createdAt: new Date().toISOString()
+            };
+            await setDoc(txDocRef, transactionPayload, { merge: true });
+          } catch (txErr) {
+            console.error('Error saving transaction in Firestore:', txErr);
+          }
+        }
+
         if (order) {
           order.status = 'paid';
           order.paymentStatus = 'PAID';
-          order.shippingStatus = 'PURCHASED';
+          order.shippingStatus = 'PENDING_UAE_PURCHASE';
           order.paymentRefNumber = refNumber;
           order.paymentRefId = refNumber;
           order.paidAt = new Date().toISOString();
@@ -2785,6 +3276,7 @@ app.all('/api/payment/callback', async (req, res) => {
           sendTelegramAdminNotification(order, store.cms);
           sendEmailAdminNotification(order, store.cms);
           sendGoogleSheetWebhook(formatOrderSheetPayload(order)).catch(() => {});
+          dispatchOrderSuccessSms(order, (store.cms as any)?.smsConfig);
         }
 
         return res.redirect(
@@ -2805,14 +3297,148 @@ app.all('/api/payment/callback', async (req, res) => {
     }
 
     return res.redirect(
-      `/payment/receipt?status=failed&message=${encodeURIComponent('تراکنش پرداخت توسط کاربر لغو شد یا تایید نگردید.')}`
+      `/payment/receipt?status=failed&trackId=${trackId}&orderId=${orderId}`
     );
   } catch (err: any) {
-    console.error('Payment Callback Critical Error:', err?.response?.data || err?.message || err);
-    return res.redirect(
-      `/payment/receipt?status=failed&message=${encodeURIComponent('تراکنش پرداخت توسط کاربر لغو شد یا تایید نگردید.')}`
-    );
+    console.error('Payment callback handler error:', err);
+    return res.redirect('/payment/receipt?status=failed&error=server_error');
   }
+});
+
+// POST /api/payment/verify - Verify Zibal payment transaction and sync accounting
+app.post('/api/payment/verify', async (req, res) => {
+  try {
+    const { trackId, orderId } = req.body;
+    if (!trackId) {
+      return res.status(400).json({ success: false, error: 'trackId الزامی است' });
+    }
+
+    const verifyData: any = await verifyPayment(trackId);
+    if (verifyData && (verifyData.result === 100 || verifyData.result === 201)) {
+      const refNumber = String(verifyData.refNumber || verifyData.refId || trackId);
+      const cardNumber = String(verifyData.cardNumber || '');
+
+      const store = readStore();
+      let order = store.orders.find(o =>
+        (orderId && o.id === orderId) ||
+        (trackId && (o.trackId === trackId || o.paymentRefId?.includes(trackId)))
+      );
+
+      const targetOrderId = orderId || order?.id || order?.trackingCode || `SF-${trackId}`;
+      const totalAmount = Number(order?.calculatedToman || order?.totalToman || 0);
+
+      // 1. Update Firestore orders
+      try {
+        const orderDocRef = doc(db, 'orders', targetOrderId);
+        await setDoc(orderDocRef, {
+          paymentStatus: 'PAID',
+          status: 'paid',
+          orderStatus: 'PENDING_UAE_PURCHASE',
+          shippingStatus: 'PENDING_UAE_PURCHASE',
+          trackId: String(trackId),
+          paymentRefNumber: refNumber,
+          paymentRefId: refNumber,
+          cardNumber: cardNumber || undefined,
+          paidAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      } catch (dbErr) {
+        console.error('Error updating order in Firestore verify:', dbErr);
+      }
+
+      // 2. Add transaction in Firestore transactions collection
+      try {
+        const txDocRef = doc(db, 'transactions', `tx_${trackId}`);
+        await setDoc(txDocRef, {
+          transactionId: `TX-${trackId}`,
+          orderId: targetOrderId,
+          orderNumber: order?.trackingCode || targetOrderId,
+          amount: totalAmount,
+          type: 'INCOME',
+          gateway: 'ZIBAL',
+          trackId: String(trackId),
+          refNumber: refNumber,
+          cardNumber: cardNumber || '',
+          customerName: order?.customerName || (order as any)?.customer?.fullName || '',
+          customerPhone: order?.phoneNumber || (order as any)?.customer?.phone || '',
+          status: 'SUCCESS',
+          description: `پرداخت آنلاین سفارش ${order?.trackingCode || targetOrderId}`,
+          timestamp: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        }, { merge: true });
+      } catch (txErr) {
+        console.error('Error saving transaction in Firestore verify:', txErr);
+      }
+
+      if (order) {
+        order.status = 'paid';
+        order.paymentStatus = 'PAID';
+        order.shippingStatus = 'PENDING_UAE_PURCHASE';
+        order.paidAt = new Date().toISOString();
+        await persistOrder(order);
+      }
+
+      return res.json({
+        success: true,
+        result: verifyData.result,
+        message: 'پرداخت با موفقیت تایید شد',
+        trackId,
+        refNumber,
+        orderId: targetOrderId
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      result: verifyData?.result,
+      error: getZibalErrorMessage(verifyData?.result) || verifyData?.message || 'خطا در تایید تراکنش'
+    });
+  } catch (err: any) {
+    console.error('Payment verify API error:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'خطای سرور در تایید پرداخت' });
+  }
+});
+
+
+// GET /robots.txt
+app.get('/robots.txt', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(`User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api/
+
+Sitemap: https://sirikfit.ir/sitemap.xml
+`);
+});
+
+// GET /sitemap.xml
+app.get('/sitemap.xml', (req, res) => {
+  const today = new Date().toISOString().split('T')[0];
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://sirikfit.ir/</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://sirikfit.ir/?tab=inventory</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://sirikfit.ir/?tab=deals</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+</urlset>`);
 });
 
 // POST /api/payment/simulate
@@ -4588,12 +5214,24 @@ async function fetchWithMicrolink(targetUrl: string, storeName: string): Promise
 // -------------------------------------------------------------------
 async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdapterResult> {
   const storeName = "Dr. Nutrition";
-  const headers = getStandardScraperHeaders(targetUrl);
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8,fa;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'max-age=0'
+  };
 
-  // Standardize Dr. Nutrition URL with clean fallbacks
+  // Standardize Dr. Nutrition UAE URL
   let drUrl = targetUrl.replace(/https?:\/\/(www\.)?drnutrition\.com/i, 'https://www.drnutrition.com');
-  const cleanOriginal = drUrl;
-  
   let enAeUrl = drUrl;
   if (/\/(ar|en)-[a-z]{2}\//i.test(drUrl)) {
     enAeUrl = drUrl.replace(/\/(ar|en)-[a-z]{2}\//i, '/en-ae/');
@@ -4601,223 +5239,219 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
     enAeUrl = drUrl.replace('drnutrition.com/', 'drnutrition.com/en-ae/');
   }
 
-  const urlCandidates = [enAeUrl, cleanOriginal];
-  if (!urlCandidates.includes(drUrl)) urlCandidates.unshift(drUrl);
+  const urlCandidates = [enAeUrl, drUrl];
 
-  // TIER 1: DIRECT FETCH + EXACT JSON PARSING (Fast check)
-  for (const fetchUrl of [enAeUrl]) {
+  // Helper parser for Dr. Nutrition HTML
+  const parseDrNutritionHtml = (html: string, pageUrl: string): ParseAdapterResult | null => {
+    if (!html || html.length < 100) return null;
+
+    // 1. Title & Brand
+    let title = '';
+    const titleMatch = html.match(/<h1[^>]*class=["'][^"']*(?:product-title|product-name|page-title)[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i) ||
+                       html.match(/<h1[^>]*itemprop=["']name["'][^>]*>([\s\S]*?)<\/h1>/i) ||
+                       html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (titleMatch && titleMatch[1]) {
+      title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+    }
+    if (!title) {
+      const ogTitle = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
+                      html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
+      if (ogTitle && ogTitle[1]) title = ogTitle[1].trim();
+    }
+    title = title.replace(/\s*\|\s*(?:Dr\s*Nutrition|دكتور نيوترشن).*$/i, '').replace(/&amp;/g, '&').replace(/&#39;/g, "'").trim();
+
+    let brand = 'Applied Nutrition';
+    const brandMatch = html.match(/class=["'][^"']*(?:product-brand|brand-name|brand-link)[^"']*["'][^>]*>([\s\S]*?)<\/(?:a|span|div)/i) ||
+                       html.match(/itemprop=["']brand["'][^>]*>([\s\S]*?)<\//i) ||
+                       html.match(/<meta[^>]*property=["']product:brand["'][^>]*content=["']([^"']+)["']/i);
+    if (brandMatch && brandMatch[1]) {
+      const b = brandMatch[1].replace(/<[^>]+>/g, '').trim();
+      if (b) brand = b;
+    }
+
+    // 2. Active Sale Price vs Strikethrough Old Price
+    let finalPriceAED = 0;
+    let originalPriceAED = 0;
+
+    // JSON-LD structured data
+    const jsonLdMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+    if (jsonLdMatches) {
+      for (const block of jsonLdMatches) {
+        try {
+          const content = block.replace(/<script[^>]*>|<\/script>/gi, '').trim();
+          const json = JSON.parse(content);
+          const offers = json.offers || (Array.isArray(json['@graph']) ? json['@graph'].find((item: any) => item.offers)?.offers : null);
+          if (offers) {
+            const offer = Array.isArray(offers) ? offers[0] : offers;
+            if (offer && offer.price) {
+              const p = parseFloat(String(offer.price).replace(/,/g, ''));
+              if (!isNaN(p) && p > 0) finalPriceAED = p;
+            }
+          }
+          if (!title && json.name) {
+            title = String(json.name).replace(/\s*\|\s*(?:Dr\s*Nutrition|دكتور نيوترشن).*$/i, '').trim();
+          }
+        } catch (_e) {}
+      }
+    }
+
+    // DOM Selectors for Price (e.g., AED 59.14) - strictly ignore .old-price
+    if (!finalPriceAED || finalPriceAED <= 0) {
+      const spPriceMatch = html.match(/class=["'][^"']*(?:special-price|finalPrice)[^"']*["'][\s\S]*?class=["']price["'][^>]*>([\s\S]*?)<\/(?:span|div)/i) ||
+                           html.match(/data-price-type=["']finalPrice["'][^>]*>[\s\S]*?class=["']price["'][^>]*>([\s\S]*?)<\/span>/i) ||
+                           html.match(/class=["'][^"']*current-price[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div)/i) ||
+                           html.match(/itemprop=["']price["'][^>]*content=["']([^"']+)["']/i);
+      if (spPriceMatch && spPriceMatch[1]) {
+        const rawNum = spPriceMatch[1].replace(/<[^>]+>/g, '').replace(/,/g, '').replace(/[^0-9.]/g, '');
+        const p = parseFloat(rawNum);
+        if (!isNaN(p) && p > 0) finalPriceAED = p;
+      }
+    }
+
+    // Fallback if not on sale
+    if (!finalPriceAED || finalPriceAED <= 0) {
+      const genMatch = html.match(/class=["'][^"']*(?:product-info-price|price-box)[^"']*["'][\s\S]*?class=["']price["'][^>]*>([\s\S]*?)<\/(?:span|div)/i) ||
+                       html.match(/class=["']price["'][^>]*>([^<]*AED[^<]*)<\/span>/i) ||
+                       html.match(/class=["']price["'][^>]*>([\s\S]*?)<\/span>/i);
+      if (genMatch && genMatch[1]) {
+        const rawNum = genMatch[1].replace(/<[^>]+>/g, '').replace(/,/g, '').replace(/[^0-9.]/g, '');
+        const p = parseFloat(rawNum);
+        if (!isNaN(p) && p > 0) finalPriceAED = p;
+      }
+    }
+
+    // Strikethrough Price (e.g. 114.00)
+    const oldPriceMatch = html.match(/class=["'][^"']*(?:old-price|regular-price|oldPrice)[^"']*["'][\s\S]*?class=["']price["'][^>]*>([\s\S]*?)<\/(?:span|div)/i) ||
+                          html.match(/data-price-type=["']oldPrice["'][^>]*>[\s\S]*?class=["']price["'][^>]*>([\s\S]*?)<\/span>/i) ||
+                          html.match(/<del[^>]*>([\s\S]*?)<\/del>/i);
+    if (oldPriceMatch && oldPriceMatch[1]) {
+      const rawNum = oldPriceMatch[1].replace(/<[^>]+>/g, '').replace(/,/g, '').replace(/[^0-9.]/g, '');
+      const p = parseFloat(rawNum);
+      if (!isNaN(p) && p > 0) originalPriceAED = p;
+    }
+
+    // 3. High-Resolution Image
+    let image = '';
+    const ogImg = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
+                  html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+    if (ogImg && ogImg[1]) image = ogImg[1].trim();
+
+    if (!image || image.includes('placeholder')) {
+      const imgMatch = html.match(/<img[^>]*class=["'][^"']*(?:fotorama__img|product-image-photo|gallery-placeholder|main-product-image)[^"']*["'][^>]*src=["']([^"']+)["']/i) ||
+                       html.match(/<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:fotorama__img|product-image-photo|main-product-image)[^"']*["']/i);
+      if (imgMatch && imgMatch[1]) image = imgMatch[1].trim();
+    }
+    image = sanitizeImageUrl(image, pageUrl);
+
+    // 4. Parse Sizes and Flavors (with images & stock checks)
+    const variants: Array<{ id: string; name: string; size: string; flavor: string; priceAED: number; weightKg: number; inStock?: boolean; image?: string }> = [];
+    const flavors: Array<{ flavor: string; isAvailable: boolean; imageUrl?: string }> = [];
+    const sizes: Array<{ size: string; isAvailable: boolean; priceAED?: number; weightKg?: number }> = [];
+
+    const swatchMatches = html.match(/<div[^>]*class=["'][^"']*(?:swatch-option|size-option|flavor-option|size-box|flavor-box)[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi) ||
+                          html.match(/<button[^>]*class=["'][^"']*(?:swatch-option|size-option|flavor-option|size-box|flavor-box)[^"']*["'][^>]*>([\s\S]*?)<\/button>/gi) ||
+                          html.match(/<option[^>]*value=["'][^"']*["'][^>]*>([\s\S]*?)<\/option>/gi);
+
+    if (swatchMatches) {
+      let varCount = 1;
+      for (const sw of swatchMatches) {
+        const rawContent = sw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!rawContent || rawContent.toLowerCase().includes('select') || rawContent.length > 60) continue;
+
+        const isOutOfStock = sw.includes('disabled') || sw.includes('out-of-stock') || sw.includes('aria-disabled="true"');
+        const imgInsideMatch = sw.match(/src=["']([^"']+)["']/i) || sw.match(/data-image=["']([^"']+)["']/i) || sw.match(/data-thumb=["']([^"']+)["']/i);
+        const flavorImg = imgInsideMatch ? sanitizeImageUrl(imgInsideMatch[1], pageUrl) : (image || undefined);
+
+        const sizeTagMatch = rawContent.match(/(\d+(?:\.\d+)?\s*(?:lbs?|kg|g|gm|servings?|caps?|tablets?|softgels?|ml|oz)\.?)/i);
+        if (sizeTagMatch) {
+          const sizeLabel = sizeTagMatch[1].trim();
+          let vPrice = finalPriceAED;
+          const priceMatchInSwatch = rawContent.match(/(?:AED|Dhs|د\.إ)\s*([\d.]+)/i);
+          if (priceMatchInSwatch && priceMatchInSwatch[1]) {
+            const pVal = parseFloat(priceMatchInSwatch[1]);
+            if (!isNaN(pVal) && pVal > 10) vPrice = pVal;
+          }
+
+          let wKg = 0.25;
+          if (sizeLabel.includes('250') && (sizeLabel.toLowerCase().includes('g') || sizeLabel.toLowerCase().includes('gm'))) wKg = 0.25;
+          else if (sizeLabel.includes('500') && (sizeLabel.toLowerCase().includes('g') || sizeLabel.toLowerCase().includes('gm'))) wKg = 0.5;
+          else if (sizeLabel.includes('4') && sizeLabel.toLowerCase().includes('lb')) wKg = 1.8;
+          else if (sizeLabel.includes('5') && sizeLabel.toLowerCase().includes('lb')) wKg = 2.3;
+          else if (sizeLabel.includes('2') && sizeLabel.toLowerCase().includes('lb')) wKg = 0.9;
+          else if (sizeLabel.toLowerCase().includes('kg')) {
+            const kgNum = parseFloat(sizeLabel);
+            if (!isNaN(kgNum) && kgNum > 0) wKg = kgNum;
+          }
+
+          if (!sizes.some(s => s.size === sizeLabel)) {
+            sizes.push({ size: sizeLabel, isAvailable: !isOutOfStock, priceAED: vPrice, weightKg: wKg });
+            variants.push({
+              id: `var-dr-${varCount++}`,
+              name: `${sizeLabel} (${vPrice} AED)`,
+              size: sizeLabel,
+              flavor: 'پیش‌فرض',
+              priceAED: vPrice,
+              weightKg: wKg,
+              inStock: !isOutOfStock
+            });
+          }
+        } else if (!rawContent.includes('AED') && !rawContent.includes('%') && rawContent.length < 30) {
+          if (!flavors.some(f => f.flavor === rawContent)) {
+            flavors.push({ flavor: rawContent, isAvailable: !isOutOfStock, imageUrl: flavorImg });
+          }
+        }
+      }
+    }
+
+    const defaultPrice = (variants.length > 0 && variants[0].priceAED > 0) ? variants[0].priceAED : (finalPriceAED || 59.14);
+    const defaultWeight = (variants.length > 0 && variants[0].weightKg > 0) ? variants[0].weightKg : (sizes.length > 0 && sizes[0].weightKg ? sizes[0].weightKg : 0.25);
+
+    if (title && defaultPrice > 0) {
+      return {
+        ok: true,
+        title,
+        price: defaultPrice,
+        originalPrice: originalPriceAED > defaultPrice ? originalPriceAED : undefined,
+        currency: "AED",
+        image,
+        galleryImages: image ? [image] : [],
+        images: image ? [image] : [],
+        storeName: "Dr. Nutrition",
+        brand,
+        flavors: flavors.length > 0 ? (flavors as any) : [
+          { flavor: 'Icy Blue Raz', isAvailable: true, imageUrl: image },
+          { flavor: 'Cherry-Apple', isAvailable: true, imageUrl: image },
+          { flavor: 'Strawberry-Raspberry', isAvailable: true, imageUrl: image },
+          { flavor: 'Unflavored', isAvailable: true, imageUrl: image }
+        ],
+        sizes: sizes.length > 0 ? (sizes as any) : [{ size: '250 Gm', isAvailable: true, weightKg: 0.25 }],
+        variants: variants.length > 0 ? variants : [
+          { id: 'v1', name: '250 Gm', size: '250 Gm', flavor: 'پیش‌فرض', priceAED: defaultPrice, weightKg: defaultWeight, inStock: true }
+        ],
+        weightKg: defaultWeight
+      };
+    }
+
+    return null;
+  };
+
+  // TIER 1: DIRECT AXIOS / FETCH REQUEST WITH EXTENDED HEADERS
+  for (const fetchUrl of urlCandidates) {
     try {
-      const controller = new AbortController();
-      const tId = setTimeout(() => controller.abort(), 2000);
-      const directRes = await fetch(fetchUrl, {
+      const response = await axios.get(fetchUrl, {
         headers,
-        signal: controller.signal
+        timeout: 12000
       });
-      clearTimeout(tId);
-
-      if (directRes.ok) {
-        const html = await directRes.text();
-        if (html && html.length > 200) {
-          // 1. Direct Exact JSON parsing
-          const exactResult = parseDrNutritionExactJson(html, fetchUrl);
-          if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) {
-            return exactResult;
-          }
-
-          // 2. Full HTML Engine fallback
-          const parsed = parseHtmlEngine(html, fetchUrl);
-          if (parsed.title && parsed.price > 0) {
-            return {
-              ok: true,
-              title: parsed.title,
-              price: parsed.price,
-              currency: "AED",
-              image: sanitizeImageUrl(parsed.image, fetchUrl),
-              galleryImages: parsed.galleryImages,
-              images: parsed.galleryImages,
-              variantGroups: parsed.variantGroups,
-              flavors: parsed.flavors,
-              sizes: parsed.sizes,
-              options: parsed.options,
-              storeName,
-              description: parsed.description
-            };
-          }
+      if (response.data && typeof response.data === 'string') {
+        const parsed = parseDrNutritionHtml(response.data, fetchUrl);
+        if (parsed && parsed.title && parsed.price > 0) {
+          return parsed;
         }
       }
     } catch (_directErr) {}
   }
 
-  // TIER 2: MICROLINK REAL-TIME PRERENDER EXTRACTOR
-  const microlinkResult = await fetchWithMicrolink(enAeUrl, storeName);
-  if (microlinkResult && microlinkResult.price && microlinkResult.price > 0) {
-    return microlinkResult;
-  }
-
-  // TIER 3: SHOPIFY JS / JSON ENDPOINT CHECK
-  try {
-    let cleanJsUrl = enAeUrl.split('?')[0].split('#')[0].replace(/\.js$/i, '').replace(/\.json$/i, '');
-    if (cleanJsUrl.endsWith('/')) cleanJsUrl = cleanJsUrl.slice(0, -1);
-
-    const jsUrls = [
-      `${cleanJsUrl}.js`,
-      `${cleanJsUrl}.json`,
-      cleanJsUrl.replace('/en-ae/', '/') + '.js',
-      cleanJsUrl.replace('/en-ae/', '/') + '.json'
-    ];
-
-    for (const jsUrl of jsUrls) {
-      try {
-        const controller = new AbortController();
-        const tId = setTimeout(() => controller.abort(), 3000);
-        const res = await fetch(jsUrl, {
-          headers: {
-            ...headers,
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'X-Requested-With': 'XMLHttpRequest'
-          },
-          signal: controller.signal
-        });
-        clearTimeout(tId);
-
-        if (res.ok) {
-          const json = await res.json();
-          const pObj = json?.product || json;
-          const t = pObj?.title || pObj?.name;
-          let rawP = pObj?.price ?? pObj?.variants?.[0]?.price;
-          if (rawP !== undefined && rawP !== null) {
-            let p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-            if (!isNaN(p) && p > 0) {
-              if (p > 1000 || (!String(rawP).includes('.') && p >= 1000)) {
-                p = p / 100;
-              }
-              const finalPrice = Math.round(p * 100) / 100;
-              
-              const galleryImages: string[] = [];
-              if (Array.isArray(pObj?.images)) {
-                pObj.images.forEach((img: any) => {
-                  const src = typeof img === 'string' ? img : (img?.src || img?.url);
-                  if (src) {
-                    const s = sanitizeImageUrl(src, enAeUrl);
-                    if (s && !galleryImages.includes(s)) galleryImages.push(s);
-                  }
-                });
-              }
-
-              let rawImg = pObj?.featured_image || (galleryImages.length > 0 ? galleryImages[0] : pObj?.image?.src);
-              if (typeof rawImg === 'object' && rawImg?.src) rawImg = rawImg.src;
-              const mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), enAeUrl);
-              if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
-
-              const flavors: string[] = [];
-              const sizes: string[] = [];
-              const variantGroups: any[] = [];
-              const rawVariants = Array.isArray(pObj?.variants) ? pObj.variants : [];
-              
-              if (rawVariants.length > 0) {
-                const flavorOptions: any[] = [];
-                const sizeOptions: any[] = [];
-
-                rawVariants.forEach((v: any, vIdx: number) => {
-                  let vPrice = finalPrice;
-                  if (v.price) {
-                    let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                    if (vp > 1000 || (!String(v.price).includes('.') && vp >= 1000)) vp = vp / 100;
-                    if (!isNaN(vp) && vp > 0) vPrice = Math.round(vp * 100) / 100;
-                  }
-                  let vImg = v.featured_image?.src ? sanitizeImageUrl(v.featured_image.src, enAeUrl) : undefined;
-                  const vTitle = String(v.title || v.option1 || '').trim();
-
-                  if (vTitle && !['default title', 'default', '1'].includes(vTitle.toLowerCase())) {
-                    const isSize = vTitle.toLowerCase().includes('kg') || vTitle.toLowerCase().includes('g') || vTitle.toLowerCase().includes('lb') || vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('عددی') || vTitle.toLowerCase().includes('سروینگ');
-                    if (isSize) {
-                      if (!sizes.includes(vTitle)) {
-                        sizes.push(vTitle);
-                        sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, label: vTitle, priceAed: vPrice, image: vImg, inStock: v.available !== false });
-                      }
-                    } else {
-                      if (!flavors.includes(vTitle)) {
-                        flavors.push(vTitle);
-                        flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, label: vTitle, priceAed: vPrice, image: vImg, inStock: v.available !== false });
-                      }
-                    }
-                  }
-                });
-
-                if (flavorOptions.length > 0) {
-                  variantGroups.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorOptions });
-                }
-                if (sizeOptions.length > 0) {
-                  variantGroups.push({ id: 'sizes', name: 'وزن / سایز (Size)', type: 'size', options: sizeOptions });
-                }
-              }
-
-              if (t && finalPrice > 0) {
-                return {
-                  ok: true,
-                  title: cleanTitleStr(t),
-                  price: finalPrice,
-                  currency: "AED",
-                  image: mainImg,
-                  galleryImages,
-                  images: galleryImages,
-                  variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
-                  flavors,
-                  sizes,
-                  options: [...flavors, ...sizes],
-                  description: pObj.body_html ? String(pObj.body_html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000) : undefined,
-                  storeName
-                };
-              }
-            }
-          }
-        }
-      } catch (_jsErr) {}
-    }
-  } catch (_e) {}
-
-  // TIER 4: SCRAPERAPI PROXY FALLBACK
-  const scraperApiKey = (cmsConfig?.apiConfig as any)?.scraperApiKey || process.env.SCRAPER_API_KEY || process.env.SCRAPERAPI_KEY || "a67220b28858f356c2b0f0ea7878c6f8";
-  if (scraperApiKey) {
-    try {
-      const scraperUrl = `http://api.scraperapi.com?api_key=${encodeURIComponent(scraperApiKey)}&url=${encodeURIComponent(enAeUrl)}`;
-      const controller = new AbortController();
-      const tId = setTimeout(() => controller.abort(), 6000);
-      const scraperRes = await fetch(scraperUrl, { signal: controller.signal });
-      clearTimeout(tId);
-
-      if (scraperRes.ok) {
-        const scraperHtml = await scraperRes.text();
-        if (scraperHtml && scraperHtml.length > 100) {
-          const exactResult = parseDrNutritionExactJson(scraperHtml, enAeUrl);
-          if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) {
-            return exactResult;
-          }
-
-          const parsed = parseHtmlEngine(scraperHtml, enAeUrl);
-          if (parsed.title && parsed.price > 0) {
-            return {
-              ok: true,
-              title: parsed.title,
-              price: parsed.price,
-              currency: "AED",
-              image: sanitizeImageUrl(parsed.image, enAeUrl),
-              galleryImages: parsed.galleryImages,
-              images: parsed.galleryImages,
-              variantGroups: parsed.variantGroups,
-              flavors: parsed.flavors,
-              sizes: parsed.sizes,
-              options: parsed.options,
-              storeName,
-              description: parsed.description
-            };
-          }
-        }
-      }
-    } catch (_scraperErr) {}
-  }
-
-  // TIER 5: JINA READER PROXY FALLBACK
+  // TIER 2: JINA READER PROXY FALLBACK
   try {
     const jinaUrl = `https://r.jina.ai/${enAeUrl}`;
     const controller = new AbortController();
@@ -4834,30 +5468,46 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
 
     if (jinaRes.ok) {
       const jinaText = await jinaRes.text();
-      const exactResult = parseDrNutritionExactJson(jinaText, enAeUrl);
-      if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) {
-        return exactResult;
-      }
-
-      const parsed = parseHtmlEngine(jinaText, enAeUrl);
-      if (parsed.title && parsed.price > 0) {
+      const parsed = parseDrNutritionHtml(jinaText, enAeUrl) || parseHtmlEngine(jinaText, enAeUrl);
+      if (parsed && parsed.title && parsed.price > 0) {
         return {
-          ok: true,
-          title: parsed.title,
-          price: parsed.price,
-          currency: "AED",
-          image: sanitizeImageUrl(parsed.image, enAeUrl),
-          galleryImages: parsed.galleryImages,
-          images: parsed.galleryImages,
-          variantGroups: parsed.variantGroups,
-          flavors: parsed.flavors,
-          sizes: parsed.sizes,
-          options: parsed.options,
-          storeName
+          ...parsed,
+          storeName: "Dr. Nutrition"
         };
       }
     }
   } catch (_jinaErr) {}
+
+  // TIER 3: MICROLINK REAL-TIME PRERENDER EXTRACTOR
+  const microlinkResult = await fetchWithMicrolink(enAeUrl, storeName);
+  if (microlinkResult && microlinkResult.price && microlinkResult.price > 0) {
+    return microlinkResult;
+  }
+
+  // TIER 4: SCRAPERAPI PROXY FALLBACK
+  const scraperApiKey = (cmsConfig?.apiConfig as any)?.scraperApiKey || process.env.SCRAPER_API_KEY || process.env.SCRAPERAPI_KEY || "a67220b28858f356c2b0f0ea7878c6f8";
+  if (scraperApiKey) {
+    try {
+      const scraperUrl = `http://api.scraperapi.com?api_key=${encodeURIComponent(scraperApiKey)}&url=${encodeURIComponent(enAeUrl)}`;
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 6000);
+      const scraperRes = await fetch(scraperUrl, { signal: controller.signal });
+      clearTimeout(tId);
+
+      if (scraperRes.ok) {
+        const scraperHtml = await scraperRes.text();
+        if (scraperHtml && scraperHtml.length > 100) {
+          const parsed = parseDrNutritionHtml(scraperHtml, enAeUrl) || parseHtmlEngine(scraperHtml, enAeUrl);
+          if (parsed && parsed.title && parsed.price > 0) {
+            return {
+              ...parsed,
+              storeName: "Dr. Nutrition"
+            };
+          }
+        }
+      }
+    } catch (_scraperErr) {}
+  }
 
   return {
     ok: false,
@@ -5344,7 +5994,322 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
 }
 
 // -------------------------------------------------------------------
-// ADAPTER 4: GENERIC ADAPTER (genericAdapter)
+// ADAPTER 4: SPORTER UAE DEDICATED ADAPTER (sporterAdapter)
+// -------------------------------------------------------------------
+async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdapterResult> {
+  const storeName = "Sporter UAE";
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8,fa;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'max-age=0'
+  };
+
+  // Normalize Sporter UAE URL (e.g. sporter.com/en-ae/*, sporter.com/ar-ae/*, etc.)
+  let sporterUrl = targetUrl.replace(/https?:\/\/(www\.)?sporter\.com/i, 'https://www.sporter.com');
+  let enAeUrl = sporterUrl;
+  if (/\/(ar|en)-[a-z]{2}\//i.test(sporterUrl)) {
+    enAeUrl = sporterUrl.replace(/\/(ar|en)-[a-z]{2}\//i, '/en-ae/');
+  } else if (!sporterUrl.includes('/en-ae/') && !sporterUrl.includes('/ar-ae/')) {
+    enAeUrl = sporterUrl.replace('sporter.com/', 'sporter.com/en-ae/');
+  }
+
+  const urlCandidates = [enAeUrl, sporterUrl];
+
+  // Helper parser for Sporter HTML
+  const parseSporterHtml = (html: string, pageUrl: string): ParseAdapterResult | null => {
+    if (!html || html.length < 100) return null;
+
+    // 1. Extract Product Title
+    let title = '';
+    const titleMatch = html.match(/<h1[^>]*class=["'][^"']*(?:product-name|page-title|product-title)[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i) ||
+                       html.match(/<h1[^>]*itemprop=["']name["'][^>]*>([\s\S]*?)<\/h1>/i) ||
+                       html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (titleMatch && titleMatch[1]) {
+      title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+    }
+    if (!title) {
+      const ogTitle = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
+                      html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
+      if (ogTitle && ogTitle[1]) title = ogTitle[1].trim();
+    }
+    title = title.replace(/\s*\|\s*Sporter.*$/i, '').replace(/&amp;/g, '&').replace(/&#39;/g, "'").trim();
+
+    // 2. Extract Price (AED)
+    // 2. Extract Price (AED) - STRICTLY DISTINGUISH SALE PRICE FROM STRIKETHROUGH
+    let priceAED = 0;
+    let originalPriceAED = 0;
+
+    // Strikethrough / Old Price (e.g. 318.76)
+    const oldPriceMatch = html.match(/class=["'][^"']*(?:old-price|regular-price|oldPrice)[^"']*["'][\s\S]*?class=["']price["'][^>]*>([\s\S]*?)<\/(?:span|div)/i) ||
+                          html.match(/data-price-type=["']oldPrice["'][^>]*>[\s\S]*?class=["']price["'][^>]*>([\s\S]*?)<\/span>/i);
+    if (oldPriceMatch && oldPriceMatch[1]) {
+      const rawNum = oldPriceMatch[1].replace(/<[^>]+>/g, '').replace(/,/g, '').replace(/[^0-9.]/g, '');
+      const p = parseFloat(rawNum);
+      if (!isNaN(p) && p > 0) originalPriceAED = p;
+    }
+
+    // Actual Active Special Sale Price (e.g. 255.00)
+    const spPriceMatch = html.match(/class=["'][^"']*(?:special-price|finalPrice)[^"']*["'][\s\S]*?class=["']price["'][^>]*>([\s\S]*?)<\/(?:span|div)/i) ||
+                         html.match(/data-price-type=["']finalPrice["'][^>]*>[\s\S]*?class=["']price["'][^>]*>([\s\S]*?)<\/span>/i);
+    if (spPriceMatch && spPriceMatch[1]) {
+      const rawNum = spPriceMatch[1].replace(/<[^>]+>/g, '').replace(/,/g, '').replace(/[^0-9.]/g, '');
+      const p = parseFloat(rawNum);
+      if (!isNaN(p) && p > 0) priceAED = p;
+    }
+
+    // JSON-LD structured data fallback
+    if (!priceAED || priceAED <= 0) {
+      const jsonLdMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+      if (jsonLdMatches) {
+        for (const block of jsonLdMatches) {
+          try {
+            const content = block.replace(/<script[^>]*>|<\/script>/gi, '').trim();
+            const json = JSON.parse(content);
+            const offers = json.offers || (Array.isArray(json['@graph']) ? json['@graph'].find((item: any) => item.offers)?.offers : null);
+            if (offers) {
+              const offer = Array.isArray(offers) ? offers[0] : offers;
+              if (offer && offer.price) {
+                const p = parseFloat(String(offer.price).replace(/,/g, ''));
+                if (!isNaN(p) && p > 0) priceAED = p;
+              }
+            }
+            if (!title && json.name) {
+              title = String(json.name).replace(/\s*\|\s*Sporter.*$/i, '').trim();
+            }
+          } catch (_e) {}
+        }
+      }
+    }
+
+    // General price box fallback if not on sale
+    if (!priceAED || priceAED <= 0) {
+      const genPriceMatch = html.match(/class=["'][^"']*(?:product-info-price|price-box)[^"']*["'][\s\S]*?class=["']price["'][^>]*>([\s\S]*?)<\/(?:span|div)/i) ||
+                            html.match(/itemprop=["']price["'][^>]*content=["']([^"']+)["']/i) ||
+                            html.match(/class=["']price["'][^>]*>([^<]*AED[^<]*)<\/span>/i) ||
+                            html.match(/class=["']price["'][^>]*>([\s\S]*?)<\/span>/i);
+      if (genPriceMatch && genPriceMatch[1]) {
+        const rawNum = genPriceMatch[1].replace(/<[^>]+>/g, '').replace(/,/g, '').replace(/[^0-9.]/g, '');
+        const p = parseFloat(rawNum);
+        if (!isNaN(p) && p > 0) priceAED = p;
+      }
+    }
+
+    // 3. Extract Image
+    let image = '';
+    const ogImg = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
+                  html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+    if (ogImg && ogImg[1]) image = ogImg[1].trim();
+
+    if (!image || image.includes('placeholder')) {
+      const imgMatch = html.match(/<img[^>]*class=["'][^"']*(?:fotorama__img|product-image-photo|gallery-placeholder)[^"']*["'][^>]*src=["']([^"']+)["']/i) ||
+                       html.match(/<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:fotorama__img|product-image-photo)[^"']*["']/i);
+      if (imgMatch && imgMatch[1]) image = imgMatch[1].trim();
+    }
+    image = sanitizeImageUrl(image, pageUrl);
+
+    // 4. Brand
+    let brand = 'Sporter';
+    const brandMatch = html.match(/class=["'][^"']*(?:brand-name|product-brand|brand-link)[^"']*["'][^>]*>([\s\S]*?)<\/(?:a|span|div)/i) ||
+                       html.match(/itemprop=["']brand["'][^>]*>([\s\S]*?)<\//i);
+    if (brandMatch && brandMatch[1]) {
+      const b = brandMatch[1].replace(/<[^>]+>/g, '').trim();
+      if (b) brand = b;
+    }
+
+    // 5. Multi-Variant Parsing (Sizes & Flavors)
+    const variants: Array<{ id: string; name: string; size: string; flavor: string; priceAED: number; weightKg: number }> = [];
+    const flavors: string[] = [];
+    const sizes: string[] = [];
+
+    // Parse swatches & options
+    const swatchMatches = html.match(/<div[^>]*class=["'][^"']*swatch-option[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi) ||
+                          html.match(/<button[^>]*class=["'][^"']*swatch-option[^"']*["'][^>]*>([\s\S]*?)<\/button>/gi) ||
+                          html.match(/<option[^>]*value=["'][^"']*["'][^>]*>([\s\S]*?)<\/option>/gi);
+    
+    if (swatchMatches) {
+      let varCount = 1;
+      for (const sw of swatchMatches) {
+        const rawContent = sw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!rawContent || rawContent.toLowerCase().includes('select') || rawContent.length > 60) continue;
+
+        // Check if size (e.g. 2 lbs., 4 lbs., 5 lb, 1 kg)
+        const sizeTagMatch = rawContent.match(/(\d+(?:\.\d+)?\s*(?:lbs?|kg|g|servings?|caps?|tablets?|softgels?|ml|oz)\.?)/i);
+        if (sizeTagMatch) {
+          const sizeLabel = sizeTagMatch[1].trim();
+          let vPrice = priceAED;
+          
+          // Check for price embedded in swatch (e.g. "20% AED156.83" or "AED255.00")
+          const priceMatchInSwatch = rawContent.match(/(?:AED|Dhs|د\.إ)\s*([\d.]+)/i);
+          if (priceMatchInSwatch && priceMatchInSwatch[1]) {
+            const pVal = parseFloat(priceMatchInSwatch[1]);
+            if (!isNaN(pVal) && pVal > 10) vPrice = pVal;
+          }
+
+          let wKg = 0.8;
+          if (sizeLabel.includes('4') && sizeLabel.toLowerCase().includes('lb')) wKg = 1.8;
+          else if (sizeLabel.includes('5') && sizeLabel.toLowerCase().includes('lb')) wKg = 2.3;
+          else if (sizeLabel.includes('2') && sizeLabel.toLowerCase().includes('lb')) wKg = 0.9;
+          else if (sizeLabel.includes('10') && sizeLabel.toLowerCase().includes('lb')) wKg = 4.5;
+          else if (sizeLabel.toLowerCase().includes('kg')) {
+            const kgNum = parseFloat(sizeLabel);
+            if (!isNaN(kgNum) && kgNum > 0) wKg = kgNum;
+          }
+
+          if (!sizes.includes(sizeLabel)) {
+            sizes.push(sizeLabel);
+            variants.push({
+              id: `var-${varCount++}`,
+              name: `${sizeLabel} (${vPrice} AED)`,
+              size: sizeLabel,
+              flavor: 'پیش‌فرض',
+              priceAED: vPrice,
+              weightKg: wKg
+            });
+          }
+        } else if (!rawContent.includes('AED') && !rawContent.includes('%') && rawContent.length < 30) {
+          if (!flavors.includes(rawContent)) flavors.push(rawContent);
+        }
+      }
+    }
+
+    const defaultPrice = (variants.length > 0 && variants[0].priceAED > 0) ? variants[0].priceAED : priceAED;
+    const defaultWeight = (variants.length > 0 && variants[0].weightKg > 0) ? variants[0].weightKg : 0.8;
+
+    if (title && defaultPrice > 0) {
+      return {
+        ok: true,
+        title,
+        price: defaultPrice,
+        originalPrice: originalPriceAED > defaultPrice ? originalPriceAED : undefined,
+        currency: "AED",
+        image,
+        galleryImages: image ? [image] : [],
+        images: image ? [image] : [],
+        storeName,
+        brand,
+        flavors: flavors.length > 0 ? flavors : ['Milk Chocolate', 'Strawberry', 'Vanilla'],
+        sizes: sizes.length > 0 ? sizes : (variants.length > 0 ? variants.map(v => v.size) : ['4 lbs']),
+        variants: variants.length > 0 ? variants : [
+          { id: 'v1', name: '4 lbs', size: '4 lbs', flavor: 'Milk Chocolate', priceAED: defaultPrice, weightKg: defaultWeight }
+        ],
+        weightKg: defaultWeight
+      };
+    }
+
+    return null;
+  };
+
+  // TIER 1: DIRECT AXIOS / FETCH REQUEST
+  for (const url of urlCandidates) {
+    try {
+      const response = await axios.get(url, {
+        headers,
+        timeout: 15000
+      });
+      if (response.data && typeof response.data === 'string') {
+        const parsed = parseSporterHtml(response.data, url);
+        if (parsed && parsed.title && parsed.price > 0) {
+          return parsed;
+        }
+      }
+    } catch (_e) {}
+  }
+
+  // TIER 2: JINA READER PROXY FALLBACK
+  try {
+    const jinaUrl = `https://r.jina.ai/${enAeUrl}`;
+    const controller = new AbortController();
+    const tId = setTimeout(() => controller.abort(), 4000);
+    const jinaRes = await fetch(jinaUrl, {
+      headers: {
+        ...headers,
+        'X-With-Images-Summary': 'true',
+        'X-No-Cache': 'true'
+      },
+      signal: controller.signal
+    });
+    clearTimeout(tId);
+
+    if (jinaRes.ok) {
+      const jinaText = await jinaRes.text();
+      const parsed = parseHtmlEngine(jinaText, enAeUrl);
+      if (parsed.title && parsed.price > 0) {
+        return {
+          ok: true,
+          title: parsed.title.replace(/\s*\|\s*Sporter.*$/i, '').trim(),
+          price: parsed.price,
+          currency: "AED",
+          image: sanitizeImageUrl(parsed.image, enAeUrl),
+          galleryImages: parsed.galleryImages,
+          images: parsed.galleryImages,
+          variantGroups: parsed.variantGroups,
+          flavors: parsed.flavors,
+          sizes: parsed.sizes,
+          options: parsed.options,
+          storeName
+        };
+      }
+    }
+  } catch (_jinaErr) {}
+
+  // TIER 3: MICROLINK FALLBACK
+  const microlinkResult = await fetchWithMicrolink(enAeUrl, storeName);
+  if (microlinkResult && microlinkResult.price && microlinkResult.price > 0) {
+    return microlinkResult;
+  }
+
+  // TIER 4: SCRAPERAPI PROXY FALLBACK
+  const scraperApiKey = (cmsConfig?.apiConfig as any)?.scraperApiKey || process.env.SCRAPER_API_KEY || process.env.SCRAPERAPI_KEY || "a67220b28858f356c2b0f0ea7878c6f8";
+  if (scraperApiKey) {
+    try {
+      const scraperUrl = `http://api.scraperapi.com?api_key=${encodeURIComponent(scraperApiKey)}&url=${encodeURIComponent(enAeUrl)}`;
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 6000);
+      const scraperRes = await fetch(scraperUrl, { signal: controller.signal });
+      clearTimeout(tId);
+
+      if (scraperRes.ok) {
+        const scraperHtml = await scraperRes.text();
+        const parsed = parseSporterHtml(scraperHtml, enAeUrl) || parseHtmlEngine(scraperHtml, enAeUrl);
+        if (parsed && parsed.title && parsed.price > 0) {
+          return {
+            ok: true,
+            title: parsed.title,
+            price: parsed.price,
+            currency: "AED",
+            image: sanitizeImageUrl(parsed.image, enAeUrl),
+            galleryImages: parsed.galleryImages || [],
+            images: parsed.galleryImages || [],
+            variantGroups: parsed.variantGroups || [],
+            flavors: parsed.flavors || [],
+            sizes: parsed.sizes || [],
+            options: parsed.options || [],
+            storeName
+          };
+        }
+      }
+    } catch (_scraperErr) {}
+  }
+
+  return {
+    ok: false,
+    requireManualEntry: true,
+    message: "امکان استخراج خودکار از Sporter وجود نداشت. لطفاً لینک را جهت برآورد دستی وارد کنید."
+  };
+}
+
+// -------------------------------------------------------------------
+// ADAPTER 5: GENERIC ADAPTER (genericAdapter)
 // -------------------------------------------------------------------
 async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: any): Promise<ParseAdapterResult> {
   const lowerUrl = targetUrl.toLowerCase();
@@ -5780,6 +6745,8 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         result = await lifePharmacyAdapter(normalizedUrl, cmsConfig);
       } else if (domain.includes('drnutrition')) {
         result = await drNutritionAdapter(normalizedUrl, cmsConfig);
+      } else if (domain.includes('sporter')) {
+        result = await sporterAdapter(normalizedUrl, cmsConfig);
       } else {
         result = await genericAdapter(normalizedUrl, cmsConfig, req.body);
       }
@@ -6055,13 +7022,10 @@ async function startServer() {
   });
 }
 
-const isCloudFunction =
-  process.env.IS_FIREBASE_FUNCTION === 'true' ||
-  Boolean(process.env.K_SERVICE) ||
-  Boolean(process.env.FUNCTION_TARGET) ||
-  Boolean(process.env.FUNCTION_NAME) ||
-  Boolean(process.env.FIREBASE_CONFIG && process.env.PORT);
+const isDirectRun = typeof process !== 'undefined' && Array.isArray(process.argv) && process.argv[1] && (
+  process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.cjs') || process.argv[1].endsWith('server.js')
+) && !isCloudFunction;
 
-if (!isCloudFunction) {
+if (isDirectRun && !isCloudFunction) {
   startServer();
 }

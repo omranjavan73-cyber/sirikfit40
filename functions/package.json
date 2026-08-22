@@ -5,6 +5,9 @@
   "engines": {
     "node": "22"
   },
+  "scripts": {
+    "build": "node -e \"console.log('Build ready')\""
+  },
   "dependencies": {
     "@google-cloud/functions-framework": "^3.4.6",
     "@google/genai": "^2.4.0",

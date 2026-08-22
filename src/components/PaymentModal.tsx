@@ -61,20 +61,35 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     setErrorMessage('');
     setIsRedirecting(true);
     try {
+      // Extract and sanitize amount to pure integer (Toman)
+      const rawAmount =
+        order.calculatedToman ??
+        (order as any).totalToman ??
+        (order as any).totalPrice ??
+        (order as any).amount ??
+        0;
+
+      const sanitizedAmountToman = typeof rawAmount === 'string'
+        ? Math.round(Number(String(rawAmount).replace(/[^0-9.]/g, '')))
+        : Math.round(Number(rawAmount) || 0);
+
       const res = await fetch('/api/payment/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
-          orderId: order.id,
+          orderId: order.id || order.trackingCode,
           orderData: order,
+          amountToman: sanitizedAmountToman,
+          amount: sanitizedAmountToman,
           callbackUrl: window.location.origin + '/api/payment/callback'
         })
       });
 
       const data = await res.json();
-      if (res.ok && data.success && data.redirectUrl) {
+      const targetUrl = data.paymentUrl || data.redirectUrl || data.url;
+      if (res.ok && data.success && targetUrl) {
         // Redirect directly to official Zibal Shaparak payment gateway
-        window.location.href = data.redirectUrl;
+        window.location.href = targetUrl;
       } else {
         setErrorMessage(
           data.error ||

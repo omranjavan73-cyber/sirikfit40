@@ -53,7 +53,8 @@ import {
   setDoc,
   deleteDoc,
   query,
-  orderBy
+  orderBy,
+  onSnapshot
 } from 'firebase/firestore';
 import {
   dispatchExpenseToGoogleSheets,
@@ -118,37 +119,7 @@ const EXPENSE_CATEGORY_CONFIG: Record<
   }
 };
 
-const DEFAULT_SAMPLE_EXPENSES: FinancialExpense[] = [
-  {
-    id: 'exp-init-1',
-    category: 'CARGO_MONTHLY',
-    title: 'تسویه بارنامه هوایی کارگو دبی به تهران',
-    amount: 1250,
-    currency: 'AED',
-    amountToman: 75000000,
-    amountAed: 1250,
-    date: new Date(Date.now() - 5 * 86400000).toISOString().split('T')[0],
-    timestamp: Date.now() - 5 * 86400000,
-    vendorName: 'شرکت کارگو هوایی البرز دبی',
-    referenceNumber: 'CRG-DXB-9941',
-    notes: 'تسویه بارنامه ۴۲ کیلوگرم مکمل پروتئین و ویتامین',
-    createdAt: new Date(Date.now() - 5 * 86400000).toISOString()
-  },
-  {
-    id: 'exp-init-2',
-    category: 'PACKAGING_SUPPLIES',
-    title: 'خرید کارتن‌های ضدضربه و فوم محافظتی ۵ لایه',
-    amount: 4800000,
-    currency: 'TOMAN',
-    amountToman: 4800000,
-    date: new Date(Date.now() - 10 * 86400000).toISOString().split('T')[0],
-    timestamp: Date.now() - 10 * 86400000,
-    vendorName: 'کارتن‌سازی ملت',
-    referenceNumber: 'INV-BOX-104',
-    notes: '۲۵۰ عدد کارتن استاندارد پستی و رول نایلون حباب‌دار',
-    createdAt: new Date(Date.now() - 10 * 86400000).toISOString()
-  }
-];
+const DEFAULT_SAMPLE_EXPENSES: FinancialExpense[] = [];
 
 export const AdminAccounting: React.FC<AdminAccountingProps> = ({
   orders,
@@ -176,11 +147,11 @@ export const AdminAccounting: React.FC<AdminAccountingProps> = ({
         const cached = localStorage.getItem('sirikfit_financial_expenses');
         if (cached) {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed)) return parsed;
         }
       } catch (_e) {}
     }
-    return DEFAULT_SAMPLE_EXPENSES;
+    return [];
   });
 
   const [isLoadingExpenses, setIsLoadingExpenses] = useState<boolean>(false);
@@ -204,39 +175,57 @@ export const AdminAccounting: React.FC<AdminAccountingProps> = ({
   const [isSyncingToSheet, setIsSyncingToSheet] = useState<boolean>(false);
   const [syncStatusMessage, setSyncStatusMessage] = useState<string | null>(null);
 
-  // Load Expenses from Firestore on mount
+  // Load & Subscribe Expenses from Firestore
   useEffect(() => {
-    let isMounted = true;
-    const fetchExpenses = async () => {
-      if (!db) return;
-      setIsLoadingExpenses(true);
-      try {
-        const expCol = collection(db, 'financial_expenses');
-        const q = query(expCol, orderBy('timestamp', 'desc'));
-        const snap = await getDocs(q);
-        if (isMounted) {
-          if (!snap.empty) {
-            const list: FinancialExpense[] = snap.docs.map(d => ({
-              id: d.id,
-              ...(d.data() as Omit<FinancialExpense, 'id'>)
-            }));
-            setExpenses(list);
-            localStorage.setItem('sirikfit_financial_expenses', JSON.stringify(list));
-          } else {
-            // Seed defaults if empty
-            localStorage.setItem('sirikfit_financial_expenses', JSON.stringify(DEFAULT_SAMPLE_EXPENSES));
-          }
+    if (!db) return;
+    setIsLoadingExpenses(true);
+    let unsubscribe: (() => void) | null = null;
+    try {
+      const expCol = collection(db, 'financial_expenses');
+      const q = query(expCol, orderBy('timestamp', 'desc'));
+      unsubscribe = onSnapshot(q, (snap) => {
+        const list: FinancialExpense[] = snap.docs.map(d => ({
+          id: d.id,
+          ...(d.data() as Omit<FinancialExpense, 'id'>)
+        }));
+        setExpenses(list);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sirikfit_financial_expenses', JSON.stringify(list));
         }
-      } catch (err) {
-        console.warn('Could not fetch financial_expenses from Firestore, using local cache:', err);
-      } finally {
-        if (isMounted) setIsLoadingExpenses(false);
-      }
-    };
+        setIsLoadingExpenses(false);
+      }, (err) => {
+        console.warn('Live financial_expenses subscription warning:', err);
+        setIsLoadingExpenses(false);
+      });
+    } catch (err) {
+      console.warn('Could not setup expenses subscription:', err);
+      setIsLoadingExpenses(false);
+    }
 
-    fetchExpenses();
     return () => {
-      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  const [liveTransactions, setLiveTransactions] = useState<any[]>([]);
+
+  // Load & Subscribe Transactions from Firestore
+  useEffect(() => {
+    if (!db) return;
+    let unsubscribe: (() => void) | null = null;
+    try {
+      const txCol = collection(db, 'transactions');
+      const q = query(txCol, orderBy('timestamp', 'desc'));
+      unsubscribe = onSnapshot(q, (snap) => {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setLiveTransactions(list);
+      }, (err) => {
+        console.warn('Transactions subscription notice:', err);
+      });
+    } catch (_e) {}
+
+    return () => {
+      if (unsubscribe) unsubscribe();
     };
   }, []);
 
@@ -301,13 +290,60 @@ export const AdminAccounting: React.FC<AdminAccountingProps> = ({
   // TOP 4 KPI & P&L CALCULATIONS FOR SELECTED PERIOD
   // ==========================================
   const paidPeriodOrders = useMemo(() => {
-    return periodOrders.filter(o => o.paymentStatus === 'PAID');
+    return periodOrders.filter(o => o.paymentStatus === 'PAID' || (o as any).status === 'paid');
   }, [periodOrders]);
 
-  // 1. Total Revenue Received (مجموع درآمد دریافتی)
+  // 1. Total Revenue (کل فروش)
   const totalRevenueToman = useMemo(() => {
-    return paidPeriodOrders.reduce((sum, o) => sum + (o.calculatedToman || 0), 0);
-  }, [paidPeriodOrders]);
+    if (liveTransactions.length > 0) {
+      const filteredTx = liveTransactions.filter(tx => {
+        const isSuccess = tx.status === 'SUCCESS' || tx.paymentStatus === 'PAID';
+        const isPeriod = isDateInPeriod(tx.timestamp || tx.createdAt);
+        return isSuccess && isPeriod;
+      });
+      if (filteredTx.length > 0) {
+        return filteredTx.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+      }
+    }
+    return paidPeriodOrders.reduce((sum, o) => sum + (Number(o.calculatedToman || (o as any).totalAmount || (o as any).totalAmountToman) || 0), 0);
+  }, [liveTransactions, paidPeriodOrders, periodFilter, customStartDate, customEndDate]);
+
+  // 1.1 Today's Revenue (درآمد ۲۴ ساعت گذشته)
+  const todayIncomeToman = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const now = Date.now();
+
+    if (liveTransactions.length > 0) {
+      const tx24h = liveTransactions.filter(tx => {
+        const isSuccess = tx.status === 'SUCCESS' || tx.paymentStatus === 'PAID';
+        if (!isSuccess) return false;
+        const txDate = tx.timestamp || tx.createdAt;
+        if (!txDate) return false;
+        return String(txDate).startsWith(today) || (now - new Date(txDate).getTime()) < 86400000;
+      });
+      if (tx24h.length > 0) {
+        return tx24h.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+      }
+    }
+
+    return (orders || [])
+      .filter(o => o.paymentStatus === 'PAID' || (o as any).status === 'paid')
+      .filter(o => {
+        const orderDate = o.paidAt || o.createdAt;
+        if (!orderDate) return false;
+        return String(orderDate).startsWith(today) || (now - new Date(orderDate).getTime()) < 86400000;
+      })
+      .reduce((sum, o) => sum + (Number(o.calculatedToman || (o as any).totalAmount || (o as any).totalAmountToman) || 0), 0);
+  }, [liveTransactions, orders]);
+
+  // 1.2 Paid Invoices Count (تعداد فاکتورهای پرداخت شده)
+  const paidInvoicesCount = useMemo(() => {
+    if (liveTransactions.length > 0) {
+      const count = liveTransactions.filter(tx => tx.status === 'SUCCESS' || tx.paymentStatus === 'PAID').length;
+      if (count > 0) return count;
+    }
+    return (orders || []).filter(o => o.paymentStatus === 'PAID' || (o as any).status === 'paid').length;
+  }, [liveTransactions, orders]);
 
   // Total Estimated Base Product Purchase (خرید پایه کالا دبی)
   const totalOrderProductCostToman = useMemo(() => {
@@ -736,8 +772,13 @@ export const AdminAccounting: React.FC<AdminAccountingProps> = ({
         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-500 mb-2">
             <span className="text-xs font-extrabold">کل درآمد دریافتی (فروش)</span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-lg">
+                امروز: {formatToman(todayIncomeToman)}
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">

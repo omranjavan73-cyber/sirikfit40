@@ -1,221 +1,189 @@
-import React, { useState } from 'react';
-import type { LocalInventoryItem, WarehouseCategory, FinancialSettings } from '../types';
-import { formatToman, formatPrice, formatAedValue, getEffectiveAedRate } from '../utils/formatters';
-import { CategoryGridSection } from './CategoryGridSection';
+﻿import React, { useState } from 'react';
+import { SlidersHorizontal, X, ShoppingBag, Check } from 'lucide-react';
+import type { LocalInventoryItem, FinancialSettings } from '../types';
 import { ProductDetailModal } from './ProductDetailModal';
-import { isCategoryMatch } from '../utils/categoryHelper';
+import { TwoTierCategoryNav } from './TwoTierCategoryNav';
+import { ProductCatalogCard } from './ProductCatalogCard';
+import { FloatingViewSwitcher } from './FloatingViewSwitcher';
+import { matchProductTaxonomy } from '../utils/taxonomyHelper';
 
 interface InventoryPageProps {
   items: LocalInventoryItem[];
-  categories?: WarehouseCategory[];
   onSelectLocalProduct: (item: LocalInventoryItem) => void;
   settings?: FinancialSettings;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
+  showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const InventoryPage: React.FC<InventoryPageProps> = ({
-  items,
-  categories,
+  items = [],
   onSelectLocalProduct,
   settings,
-  onAddToCart
+  onAddToCart,
+  showToast
 }) => {
-  const [selectedCat, setSelectedCat] = useState<string>('all');
+  const [selectedMainCat, setSelectedMainCat] = useState<string>('sports_nutrition');
+  const [selectedSubCat, setSelectedSubCat] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
   const [selectedLocalForModal, setSelectedLocalForModal] = useState<LocalInventoryItem | null>(null);
 
   const visibleItems = (items || []).filter(item => item && item.inStock !== false);
 
-  const filteredItems = visibleItems.filter(item => {
-    const q = searchQuery.trim().toLowerCase();
-    const title = (item.title || '').toLowerCase();
-    const cat = (item.category || '').toLowerCase();
-    const desc = (item.description || '').toLowerCase();
-
-    const matchesSearch = !q || title.includes(q) || cat.includes(q) || desc.includes(q);
-    const matchesCat = isCategoryMatch(item, selectedCat, categories);
-
-    return matchesSearch && matchesCat;
+  const filteredItems = visibleItems.filter((item) => {
+    return matchProductTaxonomy(item, selectedMainCat, selectedSubCat, searchQuery);
   });
 
-  // Short brand tag (3-4 uppercase letters) helper
-  const getItemBrandCode = (title: string, category?: string) => {
-    const t = title.toLowerCase();
-    if (t.includes('myprotein') || t.includes('مای پروتئین') || t.includes('myp')) return 'MYP';
-    if (t.includes('gnc') || t.includes('جی ان سی')) return 'GNC';
-    if (t.includes('cellucor') || t.includes('c4') || t.includes('سلکور')) return 'CEL';
-    if (t.includes('doctor') || t.includes('doc')) return 'DOC';
-    if (t.includes('optimum') || t.includes('on ') || t.includes('وی')) return 'ON';
-    if (t.includes('dymatize') || t.includes('iso')) return 'ISO';
-    if (t.includes('life')) return 'LIFE';
-    return 'ON';
-  };
+  const handleProductCardAddToCart = (product: any) => {
+    const enrichedProduct = {
+      ...product,
+      calculatedToman: product.priceToman,
+      totalToman: product.priceToman,
+      isLocalInventory: true
+    };
 
-  const defaultSettings: FinancialSettings = settings || {
-    cargoRatePerKg: 35,
-    profitMargin: 20,
-    aedRate: 23000
+    if (onAddToCart) {
+      onAddToCart(enrichedProduct);
+    } else {
+      onSelectLocalProduct(enrichedProduct);
+    }
   };
 
   return (
-    <div className="space-y-4 font-['Vazirmatn',sans-serif] animate-fade-in pb-12">
-      {/* Top Header */}
-      <div className="text-right pb-0.5">
-        <h2 className="text-lg md:text-xl font-black text-slate-900 tracking-tight">
-          موجودی انبار ایران
-        </h2>
-      </div>
-
-      {/* Shared Category Grid Section (Search + 3x2 Rectangular Category Cards + All Categories Button & Drawer) */}
-      <CategoryGridSection
-        categories={categories}
-        selectedCat={selectedCat}
-        onSelectCategory={setSelectedCat}
+    <div className="space-y-4 font-['Vazirmatn',sans-serif] animate-fade-in pb-24 text-right">
+      {/* 1. Two-Tier Category Navigation & Clean Search Header */}
+      <TwoTierCategoryNav
+        selectedMainCat={selectedMainCat}
+        selectedSubCat={selectedSubCat}
+        onSelectMainCat={setSelectedMainCat}
+        onSelectSubCat={setSelectedSubCat}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        searchPlaceholder="...جستجوی مکمل، برند یا دسته"
-        itemsCount={filteredItems.length}
+        searchPlaceholder="... جستجوی مکمل، برند یا ویتامین در انبار ایران"
+        totalCount={filteredItems.length}
       />
 
-      {/* Stock Items List Header */}
-      <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-        <h3 className="font-extrabold text-sm text-[#111111]">موجودی انبار ایران</h3>
-        <span className="text-xs font-extrabold text-[#111111] bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] px-3 py-0.5 rounded-full">
-          {filteredItems.length} کالا
-        </span>
-      </div>
-
-      {/* Stock Items Grid (Responsive Multi-column Grid) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-        {filteredItems.map((item) => {
-          const brandCode = getItemBrandCode(item.title, item.category);
-
-          return (
-            <div
-              key={item.id}
-              onClick={() => setSelectedLocalForModal(item)}
-              className="product-card bg-white border border-slate-200/90 hover:border-[#111111] rounded-[22px] p-3.5 shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col justify-between relative space-y-3 overflow-hidden"
-            >
-              {/* Product Image Container */}
-              <div className="img-wrap relative w-full h-[120px] rounded-[18px] bg-[#F8FAFC] border border-slate-100 flex items-center justify-center overflow-hidden">
-                {item.image ? (
-                  <img
-                    src={item.image}
-                    alt={item.title}
-                    className="w-full h-full object-cover object-center block"
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                ) : null}
-
-                {!item.image && (
-                  <span className="font-black text-2xl text-[#111111] tracking-tight">{brandCode}</span>
-                )}
-
-                {/* Stock Badge on top of Image */}
-                <span className="badge absolute bottom-1.5 right-1.5 bg-[#111111] text-white text-[9px] font-extrabold px-2 py-0.5 rounded-md shadow-2xs z-20">
-                  {item.deliveryBadge || 'تحویل فوری'}
-                </span>
-              </div>
-
-              {/* Product Title & Stock Status */}
-              <div className="space-y-1.5 text-right flex-1 flex flex-col justify-between">
-                <span className="text-[10px] font-extrabold text-emerald-600 block">
-                  موجودی در ایران ({item.stockCount || 4} عدد)
-                </span>
-
-                <h4 className="font-extrabold text-xs md:text-sm text-slate-900 leading-snug line-clamp-2 min-h-[32px]">
-                  {item.title}
-                </h4>
-
-                {/* Pricing Row - Single unbroken row */}
-                <div className="flex items-center justify-between w-full pt-2 pb-1 border-t border-gray-100">
-                  {/* Right side: Toman Price in a single unbroken line */}
-                  <div className="flex items-baseline gap-1 text-red-600 font-extrabold text-xs sm:text-sm md:text-base whitespace-nowrap">
-                    <span>{formatPrice(item.priceToman)}</span>
-                    <span className="text-[10px] sm:text-[11px] md:text-xs font-bold">تومان</span>
-                  </div>
-
-                  {/* Left side: AED Original Price if available */}
-                  {item.priceAed ? (
-                    <div className="text-gray-400 text-xs font-semibold whitespace-nowrap dir-ltr">
-                      <span>{formatAedValue(item.priceAed)}</span>
-                      <span className="text-[10px] ml-0.5">AED</span>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              {/* Full-width Order Button */}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedLocalForModal(item);
-                }}
-                className="w-full bg-slate-900 hover:bg-red-600 text-white text-xs font-bold py-2.5 rounded-xl transition-all duration-200 shadow-sm active:scale-95 mt-1 cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                افزودن به سبد خرید
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {filteredItems.length === 0 && (
-        <div className="text-center py-12 bg-white rounded-3xl border border-slate-200 p-6 space-y-2">
-          <p className="text-sm font-extrabold text-slate-800">هیچ کالایی با این مشخصات یافت نشد</p>
-          <p className="text-xs text-slate-500 font-medium">لطفاً کلمه کلیدی یا دسته‌بندی دیگری را امتحان کنید.</p>
+      {/* 2. Products List/Grid Section */}
+      {filteredItems.length === 0 ? (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-12 text-center space-y-4 my-6 shadow-2xs">
+          <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+            <ShoppingBag className="w-8 h-8" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="font-extrabold text-sm text-slate-800">کالایی در این دسته‌بندی یافت نشد</h3>
+            <p className="text-xs text-slate-500 font-medium">می‌توانید فیلترها را پاک کنید یا از دسته‌بندی دیگری انتخاب نمایید.</p>
+          </div>
           <button
-            onClick={() => { setSelectedCat('all'); setSearchQuery(''); }}
-            className="mt-2 text-xs font-black text-slate-900 underline"
+            type="button"
+            onClick={() => {
+              setSelectedSubCat('all');
+              setSearchQuery('');
+            }}
+            className="bg-slate-900 hover:bg-black text-white text-xs font-black px-6 py-2.5 rounded-2xl transition cursor-pointer"
           >
-            پاک کردن فیلترها
+            مشاهده همه موجودی انبار
           </button>
+        </div>
+      ) : (
+        <div className={viewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3' : 'space-y-3'}>
+          {filteredItems.map((item) => (
+            <ProductCatalogCard
+              key={item.id}
+              product={{
+                ...item,
+                calculatedToman: item.priceToman,
+                totalToman: item.priceToman,
+                storeName: 'انبار ایران',
+                brand: item.brand || 'انبار ایران'
+              }}
+              viewMode={viewMode}
+              onSelect={(p) => setSelectedLocalForModal(p)}
+              onAddToCart={handleProductCardAddToCart}
+              showToast={(msg) => {
+                if (showToast) showToast(msg, 'success');
+              }}
+            />
+          ))}
         </div>
       )}
 
-      {/* Embedded Product Details Modal */}
-      {(() => {
-        if (!selectedLocalForModal) return null;
-        const effectiveRate = getEffectiveAedRate(settings) || 55000;
-        return (
-          <ProductDetailModal
-            isOpen={!!selectedLocalForModal}
-            onClose={() => setSelectedLocalForModal(null)}
-            product={{
-              id: selectedLocalForModal.id,
-              title: `${selectedLocalForModal.title} (موجودی انبار ایران)`,
-              url: selectedLocalForModal.url || 'https://omex.ir/stock/' + selectedLocalForModal.id,
-              priceAed: selectedLocalForModal.priceAed || Math.round(selectedLocalForModal.priceToman / effectiveRate) || 100,
-              originalPriceAed: selectedLocalForModal.originalPriceToman ? Math.round(selectedLocalForModal.originalPriceToman / effectiveRate) : 0,
-              priceToman: selectedLocalForModal.priceToman,
-              originalPriceToman: selectedLocalForModal.originalPriceToman,
-              calculatedTomanOverride: selectedLocalForModal.priceToman,
-              isLocalInventory: true,
-              weightKg: selectedLocalForModal.weightKg || 0.5,
-              image: selectedLocalForModal.image,
-              storeName: 'انبار ایران (تحویل فوری)',
-              brand: 'انبار ایران',
-              category: selectedLocalForModal.category || 'موجودی ایران',
-              description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران جهت ارسال فوری',
-              badge: selectedLocalForModal.deliveryBadge || '⚡ ارسال فوری (انبار ایران)',
-              flavors: selectedLocalForModal.flavors || [],
-              sizes: selectedLocalForModal.sizes || []
-            }}
-            settings={settings || { cargoRatePerKg: 35, profitMargin: 20, aedRate: effectiveRate }}
-            onAddToCart={(productPayload, flavor, size) => {
-              if (onAddToCart) {
-                onAddToCart(productPayload, flavor, size);
-              } else if (selectedLocalForModal) {
-                onSelectLocalProduct(selectedLocalForModal);
-              }
-              setSelectedLocalForModal(null);
-            }}
-          />
-        );
-      })()}
+      {/* 3. Floating View Mode Switcher & Filter Button */}
+      <FloatingViewSwitcher
+        viewMode={viewMode}
+        onToggleViewMode={(mode) => setViewMode(mode)}
+        onOpenFilters={() => setIsFilterModalOpen(true)}
+      />
+
+      {/* 4. Filter Drawer / Modal */}
+      {isFilterModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in font-['Vazirmatn',sans-serif] dir-rtl">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl animate-slide-up">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-blue-700" />
+                <span>فیلترهای انبار ایران</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsFilterModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <p className="text-slate-600 leading-relaxed font-medium">
+                کالاهای انبار ایران موجود و پلمپ در انبار بوده و آماده ارسال مستقیم می‌باشند.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsFilterModalOpen(false)}
+                className="w-full bg-blue-700 hover:bg-blue-800 text-white text-xs font-black py-2.5 rounded-xl transition cursor-pointer text-center"
+              >
+                بستن پنجره
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Product Detail Modal */}
+      {selectedLocalForModal && (
+        <ProductDetailModal
+          isOpen={!!selectedLocalForModal}
+          onClose={() => setSelectedLocalForModal(null)}
+          product={{
+            id: selectedLocalForModal.id,
+            title: selectedLocalForModal.title,
+            image: selectedLocalForModal.image,
+            priceToman: selectedLocalForModal.priceToman,
+            calculatedTomanOverride: selectedLocalForModal.priceToman,
+            priceAed: selectedLocalForModal.priceAed || 0,
+            originalPriceToman: selectedLocalForModal.originalPriceToman,
+            description: selectedLocalForModal.description || 'اورجینال - موجود در انبار ایران',
+            category: selectedLocalForModal.category || 'انبار ایران',
+            isLocalInventory: true,
+            isIranWarehouse: true,
+            flavors: selectedLocalForModal.flavors,
+            sizes: selectedLocalForModal.sizes
+          }}
+          settings={settings}
+          onAddToCart={(productPayload, flavor, size) => {
+            if (onAddToCart) {
+              onAddToCart(productPayload, flavor, size);
+            } else {
+              onSelectLocalProduct(selectedLocalForModal);
+            }
+            if (showToast) showToast('کالا به سبد خرید اضافه شد', 'success');
+            setSelectedLocalForModal(null);
+          }}
+        />
+      )}
     </div>
   );
 };

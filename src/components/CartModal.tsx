@@ -164,43 +164,109 @@ export const CartModal: React.FC<CartModalProps> = ({
     setIsSubmitting(true);
 
     try {
+      const orderId = `SF-${Date.now().toString().slice(-6)}`;
       const orderProductTitle = safeCartItems.map((i) => `${toPersianDigits(i.quantity || 1)} × ${i.title || ''}`).join(' | ');
       const orderProductUrl = safeCartItems[0]?.url || 'https://www.drnutrition.com';
       const orderProductImage = safeCartItems[0]?.image || '';
       const orderStoreName = safeCartItems[0]?.storeName || 'فروشگاه دبی';
 
-      const res = await fetch('/api/orders', {
+      const mappedItems = safeCartItems.map(item => ({
+        id: item.id || item.url || `item-${Date.now()}`,
+        title: item.title,
+        variant: item.selectedOption || item.selectedFlavor || item.selectedSize || "اصلی",
+        quantity: item.quantity || 1,
+        priceToman: Number(getItemUnitToman(item)),
+        priceAED: Number(item.priceAed || 0),
+        imageUrl: item.image || (item as any).imageUrl || "",
+        sourceUrl: item.url || (item as any).sourceUrl || "" // Direct UAE retailer link
+      }));
+
+      const orderPayload = {
+        id: orderId,
+        orderId: orderId,
+        orderNumber: orderId,
+        trackingCode: orderId,
+        userId: currentUser?.id || undefined,
+        customer: {
+          fullName: customerName.trim(),
+          phone: cleanIranianMobile(phoneNumber),
+          postalCode: cleanPostalCode(postalCode), // Mandatory 10-digit Postal Code
+          fullAddress: deliveryAddress.trim(),
+          notes: notes ? notes.trim() : ""
+        },
+        customerName: customerName.trim(),
+        phoneNumber: cleanIranianMobile(phoneNumber),
+        postalCode: cleanPostalCode(postalCode),
+        deliveryAddress: deliveryAddress.trim(),
+        notes: notes ? notes.trim() : "",
+        productTitle: orderProductTitle,
+        productUrl: orderProductUrl,
+        productImage: orderProductImage,
+        storeName: orderStoreName,
+        priceAed: cartTotalAed,
+        weightKg: cartTotalWeightKg,
+        items: mappedItems,
+        totalAmountToman: Number(effectiveTotalToman),
+        calculatedToman: Number(effectiveTotalToman),
+        totalToman: Number(effectiveTotalToman),
+        discountCode: appliedDiscount?.discountCodeObj?.code,
+        discountAmountToman: discountAmountToman > 0 ? discountAmountToman : undefined,
+        paymentStatus: "PENDING_PAYMENT",
+        orderStatus: "PENDING_UAE_PURCHASE", // Step 1: در انتظار خرید از دبی
+        shippingStatus: "PENDING_UAE_PURCHASE",
+        gateway: "ZIBAL",
+        paymentGateway: "ZIBAL",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      // 1. Commit draft to Firestore
+      try {
+        const { doc, setDoc } = await import('firebase/firestore');
+        const { db, sanitizePayloadForFirestore } = await import('../firebase');
+        await setDoc(doc(db, "orders", orderId), sanitizePayloadForFirestore(orderPayload), { merge: true });
+      } catch (dbErr) {
+        console.warn('Firestore pre-payment persistence notice:', dbErr);
+      }
+
+      // Also cache locally
+      if (typeof window !== 'undefined') {
+        try {
+          const existingStr = localStorage.getItem('sirikfit_orders') || '[]';
+          const existing: any[] = JSON.parse(existingStr);
+          existing.unshift(orderPayload);
+          localStorage.setItem('sirikfit_orders', JSON.stringify(existing));
+        } catch (_e) {}
+      }
+
+      if (appliedDiscount?.discountCodeObj?.id) {
+        incrementDiscountUsage(appliedDiscount.discountCodeObj.id);
+      }
+      if (onClearCart) onClearCart();
+
+      // 2. Call backend createPayment and redirect
+      const callbackUrl = `${window.location.origin}/payment-result?orderId=${orderId}`;
+      const paymentRes = await fetch('/api/payment/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
-          userId: currentUser?.id,
-          customerName: customerName.trim(),
-          phoneNumber: cleanIranianMobile(phoneNumber),
-          postalCode: cleanPostalCode(postalCode),
-          deliveryAddress: deliveryAddress.trim(),
-          notes: notes.trim(),
-          productTitle: orderProductTitle,
-          productUrl: orderProductUrl,
-          productImage: orderProductImage,
-          storeName: orderStoreName,
-          priceAed: cartTotalAed,
-          weightKg: cartTotalWeightKg,
-          calculatedToman: effectiveTotalToman,
-          discountCode: appliedDiscount?.discountCodeObj?.code,
-          discountAmountToman: discountAmountToman > 0 ? discountAmountToman : undefined
+          orderId: orderId,
+          orderData: orderPayload,
+          amountToman: effectiveTotalToman,
+          amount: effectiveTotalToman,
+          callbackUrl: callbackUrl
         })
       });
 
-      const data = await res.json();
-      if (res.ok && data.order) {
-        if (appliedDiscount?.discountCodeObj?.id) {
-          incrementDiscountUsage(appliedDiscount.discountCodeObj.id);
-        }
-        if (onClearCart) onClearCart();
-        if (onOrderCreated) onOrderCreated(data.order);
-        onClose();
+      const paymentData = await paymentRes.json();
+      const targetUrl = paymentData.paymentUrl || paymentData.redirectUrl || paymentData.url;
+      if (paymentRes.ok && paymentData.success && targetUrl) {
+        window.location.href = targetUrl;
+        return;
       } else {
-        setErrorMessage(data.error || 'خطا در ثبت سفارش.');
+        setErrorMessage(paymentData.error || 'خطا در دریافت لینک درگاه بانکی زیبال.');
+        setIsSubmitting(false);
+        return;
       }
     } catch (e) {
       console.error('Error submitting order:', e);
@@ -505,7 +571,14 @@ export const CartModal: React.FC<CartModalProps> = ({
                         : 'bg-[#D31027] hover:bg-rose-700 text-white cursor-pointer'
                     }`}
                   >
-                    {isSubmitting ? 'در حال ثبت...' : 'تایید و پرداخت نهایی'}
+                    {isSubmitting ? (
+                      <span className="inline-flex items-center justify-center gap-2">
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        <span>در حال انتقال به درگاه بانکی شاپرک...</span>
+                      </span>
+                    ) : (
+                      'تأیید و پرداخت نهایی'
+                    )}
                   </button>
                 </div>
               </form>

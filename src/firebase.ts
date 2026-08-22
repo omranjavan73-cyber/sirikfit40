@@ -13,7 +13,8 @@ import {
   query,
   where,
   orderBy,
-  limit
+  limit,
+  onSnapshot
 } from 'firebase/firestore';
 import { safeFetchJson } from './utils/apiHelper';
 import { dispatchOrderToGoogleSheets } from './utils/googleSheetsSync';
@@ -304,7 +305,8 @@ export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: s
 export async function fetchAllOrdersFromFirestore(): Promise<any[]> {
   try {
     const ordersRef = collection(db, 'orders');
-    const snap = await getDocs(ordersRef);
+    const q = query(ordersRef, orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
     if (!snap.empty) {
       const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       if (typeof window !== 'undefined') {
@@ -329,6 +331,43 @@ export async function fetchAllOrdersFromFirestore(): Promise<any[]> {
     }
   } catch (_e) {}
   return [];
+}
+
+export function subscribeToOrders(callback: (orders: any[]) => void): () => void {
+  try {
+    const ordersRef = collection(db, 'orders');
+    const q = query(ordersRef, orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const orders = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sirikfit_orders', JSON.stringify(orders));
+      }
+      callback(orders);
+    }, (error) => {
+      console.warn('Orders onSnapshot error, falling back to fetchAllOrdersFromFirestore:', error);
+      fetchAllOrdersFromFirestore().then(callback);
+    });
+  } catch (err) {
+    console.warn('subscribeToOrders setup error:', err);
+    fetchAllOrdersFromFirestore().then(callback);
+    return () => {};
+  }
+}
+
+export function subscribeToTransactions(callback: (txs: any[]) => void): () => void {
+  try {
+    const txRef = collection(db, 'transactions');
+    const q = query(txRef, orderBy('timestamp', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const txs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      callback(txs);
+    }, (error) => {
+      console.warn('Transactions onSnapshot warning:', error);
+    });
+  } catch (err) {
+    console.warn('subscribeToTransactions setup error:', err);
+    return () => {};
+  }
 }
 
 export async function deleteOrderFromFirestore(orderId: string): Promise<boolean> {

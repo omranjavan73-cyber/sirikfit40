@@ -26,8 +26,7 @@ import {
 } from 'lucide-react';
 import type { CmsConfig, LandingSettings, LandingBenefitItem, LandingFaqItem, LandingRuleItem } from '../types';
 import { defaultLandingSettings } from '../types';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { getLandingSettings, saveLandingSettings } from '../services/settingsService';
 
 interface AdminLandingSettingsProps {
   cms: CmsConfig | null;
@@ -58,25 +57,17 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
     return { ...defaultLandingSettings };
   });
 
-  // Fetch directly from settings/landing on mount
+  // Fetch directly from Firestore on mount using service
   useEffect(() => {
     let isMounted = true;
-    const fetchLandingDoc = async () => {
-      try {
-        if (!db) return;
-        const snap = await getDoc(doc(db, 'settings', 'landing'));
-        if (snap.exists() && isMounted) {
-          const data = snap.data() as Partial<LandingSettings>;
-          setSettings(prev => ({
-            ...prev,
-            ...data
-          }));
-        }
-      } catch (err) {
-        console.warn('Could not fetch settings/landing from Firestore:', err);
+    getLandingSettings().then((fetched) => {
+      if (isMounted && fetched) {
+        setSettings(prev => ({
+          ...prev,
+          ...fetched
+        }));
       }
-    };
-    fetchLandingDoc();
+    });
     return () => { isMounted = false; };
   }, []);
 
@@ -206,22 +197,8 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // 1. Save to localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('sirikfit_landing_settings', JSON.stringify(settings));
-      }
-
-      // 2. Direct write to Firestore document `settings/landing`
-      if (db) {
-        try {
-          await setDoc(doc(db, 'settings', 'landing'), {
-            ...settings,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-        } catch (fsErr) {
-          console.warn('Direct Firestore save to settings/landing failed:', fsErr);
-        }
-      }
+      // 1. Direct write to Firestore document `settings/landing` and sync to localStorage
+      await saveLandingSettings(settings);
 
       // 3. Sync to main CMS config for backward compatibility
       if (onSaveCms) {

@@ -30,6 +30,7 @@ import { Footer } from './components/Footer';
 import { CompactLandingFooter } from './components/CompactLandingFooter';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem, LandingSettings } from './types';
 import { defaultLandingSettings } from './types';
+import { getLandingSettings } from './services/settingsService';
 import { toPersianDigits, getEffectiveAedRate, calculateFinalToman } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -359,11 +360,24 @@ function MainApp() {
       }
     };
 
+    const syncLandingFromStorage = (e?: any) => {
+      const data = e?.detail || getLandingSettings();
+      if (data && typeof data === 'object' && 'then' in data) {
+        data.then((res: any) => {
+          if (res) setLandingSettings(res);
+        });
+      } else if (data) {
+        setLandingSettings(data);
+      }
+    };
+
     window.addEventListener('settingsUpdated', syncSettingsFromStorage as EventListener);
+    window.addEventListener('landingSettingsUpdated', syncLandingFromStorage as EventListener);
     window.addEventListener('storage', syncSettingsFromStorage as EventListener);
 
     return () => {
       window.removeEventListener('settingsUpdated', syncSettingsFromStorage as EventListener);
+      window.removeEventListener('landingSettingsUpdated', syncLandingFromStorage as EventListener);
       window.removeEventListener('storage', syncSettingsFromStorage as EventListener);
     };
   }, []);

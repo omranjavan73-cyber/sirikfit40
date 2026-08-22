@@ -214,9 +214,16 @@ export const ExtractedProductCard: React.FC<ExtractedProductCardProps> = ({
                 <Coins className="w-3 h-3 text-amber-500" />
                 قیمت در امارات:
               </span>
-              <span className="text-gray-900 font-black text-sm dir-ltr block text-left">
-                {formatAed(priceAed)}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-900 font-black text-sm dir-ltr block text-left">
+                  {formatAed(priceAed)}
+                </span>
+                {originalPriceAed && originalPriceAed > priceAed && (
+                  <span className="text-gray-400 font-bold text-xs line-through dir-ltr">
+                    {formatAed(originalPriceAed)}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="bg-white p-3 rounded-2xl border border-gray-200 shadow-2xs">

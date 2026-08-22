@@ -4856,6 +4856,7 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
 
 // -------------------------------------------------------------------
 // ADAPTER: SPORTER UAE DEDICATED ADAPTER (sporterAdapter)
+// Multi-tier price extraction separating CURRENT vs OLD/COMPARE-AT price
 // -------------------------------------------------------------------
 async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdapterResult> {
   const storeName = "Sporter UAE";
@@ -4871,21 +4872,104 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<Parse
 
   const urlCandidates = [enAeUrl, sporterUrl, targetUrl];
 
+  // Helper to extract Sporter specific prices from HTML
+  const extractSporterPrices = (html: string): { price: number; originalPriceAed?: number; discountPercent?: number } => {
+    let currentPrice = 0;
+    let oldPrice: number | undefined;
+
+    // 1. Check Magento / Sporter data-price-type tags
+    const finalPriceMatch = html.match(/data-price-type=["']finalPrice["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
+                            html.match(/class=["'][^"']*special-price[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
+                            html.match(/class=["'][^"']*price-final_price[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i);
+    if (finalPriceMatch && finalPriceMatch[1]) {
+      const p = parseFloat(normalizeToEnglishDigits(finalPriceMatch[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(p) && p > 0) currentPrice = Math.round(p * 100) / 100;
+    }
+
+    const oldPriceMatch = html.match(/data-price-type=["']oldPrice["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
+                          html.match(/class=["'][^"']*old-price[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
+                          html.match(/class=["'][^"']*regular-price[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*price[^"']*["'][^>]*>([^<]+)<\/span>/i);
+    if (oldPriceMatch && oldPriceMatch[1]) {
+      const op = parseFloat(normalizeToEnglishDigits(oldPriceMatch[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(op) && op > 0) oldPrice = Math.round(op * 100) / 100;
+    }
+
+    // 2. Check JSON-LD offers
+    if (currentPrice === 0) {
+      const ldMatches = Array.from(html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi));
+      for (const m of ldMatches) {
+        if (!m || !m[1]) continue;
+        try {
+          const parsed = JSON.parse(m[1]);
+          const items = Array.isArray(parsed) ? parsed : (parsed['@graph'] ? parsed['@graph'] : [parsed]);
+          for (const item of items) {
+            if (item && item.offers) {
+              const off = Array.isArray(item.offers) ? item.offers[0] : item.offers;
+              if (off && (off.price || off.lowPrice)) {
+                const p = parseFloat(normalizeToEnglishDigits(String(off.price || off.lowPrice)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                if (!isNaN(p) && p > 0) currentPrice = Math.round(p * 100) / 100;
+                if (off.highPrice) {
+                  const hp = parseFloat(normalizeToEnglishDigits(String(off.highPrice)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                  if (!isNaN(hp) && hp > currentPrice) oldPrice = Math.round(hp * 100) / 100;
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 3. Check Magento priceBox config script
+    const priceBoxMatch = html.match(/"finalPrice"\s*:\s*\{\s*"amount"\s*:\s*([\d\.]+)/i);
+    if (priceBoxMatch && priceBoxMatch[1] && currentPrice === 0) {
+      const p = parseFloat(priceBoxMatch[1]);
+      if (!isNaN(p) && p > 0) currentPrice = Math.round(p * 100) / 100;
+    }
+    const priceBoxOldMatch = html.match(/"oldPrice"\s*:\s*\{\s*"amount"\s*:\s*([\d\.]+)/i);
+    if (priceBoxOldMatch && priceBoxOldMatch[1] && !oldPrice) {
+      const op = parseFloat(priceBoxOldMatch[1]);
+      if (!isNaN(op) && op > 0) oldPrice = Math.round(op * 100) / 100;
+    }
+
+    // Compute discount if valid
+    let discountPercent: number | undefined;
+    if (oldPrice && currentPrice > 0 && oldPrice > currentPrice) {
+      discountPercent = Math.round(((oldPrice - currentPrice) / oldPrice) * 100);
+    } else if (oldPrice && oldPrice <= currentPrice) {
+      oldPrice = undefined;
+    }
+
+    return {
+      price: currentPrice,
+      originalPriceAed: oldPrice,
+      discountPercent
+    };
+  };
+
+  // TIER 1: Direct HTTP Fetch Candidates
   for (const fetchUrl of urlCandidates) {
     try {
       const controller = new AbortController();
-      const tId = setTimeout(() => controller.abort(), 4000);
+      const tId = setTimeout(() => controller.abort(), 4500);
       const res = await fetch(fetchUrl, { headers, signal: controller.signal });
       clearTimeout(tId);
       if (res.ok) {
         const html = await res.text();
         if (html && html.length > 200) {
           const parsed = parseHtmlEngine(html, fetchUrl);
-          if (parsed.title && parsed.price > 0) {
+          const sporterPrices = extractSporterPrices(html);
+
+          const finalSellingPrice = sporterPrices.price > 0 ? sporterPrices.price : parsed.price;
+          const finalOriginalPrice = sporterPrices.originalPriceAed || parsed.originalPriceAed;
+          const finalDiscount = sporterPrices.discountPercent || parsed.discountPercent;
+
+          if (parsed.title && finalSellingPrice > 0) {
             return {
               ok: true,
               title: parsed.title,
-              price: parsed.price,
+              price: finalSellingPrice,
+              originalPriceAed: (finalOriginalPrice && finalOriginalPrice > finalSellingPrice) ? finalOriginalPrice : undefined,
+              discountPercent: finalDiscount,
               currency: "AED",
               image: sanitizeImageUrl(parsed.image, fetchUrl),
               galleryImages: parsed.galleryImages,
@@ -4895,9 +4979,7 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<Parse
               sizes: parsed.sizes,
               options: parsed.options,
               storeName,
-              description: parsed.description,
-              originalPriceAed: parsed.originalPriceAed,
-              discountPercent: parsed.discountPercent
+              description: parsed.description
             };
           }
         }
@@ -4905,6 +4987,84 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<Parse
     } catch (_e) {}
   }
 
+  // TIER 2: Jina Reader Fallback (Markdown Parser)
+  try {
+    const jinaUrl = `https://r.jina.ai/${enAeUrl}`;
+    const jinaCtrl = new AbortController();
+    const jinaTimer = setTimeout(() => jinaCtrl.abort(), 6000);
+    const jinaRes = await fetch(jinaUrl, {
+      headers: {
+        'Accept': 'text/plain, text/markdown',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'X-No-Cache': 'true'
+      },
+      signal: jinaCtrl.signal
+    });
+    clearTimeout(jinaTimer);
+    if (jinaRes.ok) {
+      const md = await jinaRes.text();
+      if (md && md.length > 100) {
+        let title = '';
+        let price = 0;
+        let originalPriceAed: number | undefined;
+        let discountPercent: number | undefined;
+        const gallery: string[] = [];
+        const flavors: string[] = [];
+        const sizes: string[] = [];
+
+        const h1 = md.match(/^#\s+([^\n]+)/m);
+        if (h1) title = cleanTitleStr(h1[1].replace(/\|\s*Sporter.*/i, '').trim());
+
+        const priceDiscountMatch = md.match(/AED\s*([\d,]+\.?\d*)\s+AED\s*([\d,]+\.?\d*)\s+([\d]+)%\s*OFF/i);
+        if (priceDiscountMatch) {
+          price = parseFloat(priceDiscountMatch[1].replace(/,/g, ''));
+          originalPriceAed = parseFloat(priceDiscountMatch[2].replace(/,/g, ''));
+          discountPercent = parseInt(priceDiscountMatch[3], 10);
+        } else {
+          const dualPriceMatch = md.match(/AED\s*([\d,]+\.?\d*)\s+AED\s*([\d,]+\.?\d*)/i);
+          if (dualPriceMatch) {
+            const p1 = parseFloat(dualPriceMatch[1].replace(/,/g, ''));
+            const p2 = parseFloat(dualPriceMatch[2].replace(/,/g, ''));
+            price = Math.min(p1, p2);
+            originalPriceAed = Math.max(p1, p2);
+            if (originalPriceAed > price) {
+              discountPercent = Math.round(((originalPriceAed - price) / originalPriceAed) * 100);
+            }
+          } else {
+            const singlePriceMatch = md.match(/AED\s*([\d,]+\.?\d*)/i);
+            if (singlePriceMatch) {
+              price = parseFloat(singlePriceMatch[1].replace(/,/g, ''));
+            }
+          }
+        }
+
+        Array.from(md.matchAll(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/gi)).forEach(m => {
+          const s = sanitizeImageUrl(m[2].trim(), enAeUrl);
+          if (s && !gallery.includes(s) && !s.includes('logo') && !s.includes('icon') && !s.includes('.svg')) gallery.push(s);
+        });
+
+        if (title && price > 0) {
+          return {
+            ok: true,
+            title,
+            price,
+            originalPriceAed: (originalPriceAed && originalPriceAed > price) ? originalPriceAed : undefined,
+            discountPercent,
+            currency: "AED",
+            image: gallery[0] || '',
+            galleryImages: gallery,
+            images: gallery,
+            flavors,
+            sizes,
+            storeName,
+            options: []
+          };
+        }
+      }
+    }
+  } catch (_jinaErr) {}
+
+  // TIER 3: Microlink Fallback
   const microlinkResult = await fetchWithMicrolink(enAeUrl, storeName);
   if (microlinkResult && microlinkResult.price && microlinkResult.price > 0) {
     return microlinkResult;

@@ -371,6 +371,12 @@ function MainApp() {
       }
     };
 
+    // Initial mount sync from persistent storage and Firestore
+    syncLandingFromStorage();
+    getLandingSettings().then((fetched) => {
+      if (fetched) setLandingSettings(fetched);
+    });
+
     window.addEventListener('settingsUpdated', syncSettingsFromStorage as EventListener);
     window.addEventListener('landingSettingsUpdated', syncLandingFromStorage as EventListener);
     window.addEventListener('storage', syncSettingsFromStorage as EventListener);

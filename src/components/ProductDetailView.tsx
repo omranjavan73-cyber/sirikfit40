@@ -1367,16 +1367,23 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
                 <div className="bg-white border border-gray-200 rounded-2xl p-3.5 text-center space-y-0.5 shadow-2xs">
                   <span className="text-[11px] text-gray-500 font-semibold block">قیمت درهم (دبی)</span>
-                  <span className="font-black text-gray-900 text-base md:text-lg block dir-ltr flex items-center justify-center gap-1.5">
-                    {isVariantLoading ? (
-                      <span className="flex items-center gap-1 text-gray-400 text-xs animate-pulse font-normal">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-600" />
-                        <span>استعلام...</span>
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="font-black text-gray-900 text-base md:text-lg block dir-ltr flex items-center justify-center gap-1.5">
+                      {isVariantLoading ? (
+                        <span className="flex items-center gap-1 text-gray-400 text-xs animate-pulse font-normal">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-600" />
+                          <span>استعلام...</span>
+                        </span>
+                      ) : (
+                        formatAed(priceAed)
+                      )}
+                    </span>
+                    {product?.originalPriceAed && product.originalPriceAed > priceAed && !isVariantLoading && (
+                      <span className="text-gray-400 font-bold text-xs line-through dir-ltr">
+                        {formatAed(product.originalPriceAed)}
                       </span>
-                    ) : (
-                      formatAed(priceAed)
                     )}
-                  </span>
+                  </div>
                 </div>
               </div>
 

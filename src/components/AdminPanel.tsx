@@ -6232,6 +6232,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
+          {/* Section 0.6: eNAMAD Display Toggle */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="w-4.5 h-4.5 text-emerald-600 shrink-0" />
+                  <span>نماد اعتماد الکترونیکی (اینماد - eNAMAD)</span>
+                </h3>
+                <p className="text-xs text-slate-600 font-medium mt-0.5">
+                  نمایش نماد اعتماد الکترونیکی در پایین سایت
+                </p>
+              </div>
+
+              {/* Toggle Switch */}
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                <span className={`text-xs font-bold ${showEnamad ? 'text-emerald-700 font-black' : 'text-slate-500'}`}>
+                  {showEnamad ? 'فعال (در حال نمایش) ●' : 'غیرفعال (مخفی) ○'}
+                </span>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={showEnamad}
+                    onChange={(e) => setShowEnamad(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-12 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+
           {/* Consolidated Notice to Landing Settings */}
           <div className="bg-gradient-to-r from-red-50 to-slate-50 border border-red-200/80 rounded-3xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">

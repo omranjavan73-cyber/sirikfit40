@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import type { LandingSettings } from '../types';
 import { defaultLandingSettings } from '../types';
-import { getLandingSettings, DEFAULT_ENAMAD_CODE } from '../services/settingsService';
+import { getLandingSettings } from '../services/settingsService';
 import { AboutModal, BenefitsModal, ContactModal, RulesModal, FaqModal } from './LandingModals';
+import { ENamadBadge } from './ENamadBadge';
 
 interface FooterProps {
   settings?: LandingSettings | null;
@@ -194,10 +195,9 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
               </div>
 
               {/* Official Enamad Badge */}
-              <div 
-                className="p-3.5 !bg-white rounded-2xl border border-gray-200 shadow-xs flex items-center justify-center min-h-[90px] min-w-[90px] hover:scale-105 transition-transform"
-                dangerouslySetInnerHTML={{ __html: settings.enamadCode || DEFAULT_ENAMAD_CODE }}
-              />
+              {settings.showEnamad !== false && (
+                <ENamadBadge />
+              )}
             </div>
           )}
 

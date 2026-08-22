@@ -8,11 +8,13 @@ import {
   RefreshCw,
   Building2,
   Percent,
-  Calculator
+  Calculator,
+  ShieldCheck
 } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import type { FinancialSettings } from '../../types';
+import { getLandingSettings, saveLandingSettings } from '../../services/settingsService';
 
 interface GeneralSettingsProps {
   onSaved?: (settings: FinancialSettings) => void;
@@ -26,9 +28,10 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ onSaved, onNav
   const [profitMargin, setProfitMargin] = useState<number>(15);
   const [minOrderToman, setMinOrderToman] = useState<number>(0);
   const [minOrderEnabled, setMinOrderEnabled] = useState<boolean>(false);
+  const [showEnamad, setShowEnamad] = useState<boolean>(true);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // 1. Fetch initial settings from Firestore settings/pricing and settings/financial
+  // 1. Fetch initial settings from Firestore settings/pricing, settings/financial, and settings/landing
   useEffect(() => {
     let isMounted = true;
     const loadSettings = async () => {
@@ -40,6 +43,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ onSaved, onNav
           if (data.aedRate) setAedRate(Number(data.aedRate));
           if (data.cargoFeePerKg) setCargoFee(Number(data.cargoFeePerKg));
           if (data.profitMarginPercent) setProfitMargin(Number(data.profitMarginPercent));
+          if (data.showEnamad !== undefined) setShowEnamad(Boolean(data.showEnamad));
         }
 
         const pricingSnap = await getDoc(doc(db, 'settings', 'pricing'));
@@ -47,6 +51,12 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ onSaved, onNav
           const pData = pricingSnap.data();
           if (pData.minOrderAmountToman !== undefined) setMinOrderToman(Number(pData.minOrderAmountToman));
           if (pData.minOrderLimitEnabled !== undefined) setMinOrderEnabled(Boolean(pData.minOrderLimitEnabled));
+        }
+
+        // Also sync from settings/landing
+        const landingData = await getLandingSettings();
+        if (landingData && landingData.showEnamad !== undefined && isMounted) {
+          setShowEnamad(Boolean(landingData.showEnamad));
         }
       } catch (err) {
         console.warn('Error loading financial settings:', err);
@@ -67,6 +77,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ onSaved, onNav
           aedRate,
           cargoFeePerKg: cargoFee,
           profitMarginPercent: profitMargin,
+          showEnamad,
           updatedAt: new Date().toISOString()
         }, { merge: true });
 
@@ -79,6 +90,9 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ onSaved, onNav
           minOrderLimitEnabled: minOrderEnabled,
           updatedAt: new Date().toISOString()
         }, { merge: true });
+
+        // Also save showEnamad to settings/landing
+        await saveLandingSettings({ showEnamad });
       }
 
       // Sync local storage
@@ -91,6 +105,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ onSaved, onNav
         minOrderLimitEnabled: minOrderEnabled,
         insurancePercent: 0,
         customsFeePercent: 0,
+        showEnamad,
         updatedAt: new Date().toISOString()
       };
 
@@ -98,7 +113,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ onSaved, onNav
       window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { financialSettings } }));
 
       if (onSaved) onSaved(financialSettings);
-      setStatusMessage('تنظیمات مالی و محاسباتی با موفقیت در سیستم ثبت شد.');
+      setStatusMessage('تنظیمات با موفقیت در سیستم ثبت شد.');
     } catch (err) {
       console.error('Error saving general settings:', err);
       setStatusMessage('خطا در ذخیره‌سازی تنظیمات');
@@ -225,6 +240,33 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ onSaved, onNav
           )}
         </div>
 
+        {/* Section: eNAMAD Display Toggle (نمایش نماد اعتماد الکترونیکی) */}
+        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span className="text-xs font-black text-slate-900">نماد اعتماد الکترونیکی (اینماد)</span>
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${showEnamad ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                  {showEnamad ? 'فعال ●' : 'غیرفعال ○'}
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500 font-medium block">
+                نمایش نماد اعتماد الکترونیکی در پایین سایت
+              </span>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showEnamad}
+                onChange={(e) => setShowEnamad(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+            </label>
+          </div>
+        </div>
+
         {/* Status Message */}
         {statusMessage && (
           <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs font-bold text-emerald-800">
@@ -239,7 +281,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ onSaved, onNav
           className="w-full py-3.5 bg-black hover:bg-slate-900 text-white text-xs font-black rounded-2xl transition shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
         >
           {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 text-red-500" />}
-          <span>{isSaving ? 'در حال ذخیره‌سازی...' : 'ذخیره تنظیمات مالی'}</span>
+          <span>{isSaving ? 'در حال ذخیره‌سازی...' : 'ذخیره تنظیمات'}</span>
         </button>
       </form>
     </div>

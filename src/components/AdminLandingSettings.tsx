@@ -25,8 +25,9 @@ import {
   ToggleRight
 } from 'lucide-react';
 import type { CmsConfig, LandingSettings, LandingBenefitItem, LandingFaqItem, LandingRuleItem } from '../types';
-import { defaultLandingSettings } from '../types';
+import { defaultLandingSettings, ENAMAD_CONFIG } from '../types';
 import { getLandingSettings, saveLandingSettings } from '../services/settingsService';
+import { ENamadBadge } from './ENamadBadge';
 
 interface AdminLandingSettingsProps {
   cms: CmsConfig | null;
@@ -71,7 +72,7 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
     return () => { isMounted = false; };
   }, []);
 
-  const handleToggle = (key: keyof Pick<LandingSettings, 'showBenefits' | 'showAbout' | 'showContact' | 'showFaq' | 'showRules' | 'showTrustBadges'>) => {
+  const handleToggle = (key: keyof Pick<LandingSettings, 'showBenefits' | 'showAbout' | 'showContact' | 'showFaq' | 'showRules' | 'showTrustBadges' | 'showEnamad'>) => {
     setSettings(prev => ({
       ...prev,
       [key]: !prev[key]
@@ -353,7 +354,8 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
               { key: 'showContact', title: 'نمایش اطلاعات تماس و پشتیبانی', desc: 'پل ارتباطی تلگرام، تلفن، ایمیل و ساعات کاری' },
               { key: 'showFaq', title: 'نمایش سوالات متداول (FAQ)', desc: 'پاسخ به سوالات پرتکرار خریداران' },
               { key: 'showRules', title: 'نمایش قوانین و مقررات خرید', desc: 'شرایط تعویض، اصالت و تحویل' },
-              { key: 'showTrustBadges', title: 'نمایش نمادهای اعتماد و اصالت', desc: 'بج‌های تضمین ۱۰۰٪ اصالت و پرداخت امن' }
+              { key: 'showTrustBadges', title: 'نمایش نمادهای اعتماد و اصالت', desc: 'بج‌های تضمین ۱۰۰٪ اصالت و پرداخت امن' },
+              { key: 'showEnamad', title: 'نماد اعتماد الکترونیکی (اینماد)', desc: 'نمایش نماد رسمی اینماد در پایین سایت' }
             ].map(item => {
               const isEnabled = settings[item.key as keyof LandingSettings] as boolean;
               return (
@@ -533,36 +535,56 @@ export const AdminLandingSettings: React.FC<AdminLandingSettingsProps> = ({
       {activeTab === 'trust' && (
         <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-5">
           <div className="border-b border-slate-100 pb-3">
-            <h3 className="text-sm font-black text-slate-900">کد رسمی و نماد اعتماد الکترونیکی (اینماد - Enamad)</h3>
+            <h3 className="text-sm font-black text-slate-900">نماد اعتماد الکترونیکی رسمی (اینماد - eNAMAD)</h3>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
-              کد HTML یا اسکریپت رسمی ارائه‌شده توسط مرکز توسعه تجارت الکترونیکی (اینماد)
+              نماد احراز هویت و صلاحیت کسب‌وکار اینترنتی از مرکز توسعه تجارت الکترونیکی (وزارت صمت)
             </p>
           </div>
 
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-            <label className="text-xs font-bold text-slate-700 block">
-              کد اختصاصی اینماد (HTML / Script / Link):
+          {/* Quick Toggle */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="font-black text-xs text-slate-900 block">وضعیت نمایش اینماد در فوتر</span>
+              <span className="text-[11px] text-slate-500 font-medium block">
+                {settings.showEnamad !== false ? 'اینماد در فوتر سایت نمایش داده می‌شود.' : 'اینماد در حال حاضر در سایت مخفی است.'}
+              </span>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.showEnamad !== false}
+                onChange={(e) => handleFieldChange('showEnamad', e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full dir-ltr peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
             </label>
-            <textarea
-              rows={4}
-              value={settings.enamadCode || ''}
-              onChange={(e) => handleFieldChange('enamadCode', e.target.value)}
-              placeholder="<a referrerpolicy='origin' target='_blank' href='https://trustseal.enamad.ir/...'><img src='...' /></a>"
-              className="w-full text-xs p-3 font-mono bg-white border border-slate-300 rounded-xl outline-none focus:border-black dir-ltr text-left"
-              dir="ltr"
-            />
-            <span className="text-[11px] text-slate-500 font-medium block">
-              این کد مستقیماً در باکس اختصاصی نمادهای اعتماد فوتر سایت رندر می‌شود.
-            </span>
+          </div>
+
+          {/* Official Credentials Info Box */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700">
+            <div>
+              <span className="text-[11px] text-slate-500 block mb-1">شناسه کسب‌وکار (ID):</span>
+              <span className="font-mono bg-white px-2.5 py-1 rounded-lg border border-slate-300 text-slate-900 block text-center dir-ltr">
+                {ENAMAD_CONFIG.id}
+              </span>
+            </div>
+            <div>
+              <span className="text-[11px] text-slate-500 block mb-1">کد اختصاصی احراز هویت (Code):</span>
+              <span className="font-mono bg-white px-2.5 py-1 rounded-lg border border-slate-300 text-slate-900 block text-center dir-ltr truncate">
+                {ENAMAD_CONFIG.code}
+              </span>
+            </div>
           </div>
 
           {/* Live Preview */}
-          <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-2">
+          <div className="p-5 bg-gray-50 rounded-2xl border border-gray-200 space-y-3">
             <span className="text-xs font-black text-slate-800 block">پیش‌نمایش زنده لوگوی اینماد:</span>
-            <div
-              className="p-3 bg-white rounded-2xl border border-gray-200 shadow-xs inline-flex items-center justify-center min-h-[90px] min-w-[90px]"
-              dangerouslySetInnerHTML={{ __html: settings.enamadCode || '' }}
-            />
+            <div className="flex items-center justify-center p-3 bg-white rounded-2xl border border-gray-200 shadow-xs max-w-[140px] mx-auto">
+              <ENamadBadge showContainer={false} />
+            </div>
+            <span className="text-[11px] text-slate-500 text-center block">
+              با کلیک روی لوگو، صفحه رسمی استعلام احراز هویت در پنجره جدید باز می‌شود.
+            </span>
           </div>
         </div>
       )}

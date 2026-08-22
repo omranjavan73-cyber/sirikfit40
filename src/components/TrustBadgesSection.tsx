@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ShieldCheck, Award, ExternalLink } from 'lucide-react';
 import type { CmsConfig } from '../types';
+import { ENAMAD_CONFIG } from '../types';
 import { useSettings } from '../context/SettingsContext';
 
 interface TrustBadgesSectionProps {
@@ -103,7 +104,9 @@ export const TrustBadgesSection: React.FC<TrustBadgesSectionProps> = ({ cms, set
   const isHtmlSnippet = (str: string) => str.includes('<') && str.includes('>');
   const enamadUrl = (!isHtmlSnippet(enamadCodeOrUrl) && enamadCodeOrUrl.startsWith('http'))
     ? enamadCodeOrUrl
-    : 'https://trustseal.enamad.ir/?id=774774&Code=QLX3GJJuDLNIXNEEocH7c14ry1CHCK1T';
+    : ENAMAD_CONFIG.verificationUrl;
+
+  const enamadLogoUrl = ENAMAD_CONFIG.logoUrl;
 
   const samandehiUrl = (!isHtmlSnippet(samandehiCodeOrUrl) && samandehiCodeOrUrl.startsWith('http'))
     ? samandehiCodeOrUrl
@@ -143,12 +146,10 @@ export const TrustBadgesSection: React.FC<TrustBadgesSectionProps> = ({ cms, set
                 <div className="w-14 h-14 sm:w-18 sm:h-18 flex items-center justify-center bg-white rounded-xl p-1.5 border border-slate-100 shadow-2xs mb-2 group-hover:scale-105 transition-transform">
                   <img
                     referrerPolicy="origin"
-                    src="https://trustseal.enamad.ir/logo.aspx?id=774774&Code=QLX3GJJuDLNIXNEEocH7c14ry1CHCK1T"
+                    src={enamadLogoUrl}
                     alt="اینماد (نماد اعتماد)"
                     className="max-h-full max-w-full object-contain cursor-pointer"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'https://cdn.zarinpal.com/badges/trust-logos/enamad.png';
-                    }}
+                    loading="lazy"
                   />
                 </div>
                 <span className="text-[11px] sm:text-xs font-black text-slate-900 line-clamp-1">نماد اعتماد (اینماد)</span>

@@ -1,6 +1,9 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { LandingSettings } from '../types';
+import { ENAMAD_CONFIG } from '../types';
+
+export { ENAMAD_CONFIG };
 
 export const DEFAULT_ENAMAD_CODE = `<a referrerpolicy='origin' target='_blank' href='https://trustseal.enamad.ir/?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8'><img referrerpolicy='origin' src='https://trustseal.enamad.ir/logo.aspx?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8' alt='نماد اعتماد الکترونیکی' style='cursor:pointer' code='jj9HCtmWurzgveMEKQyc6iOcMamK4RG8'></a>`;
 
@@ -11,6 +14,7 @@ export const defaultLandingSettings: LandingSettings = {
   showFaq: true,
   showRules: true,
   showTrustBadges: true,
+  showEnamad: true,
   brandName: "سیریک فیت | SIRIK FIT",
   brandSubtitle: "تأمین و واردات مستقیم مکمل از دبی",
   aboutText: "سیریک فیت (SIRIK FIT) مرجع تخصصی تأمین و واردات مستقیم مکمل‌های ورزشی و غذایی اورجینال از معتبرترین برندهای جهانی و نمایندگی‌های امارات متحده عربی است.",

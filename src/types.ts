@@ -373,6 +373,14 @@ export interface LandingRuleItem {
   content: string;
 }
 
+export const ENAMAD_CONFIG = {
+  enabled: true,
+  id: "7355626",
+  code: "jj9HCtmWurzgveMEKQyc6iOcMamK4RG8",
+  verificationUrl: "https://trustseal.enamad.ir/?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8",
+  logoUrl: "https://trustseal.enamad.ir/logo.aspx?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
+};
+
 export interface LandingSettings {
   // 1. Visibility Toggles
   showBenefits: boolean;
@@ -381,6 +389,7 @@ export interface LandingSettings {
   showFaq: boolean;
   showRules: boolean;
   showTrustBadges: boolean;
+  showEnamad?: boolean;
 
   // 2. Brand & About
   brandName: string;
@@ -409,6 +418,7 @@ export const defaultLandingSettings: LandingSettings = {
   showFaq: true,
   showRules: true,
   showTrustBadges: true,
+  showEnamad: true,
   brandName: "سیریک فیت | SIRIK FIT",
   brandSubtitle: "تأمین و واردات مستقیم مکمل از دبی",
   aboutText: "سیریک فیت (SIRIK FIT) مرجع تخصصی تأمین و واردات مستقیم مکمل‌های ورزشی و غذایی اورجینال از معتبرترین برندهای جهانی و نمایندگی‌های امارات متحده عربی است.",

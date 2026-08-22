@@ -5399,7 +5399,7 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         cached: false,
         id: `scraped-${Date.now()}`,
         title: result.title || 'محصول استخراج شده',
-        brand: result.storeName || 'فروشگاه آنلاین دبی',
+        brand: result.brand || result.storeName || 'فروشگاه آنلاین دبی',
         sourceStore: result.storeName || 'فروشگاه آنلاین دبی',
         sourceUrl: cleanUrl,
         mainImage: mainImg || gallery[0] || '',

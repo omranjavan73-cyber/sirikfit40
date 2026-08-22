@@ -416,3 +416,68 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Pr
   return null;
 }
 
+export async function parseDrNutrition(html: string, url: string) {
+  const $ = cheerio.load(html);
+
+  // 1. Check Next.js Hydration Data
+  const nextDataScript = $('#__NEXT_DATA__').html();
+  if (nextDataScript) {
+    try {
+      const parsed = JSON.parse(nextDataScript);
+      const product = parsed?.props?.pageProps?.product;
+      if (product) {
+        const price = parseFloat(product.final_price || product.price || product.special_price || 0);
+        return {
+          ok: true,
+          success: true,
+          title: product.name || product.title,
+          brand: product.brand_name || 'Dr. Nutrition',
+          storeName: 'Dr. Nutrition',
+          sourceUrl: url,
+          priceAed: price,
+          priceAED: price,
+          price: price,
+          mainImage: product.image_url || product.image || (product.media_gallery?.[0]?.url ?? ''),
+          image: product.image_url || product.image || (product.media_gallery?.[0]?.url ?? ''),
+          imageUrl: product.image_url || product.image || (product.media_gallery?.[0]?.url ?? ''),
+          weightKg: parseFloat(product.weight) || 0.8,
+          flavors: product.flavors || [],
+          sizes: product.sizes || []
+        };
+      }
+    } catch (_) {}
+  }
+
+  // 2. DOM Parsing Fallback
+  let title = $('h1.page-title, h1[itemprop="name"]').first().text().trim();
+  if (!title) title = $('meta[property="og:title"]').attr('content') || '';
+  title = title.replace(/\s*\|\s*Dr\.?\s*Nutrition.*$/i, '').trim();
+
+  let priceAED = 0;
+  const priceText = $('.special-price .price, [data-price-type="finalPrice"] .price, span.price').first().text();
+  const match = priceText.replace(/,/g, '').match(/[\d.]+/);
+  if (match) priceAED = parseFloat(match[0]);
+
+  const image = $('meta[property="og:image"]').attr('content') || $('.product.media img').first().attr('src') || '';
+
+  return {
+    ok: true,
+    success: true,
+    title: title || 'مکمل دکتر نوتریشن',
+    brand: 'Dr. Nutrition',
+    storeName: 'Dr. Nutrition',
+    sourceUrl: url,
+    priceAed: priceAED,
+    priceAED: priceAED,
+    price: priceAED,
+    mainImage: image,
+    image: image,
+    imageUrl: image,
+    weightKg: 0.8
+  };
+}
+
+export async function parseDrNutritionProduct(html: string, targetUrl: string) {
+  return parseDrNutrition(html, targetUrl);
+}
+

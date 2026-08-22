@@ -4791,6 +4791,69 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
 }
 
 // -------------------------------------------------------------------
+// ADAPTER: SPORTER UAE DEDICATED ADAPTER (sporterAdapter)
+// -------------------------------------------------------------------
+async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdapterResult> {
+  const storeName = "Sporter UAE";
+  const headers = getStandardScraperHeaders(targetUrl);
+
+  let sporterUrl = targetUrl.replace(/https?:\/\/(www\.)?sporter\.com/i, 'https://www.sporter.com');
+  let enAeUrl = sporterUrl;
+  if (/\/(ar|en)-[a-z]{2}\//i.test(sporterUrl)) {
+    enAeUrl = sporterUrl.replace(/\/(ar|en)-[a-z]{2}\//i, '/en-ae/');
+  } else if (!sporterUrl.includes('/en-ae/') && !sporterUrl.includes('/ar-ae/')) {
+    enAeUrl = sporterUrl.replace('sporter.com/', 'sporter.com/en-ae/');
+  }
+
+  const urlCandidates = [enAeUrl, sporterUrl, targetUrl];
+
+  for (const fetchUrl of urlCandidates) {
+    try {
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(fetchUrl, { headers, signal: controller.signal });
+      clearTimeout(tId);
+      if (res.ok) {
+        const html = await res.text();
+        if (html && html.length > 200) {
+          const parsed = parseHtmlEngine(html, fetchUrl);
+          if (parsed.title && parsed.price > 0) {
+            return {
+              ok: true,
+              title: parsed.title,
+              price: parsed.price,
+              currency: "AED",
+              image: sanitizeImageUrl(parsed.image, fetchUrl),
+              galleryImages: parsed.galleryImages,
+              images: parsed.galleryImages,
+              variantGroups: parsed.variantGroups,
+              flavors: parsed.flavors,
+              sizes: parsed.sizes,
+              options: parsed.options,
+              storeName,
+              description: parsed.description,
+              originalPriceAed: parsed.originalPriceAed,
+              discountPercent: parsed.discountPercent
+            };
+          }
+        }
+      }
+    } catch (_e) {}
+  }
+
+  const microlinkResult = await fetchWithMicrolink(enAeUrl, storeName);
+  if (microlinkResult && microlinkResult.price && microlinkResult.price > 0) {
+    return microlinkResult;
+  }
+
+  return {
+    ok: false,
+    requireManualEntry: true,
+    message: "امکان برآورد خودکار قیمت برای این لینک اسپورتر وجود ندارد."
+  };
+}
+
+// -------------------------------------------------------------------
 // ADAPTER 4: GENERIC ADAPTER (genericAdapter)
 // -------------------------------------------------------------------
 async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: any): Promise<ParseAdapterResult> {
@@ -5227,6 +5290,8 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         result = await lifePharmacyAdapter(normalizedUrl, cmsConfig);
       } else if (domain.includes('drnutrition')) {
         result = await drNutritionAdapter(normalizedUrl, cmsConfig);
+      } else if (domain.includes('sporter')) {
+        result = await sporterAdapter(normalizedUrl, cmsConfig);
       } else {
         result = await genericAdapter(normalizedUrl, cmsConfig, req.body);
       }

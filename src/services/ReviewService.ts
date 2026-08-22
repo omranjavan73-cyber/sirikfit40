@@ -410,7 +410,7 @@ export const ReviewService = {
 
     return {
       id: generatedId,
-      ...newCommentData
+      ...newReviewData
     };
   },
 

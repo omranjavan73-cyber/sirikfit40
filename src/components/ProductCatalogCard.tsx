@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Heart, Star, ShoppingBag, Plus, Check } from 'lucide-react';
 import { formatPrice, formatAedValue, toPersianDigits } from '../utils/formatters';
 

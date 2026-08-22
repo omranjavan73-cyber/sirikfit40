@@ -372,32 +372,16 @@ export const TouchImageMagnifier: React.FC<TouchImageMagnifierProps> = ({
         </div>
       )}
 
-      {/* Bottom Hint Pill: Desktop vs Mobile */}
+      {/* Minimalist Desktop Hint Only */}
       {showHints && (
-        <>
-          {/* Desktop Hover Hint */}
-          <div
-            className={`absolute bottom-3 right-3 hidden sm:flex items-center gap-1.5 bg-slate-900/85 backdrop-blur-md text-white text-[10px] font-bold px-3 py-1.5 rounded-full pointer-events-none transition-opacity duration-200 z-10 ${
-              isHovered ? 'opacity-30' : 'opacity-90'
-            }`}
-          >
-            <ZoomIn className="w-3.5 h-3.5 text-amber-400" />
-            <span>بزرگنمایی با حرکت موس</span>
-          </div>
-
-          {/* Mobile Touch & Pinch Hint */}
-          <div
-            className={`absolute bottom-2.5 inset-x-3 flex sm:hidden items-center justify-between bg-slate-950/75 backdrop-blur-md text-white text-[10px] font-bold px-3 py-1.5 rounded-xl pointer-events-none transition-opacity duration-300 z-10 ${
-              isTouching || isDoubleTapLocked || isPinching ? 'opacity-20' : 'opacity-90'
-            }`}
-          >
-            <div className="flex items-center gap-1.5 text-amber-300">
-              <Sparkles className="w-3 h-3" />
-              <span>لمس و کشیدن برای ذره‌بین</span>
-            </div>
-            <span className="text-slate-300 text-[9px]">دوبار لمس = زوم</span>
-          </div>
-        </>
+        <div
+          className={`absolute bottom-3 right-3 hidden sm:flex items-center gap-1.5 bg-black/75 backdrop-blur-xs text-white text-[10px] font-bold px-2.5 py-1 rounded-lg pointer-events-none transition-opacity duration-200 z-10 ${
+            isHovered ? 'opacity-20' : 'opacity-85'
+          }`}
+        >
+          <ZoomIn className="w-3.5 h-3.5 text-amber-400" />
+          <span>حرکت ماوس = ذره‌بین</span>
+        </div>
       )}
     </div>
   );

@@ -8,14 +8,6 @@
     ],
     "rewrites": [
       {
-        "source": "/api/parse-link/**",
-        "function": "api"
-      },
-      {
-        "source": "/api/parse-link",
-        "function": "api"
-      },
-      {
         "source": "/api/**",
         "function": "api"
       },
@@ -35,7 +27,7 @@
         ]
       },
       {
-        "source": "@(sw.js|service-worker.js|registerSW.js|manifest.webmanifest)",
+        "source": "@(sw.js|service-worker.js|registerSW.js)",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate, max-age=0" }
         ]
@@ -48,21 +40,17 @@
       }
     ]
   },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
   "functions": {
-    "runtime": "nodejs22",
     "source": "functions",
     "codebase": "default",
     "ignore": [
       "node_modules",
       ".git",
       "firebase-debug.log",
-      "firebase-debug.*.log"
-    ],
-    "predeploy": [
-      "npm run build"
+      "firestore-debug.log"
     ]
-  },
-  "firestore": {
-    "rules": "firestore.rules"
   }
 }

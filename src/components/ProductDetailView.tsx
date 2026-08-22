@@ -23,9 +23,10 @@ import {
   Loader2
 } from 'lucide-react';
 import type { FinancialSettings, Order, User, CartItem, CmsConfig, VariantDimension, VariantOption, ProductVariantMatrix, ProductVariantItem } from '../types';
-import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate, isValidIranianMobile, cleanIranianMobile, isValidPostalCode, cleanPostalCode } from '../utils/formatters';
+import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate, isValidIranianMobile, cleanIranianMobile, isValidPostalCode, cleanPostalCode, getStoreBadgeTheme } from '../utils/formatters';
 import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import { calculateOrderPricing } from '../utils/pricingEngine';
+import { getActivePrices } from '../utils/pricingCalculator';
 import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
 
 /**
@@ -52,6 +53,7 @@ function cleanHtmlAndMarkdown(text?: string): string {
 
 interface ProductDetailViewProps {
   product?: {
+    id?: string;
     title?: string;
     url?: string;
     priceAed?: number;
@@ -463,19 +465,17 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   let singleToman = 0;
   if (product) {
-    if ((product as any)?.priceToman && (product as any).priceToman > 0 && (!selectedVariantPriceAed || selectedVariantPriceAed === product?.priceAed)) {
-      singleToman = (product as any).priceToman;
-    } else if (product?.calculatedTomanOverride && product.calculatedTomanOverride > 0 && (!selectedVariantPriceAed || selectedVariantPriceAed === product?.priceAed)) {
-      singleToman = product.calculatedTomanOverride;
-    } else {
-      singleToman = calculateFinalToman(
-        priceAed,
-        weightKg,
-        settings?.cargoRatePerKg || 35,
-        effectiveMargin,
-        activeAedRate
-      );
-    }
+    const activePricing = getActivePrices({
+      product,
+      selectedFlavorName: selectedFlavorOpt?.name,
+      selectedSizeName: selectedSizeOpt?.name,
+      settings: {
+        aedRate: activeAedRate,
+        cargoRatePerKg: settings?.cargoRatePerKg || 35,
+        profitMargin: effectiveMargin
+      }
+    });
+    singleToman = activePricing.priceToman;
   }
 
   // Aggregate Cart Calculations
@@ -671,7 +671,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         id: product?.id || product?.url || `item-${Date.now()}`,
         title: product?.title || '',
         variant: orderSelectedOption || 'اصلی',
-        quantity: qty || quantity || 1,
+        quantity: qty || 1,
         priceToman: effectiveTotalToman,
         priceAED: product?.priceAed || 0,
         imageUrl: product?.image || '',
@@ -1098,18 +1098,18 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             </div>
           ) : (
             /* SINGLE PRODUCT VIEW WITH HIGH-RES GALLERY & HOVER ZOOM LENS */
-            <div className="bg-white border border-slate-200/90 rounded-[28px] p-4 sm:p-5 shadow-2xs space-y-5">
+            <div className="bg-white border border-gray-200 rounded-3xl p-4 sm:p-6 shadow-sm space-y-5 text-right font-['Vazirmatn',sans-serif]" dir="rtl">
               
-              {/* Store Origin Pill & Stock Status */}
-              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                <div className="inline-flex items-center gap-1.5 bg-slate-900 text-white text-[11px] font-black px-3 py-1 rounded-full shadow-2xs">
+              {/* Delivery Origin & Stock Status */}
+              <div className="flex items-center justify-between gap-2 pb-3 border-b border-gray-100">
+                <div className="inline-flex items-center gap-1.5 bg-black text-white text-[11px] font-black px-3 py-1.5 rounded-full shadow-2xs">
                   <span>🇦🇪</span>
                   <span>مبدا سفارش:</span>
-                  <span className="text-amber-400 font-extrabold">{product?.storeName || 'انبار دبی'}</span>
+                  <span className="text-red-400 font-extrabold">{product?.storeName || 'انبار دبی'}</span>
                 </div>
 
-                <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-gray-800 bg-gray-100 border border-gray-200 px-3 py-1 rounded-full">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
                   <span>موجود در انبار امارات</span>
                 </div>
               </div>
@@ -1125,8 +1125,24 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   onMouseLeave={() => setIsHovered(false)}
                   onMouseMove={handleMouseMove}
                   onClick={() => openLightbox()}
-                  className="relative w-full h-[380px] sm:h-[440px] md:h-[460px] bg-slate-50 border border-slate-200/90 rounded-[24px] overflow-hidden flex items-center justify-center p-4 shadow-sm cursor-zoom-in group"
+                  className="relative w-full h-[380px] sm:h-[440px] md:h-[460px] bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden flex items-center justify-center p-4 shadow-sm cursor-zoom-in group"
                 >
+                  {/* Floating Store Badge (Top Right) */}
+                  {(() => {
+                    const storeTheme = getStoreBadgeTheme(product?.brand || (product as any)?.storeName);
+                    return (
+                      <div className={`absolute top-3.5 right-3.5 z-10 ${storeTheme.bg} text-[11px] font-bold px-3 py-1 rounded-full shadow-sm flex items-center gap-1.5 pointer-events-none`}>
+                        <span className={`w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse`} />
+                        <span>{storeTheme.name}</span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Delivery Origin Tag (Top Left) */}
+                  <div className="absolute top-3.5 left-3.5 z-10 bg-gray-100 text-gray-800 text-[10px] font-bold px-2.5 py-1 rounded-full border border-gray-200 shadow-sm pointer-events-none">
+                    {product?.category === 'inventory' || (product as any)?.isLocal ? 'موجود در انبار ایران' : 'ارسال مستقیم دبی'}
+                  </div>
+
                   {activeImage ? (
                     <img
                       src={activeImage}
@@ -1136,7 +1152,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                         transformOrigin: `${zoomPos.x}% ${zoomPos.y}%`,
                         transform: isHovered ? 'scale(2.3)' : 'scale(1)'
                       }}
-                      className="w-full h-full object-contain object-center block rounded-[20px] transition-transform duration-100 ease-out will-change-transform"
+                      className="w-full h-full object-contain object-center block rounded-xl transition-transform duration-100 ease-out will-change-transform drop-shadow-sm"
                       onError={(e) => {
                         const target = e.currentTarget;
                         if (String(target.src || '').includes('images.weserv.nl') === false && activeImage) {
@@ -1145,44 +1161,30 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                       }}
                     />
                   ) : (
-                    <span className="font-black text-4xl text-slate-800 tracking-tighter">
+                    <span className="font-black text-4xl text-gray-900 tracking-tighter">
                       OMEX
                     </span>
                   )}
 
-                  {/* Desktop Hover Hint Pill */}
-                  <div className={`absolute bottom-3 right-3 hidden sm:flex items-center gap-1.5 bg-slate-900/85 backdrop-blur-md text-white text-[10px] font-bold px-3 py-1.5 rounded-full pointer-events-none transition-opacity duration-200 ${
-                    isHovered ? 'opacity-20' : 'opacity-90'
-                  }`}>
-                    <ZoomIn className="w-3.5 h-3.5 text-amber-400" />
-                    <span>جهت بزرگنمایی نشانگر را روی تصویر ببرید</span>
-                  </div>
-
-                  {/* Tap to Expand Button (Mobile & Desktop Lightbox Trigger) */}
+                  {/* Single Clean Zoom Button (Bottom Left) */}
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       openLightbox();
                     }}
-                    className="absolute top-3 left-3 bg-white/90 hover:bg-white text-slate-800 p-2.5 rounded-2xl shadow-sm border border-slate-200 transition active:scale-95 cursor-pointer z-10"
-                    title="مشاهده تمام صفحه تصویر"
-                    aria-label="مشاهده تمام صفحه تصویر"
+                    className="absolute bottom-3 left-3 bg-black/60 hover:bg-black/85 backdrop-blur-xs text-white px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-[10px] font-bold transition-all shadow-xs z-10 cursor-pointer"
+                    title="بزرگنمایی تصویر"
+                    aria-label="بزرگنمایی تصویر"
                   >
-                    <Maximize2 className="w-4 h-4 text-slate-700" />
+                    <ZoomIn className="w-3.5 h-3.5 text-white" />
+                    <span>بزرگنمایی</span>
                   </button>
-
-                  {/* Image Counter Badge if multiple images exist */}
-                  {galleryList.length > 1 && (
-                    <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm text-slate-800 text-[10px] font-black px-2.5 py-1 rounded-full border border-slate-200/80 shadow-2xs">
-                      تصویر {toPersianDigits(galleryList.indexOf(activeImage) + 1)} از {toPersianDigits(galleryList.length)}
-                    </div>
-                  )}
                 </div>
 
                 {/* Horizontal Interactive Thumbnail Strip */}
                 {galleryList.length > 1 && (
-                  <div className="flex items-center justify-center gap-2.5 overflow-x-auto pb-1 pt-1 px-1 dir-ltr">
+                  <div className="flex items-center justify-center gap-2.5 overflow-x-auto pb-1 pt-1 px-1 dir-ltr no-scrollbar">
                     {galleryList.map((imgUrl, imgIdx) => {
                       const isSelected = activeImage === imgUrl;
                       return (
@@ -1190,17 +1192,17 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                           key={imgIdx}
                           type="button"
                           onClick={() => setActiveImage(imgUrl)}
-                          className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden border-2 transition-all p-1 bg-white cursor-pointer shrink-0 ${
+                          className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border-2 transition-all p-1 bg-white cursor-pointer shrink-0 ${
                             isSelected
-                              ? 'border-slate-900 shadow-sm scale-105 ring-2 ring-slate-900/20'
-                              : 'border-slate-200 opacity-60 hover:opacity-100 hover:border-slate-400'
+                              ? 'border-red-600 shadow-sm scale-105 ring-2 ring-red-600/20'
+                              : 'border-gray-200 opacity-60 hover:opacity-100 hover:border-gray-400'
                           }`}
                         >
                           <img
                             src={imgUrl}
                             alt={`Preview ${imgIdx + 1}`}
                             referrerPolicy="no-referrer"
-                            className="w-full h-full object-contain rounded-xl"
+                            className="w-full h-full object-contain rounded-lg"
                             onError={(e) => {
                               const target = e.currentTarget;
                               if (String(target.src || '').includes('images.weserv.nl') === false && imgUrl) {
@@ -1215,32 +1217,16 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 )}
               </div>
 
-              {/* Badges & Product Title */}
-              <div className="space-y-2 text-center pt-1">
-                <div className="flex items-center justify-center gap-2 flex-wrap">
-                  {originalPriceAed && originalPriceAed > priceAed && (
-                    <span className="bg-rose-100 text-rose-700 text-xs font-black px-3 py-1 rounded-full dir-ltr">
-                      -{toPersianDigits(Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100))}٪ تخفیف ویژه
-                    </span>
-                  )}
-                  {product?.brand && (
-                    <span className="bg-slate-100 text-slate-800 text-xs font-black px-3 py-1 rounded-full border border-slate-200">
-                      برند: {product.brand}
-                    </span>
-                  )}
-                  <span className="bg-emerald-50 text-emerald-800 text-xs font-extrabold px-3 py-1 rounded-full border border-emerald-200">
-                    تضمین ۱۰۰٪ اصالت
-                  </span>
-                </div>
-
-                <h1 className="font-black text-base sm:text-lg text-slate-900 leading-snug px-2">
+              {/* Product Title */}
+              <div className="space-y-1.5 text-right pt-2" dir="rtl">
+                <h1 className="font-black text-lg sm:text-xl text-gray-950 leading-snug">
                   {localizedCaption || product?.title || ''}
                 </h1>
               </div>
 
               {/* Dynamic Variant Selector Rows (ابعاد انتخابی کالا مثل طعم و سایز) */}
               {dimensions.length > 0 && (
-                <div className="space-y-3 pt-2 pb-1 border-t border-slate-100">
+                <div className="space-y-3 pt-2 pb-1 border-t border-gray-100">
                   {dimensions.map((dim) => {
                     const currentSelected = selectedVariants[dim.id] || dim.options[0];
                     const selectedLabel = currentSelected
@@ -1252,15 +1238,15 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                       : '';
 
                     return (
-                      <div key={dim.id} className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-3.5 space-y-2 text-right">
+                      <div key={dim.id} className="bg-gray-50 border border-gray-200 rounded-2xl p-3.5 space-y-2 text-right">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 inline-block"></span>
+                          <span className="text-xs font-black text-gray-950 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-red-600 inline-block"></span>
                             <span>{dim.name}</span>
                           </span>
                           {currentSelected && (
-                            <span className="text-[10px] font-bold text-slate-500 bg-white border border-slate-200/80 px-2 py-0.5 rounded-md">
-                              انتخاب‌شده: <span className="text-slate-900 font-black">{selectedLabel}</span>
+                            <span className="text-[10px] font-bold text-gray-600 bg-white border border-gray-200 px-2 py-0.5 rounded-md">
+                              انتخاب‌شده: <span className="text-gray-950 font-black">{selectedLabel}</span>
                             </span>
                           )}
                         </div>
@@ -1331,17 +1317,17 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                     }
                                   }
                                 }}
-                                className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all flex items-center gap-1.5 ${
+                                className={`px-3.5 py-1.5 rounded-full text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
                                   !isAvailable
-                                    ? 'bg-slate-100/80 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50 line-through'
+                                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through'
                                     : isVariantLoading
-                                    ? 'opacity-60 cursor-wait bg-slate-50 text-slate-500 border border-slate-200'
+                                    ? 'opacity-60 cursor-wait bg-gray-50 text-gray-500 border-gray-200'
                                     : isSelected
-                                    ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02] cursor-pointer'
-                                    : 'bg-white text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100 cursor-pointer'
+                                    ? 'bg-red-600 text-white border-red-600 shadow-md scale-[1.02]'
+                                    : 'bg-white text-gray-800 border-gray-300 hover:border-red-400'
                                 }`}
                               >
-                                {isSelected && isAvailable && <Check className="w-3 h-3 text-emerald-400" />}
+                                {isSelected && isAvailable && <Check className="w-3 h-3 text-white" />}
                                 <span>{localizedOpt}</span>
                                 {!isAvailable && (
                                   <span className="text-[10px] text-rose-500 font-normal no-underline mr-1">
@@ -1349,7 +1335,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                   </span>
                                 )}
                                 {isAvailable && opt.priceAed && opt.priceAed !== (activeProd?.priceAed || 0) && (
-                                  <span className={`text-[10px] ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
+                                  <span className={`text-[10px] font-bold ${isSelected ? 'text-red-100' : 'text-gray-500'}`}>
                                     ({opt.priceAed} د.إ)
                                   </span>
                                 )}
@@ -1365,12 +1351,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
               {/* Pricing Cards */}
               <div className="grid grid-cols-2 gap-3 pt-1">
-                <div className="bg-[#F0FDF4] border border-emerald-100 rounded-[20px] p-3.5 text-center space-y-0.5">
-                  <span className="text-[11px] text-slate-500 font-semibold block">تحویل ایران</span>
-                  <span className="font-black text-emerald-600 text-base md:text-lg block flex items-center justify-center gap-1.5">
+                <div className="bg-white border-2 border-gray-100 rounded-2xl p-3.5 text-center space-y-0.5 shadow-2xs">
+                  <span className="text-[11px] text-gray-500 font-semibold block">تحویل ایران</span>
+                  <span className="font-black text-red-600 text-base md:text-lg block flex items-center justify-center gap-1.5">
                     {isVariantLoading ? (
-                      <span className="flex items-center gap-1 text-slate-400 text-xs animate-pulse font-normal">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                      <span className="flex items-center gap-1 text-gray-400 text-xs animate-pulse font-normal">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
                         <span>محاسبه مجدد...</span>
                       </span>
                     ) : (
@@ -1379,12 +1365,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   </span>
                 </div>
 
-                <div className="bg-[#F8FAFC] border border-slate-200 rounded-[20px] p-3.5 text-center space-y-0.5">
-                  <span className="text-[11px] text-slate-500 font-semibold block">قیمت درهم (دبی)</span>
-                  <span className="font-black text-slate-900 text-base md:text-lg block dir-ltr flex items-center justify-center gap-1.5">
+                <div className="bg-white border border-gray-200 rounded-2xl p-3.5 text-center space-y-0.5 shadow-2xs">
+                  <span className="text-[11px] text-gray-500 font-semibold block">قیمت درهم (دبی)</span>
+                  <span className="font-black text-gray-900 text-base md:text-lg block dir-ltr flex items-center justify-center gap-1.5">
                     {isVariantLoading ? (
-                      <span className="flex items-center gap-1 text-slate-400 text-xs animate-pulse font-normal">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />
+                      <span className="flex items-center gap-1 text-gray-400 text-xs animate-pulse font-normal">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-600" />
                         <span>استعلام...</span>
                       </span>
                     ) : (
@@ -1395,25 +1381,25 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               </div>
 
               {/* Quantity Selector & Add to Cart Action */}
-              <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-3 font-['Vazirmatn',sans-serif]">
+              <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-3 font-['Vazirmatn',sans-serif]">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-800">تعداد سفارش:</span>
-                  <div className="flex items-center gap-3 bg-white border border-slate-300 rounded-xl px-2.5 py-1 shadow-2xs">
+                  <span className="text-xs font-black text-gray-800">تعداد سفارش:</span>
+                  <div className="flex items-center gap-3 bg-white border border-gray-300 rounded-xl px-2.5 py-1 shadow-2xs">
                     <button
                       type="button"
                       onClick={() => setQty(Math.max(1, qty - 1))}
                       disabled={qty <= 1}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
                     >
                       <Minus className="w-3.5 h-3.5" />
                     </button>
-                    <span className="text-xs font-black text-slate-900 w-6 text-center dir-ltr">
+                    <span className="text-xs font-black text-gray-900 w-6 text-center dir-ltr">
                       {toPersianDigits(qty)}
                     </span>
                     <button
                       type="button"
                       onClick={() => setQty(qty + 1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
                     </button>
@@ -1424,10 +1410,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 <button
                   type="button"
                   onClick={handleAddSingleProductToCart}
-                  className={`w-full py-3.5 px-4 rounded-xl font-black text-xs sm:text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer border-none ${
+                  className={`w-full py-4 px-6 rounded-2xl font-black text-xs sm:text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-lg cursor-pointer border-none ${
                     isAddedToCart
                       ? 'bg-emerald-600 text-white scale-[0.99]'
-                      : 'bg-[#111111] hover:bg-black text-white active:scale-95'
+                      : 'bg-black hover:bg-gray-900 text-white active:scale-95'
                   }`}
                 >
                   {isAddedToCart ? (
@@ -1437,7 +1423,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                     </>
                   ) : (
                     <>
-                      <ShoppingCart className="w-4.5 h-4.5" />
+                      <ShoppingCart className="w-4.5 h-4.5 text-white" />
                       <span>افزودن به سبد خرید</span>
                     </>
                   )}
@@ -1447,22 +1433,22 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               {/* ------------------------------------------------------------------ */}
               {/* STRUCTURED PRODUCT HIGHLIGHTS & BENEFIT CARDS (3 CLEAN DISTINCT BLOCKS) */}
               {/* ------------------------------------------------------------------ */}
-              <div className="space-y-3 pt-2 border-t border-slate-100 text-right">
-                <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-amber-500" />
+              <div className="space-y-3 pt-2 border-t border-gray-100 text-right">
+                <h3 className="font-extrabold text-sm text-gray-950 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-red-600" />
                   <span>ویژگی‌ها و مزایای برجسته محصول</span>
                 </h3>
 
                 {/* Block 1: ترکیبات و ساختار (Composition & Formulation) */}
-                <div className="bg-sky-50/50 border border-sky-200/80 rounded-2xl p-4 space-y-2.5 text-right">
-                  <div className="flex items-center gap-2 text-sky-900 font-black text-xs sm:text-sm border-b border-sky-100 pb-1.5">
-                    <Layers className="w-4 h-4 text-sky-600" />
+                <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-2.5 text-right">
+                  <div className="flex items-center gap-2 text-gray-950 font-black text-xs sm:text-sm border-b border-gray-200 pb-1.5">
+                    <Layers className="w-4 h-4 text-red-600" />
                     <span>ترکیبات و ساختار (Composition & Formulation)</span>
                   </div>
                   <div className="space-y-2">
                     {getCompositionBullets().map((bullet, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-xs text-slate-800">
-                        <span className="w-1.5 h-1.5 rounded-full bg-sky-600 mt-1.5 shrink-0"></span>
+                      <div key={idx} className="flex items-start gap-2 text-xs text-gray-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-600 mt-1.5 shrink-0"></span>
                         <span className="leading-relaxed font-medium">{bullet}</span>
                       </div>
                     ))}
@@ -1470,32 +1456,37 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 </div>
 
                 {/* Block 2: کارایی و عملکرد (Key Benefits & Performance) */}
-                <div className="bg-amber-50/50 border border-amber-200/80 rounded-2xl p-4 space-y-2.5 text-right">
-                  <div className="flex items-center gap-2 text-amber-900 font-black text-xs sm:text-sm border-b border-amber-100 pb-1.5">
-                    <Zap className="w-4 h-4 text-amber-600" />
+                <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-2.5 text-right">
+                  <div className="flex items-center gap-2 text-gray-950 font-black text-xs sm:text-sm border-b border-gray-200 pb-1.5">
+                    <Zap className="w-4 h-4 text-black" />
                     <span>کارایی و عملکرد (Key Benefits & Performance)</span>
                   </div>
                   <div className="space-y-2">
                     {getPerformanceBullets().map((bullet, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-xs text-slate-800">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-600 mt-1.5 shrink-0"></span>
+                      <div key={idx} className="flex items-start gap-2 text-xs text-gray-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-black mt-1.5 shrink-0"></span>
                         <span className="leading-relaxed font-medium">{bullet}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* 1-Line Authenticity & Direct Import Verification Badge */}
-                <div className="bg-emerald-50 border border-emerald-200/90 rounded-xl py-2.5 px-3.5 flex items-center justify-center gap-2 text-emerald-800 text-xs sm:text-sm font-bold shadow-2xs">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>✓ تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال</span>
+                {/* Authenticity Guarantee Card */}
+                <div className="bg-gray-50 border border-gray-200 rounded-2xl py-3 px-4 flex items-center justify-between text-xs font-bold text-gray-900 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال</span>
+                  </div>
+                  <span className="text-[11px] font-extrabold text-red-600 bg-red-50 px-2.5 py-0.5 rounded-full border border-red-200">
+                    پلمپ اورجینال ✅
+                  </span>
                 </div>
 
                 {/* Detailed Clean Description if available */}
                 {cleanDescription && cleanDescription.length > 20 && (
-                  <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-2 text-right">
-                    <span className="text-xs font-black text-slate-800 block">توضیحات تکمیلی کالا:</span>
-                    <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-line">
+                  <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-2 text-right">
+                    <span className="text-xs font-black text-gray-950 block">توضیحات تکمیلی کالا:</span>
+                    <p className="text-xs text-gray-700 leading-relaxed font-medium whitespace-pre-line">
                       {cleanDescription}
                     </p>
                   </div>

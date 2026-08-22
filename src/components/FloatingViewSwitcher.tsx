@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { SlidersHorizontal, Grid, List } from 'lucide-react';
 
 interface FloatingViewSwitcherProps {

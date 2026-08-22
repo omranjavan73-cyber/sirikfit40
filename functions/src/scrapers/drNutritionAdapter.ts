@@ -276,16 +276,23 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Pr
     const flavors = Array.from(flavorsSet);
     const sizes = Array.from(sizesSet);
 
+    const finalPrice = priceAED > 0 ? priceAED : 59.14;
+    const finalOldPrice = (originalPriceAED && originalPriceAED > finalPrice) ? originalPriceAED : undefined;
+    const discountPercent = (finalOldPrice && finalOldPrice > finalPrice)
+      ? Math.round(((finalOldPrice - finalPrice) / finalOldPrice) * 100)
+      : undefined;
+
     if (title && (priceAED > 0 || mainImage)) {
       return {
         ok: true,
         success: true,
         title,
         titleFa: generateBilingualProductTitle(title, brand),
-        price: priceAED || 59.14,
-        priceAED: priceAED || 59.14,
-        originalPriceAed: originalPriceAED || priceAED || 59.14,
-        originalPriceAED: originalPriceAED || priceAED || 59.14,
+        price: finalPrice,
+        priceAED: finalPrice,
+        originalPriceAed: finalOldPrice,
+        originalPriceAED: finalOldPrice,
+        discountPercent,
         currency: "AED",
         image: mainImage || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=800',
         imageUrl: mainImage,
@@ -298,11 +305,11 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Pr
         weightKg: 0.8,
         description: description || 'مکمل ورزشی و تغذیه‌ای باکیفیت و اورجینال از دکتر نیوتریشن دبی',
         flavors: flavors.map((f, i) => ({ id: `flv-${i}`, flavor: f, name: f, inStock: true })),
-        sizes: sizes.map((s, i) => ({ id: `sz-${i}`, size: s, name: s, priceAED: priceAED || 59.14, weightKg: 0.8, inStock: true })),
+        sizes: sizes.map((s, i) => ({ id: `sz-${i}`, size: s, name: s, priceAED: finalPrice, weightKg: 0.8, inStock: true })),
         variantMatrix: {
           flavors,
           sizes,
-          items: sizes.map((s, i) => ({ id: `var-${i}`, size: s, priceAED: priceAED || 59.14, inStock: true }))
+          items: sizes.map((s, i) => ({ id: `var-${i}`, size: s, priceAED: finalPrice, inStock: true }))
         }
       };
     }

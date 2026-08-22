@@ -1,3 +1,32 @@
+export interface ProductFlavorVariant {
+  id: string;
+  name: string;
+  flavor?: string;         // for compatibility
+  imageUrl?: string;
+  image?: string;          // for compatibility
+  hasCustomPrice?: boolean; // Checkbox toggle
+  priceAED?: number;       // Buying price in AED
+  priceAed?: number;       // for compatibility
+  weightKg?: number;       // Weight in KG (default 0.8)
+  priceToman?: number;     // Auto-calculated & editable selling Toman price
+  inStock?: boolean;
+  isAvailable?: boolean;
+}
+
+export interface ProductSizeVariant {
+  id: string;
+  size: string;
+  name?: string;           // for compatibility
+  displayLabel?: string;   // Formatted Persian/LBS bilingual label
+  hasCustomPrice?: boolean; // Checkbox toggle
+  priceAED?: number;       // Buying price in AED
+  priceAed?: number;       // for compatibility
+  weightKg?: number;       // Weight in KG
+  priceToman?: number;     // Auto-calculated & editable selling Toman price
+  inStock?: boolean;
+  isAvailable?: boolean;
+}
+
 export interface ProductVariantItem {
   id: string;
   title: string;        // e.g. "120 Servings" or "Chocolate / 5 lbs"
@@ -101,6 +130,7 @@ export interface FeaturedDeal {
   stockQuantity?: number;
   stockCount?: number;
   image?: string;
+  images?: string[];
   url: string;
   storeName?: string;
   badge?: string;
@@ -114,14 +144,18 @@ export interface FeaturedDeal {
   mainCategory?: string;
   subCategory?: string;
   description?: string;
-  flavors?: string[];
-  sizes?: string[];
+  flavors?: (string | any)[];
+  sizes?: (string | any)[];
+  variants?: any[];
+  [key: string]: any;
 }
 
 export interface LocalInventoryItem {
   id: string;
   title: string;
+  brand?: string;
   image: string;
+  images?: string[];
   priceToman: number;
   originalPriceToman?: number;
   calculatedTomanOverride?: number;
@@ -141,9 +175,11 @@ export interface LocalInventoryItem {
   priceAed?: number;
   weightKg?: number;
   marginPercent?: number;
-  flavors?: string[];
-  sizes?: string[];
+  flavors?: (string | any)[];
+  sizes?: (string | any)[];
+  variants?: any[];
   url?: string;
+  [key: string]: any;
 }
 
 export interface HomePageSettings {
@@ -405,11 +441,15 @@ export interface DiscountCode {
 
 export interface Order {
   id: string;
+  orderId?: string;
+  orderNumber?: string;
   userId?: string;
   trackingCode: string;
   customerName: string;
   phoneNumber: string;
+  customerPhone?: string;
   deliveryAddress: string;
+  shippingAddress?: string;
   postalCode?: string;
   notes?: string;
   productTitle: string;
@@ -418,18 +458,26 @@ export interface Order {
   storeName?: string;
   priceAed: number;
   weightKg: number;
-  aedRate: number;
-  cargoRatePerKg: number;
-  profitMargin: number;
+  aedRate?: number;
+  cargoRatePerKg?: number;
+  profitMargin?: number;
   calculatedToman: number;
-  paymentStatus: PaymentStatus;
-  shippingStatus: ShippingStatus;
-  createdAt: string;
+  totalToman?: number;
+  totalAmountToman?: number;
+  paymentStatus: PaymentStatus | string;
+  shippingStatus: ShippingStatus | string;
+  orderStatus?: string;
+  paymentMethod?: string;
+  items?: any[];
+  customer?: any;
+  createdAt: string | number;
+  updatedAt?: string | number;
   paymentRefId?: string;
   paymentRefNumber?: string;
   trackId?: string;
   paidAt?: string;
   paymentGateway?: string;
+  gateway?: string;
   paymentDetails?: any;
   paymentFailureReason?: string;
   selectedOption?: string;
@@ -437,6 +485,7 @@ export interface Order {
   discountAmountToman?: number;
   isLocalInventory?: boolean;
   status?: string;
+  [key: string]: any;
 }
 
 export interface ScrapedProductResult {

@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { SlidersHorizontal, X, ShoppingBag, Check } from 'lucide-react';
 import type { LocalInventoryItem, FinancialSettings } from '../types';
 import { ProductDetailModal } from './ProductDetailModal';
@@ -9,6 +9,7 @@ import { matchProductTaxonomy } from '../utils/taxonomyHelper';
 
 interface InventoryPageProps {
   items: LocalInventoryItem[];
+  categories?: any[];
   onSelectLocalProduct: (item: LocalInventoryItem) => void;
   settings?: FinancialSettings;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;

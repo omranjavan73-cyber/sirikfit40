@@ -1,4 +1,7 @@
 import { getSafeItem } from './safeStorage';
+import { extractUrlAndCaption } from './urlHelper';
+
+export { extractUrlAndCaption } from './urlHelper';
 
 // Helper utilities for Persian formatting and exchange rate resolution
 
@@ -174,15 +177,10 @@ export function deduplicateImageUrls(
 
 export function extractCleanUrl(input: string): string {
   if (!input || typeof input !== 'string') return '';
-  const trimmed = input.trim();
-  const httpIndex = trimmed.search(/https?:\/\//i);
-  if (httpIndex === -1) {
-    return trimmed;
-  }
-  const fromHttp = trimmed.slice(httpIndex);
-  const match = fromHttp.match(/^(https?:\/\/[^\s]+)/i);
-  return match ? match[1] : fromHttp;
+  const { cleanUrl } = extractUrlAndCaption(input);
+  return cleanUrl;
 }
+
 
 /**
  * Admin Rate History Fallback Architecture for AED Exchange Rate:
@@ -237,3 +235,126 @@ export function getEffectiveAedRate(
 
   return 0;
 }
+
+/**
+ * Helper to extract clean string value for text inputs (avoids [object Object] bug)
+ */
+export const serializeVariantNames = (items: any[] | undefined): string => {
+  if (!items || !Array.isArray(items)) return '';
+  return items
+    .map(it => (typeof it === 'string' ? it : (it?.name || it?.flavor || it?.size || it?.label || '')))
+    .filter(Boolean)
+    .join(', ');
+};
+
+/**
+ * Helper to parse comma-separated text back into clean array
+ */
+export const parseCommaSeparatedNames = (str: string): string[] => {
+  if (!str) return [];
+  return str
+    .split(/[,،]+/)
+    .map(s => s.trim())
+    .filter(s => s && s !== '[object Object]');
+};
+
+export interface FormattedSizeResult {
+  displayLabel: string; // e.g. "5 پوند (معادل ۲.۳ کیلوگرم)"
+  rawSize: string;      // e.g. "5 lbs"
+  weightKg: number;     // e.g. 2.3
+}
+
+export function parseAndConvertSize(inputSize: string): FormattedSizeResult {
+  if (!inputSize || typeof inputSize !== 'string') {
+    return { displayLabel: 'سایز پیشفرض', rawSize: '', weightKg: 0.8 };
+  }
+
+  const clean = inputSize.trim();
+  const lower = clean.toLowerCase();
+
+  // 1. Check LBS / Pounds (e.g., "5 lbs", "2 lbs", "10 lb", "5پوند")
+  const lbsMatch = lower.match(/([\d.]+)\s*(?:lbs|lb|پوند)/i);
+  if (lbsMatch && lbsMatch[1]) {
+    const lbsVal = parseFloat(lbsMatch[1]);
+    let kgVal = 0.8;
+    if (lbsVal === 5) kgVal = 2.27;
+    else if (lbsVal === 2) kgVal = 0.9;
+    else if (lbsVal === 10) kgVal = 4.54;
+    else if (lbsVal === 1) kgVal = 0.45;
+    else kgVal = Math.round(lbsVal * 0.453592 * 100) / 100;
+
+    return {
+      rawSize: clean,
+      displayLabel: `${lbsVal} پوند (معادل ${kgVal} کیلوگرم)`,
+      weightKg: kgVal
+    };
+  }
+
+  // 2. Check Grams (e.g., "250 g", "500 gm", "300g")
+  const gMatch = lower.match(/([\d.]+)\s*(?:gm|grams|gram|g|گرمی|گرم)/i);
+  if (gMatch && gMatch[1]) {
+    const gVal = parseFloat(gMatch[1]);
+    const kgVal = Math.round((gVal / 1000) * 100) / 100;
+    return {
+      rawSize: clean,
+      displayLabel: `${gVal} گرم (معادل ${kgVal} کیلوگرم)`,
+      weightKg: kgVal
+    };
+  }
+
+  // 3. Check KG (e.g., "2.2 kg", "1 kg")
+  const kgMatch = lower.match(/([\d.]+)\s*(?:kg|kilos|kilogram|کیلو|کیلوگرم)/i);
+  if (kgMatch && kgMatch[1]) {
+    const kgVal = parseFloat(kgMatch[1]);
+    return {
+      rawSize: clean,
+      displayLabel: `${kgVal} کیلوگرم`,
+      weightKg: kgVal
+    };
+  }
+
+  // 4. Default / Servings fallback
+  return {
+    rawSize: clean,
+    displayLabel: clean,
+    weightKg: 0.8
+  };
+}
+
+export function getStoreBadgeTheme(storeNameOrBrand: string = '') {
+  const s = (storeNameOrBrand || '').toLowerCase();
+  if (s.includes('gnc')) {
+    return {
+      bg: 'bg-red-600 text-white',
+      dot: 'bg-white',
+      name: 'GNC Store'
+    };
+  }
+  if (s.includes('dr nutrition') || s.includes('drnutrition') || s.includes('dnp')) {
+    return {
+      bg: 'bg-purple-700 text-white',
+      dot: 'bg-emerald-400',
+      name: 'Dr. Nutrition'
+    };
+  }
+  if (s.includes('sporter')) {
+    return {
+      bg: 'bg-amber-400 text-gray-950 font-black',
+      dot: 'bg-gray-950',
+      name: 'Sporter UAE'
+    };
+  }
+  if (s.includes('life pharmacy') || s.includes('lifepharmacy')) {
+    return {
+      bg: 'bg-blue-700 text-white',
+      dot: 'bg-pink-400',
+      name: 'Life Pharmacy'
+    };
+  }
+  return {
+    bg: 'bg-black text-white',
+    dot: 'bg-red-500',
+    name: storeNameOrBrand || 'خرید مستقیم از دبی'
+  };
+}
+

@@ -17,13 +17,29 @@ export async function scrapeSporter(url: string) {
   let priceAED = 0;
   let originalPriceAED = 0;
 
-  const specialPriceText = $('.special-price .price, [data-price-type="finalPrice"] .price, .product-info-price .price:not(.old-price .price)').first().text();
-  const match = specialPriceText.replace(/,/g, '').match(/[\d.]+/);
-  if (match) priceAED = parseFloat(match[0]);
-
-  const oldPriceText = $('.old-price .price').first().text();
+  const oldPriceText = $('.old-price .price, [data-price-type="oldPrice"] .price, del .price, .regular-price .price').first().text();
   const oldMatch = oldPriceText.replace(/,/g, '').match(/[\d.]+/);
   if (oldMatch) originalPriceAED = parseFloat(oldMatch[0]);
+
+  const specialPriceText = $('.special-price .price, [data-price-type="finalPrice"] .price, .product-info-price .price:not(.old-price .price)').first().text();
+  const match = specialPriceText.replace(/,/g, '').match(/[\d.]+/);
+  if (match) {
+    priceAED = parseFloat(match[0]);
+  } else {
+    $('.price').each((_, el) => {
+      const isInsideOld = $(el).closest('.old-price, del, [data-price-type="oldPrice"]').length > 0;
+      if (!isInsideOld && !priceAED) {
+        const m = $(el).text().replace(/,/g, '').match(/[\d.]+/);
+        if (m) priceAED = parseFloat(m[0]);
+      }
+    });
+  }
+
+  const finalPrice = priceAED > 0 ? priceAED : (originalPriceAED || 255.00);
+  const finalOldPrice = (originalPriceAED > finalPrice) ? originalPriceAED : undefined;
+  const discountPercent = (finalOldPrice && finalOldPrice > finalPrice)
+    ? Math.round(((finalOldPrice - finalPrice) / finalOldPrice) * 100)
+    : undefined;
 
   return {
     success: true,
@@ -32,12 +48,13 @@ export async function scrapeSporter(url: string) {
     store: 'Sporter UAE',
     sourceUrl: cleanUrl,
     imageUrl,
-    priceAED: priceAED || 255.00,
-    originalPriceAED: originalPriceAED || priceAED || 255.00,
+    priceAED: finalPrice,
+    originalPriceAED: finalOldPrice,
+    discountPercent,
     weightKg: 1.8,
     variants: [
-      { id: 'v1', size: '4 lbs', flavor: 'Milk Chocolate', priceAED: priceAED || 255.00, weightKg: 1.8, inStock: true },
-      { id: 'v2', size: '2 lbs', flavor: 'Milk Chocolate', priceAED: 156.83, weightKg: 0.9, inStock: true }
+      { id: 'v1', size: '4 lbs', flavor: 'Milk Chocolate', priceAED: finalPrice, weightKg: 1.8, inStock: true },
+      { id: 'v2', size: '2 lbs', flavor: 'Milk Chocolate', priceAED: finalPrice > 100 ? 156.83 : finalPrice, weightKg: 0.9, inStock: true }
     ]
   };
 }

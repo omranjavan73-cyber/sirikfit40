@@ -1,4 +1,4 @@
-﻿// Service Worker Lifecycle - Aggressive Mobile Cache Invalidation
+// Service Worker Lifecycle - Aggressive Mobile Cache Invalidation
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });

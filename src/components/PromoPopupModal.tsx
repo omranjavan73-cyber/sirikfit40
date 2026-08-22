@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Flame, Copy, Check, ExternalLink, Tag } from 'lucide-react';
 import type { PromoPopupConfig } from '../types';
 

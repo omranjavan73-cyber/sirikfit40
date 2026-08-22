@@ -68,7 +68,7 @@ export async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promis
     let activeSalePrice = 0;
     let oldPrice = 0;
 
-    const oldEl = $('.old-price .price, [data-price-type="oldPrice"] .price, del').first().text();
+    const oldEl = $('.old-price .price, [data-price-type="oldPrice"] .price, del .price, .regular-price .price').first().text();
     const oldMatch = oldEl.replace(/,/g, '').match(/[\d.]+/);
     if (oldMatch) oldPrice = parseFloat(oldMatch[0]);
 
@@ -87,11 +87,15 @@ export async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promis
       });
     }
 
-    if (activeSalePrice > 0) {
-      priceAED = activeSalePrice;
-    }
-    if (oldPrice > 0) {
-      originalPriceAED = oldPrice;
+    const finalPrice = activeSalePrice > 0 ? activeSalePrice : (oldPrice || 0);
+    const finalOriginalPrice = (oldPrice > finalPrice) ? oldPrice : undefined;
+    const discountPercent = (finalOriginalPrice && finalOriginalPrice > finalPrice)
+      ? Math.round(((finalOriginalPrice - finalPrice) / finalOriginalPrice) * 100)
+      : undefined;
+
+    priceAED = finalPrice;
+    if (finalOriginalPrice) {
+      originalPriceAED = finalOriginalPrice;
     }
 
     // 3. IMAGES EXTRACTION
@@ -169,8 +173,9 @@ export async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promis
         titleFa: generateBilingualProductTitle(title, brand),
         price: priceAED || 255.00,
         priceAED: priceAED || 255.00,
-        originalPriceAed: originalPriceAED || priceAED || 255.00,
-        originalPriceAED: originalPriceAED || priceAED || 255.00,
+        originalPriceAed: originalPriceAED || undefined,
+        originalPriceAED: originalPriceAED || undefined,
+        discountPercent: discountPercent,
         currency: "AED",
         image: mainImage || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=800',
         imageUrl: mainImage,
@@ -256,5 +261,65 @@ export async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promis
   } catch (_mErr) {}
 
   return null;
+}
+
+export async function parseSporterProduct(html: string, targetUrl: string) {
+  const $ = cheerio.load(html);
+
+  // Title & Brand
+  let title = $('h1.product-name, h1[itemprop="name"], h1.page-title, h1').first().text().trim();
+  if (!title) title = $('meta[property="og:title"]').attr('content') || '';
+  title = title.replace(/\s*\|\s*Sporter.*$/i, '').trim();
+
+  const brand = $('.brand-name, .product-brand, [itemprop="brand"]').first().text().trim() || 'MuscleTech';
+
+  // 1. Extract Strikethrough Old Price
+  let originalPriceAED = 0;
+  const oldPriceEl = $('.old-price .price, [data-price-type="oldPrice"] .price, del .price, .price-box .old-price, .regular-price .price').first().text();
+  const oldMatch = oldPriceEl.replace(/,/g, '').match(/[\d.]+/);
+  if (oldMatch) originalPriceAED = parseFloat(oldMatch[0]);
+
+  // 2. Extract Active Final Sale Price (STRICTLY EXCLUDE .old-price)
+  let activeSalePriceAED = 0;
+  const specialEl = $('.special-price .price, [data-price-type="finalPrice"] .price, .product-info-price .price:not(.old-price .price)').first().text();
+  const specialMatch = specialEl.replace(/,/g, '').match(/[\d.]+/);
+
+  if (specialMatch) {
+    activeSalePriceAED = parseFloat(specialMatch[0]);
+  } else {
+    // Traverse prices that are NOT child of old-price or del
+    $('.price').each((_, el) => {
+      const isOld = $(el).closest('.old-price, del, [data-price-type="oldPrice"]').length > 0;
+      if (!isOld && !activeSalePriceAED) {
+        const m = $(el).text().replace(/,/g, '').match(/[\d.]+/);
+        if (m) activeSalePriceAED = parseFloat(m[0]);
+      }
+    });
+  }
+
+  // Final Price determination
+  const finalPrice = activeSalePriceAED > 0 ? activeSalePriceAED : (originalPriceAED || 0);
+
+  // Gallery & Image
+  const rawImg = $('meta[property="og:image"]').attr('content') || $('.gallery-placeholder img, .product-image-photo, .fotorama__img').first().attr('src') || '';
+  const imageUrl = sanitizeImageUrl(rawImg, targetUrl);
+
+  return {
+    success: true,
+    ok: true,
+    title: title || 'مکمل اورجینال اسپورتر',
+    brand,
+    storeName: 'Sporter UAE',
+    sourceUrl: targetUrl,
+    priceAED: finalPrice,
+    price: finalPrice,
+    originalPriceAED: (originalPriceAED > finalPrice) ? originalPriceAED : undefined,
+    originalPriceAed: (originalPriceAED > finalPrice) ? originalPriceAED : undefined,
+    discountPercent: (originalPriceAED > finalPrice) ? Math.round(((originalPriceAED - finalPrice) / originalPriceAED) * 100) : undefined,
+    imageUrl: imageUrl,
+    image: imageUrl,
+    galleryImages: imageUrl ? [imageUrl] : [],
+    weightKg: 0.8
+  };
 }
 

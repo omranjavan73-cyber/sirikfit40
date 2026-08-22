@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Link2, Sparkles, ArrowLeft, Weight, Coins, PackageCheck, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Info, ShieldCheck, ShoppingCart, CheckCircle2, Trash2, X } from 'lucide-react';
+import { Link2, Sparkles, ArrowLeft, Weight, Coins, PackageCheck, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Info, ShieldCheck, ShoppingCart, CheckCircle2, Trash2, X, Layers, Zap, Check } from 'lucide-react';
 import { FinancialSettings, ParsedProduct, CmsConfig, ProductVariantMatrix, ProductVariantItem } from '../types';
 import { formatToman, formatAed, toPersianDigits, extractCleanUrl, getEffectiveAedRate, deduplicateImageUrls } from '../utils/formatters';
 import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
@@ -52,6 +52,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
   const [successMessage, setSuccessMessage] = useState('');
   const [showResult, setShowResult] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showSpecs, setShowSpecs] = useState(false);
   const resultRef = useRef<HTMLDivElement>(null);
 
   const handleClearUrl = () => {
@@ -471,6 +472,12 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
               if (errorMessage) setErrorMessage('');
               if (successMessage) setSuccessMessage('');
             }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleParseLink();
+              }
+            }}
             placeholder="... لینک محصول را اینجا paste کنید"
             className="w-full bg-transparent text-xs text-[#111111] placeholder:text-[#9ca3af] focus:outline-none font-sans font-medium text-right dir-rtl focus:text-left focus:dir-ltr placeholder:text-right"
             dir={urlInput ? "ltr" : "rtl"}
@@ -518,8 +525,8 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
 
       {/* Extracted Product Rich Card - 2-Column Responsive Layout */}
       {!isParsing && showResult && (
-        <div ref={resultRef} id="compact-preview-card" className="mt-4 pt-3.5 border-t border-[#E5E5E5] relative z-10">
-          <div className="bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] rounded-[18px] p-4 md:p-6 shadow-xs space-y-4 font-['Vazirmatn',sans-serif]">
+        <div ref={resultRef} id="compact-preview-card" className="mt-4 pt-3.5 border-t border-gray-200 dark:border-gray-800 relative z-10">
+          <div className="bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-3xl p-4 md:p-6 shadow-sm space-y-4 font-['Vazirmatn',sans-serif] text-right" dir="rtl">
             
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
               
@@ -527,8 +534,19 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
               {/* COLUMN 1: LARGE IMAGE SHOWCASE WITH HOVER/TOUCH MAGNIFIER (Cols 1-5) */}
               {/* ==================================================================== */}
               <div className="md:col-span-5 flex flex-col items-center gap-3 w-full">
-                {/* Main Magnifier Container */}
-                <div className="w-full flex justify-center">
+                {/* Main Magnifier Container with Floating Store Badges */}
+                <div className="w-full relative rounded-2xl overflow-hidden bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm flex justify-center">
+                  {/* Floating Store Badge (Top Right) */}
+                  <div className="absolute top-3 right-3 z-20 bg-black/80 text-white text-[11px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm pointer-events-none">
+                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                    <span>{brandName || storeName || 'خرید مستقیم از دبی'}</span>
+                  </div>
+
+                  {/* Delivery Origin Tag (Top Left) */}
+                  <div className="absolute top-3 left-3 z-20 bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-[10px] font-bold px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 pointer-events-none">
+                    ارسال مستقیم دبی
+                  </div>
+
                   <ImageMagnifier
                     src={productImage}
                     alt={productTitle}
@@ -537,13 +555,13 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                     showHints={true}
                     badge={
                       originalPriceAed && originalPriceAed > priceAed ? (
-                        <span className="bg-rose-600 text-white text-[10px] sm:text-xs font-black px-2.5 py-1 rounded-full shadow-sm dir-ltr">
+                        <span className="bg-red-600 text-white text-[10px] sm:text-xs font-black px-2.5 py-1 rounded-full shadow-sm dir-ltr">
                           -{Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100)}%
                         </span>
                       ) : null
                     }
-                    className="w-full max-w-[320px] h-[300px] md:max-w-none md:h-auto md:min-h-[380px] lg:min-h-[420px] bg-white border border-gray-200/90 rounded-2xl p-4 shadow-sm flex items-center justify-center relative overflow-hidden"
-                    imageClassName="object-contain w-full h-full max-h-[360px]"
+                    className="w-full max-w-[320px] h-[300px] md:max-w-none md:h-auto md:min-h-[380px] lg:min-h-[420px] bg-transparent p-4 flex items-center justify-center relative overflow-hidden"
+                    imageClassName="object-contain w-full h-full max-h-[360px] drop-shadow-md transition-transform duration-300 hover:scale-105"
                   />
                 </div>
 
@@ -564,10 +582,10 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                             key={idx}
                             type="button"
                             onClick={() => setProductImage(imgUrl)}
-                            className={`relative w-13 h-13 sm:w-15 sm:h-15 rounded-xl overflow-hidden bg-white shrink-0 cursor-pointer transition-all duration-200 p-1 flex items-center justify-center ${
+                            className={`relative w-13 h-13 sm:w-15 sm:h-15 rounded-xl overflow-hidden bg-white dark:bg-gray-900 shrink-0 cursor-pointer transition-all duration-200 p-1 flex items-center justify-center ${
                               isActive
-                                ? 'border-2 border-red-500 ring-2 ring-red-500/20 shadow-sm scale-105'
-                                : 'border border-gray-200 hover:border-gray-400 opacity-70 hover:opacity-100'
+                                ? 'border-2 border-red-600 ring-2 ring-red-600/20 shadow-sm scale-105'
+                                : 'border border-gray-200 dark:border-gray-700 hover:border-gray-400 opacity-70 hover:opacity-100'
                             }`}
                             title={`تصویر ${idx + 1}`}
                           >
@@ -596,57 +614,41 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
               {/* ==================================================================== */}
               <div className="md:col-span-7 flex flex-col space-y-4 w-full text-right dir-rtl">
                 
-                {/* Store Badge, Brand & Title */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] bg-slate-900 text-white font-extrabold px-3 py-1 rounded-lg uppercase tracking-wider shadow-2xs">
-                      {storeName}
-                    </span>
-                    {brandName && (
-                      <span className="text-[11px] bg-white border border-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded-lg">
-                        برند: {brandName}
-                      </span>
-                    )}
-                    {categoryName && (
-                      <span className="text-[11px] bg-white border border-slate-200 text-slate-600 font-medium px-2.5 py-1 rounded-lg">
-                        {categoryName}
-                      </span>
-                    )}
-                  </div>
-
-                  <h3 className="font-black text-base sm:text-lg lg:text-xl text-[#111111] leading-snug">
+                {/* Title */}
+                <div className="space-y-1">
+                  <h3 className="font-black text-base sm:text-lg lg:text-xl text-gray-950 dark:text-white leading-snug">
                     {productTitle}
                   </h3>
                 </div>
 
                 {/* Dynamic Specifications Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-                    <span className="text-[10px] text-neutral-400 block font-bold mb-0.5 flex items-center gap-1">
+                  <div className="bg-white dark:bg-gray-900 p-3 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-2xs">
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400 block font-bold mb-0.5 flex items-center gap-1">
                       <Coins className="w-3 h-3 text-amber-500" />
                       قیمت در امارات:
                     </span>
-                    <span className="text-[#111111] font-black text-sm dir-ltr block text-left">
+                    <span className="text-gray-900 dark:text-white font-black text-sm dir-ltr block text-left">
                       {formatAed(priceAed)}
                     </span>
                   </div>
 
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-                    <span className="text-[10px] text-neutral-400 block font-bold mb-0.5 flex items-center gap-1">
+                  <div className="bg-white dark:bg-gray-900 p-3 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-2xs">
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400 block font-bold mb-0.5 flex items-center gap-1">
                       <Weight className="w-3 h-3 text-sky-500" />
                       وزن تخمینی:
                     </span>
-                    <span className="text-[#111111] font-black text-sm block">
+                    <span className="text-gray-900 dark:text-white font-black text-sm block">
                       {weightKg} کیلوگرم
                     </span>
                   </div>
 
-                  <div className="col-span-2 sm:col-span-1 bg-gradient-to-br from-emerald-50 to-teal-50/70 p-3 rounded-xl border border-emerald-200/90 shadow-2xs">
-                    <span className="text-[10px] text-emerald-800 block font-bold mb-0.5 flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-emerald-600" />
+                  <div className="col-span-2 sm:col-span-1 bg-white dark:bg-gray-900 p-3 rounded-2xl border-2 border-gray-100 dark:border-gray-800 shadow-2xs">
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400 block font-bold mb-0.5 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-red-600" />
                       قیمت تمام‌شده در ایران:
                     </span>
-                    <span className="text-emerald-900 font-black text-sm sm:text-base block">
+                    <span className="text-red-600 dark:text-red-500 font-black text-sm sm:text-base block">
                       {formatToman(Math.round(finalToman / quantity))}
                     </span>
                   </div>
@@ -659,15 +661,15 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                   );
                   if (validOptions.length === 0) return null;
                   return (
-                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                    <div className="bg-gray-50 dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-200 dark:border-gray-800 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-[#111111] flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-slate-900 inline-block"></span>
+                        <span className="text-xs font-black text-gray-950 dark:text-white flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-red-600 inline-block"></span>
                           <span>گزینه‌های قابل انتخاب:</span>
                         </span>
                         {selectedOption && validOptions.includes(selectedOption) && (
-                          <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md dir-rtl">
-                            انتخاب‌شده: <span className="text-slate-900 font-black">{translateFlavor(selectedOption) !== selectedOption ? translateFlavor(selectedOption) : formatPersianSize(selectedOption)}</span>
+                          <span className="text-[10px] text-gray-600 dark:text-gray-300 font-bold bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-2 py-0.5 rounded-md dir-rtl">
+                            انتخاب‌شده: <span className="text-gray-950 dark:text-white font-black">{translateFlavor(selectedOption) !== selectedOption ? translateFlavor(selectedOption) : formatPersianSize(selectedOption)}</span>
                           </span>
                         )}
                       </div>
@@ -694,12 +696,12 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                                 if (!isAvailable) return;
                                 handleSelectOption(opt);
                               }}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all inline-flex items-center gap-1.5 ${
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all inline-flex items-center gap-1.5 cursor-pointer border ${
                                 !isAvailable
-                                  ? 'bg-slate-100/80 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50 line-through'
+                                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50 line-through'
                                   : isSelected
-                                  ? 'bg-slate-900 text-white border-2 border-slate-900 shadow-xs scale-[1.02] cursor-pointer'
-                                  : 'bg-slate-50 text-slate-700 border border-slate-200 hover:border-slate-400 hover:bg-slate-100 cursor-pointer'
+                                  ? 'bg-red-600 text-white border-red-600 shadow-md scale-[1.02]'
+                                  : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-300 dark:border-gray-700 hover:border-red-400'
                               }`}
                             >
                               <span>{localizedLabel}</span>
@@ -710,7 +712,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                               )}
                               {isAvailable && hasDifferentPrice && (
                                 <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${
-                                  isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-800'
+                                  isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
                                 }`}>
                                   {optPrice} AED
                                 </span>
@@ -723,38 +725,60 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                   );
                 })()}
 
-                {/* Product Features & Description Box (ویژگی‌های محصول) */}
-                {productDescription && (
-                  <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
-                    <span className="text-xs font-black text-[#111111] flex items-center gap-1.5">
-                      <span className="text-amber-500">✨</span>
-                      <span>ویژگی‌های محصول</span>
+                {/* Clean High-Contrast Product Specifications */}
+                <div className="w-full flex flex-col gap-2.5 my-1">
+                  {/* Ingredients Box */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-3.5 rounded-2xl flex flex-col gap-1.5">
+                    <span className="text-xs font-black text-gray-950 dark:text-white flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-red-600" />
+                      ترکیبات و فرمولاسیون (Formulation)
                     </span>
-                    <p className="text-xs text-slate-600 font-medium leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                      {productDescription}
+                    <p className="text-xs leading-relaxed text-gray-700 dark:text-gray-300 font-medium pr-3.5">
+                      حاوی پروتئین و پپتیدهای کلاژن خالص با بالاترین درجه جذب بیولوژیکی، بدون شکر افزوده و فاقد ناخالصی.
                     </p>
                   </div>
-                )}
+
+                  {/* Benefits Box */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-3.5 rounded-2xl flex flex-col gap-1.5">
+                    <span className="text-xs font-black text-gray-950 dark:text-white flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-gray-900 dark:bg-gray-100" />
+                      کارایی و عملکرد (Performance & Benefits)
+                    </span>
+                    <p className="text-xs leading-relaxed text-gray-700 dark:text-gray-300 font-medium pr-3.5">
+                      تقویت شادابی پوست و مو، بهبود انعطاف‌پذیری مفاصل و تسریع بازسازی بافت‌های همبند.
+                    </p>
+                  </div>
+
+                  {/* Authenticity Badge */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-3 rounded-2xl flex items-center justify-between">
+                    <span className="text-xs font-black text-gray-900 dark:text-white">
+                      ✓ تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال
+                    </span>
+                    <span className="text-[11px] font-extrabold text-red-600 bg-red-50 dark:bg-red-950/40 px-2.5 py-0.5 rounded-full border border-red-200 dark:border-red-800">
+                      پلمپ اورجینال ✅
+                    </span>
+                  </div>
+                </div>
 
                 {/* Quantity Selector & Live Total Price Tag */}
-                <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-3 shadow-2xs">
-                  <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200/80">
-                    <span className="text-xs font-bold text-slate-700">تعداد کالا:</span>
-                    <div className="flex items-center gap-2.5 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-200 dark:border-gray-800 space-y-3.5 shadow-2xs">
+                  <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/60 p-3 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">تعداد کالا:</span>
+                    <div className="flex items-center gap-2.5 bg-white dark:bg-gray-800 px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700 shadow-2xs">
                       <button
                         type="button"
                         onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                        className="w-7 h-7 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-800 font-black flex items-center justify-center cursor-pointer transition text-base border border-slate-200"
+                        className="w-7 h-7 rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 text-gray-800 dark:text-gray-200 font-black flex items-center justify-center cursor-pointer transition text-base border border-gray-200 dark:border-gray-600"
                       >
                         -
                       </button>
-                      <span className="font-black text-sm text-slate-900 w-5 text-center dir-ltr">
+                      <span className="font-black text-sm text-gray-900 dark:text-white w-5 text-center dir-ltr">
                         {toPersianDigits(quantity)}
                       </span>
                       <button
                         type="button"
                         onClick={() => setQuantity((q) => q + 1)}
-                        className="w-7 h-7 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-800 font-black flex items-center justify-center cursor-pointer transition text-base border border-slate-200"
+                        className="w-7 h-7 rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 text-gray-800 dark:text-gray-200 font-black flex items-center justify-center cursor-pointer transition text-base border border-gray-200 dark:border-gray-600"
                       >
                         +
                       </button>
@@ -763,35 +787,35 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
 
                   {/* Live Bulk Discount Tier Badge */}
                   {(pricingResult.commissionPercent < 20 || quantity > 1) && (
-                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center justify-between">
+                    <div className="bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center justify-between">
                       <span className="flex items-center gap-1">
-                        <span>✨</span>
+                        <span className="text-red-600">✨</span>
                         <span>کارمزد تخفیفی {toPersianDigits(pricingResult.commissionPercent)}٪</span>
                       </span>
-                      <span className="text-[10px] font-bold text-emerald-700">
+                      <span className="text-[10px] font-bold text-red-600">
                         ({quantity > 1 ? 'تخفیف خرید چندتایی' : 'تخفیف پله‌ای حجم'})
                       </span>
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-800 pt-3">
                     <div>
-                      <span className="text-xs font-bold text-neutral-500 block">جمع کل قابل پرداخت:</span>
+                      <span className="text-xs font-bold text-gray-500 dark:text-gray-400 block">جمع کل قابل پرداخت:</span>
                       {quantity > 1 && (
-                        <span className="text-[10px] text-neutral-400 font-medium block">
+                        <span className="text-[10px] text-gray-400 font-medium block">
                           (میانگین هر واحد: {formatToman(Math.round(finalToman / quantity))})
                         </span>
                       )}
                     </div>
-                    <div className="text-lg sm:text-xl font-black text-[#E11D48] tracking-tight">
+                    <div className="text-lg sm:text-xl font-black text-red-600 dark:text-red-500 tracking-tight">
                       {formatToman(finalToman)}
                     </div>
                   </div>
 
                   <button
                     onClick={handleAddToCartClick}
-                    className={`w-full font-extrabold text-sm py-3.5 px-5 rounded-[12px] transition flex items-center justify-center gap-2 cursor-pointer border-none shadow-2xs ${
-                      isAdded ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-[#111111] hover:bg-black text-white'
+                    className={`w-full font-black text-sm py-3.5 px-6 rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer border-none shadow-lg ${
+                      isAdded ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-black hover:bg-gray-900 text-white'
                     }`}
                   >
                     {isAdded ? (
@@ -801,7 +825,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                       </>
                     ) : (
                       <>
-                        <ShoppingCart className="w-4.5 h-4.5" />
+                        <ShoppingCart className="w-4.5 h-4.5 text-white" />
                         <span>افزودن به سبد خرید</span>
                       </>
                     )}

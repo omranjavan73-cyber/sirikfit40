@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { SlidersHorizontal, X, ShoppingBag, Check } from 'lucide-react';
 import type { FeaturedDeal, FinancialSettings } from '../types';
 import { calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
@@ -10,6 +10,7 @@ import { matchProductTaxonomy } from '../utils/taxonomyHelper';
 
 interface FeaturedDealsProps {
   deals?: FeaturedDeal[];
+  categories?: any[];
   settings: FinancialSettings;
   onSelectDeal: (deal: FeaturedDeal) => void;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;

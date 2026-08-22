@@ -139,6 +139,20 @@ export const db = firestoreDb;
 export const auth = getAuth(app);
 export const isFirebaseConfigured = true;
 
+export {
+  doc,
+  getDoc,
+  setDoc,
+  deleteDoc,
+  getDocs,
+  collection,
+  query,
+  where,
+  orderBy,
+  limit,
+  onSnapshot
+};
+
 export function sanitizePayloadForFirestore<T = any>(obj: T): T {
   if (obj === undefined || obj === null) return null as unknown as T;
   if (typeof obj !== 'object') return obj;

@@ -152,8 +152,10 @@ import {
   DomainItem,
   FeatureToggles
 } from '../types';
-import { formatToman, formatAed, formatPersianDate, toPersianDigits, getEffectiveAedRate, normalizeToEnglishDigits } from '../utils/formatters';
-import { calculateSellingPriceToman, calculateTomanPrice } from '../utils/pricingCalculator';
+import { formatToman, formatAed, formatPersianDate, toPersianDigits, getEffectiveAedRate, normalizeToEnglishDigits, serializeVariantNames, parseCommaSeparatedNames } from '../utils/formatters';
+import { extractUrlAndCaption } from '../utils/urlHelper';
+import { calculateSellingPriceToman, calculateTomanPrice, autoCalcToman } from '../utils/pricingCalculator';
+import { VariantManager } from './admin/VariantManager';
 import { getEffectiveGeminiKeysList, setEffectiveGeminiKeysList } from '../utils/geminiKey';
 import { parseProductLinkUniversal } from '../utils/parseLink';
 import { getCanonicalCategoryKey, DEFAULT_UNIFIED_CATEGORIES } from '../utils/categoryHelper';
@@ -2125,9 +2127,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       e.preventDefault();
       e.stopPropagation();
     }
-    const targetUrl = newLocalUrlInput.trim();
-    if (!targetUrl || !targetUrl.toLowerCase().startsWith('http')) {
-      if (showToast) showToast('لطفاً یک لینک معتبر اینترنتی وارد نمایید.', 'error');
+    const { cleanUrl, prefixText, isValid } = extractUrlAndCaption(newLocalUrlInput);
+    if (!isValid || !cleanUrl) {
+      if (showToast) showToast('هیچ لینک معتبری (شروع با http یا https) در متن وارد شده یافت نشد.', 'error');
       return;
     }
 
@@ -2136,13 +2138,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const response = await fetch('/api/parse-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: targetUrl, is_free_extraction: true })
+        body: JSON.stringify({ url: cleanUrl, is_free_extraction: true })
       });
 
       const data = await response.json();
       const priceAed = Number(data.priceAed || data.price || data.basePriceAED || 0);
 
-      if ((data.ok || data.success) && data.title && priceAed > 0) {
+      if ((data.ok || data.success) && (data.title || prefixText) && priceAed > 0) {
+        const finalTitle = data.title && data.title !== 'محصول استخراج شده'
+          ? data.title
+          : (prefixText || data.title || 'مکمل اورجینال دبی');
+
         const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
         const cargoRate = settings?.cargoRatePerKg || 35;
         const marginPercent = settings?.profitMargin || 20;
@@ -2171,7 +2177,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         const newItem: LocalInventoryItem = {
           id: 'local-' + Date.now(),
-          title: data.title,
+          title: finalTitle,
           brand: data.brand || data.storeName || 'دبی',
           storeName: data.storeName || 'فروشگاه دبی',
           image: mainImage || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
@@ -2195,7 +2201,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           flavors: Array.isArray(data.flavors) ? data.flavors : [],
           sizes: Array.isArray(data.sizes) ? data.sizes : [],
           variants: Array.isArray(data.variants) ? data.variants : [],
-          url: targetUrl
+          url: cleanUrl
         };
 
         const updatedLocalList = [newItem, ...localInventoryList];
@@ -2236,9 +2242,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       e.preventDefault();
       e.stopPropagation();
     }
-    const targetUrl = newDealUrlInput.trim();
-    if (!targetUrl || !targetUrl.toLowerCase().startsWith('http')) {
-      if (showToast) showToast('لطفاً یک لینک معتبر اینترنتی وارد نمایید.', 'error');
+    const { cleanUrl, prefixText, isValid } = extractUrlAndCaption(newDealUrlInput);
+    if (!isValid || !cleanUrl) {
+      if (showToast) showToast('هیچ لینک معتبری (شروع با http یا https) در متن وارد شده یافت نشد.', 'error');
       return;
     }
 
@@ -2247,13 +2253,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const response = await fetch('/api/parse-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: targetUrl, is_free_extraction: true })
+        body: JSON.stringify({ url: cleanUrl, is_free_extraction: true })
       });
 
       const data = await response.json();
       const priceAed = Number(data.priceAed || data.price || data.basePriceAED || 0);
 
-      if ((data.ok || data.success) && data.title && priceAed > 0) {
+      if ((data.ok || data.success) && (data.title || prefixText) && priceAed > 0) {
+        const finalTitle = data.title && data.title !== 'محصول استخراج شده'
+          ? data.title
+          : (prefixText || data.title || 'مکمل اورجینال دبی');
+
         const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
         const cargoRate = settings?.cargoRatePerKg || 35;
         const marginPercent = settings?.profitMargin || 20;
@@ -2288,7 +2298,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         const newDeal: FeaturedDeal = {
           id: 'deal-' + Date.now(),
-          title: data.title,
+          title: finalTitle,
           brand: data.brand || data.storeName || 'دبی',
           category: assignedCategory,
           categoryKey: assignedCategoryKey,
@@ -2305,7 +2315,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           image: mainImage || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
           images: gallery,
           galleryImages: gallery,
-          url: targetUrl,
+          url: cleanUrl,
           storeName: data.storeName || 'فروشگاه دبی',
           badge: badgeText,
           description: data.description || 'پیشنهاد ویژه خرید مستقیم از دبی با بهترین قیمت',
@@ -4950,9 +4960,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="flex flex-col sm:flex-row gap-2">
                     <div className="relative flex-1">
                       <input
-                        type="url"
+                        type="text"
                         value={newLocalUrlInput}
                         onChange={(e) => setNewLocalUrlInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAutoExtractAndAddLocalItem();
+                          }
+                        }}
                         placeholder="https://www.drnutrition.com/product/optimum-nutrition-gold-standard-100-whey..."
                         className="w-full bg-white border border-purple-300 text-slate-900 text-xs px-3.5 py-2.5 pl-9 rounded-xl focus:outline-none focus:border-purple-600 dir-ltr font-mono"
                         dir="ltr"
@@ -5305,291 +5321,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       </div>
 
-                      {/* Variant Edit Row (Flavors & Sizes) */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                            طعم‌های محصول (با کاما جدا کنید):
-                          </label>
-                          <input
-                            type="text"
-                            value={(item.flavors || []).join(', ')}
-                            onChange={(e) => {
-                              const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                              handleUpdateLocalItemField(item.id, 'flavors', arr);
-                            }}
-                            placeholder="مثال: Double Chocolate, Vanilla, Strawberry"
-                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                            حجم/سایزهای محصول (با کاما جدا کنید):
-                          </label>
-                          <input
-                            type="text"
-                            value={(item.sizes || []).join(', ')}
-                            onChange={(e) => {
-                              const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                              handleUpdateLocalItemField(item.id, 'sizes', arr);
-                            }}
-                            placeholder="مثال: 5 lbs, 2 lbs, 60 Servings"
-                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
-                          />
-                        </div>
-                      </div>
-
-                      {/* SECTION 1: FLAVORS & DEDICATED IMAGES MANAGER */}
-                      <div className="bg-slate-100/80 border border-slate-200 rounded-2xl p-3.5 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
-                            <span>مدیریت طعم‌ها و تصاویر اختصاصی (تغییر عکس با کلیک روی طعم):</span>
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-medium">
-                            (تصویر محصول با انتخاب هر طعم تغییر می‌کند)
-                          </span>
-                        </div>
-
-                        {Array.isArray(item.flavors) && item.flavors.length > 0 && (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-right text-[11px] border-collapse bg-white rounded-xl overflow-hidden border border-slate-200">
-                              <thead>
-                                <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
-                                  <th className="p-2.5">نام طعم</th>
-                                  <th className="p-2.5">لینک تصویر اختصاصی طعم</th>
-                                  <th className="p-2.5 text-center">وضعیت موجودی</th>
-                                  <th className="p-2.5 text-center">عملیات</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {item.flavors.map((flvItem: any, fIdx: number) => {
-                                  const fName = typeof flvItem === 'string' ? flvItem : (flvItem.flavor || flvItem.name || '');
-                                  const fImg = typeof flvItem === 'object' ? (flvItem.imageUrl || flvItem.image || '') : '';
-                                  const fStock = typeof flvItem === 'object' ? (flvItem.isAvailable !== false && flvItem.inStock !== false) : true;
-
-                                  return (
-                                    <tr key={fIdx} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50">
-                                      <td className="p-2 font-bold text-slate-900">
-                                        <input
-                                          type="text"
-                                          value={fName}
-                                          onChange={(e) => {
-                                            const curFlavors = [...item.flavors];
-                                            if (typeof curFlavors[fIdx] === 'object') {
-                                              curFlavors[fIdx] = { ...curFlavors[fIdx], flavor: e.target.value, name: e.target.value };
-                                            } else {
-                                              curFlavors[fIdx] = { flavor: e.target.value, name: e.target.value, imageUrl: '', inStock: true };
-                                            }
-                                            handleUpdateLocalItemField(item.id, 'flavors', curFlavors);
-                                          }}
-                                          placeholder="مثلاً: Chocolate"
-                                          className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg"
-                                        />
-                                      </td>
-                                      <td className="p-2">
-                                        <div className="flex items-center gap-1.5">
-                                          {fImg && (
-                                            <img src={fImg} alt={fName} className="w-7 h-7 object-contain rounded border border-slate-200 bg-white shrink-0" />
-                                          )}
-                                          <input
-                                            type="text"
-                                            value={fImg}
-                                            onChange={(e) => {
-                                              const curFlavors = [...item.flavors];
-                                              if (typeof curFlavors[fIdx] === 'object') {
-                                                curFlavors[fIdx] = { ...curFlavors[fIdx], imageUrl: e.target.value, image: e.target.value };
-                                              } else {
-                                                curFlavors[fIdx] = { flavor: fName, name: fName, imageUrl: e.target.value, inStock: true };
-                                              }
-                                              handleUpdateLocalItemField(item.id, 'flavors', curFlavors);
-                                            }}
-                                            placeholder="https://... یا تصویر طعم"
-                                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg dir-ltr font-mono"
-                                            dir="ltr"
-                                          />
-                                        </div>
-                                      </td>
-                                      <td className="p-2 text-center">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const curFlavors = [...item.flavors];
-                                            const nextStock = !fStock;
-                                            if (typeof curFlavors[fIdx] === 'object') {
-                                              curFlavors[fIdx] = { ...curFlavors[fIdx], inStock: nextStock, isAvailable: nextStock };
-                                            } else {
-                                              curFlavors[fIdx] = { flavor: fName, name: fName, imageUrl: fImg, inStock: nextStock, isAvailable: nextStock };
-                                            }
-                                            handleUpdateLocalItemField(item.id, 'flavors', curFlavors);
-                                          }}
-                                          className={`text-[10px] font-black px-2 py-1 rounded-full cursor-pointer transition ${
-                                            fStock
-                                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                              : 'bg-rose-100 text-rose-800 border border-rose-300'
-                                          }`}
-                                        >
-                                          {fStock ? '✓ موجود در انبار' : '✕ ناموجود'}
-                                        </button>
-                                      </td>
-                                      <td className="p-2 text-center">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const curFlavors = item.flavors.filter((_: any, i: number) => i !== fIdx);
-                                            handleUpdateLocalItemField(item.id, 'flavors', curFlavors);
-                                          }}
-                                          className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition cursor-pointer"
-                                          title="حذف این طعم"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const cur = Array.isArray(item.flavors) ? [...item.flavors] : [];
-                            cur.push({
-                              id: `flv-${Date.now()}`,
-                              flavor: 'طعم جدید',
-                              name: 'طعم جدید',
-                              imageUrl: item.image || '',
-                              inStock: true,
-                              isAvailable: true
-                            });
-                            handleUpdateLocalItemField(item.id, 'flavors', cur);
-                          }}
-                          className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>+ افزودن طعم جدید با تصویر اختصاصی</span>
-                        </button>
-                      </div>
-
-                      {/* SECTION 2: SIZES & INDEPENDENT PRICING TABLE */}
-                      <div className="bg-slate-100/80 border border-slate-200 rounded-2xl p-3.5 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-blue-600 inline-block"></span>
-                            <span>مدیریت سایزها و قیمت اختصاصی (تومان):</span>
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-medium">
-                            (تغییر آنی قیمت بر اساس سایز انتخابی)
-                          </span>
-                        </div>
-
-                        {(item as any).variants && (item as any).variants.length > 0 && (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-right text-[11px] border-collapse bg-white rounded-xl overflow-hidden border border-slate-200">
-                              <thead>
-                                <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
-                                  <th className="p-2.5">نام سایز / وزن</th>
-                                  <th className="p-2.5">قیمت (تومان)</th>
-                                  <th className="p-2.5 text-center">وضعیت موجودی</th>
-                                  <th className="p-2.5 text-center">عملیات</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {(item as any).variants.map((v: any, vIdx: number) => {
-                                  const vStock = v.inStock !== false && v.isAvailable !== false;
-                                  return (
-                                    <tr key={v.id || vIdx} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50">
-                                      <td className="p-2 font-bold text-slate-900">
-                                        <input
-                                          type="text"
-                                          value={v.size || v.name || ''}
-                                          onChange={(e) => {
-                                            const updated = [...((item as any).variants || [])];
-                                            updated[vIdx] = { ...updated[vIdx], size: e.target.value, name: e.target.value };
-                                            handleUpdateLocalItemField(item.id, 'variants', updated);
-                                          }}
-                                          placeholder="مثلاً: 2 lbs"
-                                          className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg"
-                                        />
-                                      </td>
-                                      <td className="p-2">
-                                        <input
-                                          type="number"
-                                          value={v.priceToman || ''}
-                                          onChange={(e) => {
-                                            const updated = [...((item as any).variants || [])];
-                                            const val = parseFloat(e.target.value) || 0;
-                                            updated[vIdx] = { ...updated[vIdx], priceToman: val };
-                                            handleUpdateLocalItemField(item.id, 'variants', updated);
-                                          }}
-                                          className="w-32 bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg font-mono font-bold"
-                                        />
-                                      </td>
-                                      <td className="p-2 text-center">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const updated = [...((item as any).variants || [])];
-                                            const nextVStock = !vStock;
-                                            updated[vIdx] = { ...updated[vIdx], inStock: nextVStock, isAvailable: nextVStock };
-                                            handleUpdateLocalItemField(item.id, 'variants', updated);
-                                          }}
-                                          className={`text-[10px] font-black px-2 py-1 rounded-full cursor-pointer transition ${
-                                            vStock
-                                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                              : 'bg-rose-100 text-rose-800 border border-rose-300'
-                                          }`}
-                                        >
-                                          {vStock ? '✓ موجود' : '✕ ناموجود'}
-                                        </button>
-                                      </td>
-                                      <td className="p-2 text-center">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const updated = ((item as any).variants || []).filter((_: any, i: number) => i !== vIdx);
-                                            handleUpdateLocalItemField(item.id, 'variants', updated);
-                                          }}
-                                          className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition cursor-pointer"
-                                          title="حذف این متغیر"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const cur = Array.isArray((item as any).variants) ? [...(item as any).variants] : [];
-                            const newId = `var-${Date.now()}`;
-                            cur.push({
-                              id: newId,
-                              name: 'سایز جدید',
-                              size: '2 lbs',
-                              flavor: 'پیش‌فرض',
-                              priceToman: item.priceToman || 3000000,
-                              inStock: true,
-                              isAvailable: true
-                            });
-                            handleUpdateLocalItemField(item.id, 'variants', cur);
-                          }}
-                          className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>+ افزودن سایز جدید با قیمت اختصاصی</span>
-                        </button>
-                      </div>
+                      {/* Integrated Variant Manager with Comma Inputs, Image Mapping, and Independent Pricing */}
+                      <VariantManager
+                        productId={item.id}
+                        flavors={item.flavors}
+                        sizes={item.sizes || (item as any).variants}
+                        basePriceAed={item.priceAed || 0}
+                        baseWeightKg={item.weightKg || 0.8}
+                        basePriceToman={item.priceToman || 0}
+                        profitMargin={item.marginPercent !== undefined ? item.marginPercent : 20}
+                        mainProductImage={item.image}
+                        settings={settings}
+                        cms={cms}
+                        onUpdateFlavors={(newFlavors) => handleUpdateLocalItemField(item.id, 'flavors', newFlavors)}
+                        onUpdateSizes={(newSizes) => {
+                          handleUpdateLocalItemField(item.id, 'sizes', newSizes);
+                          handleUpdateLocalItemField(item.id, 'variants', newSizes);
+                        }}
+                      />
 
                       {/* GRID ROW 3: Image URL & Upload Button */}
                       <div>
@@ -5818,9 +5567,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="flex flex-col sm:flex-row gap-2">
                     <div className="relative flex-1">
                       <input
-                        type="url"
+                        type="text"
                         value={newDealUrlInput}
                         onChange={(e) => setNewDealUrlInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAutoExtractAndAddDeal();
+                          }
+                        }}
                         placeholder="https://gnc-mena.com/products/optimum-nutrition-gold-standard-100-whey..."
                         className="w-full bg-white border border-amber-300 text-slate-900 text-xs px-3.5 py-2.5 pl-9 rounded-xl focus:outline-none focus:border-amber-600 dir-ltr font-mono"
                         dir="ltr"
@@ -6195,346 +5950,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </div>
                         </div>
 
-                        {/* GRID ROW 4: Flavors & Sizes */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                              طعم‌های محصول (با کاما جدا کنید):
-                            </label>
-                            <input
-                              type="text"
-                              value={(deal.flavors || []).join(', ')}
-                              onChange={(e) => {
-                                const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                                handleUpdateDealField(deal.id, 'flavors', arr);
-                              }}
-                              placeholder="مثال: Double Chocolate, Vanilla, Strawberry"
-                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                              حجم/سایزهای محصول (با کاما جدا کنید):
-                            </label>
-                            <input
-                              type="text"
-                              value={(deal.sizes || []).join(', ')}
-                              onChange={(e) => {
-                                const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                                handleUpdateDealField(deal.id, 'sizes', arr);
-                              }}
-                              placeholder="مثال: 5 lbs, 2 lbs, 60 Servings"
-                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-slate-900 transition"
-                            />
-                          </div>
-                        </div>
-
-                        {/* SECTION 1: FLAVORS & DEDICATED IMAGES MANAGER */}
-                        <div className="bg-slate-100/80 border border-slate-200 rounded-2xl p-3.5 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                              <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
-                              <span>مدیریت طعم‌ها و تصاویر اختصاصی (تغییر عکس با کلیک روی طعم):</span>
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-medium">
-                              (تصویر محصول با انتخاب هر طعم تغییر می‌کند)
-                            </span>
-                          </div>
-
-                          {Array.isArray(deal.flavors) && deal.flavors.length > 0 && (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-right text-[11px] border-collapse bg-white rounded-xl overflow-hidden border border-slate-200">
-                                <thead>
-                                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
-                                    <th className="p-2.5">نام طعم</th>
-                                    <th className="p-2.5">لینک تصویر اختصاصی طعم</th>
-                                    <th className="p-2.5 text-center">وضعیت موجودی</th>
-                                    <th className="p-2.5 text-center">عملیات</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {deal.flavors.map((flvItem: any, fIdx: number) => {
-                                    const fName = typeof flvItem === 'string' ? flvItem : (flvItem.flavor || flvItem.name || '');
-                                    const fImg = typeof flvItem === 'object' ? (flvItem.imageUrl || flvItem.image || '') : '';
-                                    const fStock = typeof flvItem === 'object' ? (flvItem.isAvailable !== false && flvItem.inStock !== false) : true;
-
-                                    return (
-                                      <tr key={fIdx} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50">
-                                        <td className="p-2 font-bold text-slate-900">
-                                          <input
-                                            type="text"
-                                            value={fName}
-                                            onChange={(e) => {
-                                              const curFlavors = [...deal.flavors];
-                                              if (typeof curFlavors[fIdx] === 'object') {
-                                                curFlavors[fIdx] = { ...curFlavors[fIdx], flavor: e.target.value, name: e.target.value };
-                                              } else {
-                                                curFlavors[fIdx] = { flavor: e.target.value, name: e.target.value, imageUrl: '', inStock: true };
-                                              }
-                                              handleUpdateDealField(deal.id, 'flavors', curFlavors);
-                                            }}
-                                            placeholder="مثلاً: Chocolate"
-                                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg"
-                                          />
-                                        </td>
-                                        <td className="p-2">
-                                          <div className="flex items-center gap-1.5">
-                                            {fImg && (
-                                              <img src={fImg} alt={fName} className="w-7 h-7 object-contain rounded border border-slate-200 bg-white shrink-0" />
-                                            )}
-                                            <input
-                                              type="text"
-                                              value={fImg}
-                                              onChange={(e) => {
-                                                const curFlavors = [...deal.flavors];
-                                                if (typeof curFlavors[fIdx] === 'object') {
-                                                  curFlavors[fIdx] = { ...curFlavors[fIdx], imageUrl: e.target.value, image: e.target.value };
-                                                } else {
-                                                  curFlavors[fIdx] = { flavor: fName, name: fName, imageUrl: e.target.value, inStock: true };
-                                                }
-                                                handleUpdateDealField(deal.id, 'flavors', curFlavors);
-                                              }}
-                                              placeholder="https://... یا تصویر طعم"
-                                              className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg dir-ltr font-mono"
-                                              dir="ltr"
-                                            />
-                                          </div>
-                                        </td>
-                                        <td className="p-2 text-center">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const curFlavors = [...deal.flavors];
-                                              const nextStock = !fStock;
-                                              if (typeof curFlavors[fIdx] === 'object') {
-                                                curFlavors[fIdx] = { ...curFlavors[fIdx], inStock: nextStock, isAvailable: nextStock };
-                                              } else {
-                                                curFlavors[fIdx] = { flavor: fName, name: fName, imageUrl: fImg, inStock: nextStock, isAvailable: nextStock };
-                                              }
-                                              handleUpdateDealField(deal.id, 'flavors', curFlavors);
-                                            }}
-                                            className={`text-[10px] font-black px-2 py-1 rounded-full cursor-pointer transition ${
-                                              fStock
-                                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                                : 'bg-rose-100 text-rose-800 border border-rose-300'
-                                            }`}
-                                          >
-                                            {fStock ? '✓ موجود در دبی' : '✕ ناموجود'}
-                                          </button>
-                                        </td>
-                                        <td className="p-2 text-center">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const curFlavors = deal.flavors.filter((_: any, i: number) => i !== fIdx);
-                                              handleUpdateDealField(deal.id, 'flavors', curFlavors);
-                                            }}
-                                            className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition cursor-pointer"
-                                            title="حذف این طعم"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const cur = Array.isArray(deal.flavors) ? [...deal.flavors] : [];
-                              cur.push({
-                                id: `flv-${Date.now()}`,
-                                flavor: 'طعم جدید',
-                                name: 'طعم جدید',
-                                imageUrl: deal.image || '',
-                                inStock: true,
-                                isAvailable: true
-                              });
-                              handleUpdateDealField(deal.id, 'flavors', cur);
-                            }}
-                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>+ افزودن طعم جدید با تصویر اختصاصی</span>
-                          </button>
-                        </div>
-
-                        {/* SECTION 2: SIZES & INDEPENDENT PRICING TABLE */}
-                        <div className="bg-slate-100/80 border border-slate-200 rounded-2xl p-3.5 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                              <span className="w-2 h-2 rounded-full bg-blue-600 inline-block"></span>
-                              <span>مدیریت سایزها، قیمت‌های درهمی و وزن کارگو:</span>
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-medium">
-                              (تغییر آنی قیمت و کارگو برای خریدار بر اساس سایز انتخابی)
-                            </span>
-                          </div>
-
-                          {deal.variants && deal.variants.length > 0 && (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-right text-[11px] border-collapse bg-white rounded-xl overflow-hidden border border-slate-200">
-                                <thead>
-                                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
-                                    <th className="p-2.5">نام سایز / وزن</th>
-                                    <th className="p-2.5">قیمت خرید (AED)</th>
-                                    <th className="p-2.5">وزن کارگو (KG)</th>
-                                    <th className="p-2.5">قیمت تحویل ایران</th>
-                                    <th className="p-2.5 text-center">وضعیت موجودی</th>
-                                    <th className="p-2.5 text-center">عملیات</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {deal.variants.map((v: any, vIdx: number) => {
-                                    const vStock = v.inStock !== false && v.isAvailable !== false;
-                                    const vPriceAed = v.priceAED ?? v.priceAed ?? 0;
-                                    const vWeightKg = v.weightKg !== undefined ? Number(v.weightKg) : 0.8;
-                                    const autoToman = calculateSellingPriceToman(vPriceAed, vWeightKg, {
-                                      aedRate: settings?.aedRate || 52000,
-                                      cargoRatePerKg: settings?.cargoRatePerKg || 35,
-                                      profitMarginPercent: settings?.profitMargin || 20
-                                    });
-
-                                    return (
-                                      <tr key={v.id || vIdx} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50">
-                                        <td className="p-2 font-bold text-slate-900">
-                                          <input
-                                            type="text"
-                                            value={v.size || v.name || ''}
-                                            onChange={(e) => {
-                                              const updated = [...deal.variants];
-                                              updated[vIdx] = { ...updated[vIdx], size: e.target.value, name: e.target.value };
-                                              handleUpdateDealField(deal.id, 'variants', updated);
-                                            }}
-                                            placeholder="مثلاً: 2 lbs"
-                                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg"
-                                          />
-                                        </td>
-                                        <td className="p-2">
-                                          <input
-                                            type="number"
-                                            value={v.priceAED ?? v.priceAed ?? ''}
-                                            onChange={(e) => {
-                                              const updated = [...deal.variants];
-                                              const val = parseFloat(e.target.value) || 0;
-                                              const newToman = calculateSellingPriceToman(val, vWeightKg, {
-                                                aedRate: settings?.aedRate || 52000,
-                                                cargoRatePerKg: settings?.cargoRatePerKg || 35,
-                                                profitMarginPercent: settings?.profitMargin || 20
-                                              });
-                                              updated[vIdx] = { ...updated[vIdx], priceAED: val, priceAed: val, priceToman: newToman };
-                                              handleUpdateDealField(deal.id, 'variants', updated);
-                                            }}
-                                            className="w-20 bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg font-mono font-bold"
-                                          />
-                                        </td>
-                                        <td className="p-2">
-                                          <input
-                                            type="number"
-                                            step="0.1"
-                                            value={v.weightKg ?? ''}
-                                            onChange={(e) => {
-                                              const updated = [...deal.variants];
-                                              const val = parseFloat(e.target.value) || 0.8;
-                                              const newToman = calculateSellingPriceToman(vPriceAed, val, {
-                                                aedRate: settings?.aedRate || 52000,
-                                                cargoRatePerKg: settings?.cargoRatePerKg || 35,
-                                                profitMarginPercent: settings?.profitMargin || 20
-                                              });
-                                              updated[vIdx] = { ...updated[vIdx], weightKg: val, priceToman: newToman };
-                                              handleUpdateDealField(deal.id, 'variants', updated);
-                                            }}
-                                            className="w-16 bg-slate-50 border border-slate-200 focus:bg-white text-xs px-2 py-1 rounded-lg font-mono font-bold"
-                                          />
-                                        </td>
-                                        <td className="p-2">
-                                          <div className="space-y-1">
-                                            <input
-                                              type="number"
-                                              value={v.priceToman ?? autoToman}
-                                              onChange={(e) => {
-                                                const updated = [...deal.variants];
-                                                const val = parseFloat(e.target.value) || 0;
-                                                updated[vIdx] = { ...updated[vIdx], priceToman: val };
-                                                handleUpdateDealField(deal.id, 'variants', updated);
-                                              }}
-                                              placeholder={String(autoToman)}
-                                              className="w-24 bg-white border border-emerald-300 focus:border-emerald-500 text-xs px-2 py-1 rounded-lg font-mono font-bold text-emerald-900"
-                                            />
-                                            <span className="text-[9px] text-slate-400 block whitespace-nowrap">
-                                              فرمول: {formatToman(autoToman)}
-                                            </span>
-                                          </div>
-                                        </td>
-                                        <td className="p-2 text-center">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const updated = [...deal.variants];
-                                              const nextVStock = !vStock;
-                                              updated[vIdx] = { ...updated[vIdx], inStock: nextVStock, isAvailable: nextVStock };
-                                              handleUpdateDealField(deal.id, 'variants', updated);
-                                            }}
-                                            className={`text-[10px] font-black px-2 py-1 rounded-full cursor-pointer transition ${
-                                              vStock
-                                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                                : 'bg-rose-100 text-rose-800 border border-rose-300'
-                                            }`}
-                                          >
-                                            {vStock ? '✓ موجود' : '✕ ناموجود'}
-                                          </button>
-                                        </td>
-                                        <td className="p-2 text-center">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const updated = deal.variants.filter((_: any, i: number) => i !== vIdx);
-                                              handleUpdateDealField(deal.id, 'variants', updated);
-                                            }}
-                                            className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition cursor-pointer"
-                                            title="حذف این سایز"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const cur = Array.isArray(deal.variants) ? [...deal.variants] : [];
-                              const newId = `var-${Date.now()}`;
-                              cur.push({
-                                id: newId,
-                                name: '250 Gm',
-                                size: '250 Gm',
-                                flavor: 'پیش‌فرض',
-                                priceAED: deal.priceAed || 59.14,
-                                priceAed: deal.priceAed || 59.14,
-                                weightKg: deal.weightKg || 0.25,
-                                inStock: true,
-                                isAvailable: true
-                              });
-                              handleUpdateDealField(deal.id, 'variants', cur);
-                            }}
-                            className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>+ افزودن سایز جدید با قیمت اختصاصی</span>
-                          </button>
-                        </div>
+                        {/* Integrated Variant Manager with Comma Inputs, Image Mapping, and Independent Pricing */}
+                        <VariantManager
+                          productId={deal.id}
+                          flavors={deal.flavors}
+                          sizes={deal.sizes || deal.variants}
+                          basePriceAed={deal.priceAed || 0}
+                          baseWeightKg={deal.weightKg || 0.8}
+                          basePriceToman={deal.priceToman || 0}
+                          profitMargin={deal.marginPercent !== undefined ? deal.marginPercent : 20}
+                          mainProductImage={deal.image}
+                          settings={settings}
+                          cms={cms}
+                          onUpdateFlavors={(newFlavors) => handleUpdateDealField(deal.id, 'flavors', newFlavors)}
+                          onUpdateSizes={(newSizes) => {
+                            handleUpdateDealField(deal.id, 'sizes', newSizes);
+                            handleUpdateDealField(deal.id, 'variants', newSizes);
+                          }}
+                        />
 
                         {/* GRID ROW 5: Description */}
                         <div>

@@ -171,33 +171,28 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
 
           </div>
 
-          {/* Clean Trust Badges & Official Enamad Container */}
-          {settings.showTrustBadges && (
-            <div className="flex flex-col items-center justify-center p-6 !bg-[#f8fafc] rounded-3xl border border-gray-200 gap-4">
+          {/* Clean Permanent Enamad Container */}
+          {settings.showTrustBadges && settings.showEnamad !== false && (
+            <div className="flex flex-col items-center justify-center p-5 !bg-gray-50 rounded-3xl border border-gray-200 gap-2 mt-2">
               <span className="text-xs font-black text-gray-900">
-                نمادهای اعتماد و مجوزهای رسمی
+                نماد اعتماد الکترونیکی
               </span>
 
-              {/* Minimal Trust Highlights */}
-              <div className="flex flex-wrap items-center justify-center gap-3 text-xs font-bold text-gray-700">
-                <span className="flex items-center gap-1.5 !bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs text-gray-800">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  اصالت تضمین‌شده کالا
-                </span>
-                <span className="flex items-center gap-1.5 !bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs text-gray-800">
-                  <span className="w-2 h-2 rounded-full bg-blue-500" />
-                  پرداخت امن بانکی
-                </span>
-                <span className="flex items-center gap-1.5 !bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs text-gray-800">
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
-                  ترخیص و ارسال مستقیم از دبی
-                </span>
+              <div className="p-3 bg-white rounded-2xl border border-gray-200 shadow-xs flex items-center justify-center min-h-[90px] min-w-[90px]">
+                <a
+                  referrerPolicy="origin"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href="https://trustseal.enamad.ir/?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
+                >
+                  <img
+                    referrerPolicy="origin"
+                    src="https://trustseal.enamad.ir/logo.aspx?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
+                    alt="نماد تجارت الکترونیکی اینماد"
+                    className="cursor-pointer max-h-20 w-auto object-contain hover:scale-105 transition-transform"
+                  />
+                </a>
               </div>
-
-              {/* Official Enamad Badge */}
-              {settings.showEnamad !== false && (
-                <ENamadBadge />
-              )}
             </div>
           )}
 

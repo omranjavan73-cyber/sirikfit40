@@ -1528,262 +1528,266 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             </div>
           )}
 
-          {/* PROMO CODE INPUT BOX */}
-          <div className="bg-white border border-slate-200/90 rounded-[20px] p-4 shadow-2xs space-y-3 font-['Vazirmatn',sans-serif]">
-            <div className="flex items-center gap-2">
-              <Tag className="w-4 h-4 text-emerald-600" />
-              <h3 className="font-extrabold text-xs text-slate-900">ورود کد تخفیف</h3>
-            </div>
-
-            {appliedDiscount && appliedDiscount.isValid ? (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-2">
-                <div>
-                  <div className="text-xs font-black text-emerald-800 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>کد تخفیف <span className="uppercase tracking-wider font-extrabold">{appliedDiscount.discountCodeObj?.code}</span> اعمال شد</span>
-                  </div>
-                  <span className="text-[11px] text-emerald-700 font-bold block mt-0.5">
-                    تخفیف کسرشده: {formatToman(appliedDiscount.discountAmountToman)}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRemovePromoCode}
-                  className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
-                  title="حذف کد تخفیف"
-                >
-                  <X className="w-4 h-4" />
-                  <span>حذف</span>
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={promoInput}
-                    onChange={(e) => setPromoInput(e.target.value.toUpperCase().replace(/\s/g, ''))}
-                    placeholder="کد تخفیف را وارد کنید (مثال: OFF10)"
-                    className="flex-1 p-2.5 border border-slate-300 focus:border-slate-900 rounded-xl text-xs font-black text-slate-900 focus:outline-none bg-[#F8FAFC] uppercase text-left dir-ltr"
-                    dir="ltr"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleApplyPromoCode}
-                    disabled={isApplyingPromo || !promoInput.trim()}
-                    className="bg-slate-900 hover:bg-black disabled:bg-slate-300 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition cursor-pointer shrink-0 border-none"
-                  >
-                    {isApplyingPromo ? 'در حال بررسی...' : 'اعمال کد'}
-                  </button>
+          {/* PROMO CODE & CHECKOUT FORM - ONLY DISPLAYED IN CART / CHECKOUT */}
+          {hasCart && (
+            <>
+              {/* PROMO CODE INPUT BOX */}
+              <div className="bg-white border border-slate-200/90 rounded-[20px] p-4 shadow-2xs space-y-3 font-['Vazirmatn',sans-serif]">
+                <div className="flex items-center gap-2">
+                  <Tag className="w-4 h-4 text-emerald-600" />
+                  <h3 className="font-extrabold text-xs text-slate-900">ورود کد تخفیف</h3>
                 </div>
 
-                {promoMessage && (
-                  <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
-                    promoMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
-                  }`}>
-                    {promoMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
-                    <span>{promoMessage.text}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* CART TOTAL SUMMARY BOX - DETAILED FINANCIAL BREAKDOWN */}
-          <div className="bg-white border border-slate-200/90 rounded-[24px] p-4.5 shadow-2xs space-y-3 font-['Vazirmatn',sans-serif]">
-            {(cms?.features?.showBreakdown ?? cms?.showPriceBreakdown ?? cms?.showBreakdown ?? true) && (
-              <>
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                  <h3 className="font-extrabold text-xs md:text-sm text-slate-900">
-                    مشاهده ریز قیمت
-                  </h3>
-                  <span className="text-[10px] bg-slate-100 text-slate-700 font-extrabold px-2.5 py-0.5 rounded-full">
-                    {pricingResult.ruleDescription}
-                  </span>
-                </div>
-
-                {/* 1. مجموع قیمت پایه کالاها (درهم / تومان) */}
-                <div className="flex justify-between items-center text-xs text-slate-600">
-                  <span>مجموع قیمت پایه کالاها (دبی):</span>
-                  <span className="font-bold text-slate-900 dir-ltr">
-                    {toPersianDigits(cartTotalAed)} درهم ({formatToman(baseGoodsToman)})
-                  </span>
-                </div>
-
-                {/* 2. کرایه کارگو ترکیبی */}
-                <div className="flex justify-between items-center text-xs text-slate-600">
-                  <span>کرایه کارگو ترکیبی ({toPersianDigits(cartTotalWeightKg)} کیلوگرم):</span>
-                  <span className="font-bold text-slate-900 dir-ltr">
-                    {toPersianDigits(pricingResult.shippingCostAed)} درهم ({formatToman(cargoShippingToman)})
-                  </span>
-                </div>
-
-                {/* 3. کارمزد اعمال‌شده با نمایش درصد فعلی */}
-                <div className="flex justify-between items-center text-xs text-slate-600">
-                  <span>کارمزد سیستم ({toPersianDigits(pricingResult.commissionPercent)}٪):</span>
-                  <span className="font-bold text-slate-900 dir-ltr">
-                    {toPersianDigits(Math.round(pricingResult.commissionAmountAed * 10) / 10)} درهم ({formatToman(commissionToman)})
-                  </span>
-                </div>
-
-                {/* 4. 🔥 میزان تخفیف سود شما */}
-                {savingsToman > 0 ? (
-                  <div className="flex justify-between items-center text-xs bg-emerald-50 border border-emerald-200/80 p-2.5 rounded-xl text-emerald-900">
-                    <span className="font-black flex items-center gap-1">
-                      <span>🔥</span>
-                      <span>میزان تخفیف سود شما (تخفیف پله‌ای):</span>
-                    </span>
-                    <span className="font-black text-emerald-700 dir-ltr">
-                      {formatToman(savingsToman)} ({toPersianDigits(20 - pricingResult.commissionPercent)}٪ کارمزد کمتر)
-                    </span>
+                {appliedDiscount && appliedDiscount.isValid ? (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-black text-emerald-800 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>کد تخفیف <span className="uppercase tracking-wider font-extrabold">{appliedDiscount.discountCodeObj?.code}</span> اعمال شد</span>
+                      </div>
+                      <span className="text-[11px] text-emerald-700 font-bold block mt-0.5">
+                        تخفیف کسرشده: {formatToman(appliedDiscount.discountAmountToman)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemovePromoCode}
+                      className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                      title="حذف کد تخفیف"
+                    >
+                      <X className="w-4 h-4" />
+                      <span>حذف</span>
+                    </button>
                   </div>
                 ) : (
-                  <div className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg font-medium text-right">
-                    💡 با افزایش مبلغ سفارش به بالای ۵۰۰ درهم یا اضافه کردن کالاهای بیشتر، کارمزد سفارش از ۲۰٪ به ۱۸٪ و ۱۶٪ کاهش می‌یابد.
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={promoInput}
+                        onChange={(e) => setPromoInput(e.target.value.toUpperCase().replace(/\s/g, ''))}
+                        placeholder="کد تخفیف را وارد کنید (مثال: OFF10)"
+                        className="flex-1 p-2.5 border border-slate-300 focus:border-slate-900 rounded-xl text-xs font-black text-slate-900 focus:outline-none bg-[#F8FAFC] uppercase text-left dir-ltr"
+                        dir="ltr"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyPromoCode}
+                        disabled={isApplyingPromo || !promoInput.trim()}
+                        className="bg-slate-900 hover:bg-black disabled:bg-slate-300 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition cursor-pointer shrink-0 border-none"
+                      >
+                        {isApplyingPromo ? 'در حال بررسی...' : 'اعمال کد'}
+                      </button>
+                    </div>
+
+                    {promoMessage && (
+                      <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+                        promoMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      }`}>
+                        {promoMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                        <span>{promoMessage.text}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* CART TOTAL SUMMARY BOX - DETAILED FINANCIAL BREAKDOWN */}
+              <div className="bg-white border border-slate-200/90 rounded-[24px] p-4.5 shadow-2xs space-y-3 font-['Vazirmatn',sans-serif]">
+                {(cms?.features?.showBreakdown ?? cms?.showPriceBreakdown ?? cms?.showBreakdown ?? true) && (
+                  <>
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                      <h3 className="font-extrabold text-xs md:text-sm text-slate-900">
+                        مشاهده ریز قیمت
+                      </h3>
+                      <span className="text-[10px] bg-slate-100 text-slate-700 font-extrabold px-2.5 py-0.5 rounded-full">
+                        {pricingResult.ruleDescription}
+                      </span>
+                    </div>
+
+                    {/* 1. مجموع قیمت پایه کالاها (درهم / تومان) */}
+                    <div className="flex justify-between items-center text-xs text-slate-600">
+                      <span>مجموع قیمت پایه کالاها (دبی):</span>
+                      <span className="font-bold text-slate-900 dir-ltr">
+                        {toPersianDigits(cartTotalAed)} درهم ({formatToman(baseGoodsToman)})
+                      </span>
+                    </div>
+
+                    {/* 2. کرایه کارگو ترکیبی */}
+                    <div className="flex justify-between items-center text-xs text-slate-600">
+                      <span>کرایه کارگو ترکیبی ({toPersianDigits(cartTotalWeightKg)} کیلوگرم):</span>
+                      <span className="font-bold text-slate-900 dir-ltr">
+                        {toPersianDigits(pricingResult.shippingCostAed)} درهم ({formatToman(cargoShippingToman)})
+                      </span>
+                    </div>
+
+                    {/* 3. کارمزد اعمال‌شده با نمایش درصد فعلی */}
+                    <div className="flex justify-between items-center text-xs text-slate-600">
+                      <span>کارمزد سیستم ({toPersianDigits(pricingResult.commissionPercent)}٪):</span>
+                      <span className="font-bold text-slate-900 dir-ltr">
+                        {toPersianDigits(Math.round(pricingResult.commissionAmountAed * 10) / 10)} درهم ({formatToman(commissionToman)})
+                      </span>
+                    </div>
+
+                    {/* 4. 🔥 میزان تخفیف سود شما */}
+                    {savingsToman > 0 ? (
+                      <div className="flex justify-between items-center text-xs bg-emerald-50 border border-emerald-200/80 p-2.5 rounded-xl text-emerald-900">
+                        <span className="font-black flex items-center gap-1">
+                          <span>🔥</span>
+                          <span>میزان تخفیف سود شما (تخفیف پله‌ای):</span>
+                        </span>
+                        <span className="font-black text-emerald-700 dir-ltr">
+                          {formatToman(savingsToman)} ({toPersianDigits(20 - pricingResult.commissionPercent)}٪ کارمزد کمتر)
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg font-medium text-right">
+                        💡 با افزایش مبلغ سفارش به بالای ۵۰۰ درهم یا اضافه کردن کالاهای بیشتر، کارمزد سفارش از ۲۰٪ به ۱۸٪ و ۱۶٪ کاهش می‌یابد.
+                      </div>
+                    )}
+
+                    {/* 4.5. 🎟️ کد تخفیف اعمال‌شده */}
+                    {discountAmountToman > 0 && (
+                      <div className="flex justify-between items-center text-xs bg-emerald-100/80 border border-emerald-300 p-2.5 rounded-xl text-emerald-900">
+                        <span className="font-black flex items-center gap-1">
+                          <Tag className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>کد تخفیف ({appliedDiscount?.discountCodeObj?.code}):</span>
+                        </span>
+                        <span className="font-black text-emerald-800 dir-ltr">
+                          -{formatToman(discountAmountToman)}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* 5. مبلغ کل قابل پرداخت (تومان) */}
+                <div className={`pt-2 flex items-center justify-between ${(cms?.features?.showBreakdown ?? cms?.showPriceBreakdown ?? cms?.showBreakdown ?? true) ? 'border-t border-slate-100' : ''}`}>
+                  <div>
+                    <span className="text-xs font-black text-slate-900 block">مبلغ کل قابل پرداخت تحویل در ایران:</span>
+                    <span className="text-[10px] text-slate-400 font-medium block">شامل کالا + کارمزد {toPersianDigits(pricingResult.commissionPercent)}٪ + ارسال هوایی</span>
+                  </div>
+                  <div className="text-left">
+                    {discountAmountToman > 0 && (
+                      <span className="text-xs text-slate-400 line-through block font-bold dir-ltr">
+                        {formatToman(cartTotalToman)}
+                      </span>
+                    )}
+                    <span className="font-black text-lg sm:text-xl text-[#E11D48] tracking-tight">{formatToman(effectiveTotalToman)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* RECIPIENT DETAILS FORM & DIRECT PAYMENT BUTTON */}
+              <div className="bg-white border border-slate-200/90 rounded-[24px] p-4.5 shadow-2xs space-y-3 font-['Vazirmatn',sans-serif]">
+                <h3 className="font-extrabold text-xs md:text-sm text-slate-900 border-b border-slate-100 pb-2">
+                  اطلاعات تحویل‌گیرنده سفارش در ایران
+                </h3>
+
+                {errorMessage && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-bold flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{errorMessage}</span>
                   </div>
                 )}
 
-                {/* 4.5. 🎟️ کد تخفیف اعمال‌شده */}
-                {discountAmountToman > 0 && (
-                  <div className="flex justify-between items-center text-xs bg-emerald-100/80 border border-emerald-300 p-2.5 rounded-xl text-emerald-900">
-                    <span className="font-black flex items-center gap-1">
-                      <Tag className="w-3.5 h-3.5 text-emerald-700" />
-                      <span>کد تخفیف ({appliedDiscount?.discountCodeObj?.code}):</span>
-                    </span>
-                    <span className="font-black text-emerald-800 dir-ltr">
-                      -{formatToman(discountAmountToman)}
-                    </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
+                      نام و نام خانوادگی <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      placeholder="مثال: علیرضا حسینی"
+                      className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-right"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
+                      شماره موبایل (۱۱ رقم) <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder="09121234567"
+                      maxLength={11}
+                      className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-left dir-ltr font-mono"
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
+                      کد پستی (۱۰ رقم) <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={postalCode}
+                      onChange={(e) => setPostalCode(e.target.value)}
+                      placeholder="1234567890"
+                      maxLength={10}
+                      className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-left dir-ltr font-mono"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
+                    آدرس دقیق تحویل در ایران <span className="text-rose-600">*</span>
+                  </label>
+                  <textarea
+                    value={deliveryAddress}
+                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                    rows={2}
+                    placeholder="شهر، خیابان، کوچه، پلاک، واحد..."
+                    className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition resize-none text-right"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
+                    توضیحات تکمیلی (اختیاری)
+                  </label>
+                  <input
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="طعم، زمان تحویل و غیره..."
+                    className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-medium text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-right"
+                  />
+                </div>
+
+                {/* Minimum Order Warning & Direct Payment Action Button */}
+                {isBelowMinOrder && minOrderAmountToman > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3.5 flex items-center gap-2 text-xs md:text-sm my-3 dir-rtl text-right">
+                    <span>⚠️ حداقل مبلغ سفارش برای ثبت نهایی، {minOrderAmountToman.toLocaleString('fa-IR')} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.</span>
                   </div>
                 )}
-              </>
-            )}
 
-            {/* 5. مبلغ کل قابل پرداخت (تومان) */}
-            <div className={`pt-2 flex items-center justify-between ${(cms?.features?.showBreakdown ?? cms?.showPriceBreakdown ?? cms?.showBreakdown ?? true) ? 'border-t border-slate-100' : ''}`}>
-              <div>
-                <span className="text-xs font-black text-slate-900 block">مبلغ کل قابل پرداخت تحویل در ایران:</span>
-                <span className="text-[10px] text-slate-400 font-medium block">شامل کالا + کارمزد {toPersianDigits(pricingResult.commissionPercent)}٪ + ارسال هوایی</span>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSubmitOrder()}
+                    disabled={isSubmitting || (isBelowMinOrder && minOrderAmountToman > 0)}
+                    className={`w-full font-black text-xs md:text-sm py-3.5 rounded-[16px] transition shadow-md border-none text-center flex items-center justify-center gap-2 ${
+                      isBelowMinOrder && minOrderAmountToman > 0
+                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                        : 'bg-[#111111] hover:bg-black text-white cursor-pointer'
+                    }`}
+                  >
+                    <span>
+                      {isSubmitting ? 'در حال انتقال به درگاه بانکی شاپرک...' : 'تأیید و پرداخت نهایی ←'}
+                    </span>
+                  </button>
+                </div>
               </div>
-              <div className="text-left">
-                {discountAmountToman > 0 && (
-                  <span className="text-xs text-slate-400 line-through block font-bold dir-ltr">
-                    {formatToman(cartTotalToman)}
-                  </span>
-                )}
-                <span className="font-black text-lg sm:text-xl text-[#E11D48] tracking-tight">{formatToman(effectiveTotalToman)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* RECIPIENT DETAILS FORM & DIRECT PAYMENT BUTTON */}
-          <div className="bg-white border border-slate-200/90 rounded-[24px] p-4.5 shadow-2xs space-y-3 font-['Vazirmatn',sans-serif]">
-            <h3 className="font-extrabold text-xs md:text-sm text-slate-900 border-b border-slate-100 pb-2">
-              اطلاعات تحویل‌گیرنده سفارش در ایران
-            </h3>
-
-            {errorMessage && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-bold flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
-                  نام و نام خانوادگی <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="مثال: علیرضا حسینی"
-                  className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-right"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
-                  شماره موبایل (۱۱ رقم) <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="09121234567"
-                  maxLength={11}
-                  className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-left dir-ltr font-mono"
-                  dir="ltr"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
-                  کد پستی (۱۰ رقم) <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={postalCode}
-                  onChange={(e) => setPostalCode(e.target.value)}
-                  placeholder="1234567890"
-                  maxLength={10}
-                  className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-left dir-ltr font-mono"
-                  dir="ltr"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
-                آدرس دقیق تحویل در ایران <span className="text-rose-600">*</span>
-              </label>
-              <textarea
-                value={deliveryAddress}
-                onChange={(e) => setDeliveryAddress(e.target.value)}
-                rows={2}
-                placeholder="شهر، خیابان، کوچه، پلاک، واحد..."
-                className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-bold text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition resize-none text-right"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-extrabold text-slate-900 mb-1 text-right">
-                توضیحات تکمیلی (اختیاری)
-              </label>
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="طعم، زمان تحویل و غیره..."
-                className="w-full p-2.5 border border-slate-300 focus:border-slate-900 rounded-[12px] text-xs font-medium text-slate-900 focus:outline-none bg-[#F8FAFC] focus:bg-white transition text-right"
-              />
-            </div>
-
-            {/* Minimum Order Warning & Direct Payment Action Button */}
-            {/* Minimum Order Warning Box */}
-            {isBelowMinOrder && minOrderAmountToman > 0 && (
-              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3.5 flex items-center gap-2 text-xs md:text-sm my-3 dir-rtl text-right">
-                <span>⚠️ حداقل مبلغ سفارش برای ثبت نهایی، {minOrderAmountToman.toLocaleString('fa-IR')} تومان میباشد. لطفاً محصولات بیشتری به سبد خود اضافه کنید.</span>
-              </div>
-            )}
-
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => handleSubmitOrder()}
-                disabled={isSubmitting || (isBelowMinOrder && minOrderAmountToman > 0)}
-                className={`w-full font-black text-xs md:text-sm py-3.5 rounded-[16px] transition shadow-md border-none text-center flex items-center justify-center gap-2 ${
-                  isBelowMinOrder && minOrderAmountToman > 0
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                    : 'bg-[#111111] hover:bg-black text-white cursor-pointer'
-                }`}
-              >
-                <span>
-                  {isSubmitting ? 'در حال انتقال به درگاه بانکی شاپرک...' : 'تأیید و پرداخت نهایی ←'}
-                </span>
-              </button>
-            </div>
-          </div>
+            </>
+          )}
 
         </div>
       )}

@@ -167,16 +167,24 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
     setIsSaving(true);
     setStatusMessage(null);
     try {
-      const ok = await saveLandingSettings(settings);
+      const payload: LandingSettings = {
+        ...settings,
+        telegramId: settings.telegramId || '@SIRIK_FIT_Support',
+        supportPhone: settings.supportPhone || '021-91000000',
+        supportEmail: settings.supportEmail || 'info@sirikfit.ir',
+        updatedAt: new Date().toISOString()
+      };
+      const ok = await saveLandingSettings(payload);
       if (ok) {
-        setStatusMessage('تنظیمات لندینگ و اطلاع‌رسانی با موفقیت در دیتابیس پایدار شد.');
-        if (onSaved) onSaved(settings);
+        setSettings(payload);
+        setStatusMessage('تنظیمات با موفقیت در دیتابیس ذخیره شد');
+        if (onSaved) onSaved(payload);
       } else {
         setStatusMessage('خطا در ذخیره‌سازی تنظیمات در فایربیس.');
       }
     } catch (err) {
       console.error('Error saving landing settings:', err);
-      setStatusMessage('خطا در ارتباط با سرور.');
+      setStatusMessage('خطا در ذخیره اطلاعات');
     } finally {
       setIsSaving(false);
     }

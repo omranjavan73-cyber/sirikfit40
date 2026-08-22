@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { ENAMAD_CONFIG } from '../types';
 
 export interface ENamadBadgeProps {
@@ -11,27 +11,21 @@ export interface ENamadBadgeProps {
 
 /**
  * Reusable eNAMAD Trust Symbol Component
- * Strictly complies with eNAMAD specification:
+ * Strictly complies with official eNAMAD specification:
  * - Official verification page opened on click in a new tab
  * - target="_blank", rel="noopener noreferrer", referrerPolicy="origin"
  * - Official logo from trustseal.enamad.ir
- * - Robust error handling (does not crash or show broken icons if network is offline)
+ * - Permanent stable rendering
  */
 export const ENamadBadge: React.FC<ENamadBadgeProps> = ({
   className = '',
-  imgClassName = 'h-16 sm:h-20 w-auto object-contain cursor-pointer transition-transform duration-200 hover:scale-105',
+  imgClassName = 'max-h-20 w-auto object-contain cursor-pointer hover:scale-105 transition-transform',
   id = ENAMAD_CONFIG.id,
   code = ENAMAD_CONFIG.code,
   showContainer = true
 }) => {
-  const [imageError, setImageError] = useState(false);
-
   const verificationUrl = `https://trustseal.enamad.ir/?id=${id}&Code=${code}`;
   const logoUrl = `https://trustseal.enamad.ir/logo.aspx?id=${id}&Code=${code}`;
-
-  if (imageError) {
-    return null;
-  }
 
   const badgeContent = (
     <a
@@ -44,13 +38,12 @@ export const ENamadBadge: React.FC<ENamadBadgeProps> = ({
     >
       <img
         src={logoUrl}
-        alt="نماد اعتماد الکترونیکی"
+        alt="نماد تجارت الکترونیکی اینماد"
         referrerPolicy="origin"
         className={imgClassName}
-        onError={() => setImageError(true)}
         loading="lazy"
-        width={100}
-        height={100}
+        width={90}
+        height={90}
       />
     </a>
   );

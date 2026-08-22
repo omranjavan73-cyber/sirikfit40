@@ -21,6 +21,12 @@ import { ReviewsSection } from './components/ReviewsSection';
 import { FAQView } from './components/FAQView';
 import { PaymentReceipt } from './components/PaymentReceipt';
 import { PromoPopupModal } from './components/PromoPopupModal';
+import { AboutUsSection } from './components/AboutUsSection';
+import { ServicesFeaturesSection } from './components/ServicesFeaturesSection';
+import { ContactSupportSection } from './components/ContactSupportSection';
+import { TermsSection } from './components/TermsSection';
+import { TermsModal } from './components/TermsModal';
+import { Footer } from './components/Footer';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem } from './types';
 import { toPersianDigits, getEffectiveAedRate, calculateFinalToman } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
@@ -115,6 +121,7 @@ function MainApp() {
   };
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
 
   // Financial Settings State - Single Source of Truth initialized from LocalStorage FIRST
   const [settings, setSettings] = useState<FinancialSettings>(() => {
@@ -1152,21 +1159,54 @@ function MainApp() {
             {/* Reviews & Suggestions Section (Global visibility controlled via Admin Panel -> General Settings) */}
             <ReviewsSection showReviewsSection={(cmsConfig?.features?.showReviews ?? cmsConfig?.features?.showComments ?? cmsConfig?.showReviewsSection ?? cmsConfig?.showReviews ?? cmsConfig?.showComments) !== false} cms={cmsConfig} />
 
-            {/* Support & Contact Section */}
-            <div id="support-section" className="scroll-mt-16">
-              <SupportSection
-                cms={cmsConfig}
-                onOpenFAQ={() => {
-                  setActiveTab('faq');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-              />
-            </div>
+            {/* 4 Core Pillars: Services & Features Section */}
+            <ServicesFeaturesSection cms={cmsConfig} />
 
-            {/* Trust Badges Section (eNamad & Samandehi) */}
-            <ErrorBoundary name="Trust Badges">
-              <TrustBadgesSection cms={cmsConfig} settings={settings} />
-            </ErrorBoundary>
+            {/* About Us Section */}
+            <AboutUsSection cms={cmsConfig} />
+
+            {/* Support & Contact Section */}
+            <ContactSupportSection
+              cms={cmsConfig}
+              onOpenFAQ={() => {
+                setActiveTab('faq');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
+
+            {/* Terms & Conditions Section */}
+            <TermsSection cms={cmsConfig} />
+
+            {/* Professional Footer */}
+            <Footer
+              cms={cmsConfig}
+              settings={settings}
+              onOpenTerms={() => setIsTermsModalOpen(true)}
+              onOpenFAQ={() => {
+                setActiveTab('faq');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onOpenInventory={() => {
+                setActiveTab('inventory');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onOpenDeals={() => {
+                setActiveTab('deals');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onOpenAbout={() => {
+                const el = document.getElementById('about-us-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              onOpenServices={() => {
+                const el = document.getElementById('services-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              onOpenContact={() => {
+                const el = document.getElementById('contact-support-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+            />
           </div>
         )}
 
@@ -1348,6 +1388,13 @@ function MainApp() {
       <PromoPopupModal
         config={cmsConfig?.promoPopup}
         currentTab={activeTab}
+      />
+
+      {/* Terms & Conditions Modal View */}
+      <TermsModal
+        isOpen={isTermsModalOpen}
+        onClose={() => setIsTermsModalOpen(false)}
+        cms={cmsConfig}
       />
 
       {/* Public Bottom Navigation Bar */}

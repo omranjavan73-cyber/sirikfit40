@@ -341,7 +341,139 @@ export interface PromoPopupConfig {
   delaySeconds: number;
 }
 
+export interface ServicePillarItem {
+  id: string;
+  title: string;
+  description: string;
+  icon?: string;
+}
+
+export interface TermItem {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export interface LandingContentSettings {
+  // Visibility switches
+  showAboutUs: boolean;
+  showServices: boolean;
+  showContactSupport: boolean;
+  showTerms: boolean;
+
+  // About Us
+  aboutUsTitle: string;
+  aboutUsSubtitle?: string;
+  aboutUsDescription: string;
+  aboutUsBadge?: string;
+  aboutUsHighlight1?: string;
+  aboutUsHighlight2?: string;
+  aboutUsHighlight3?: string;
+  aboutUsHighlight4?: string;
+
+  // Services & Features (4 pillars)
+  servicesTitle: string;
+  servicesSubtitle?: string;
+  servicesList: ServicePillarItem[];
+
+  // Contact & Support
+  contactTitle: string;
+  contactSubtitle?: string;
+  supportEmail: string;
+  supportTelegram: string;
+  supportTelegramLink?: string;
+  supportPhone: string;
+  supportHours: string;
+  officeAddress: string;
+
+  // Terms & Conditions
+  termsTitle: string;
+  termsSubtitle?: string;
+  termsList: TermItem[];
+}
+
+export const DEFAULT_LANDING_CONTENT: LandingContentSettings = {
+  showAboutUs: true,
+  showServices: true,
+  showContactSupport: true,
+  showTerms: true,
+
+  aboutUsTitle: 'درباره سیریک فیت',
+  aboutUsSubtitle: 'مرجع تخصصی واردات مستقیم و تضمینی مکمل‌های ورزشی از دبی',
+  aboutUsDescription:
+    'سیریک فیت (SIRIK FIT) مرجع تخصصی تأمین و واردات مستقیم مکمل‌های ورزشی و غذایی اورجینال از معتبرترین برندهای جهانی و نمایندگی‌های امارات متحده عربی است. هدف ما تضمین ۱۰۰٪ اصالت کالا، بهترین قیمت رقابتی بر پایه درهم و تحویل ایمن و سریع (۵ الی ۱۰ روز کاری) به سراسر ایران می‌باشد.',
+  aboutUsBadge: 'تضمین ۱۰۰٪ اصالت فیزیکی و آزمایشگاهی',
+  aboutUsHighlight1: 'تأمین مستقیم و بدون واسطه از معتبرترین نمایندگی‌های رسمی دبی (Dr. Nutrition, GNC, Life Pharmacy)',
+  aboutUsHighlight2: 'ارسال ایمن و تخصصی کارگو هوایی بدون آسیب به مکمل‌ها ظرف ۵ تا ۱۰ روز کاری',
+  aboutUsHighlight3: 'محاسبه شفاف و زنده قیمت نهایی ریالی بر اساس نرخ روز درهم و کمترین هزینه حمل',
+  aboutUsHighlight4: 'پشتیبانی و مشاوره ۲۴ ساعته توسط کارشناسان تغذیه و لاجستیک اختصاصی',
+
+  servicesTitle: 'خدمات و مزایای سیریک فیت',
+  servicesSubtitle: 'چرا ورزشکاران حرفه‌ای خرید از دبی را با سیریک فیت تجربه می‌کنند؟',
+  servicesList: [
+    {
+      id: 'pillar-1',
+      title: 'اصالت ۱۰۰٪ کالا',
+      description: 'تضمین خرید مستقیم از نمایندگی‌های رسمی دبی و برندهای معتبر بین‌المللی با هولوگرام و بچ‌نامبر معتبر.',
+      icon: 'ShieldCheck'
+    },
+    {
+      id: 'pillar-2',
+      title: 'حمل ایمن و سریع',
+      description: 'ارسال تخصصی با کنترل دما و بسته‌بندی استاندارد ظرف ۵ تا ۱۰ روز کاری به سراسر کشور.',
+      icon: 'Truck'
+    },
+    {
+      id: 'pillar-3',
+      title: 'قیمت منصفانه و شفاف',
+      description: 'محاسبه خودکار و دقیق قیمت نهایی بر اساس نرخ زنده درهم بدون واسطه‌های غیرضروری و کارمزد پنهان.',
+      icon: 'Coins'
+    },
+    {
+      id: 'pillar-4',
+      title: 'مشاوره و پشتیبانی ۲۴/۷',
+      description: 'راهنمایی تخصصی جهت انتخاب مکمل‌های متناسب با هدف ورزشی و دوره تمرینی شما در تلگرام و تلفنی.',
+      icon: 'Headphones'
+    }
+  ],
+
+  contactTitle: 'تماس با پشتیبانی و ارتباط با ما',
+  contactSubtitle: 'پاسخگویی همه‌روزه، مشاوره تخصصی و پیگیری لحظه‌ای سفارش‌ها',
+  supportEmail: 'info@sirikfit.ir',
+  supportTelegram: '@SIRIK_FIT_Support',
+  supportTelegramLink: 'https://t.me/SIRIK_FIT_Support',
+  supportPhone: '021-91000000',
+  supportHours: 'پاسخگویی همه‌روزه، ساعت ۹ صبح الی ۲۳',
+  officeAddress: 'دفتر هماهنگی و ارسال مرسولات دبی و ایران',
+
+  termsTitle: 'قوانین و مقررات خرید از سیریک فیت',
+  termsSubtitle: 'شفافیت کامل، حفظ حقوق مشتریان و استانداردهای ارسال بین‌المللی',
+  termsList: [
+    {
+      id: 'term-1',
+      title: 'ضمانت اصالت و سلامت فیزیکی',
+      description: 'تمامی محصولات دارای هولوگرام، بچ‌نامبر و تاریخ انقضای معتبر هستند و با ضمانت بازگشت وجه عرضه می‌شوند.'
+    },
+    {
+      id: 'term-2',
+      title: 'روند ثبت و پیگیری سفارش',
+      description: 'بلافاصله پس از ثبت سفارش، کد رهگیری و پیامک تایید برای خریدار ارسال می‌شود و وضعیت مرسوله در پنل کاربری قابل استعلام است.'
+    },
+    {
+      id: 'term-3',
+      title: 'شرایط تعویض و مرجوعی',
+      description: 'در صورت هرگونه مغایرت کالا با لینک ثبت شده یا باز نشدن پلمپ محصول تا ۷ روز کاری امکان بازگشت وجه یا تعویض وجود دارد.'
+    },
+    {
+      id: 'term-4',
+      title: 'حریم خصوصی و امنیت اطلاعات',
+      description: 'تمامی اطلاعات تماس، تراکنش‌ها و نشانی مشتریان نزد سرورهای امن سیریک فیت محفوظ بوده و در اختیار اشخاص ثالث قرار نمی‌گیرد.'
+    }
+  ]
+};
+
 export interface CmsConfig {
+  landingContent?: LandingContentSettings;
   features?: FeatureToggles;
   promoPopup?: PromoPopupConfig;
   heroTitle: string;

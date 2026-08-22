@@ -107,6 +107,7 @@ import { AdminFAQManager } from './AdminFAQManager';
 import { AdminSmsSettings } from './AdminSmsSettings';
 import { AdminTaxonomyManager } from './AdminTaxonomyManager';
 import { AdminPromoPopupSettings } from './AdminPromoPopupSettings';
+import { AdminLandingSettings } from './AdminLandingSettings';
 import { AdminLoginModal } from './AdminLoginModal';
 import { AdminForgotPasswordModal } from './AdminForgotPasswordModal';
 import { safeParseNumeric, sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
@@ -340,7 +341,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms'
   // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup'
   const [activeAdminSubTab, setActiveAdminSubTab] = useState<
-    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup'
+    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup' | 'landingSettings'
   >('dashboard');
 
   // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories'
@@ -3077,6 +3078,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         return 'مدیریت سئو و کنسول جستجوی گوگل';
       case 'sms':
         return 'سامانه پیامک و اطلاع‌رسانی پترن';
+      case 'landingSettings':
+        return 'تنظیمات لندینگ و صفحات (درباره ما، خدمات، قوانین)';
       default:
         return 'مدیریت و تنظیمات سیستم';
     }
@@ -3089,7 +3092,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       await handleSaveBackupSchedule(new Event('submit') as any);
     } else if (activeAdminSubTab === 'gateway') {
       await handleSaveGatewaySettings();
-    } else if (activeAdminSubTab === 'homeContent' || activeAdminSubTab === 'cms' || activeAdminSubTab === 'apiSettings') {
+    } else if (activeAdminSubTab === 'homeContent' || activeAdminSubTab === 'cms' || activeAdminSubTab === 'apiSettings' || activeAdminSubTab === 'landingSettings') {
       await handleDirectCmsSave();
     } else if (activeAdminSubTab === 'accounting' || activeAdminSubTab === 'dashboard') {
       await handleDirectFinancialSave();
@@ -3399,7 +3402,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </button>
 
-              {/* Card 8: تنظیمات عمومی */}
+              {/* Card 8: تنظیمات لندینگ و صفحات */}
+              <button
+                type="button"
+                onClick={() => { setActiveAdminSubTab('landingSettings'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-red-300 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+              >
+                <div className="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-red-600 transition truncate">
+                    تنظیمات لندینگ و صفحات
+                  </h4>
+                </div>
+              </button>
+
+              {/* Card 9: تنظیمات عمومی */}
               <button
                 type="button"
                 onClick={() => { setActiveAdminSubTab('cms'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
@@ -8760,6 +8779,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* SUB-TAB: DYNAMIC CATEGORY TREE */}
       {activeAdminSubTab === 'categories' && (
         <AdminTaxonomyManager showToast={showToast} />
+      )}
+
+      {/* SUB-TAB: LANDING & COMPLIANCE SETTINGS */}
+      {activeAdminSubTab === 'landingSettings' && (
+        <AdminLandingSettings
+          cms={cms}
+          onSaveCms={async (updatedCms) => {
+            try {
+              if (onUpdateCms) {
+                onUpdateCms(updatedCms);
+              }
+              await saveToFirestore(updatedCms, 'CMS Landing Content');
+              if (onRefresh) onRefresh();
+            } catch (err) {
+              console.error('Error in onSaveCms:', err);
+              throw err;
+            }
+          }}
+          showToast={showToast ? (msg, type) => showToast(msg, type) : () => {}}
+        />
       )}
 
       {/* TOP-RIGHT TOAST NOTIFICATION */}

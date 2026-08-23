@@ -170,23 +170,16 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
     setIsSaving(true);
     setStatusMessage(null);
     try {
-      const payload: LandingSettings = {
-        ...settings,
-        updatedAt: new Date().toISOString()
-      };
-      
-      // Multi-tier write: Firestore + API backend + localStorage + event
-      await saveLandingSettings(payload);
-      setSettings(payload);
-      setStatusMessage('تنظیمات با موفقیت در دیتابیس ذخیره شد');
-      if (onSaved) onSaved(payload);
-
+      console.log('SAVING_PAYLOAD:', settings);
+      await saveLandingSettings(settings);
+      setStatusMessage('تنظیمات لندینگ با موفقیت ذخیره شد');
+      if (onSaved) onSaved(settings);
     } catch (err: any) {
-      console.error('Error saving landing settings:', err);
+      console.error('Save failed:', err);
       const errMsg = err?.message || String(err);
-      setStatusMessage('خطای دیتابیس: ' + errMsg);
+      setStatusMessage('خطا در ذخیره دیتابیس: ' + errMsg);
       if (typeof window !== 'undefined') {
-        alert('خطای دیتابیس: ' + errMsg);
+        alert('خطا در ذخیره دیتابیس: ' + errMsg);
       }
     } finally {
       setIsSaving(false);
@@ -198,8 +191,8 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
       {/* Top Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-slate-200 rounded-3xl p-5 shadow-xs">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-black text-white flex items-center justify-center font-black text-sm shrink-0">
-            SF
+          <div className="w-11 h-11 rounded-2xl bg-black text-white flex items-center justify-center shrink-0 shadow-xs">
+            <Building2 className="w-5 h-5" />
           </div>
           <div>
             <h3 className="font-black text-sm sm:text-base text-slate-900">مدیریت لندینگ، اطلاع‌رسانی و مودال‌ها</h3>
@@ -366,7 +359,7 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
                 <input
                   type="text"
                   value={settings.telegramId || ''}
-                  onChange={(e) => setSettings({ ...settings, telegramId: e.target.value })}
+                  onChange={(e) => setSettings(prev => ({ ...prev, telegramId: e.target.value }))}
                   placeholder="@SIRIK_FIT_Support"
                   className="w-full text-xs p-2.5 rounded-xl border border-gray-300 bg-white dir-ltr text-right font-bold"
                 />
@@ -374,8 +367,8 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
               <label className="flex items-center gap-1.5 cursor-pointer font-bold text-xs select-none pt-4">
                 <input
                   type="checkbox"
-                  checked={settings.showTelegram !== false}
-                  onChange={(e) => setSettings({ ...settings, showTelegram: e.target.checked })}
+                  checked={Boolean(settings.showTelegram !== false)}
+                  onChange={(e) => setSettings(prev => ({ ...prev, showTelegram: e.target.checked }))}
                   className="w-4 h-4 rounded text-sky-600 cursor-pointer"
                 />
                 <span>نمایش؟</span>
@@ -392,7 +385,7 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
                 <input
                   type="email"
                   value={settings.supportEmail || ''}
-                  onChange={(e) => setSettings({ ...settings, supportEmail: e.target.value })}
+                  onChange={(e) => setSettings(prev => ({ ...prev, supportEmail: e.target.value }))}
                   placeholder="info@sirikfit.ir"
                   className="w-full text-xs p-2.5 rounded-xl border border-gray-300 bg-white dir-ltr text-right font-bold"
                 />
@@ -400,8 +393,8 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
               <label className="flex items-center gap-1.5 cursor-pointer font-bold text-xs select-none pt-4">
                 <input
                   type="checkbox"
-                  checked={settings.showEmail !== false}
-                  onChange={(e) => setSettings({ ...settings, showEmail: e.target.checked })}
+                  checked={Boolean(settings.showEmail !== false)}
+                  onChange={(e) => setSettings(prev => ({ ...prev, showEmail: e.target.checked }))}
                   className="w-4 h-4 rounded text-red-600 cursor-pointer"
                 />
                 <span>نمایش؟</span>
@@ -418,7 +411,7 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
                 <input
                   type="text"
                   value={settings.supportPhone || ''}
-                  onChange={(e) => setSettings({ ...settings, supportPhone: e.target.value })}
+                  onChange={(e) => setSettings(prev => ({ ...prev, supportPhone: e.target.value }))}
                   placeholder="021-91000000"
                   className="w-full text-xs p-2.5 rounded-xl border border-gray-300 bg-white dir-ltr text-right font-bold"
                 />
@@ -426,8 +419,8 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
               <label className="flex items-center gap-1.5 cursor-pointer font-bold text-xs select-none pt-4">
                 <input
                   type="checkbox"
-                  checked={settings.showPhone !== false}
-                  onChange={(e) => setSettings({ ...settings, showPhone: e.target.checked })}
+                  checked={Boolean(settings.showPhone !== false)}
+                  onChange={(e) => setSettings(prev => ({ ...prev, showPhone: e.target.checked }))}
                   className="w-4 h-4 rounded text-emerald-600 cursor-pointer"
                 />
                 <span>نمایش؟</span>
@@ -445,8 +438,8 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
                   <label className="flex items-center gap-1 cursor-pointer font-bold text-xs select-none">
                     <input
                       type="checkbox"
-                      checked={settings.showHours !== false}
-                      onChange={(e) => setSettings({ ...settings, showHours: e.target.checked })}
+                      checked={Boolean(settings.showHours !== false)}
+                      onChange={(e) => setSettings(prev => ({ ...prev, showHours: e.target.checked }))}
                       className="w-4 h-4 rounded text-amber-500 cursor-pointer"
                     />
                     <span>نمایش</span>
@@ -455,7 +448,7 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
                 <input
                   type="text"
                   value={settings.supportHours || ''}
-                  onChange={(e) => setSettings({ ...settings, supportHours: e.target.value })}
+                  onChange={(e) => setSettings(prev => ({ ...prev, supportHours: e.target.value }))}
                   placeholder="پاسخگویی همه‌روزه، ساعت ۹ صبح الی ۲۳"
                   className="text-xs p-2.5 rounded-xl border border-gray-300 bg-white font-medium"
                 />
@@ -470,8 +463,8 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
                   <label className="flex items-center gap-1 cursor-pointer font-bold text-xs select-none">
                     <input
                       type="checkbox"
-                      checked={settings.showAddress !== false}
-                      onChange={(e) => setSettings({ ...settings, showAddress: e.target.checked })}
+                      checked={Boolean(settings.showAddress !== false)}
+                      onChange={(e) => setSettings(prev => ({ ...prev, showAddress: e.target.checked }))}
                       className="w-4 h-4 rounded text-purple-600 cursor-pointer"
                     />
                     <span>نمایش</span>
@@ -480,7 +473,7 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
                 <input
                   type="text"
                   value={settings.officeLocation || ''}
-                  onChange={(e) => setSettings({ ...settings, officeLocation: e.target.value })}
+                  onChange={(e) => setSettings(prev => ({ ...prev, officeLocation: e.target.value }))}
                   placeholder="دفتر هماهنگی و ارسال مرسولات دبی و ایران"
                   className="text-xs p-2.5 rounded-xl border border-gray-300 bg-white font-medium"
                 />

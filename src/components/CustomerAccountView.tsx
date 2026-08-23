@@ -117,6 +117,13 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
     if (formattedMobile.startsWith('98')) formattedMobile = '0' + formattedMobile.substring(2);
     if (!formattedMobile.startsWith('0')) formattedMobile = '0' + formattedMobile;
 
+    if (!name.trim()) {
+      const msg = 'لطفاً نام و نام خانوادگی خود را وارد کنید';
+      setAuthError(msg);
+      if (showToast) showToast(msg, 'error');
+      return;
+    }
+
     if (!/^09\d{9}$/.test(formattedMobile)) {
       const msg = 'لطفاً شماره موبایل معتبر ۱۱ رقمی وارد نمایید (مثال: 09121234567)';
       setAuthError(msg);
@@ -448,10 +455,10 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
               </span>
             </div>
 
-            {/* Field 2: Name (Optional) */}
+            {/* Field 2: Name (Required) */}
             <div>
               <label className="font-extrabold text-slate-900 block mb-1.5 text-right">
-                نام و نام خانوادگی <span className="text-slate-400 font-semibold">(اختیاری)</span>
+                نام و نام خانوادگی <span className="text-rose-600 font-extrabold">* (الزامی)</span>
               </label>
               <div className="relative">
                 <input
@@ -459,6 +466,7 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="مثال: علیرضا حسینی"
+                  required
                   className="w-full bg-[#F8FAFC] border border-slate-300 focus:border-[#111111] focus:bg-white text-slate-900 text-xs font-bold p-3.5 pr-10 rounded-xl focus:outline-none transition"
                 />
                 <UserIcon className="w-4 h-4 text-slate-400 absolute right-3 top-4" />
@@ -591,10 +599,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
           </div>
         )}
 
-        <div className="text-center text-[10px] text-slate-400 pt-2 border-t border-slate-100 flex items-center justify-center gap-1">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span>سامانه هوشمند ارسال سریع پیامک sms.ir</span>
-        </div>
       </div>
     );
   }

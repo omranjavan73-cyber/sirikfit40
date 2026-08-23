@@ -276,11 +276,63 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Pr
     const flavors = Array.from(flavorsSet);
     const sizes = Array.from(sizesSet);
 
-    const finalPrice = priceAED > 0 ? priceAED : 59.14;
+    const finalPrice = priceAED > 0 ? priceAED : 0;
     const finalOldPrice = (originalPriceAED && originalPriceAED > finalPrice) ? originalPriceAED : undefined;
     const discountPercent = (finalOldPrice && finalOldPrice > finalPrice)
       ? Math.round(((finalOldPrice - finalPrice) / finalOldPrice) * 100)
       : undefined;
+
+    // Construct standardized ProductVariant matrix
+    const standardizedVariants: any[] = [];
+    if (sizes.length > 0 && flavors.length > 0) {
+      sizes.forEach((s, sIdx) => {
+        flavors.forEach((f, fIdx) => {
+          standardizedVariants.push({
+            id: `var-${sIdx}-${fIdx}`,
+            size: s,
+            flavor: f,
+            price: finalPrice,
+            priceAED: finalPrice,
+            priceAed: finalPrice,
+            originalPrice: finalOldPrice,
+            originalPriceAED: finalOldPrice,
+            originalPriceAed: finalOldPrice,
+            inStock: true,
+            image: mainImage
+          });
+        });
+      });
+    } else if (sizes.length > 0) {
+      sizes.forEach((s, sIdx) => {
+        standardizedVariants.push({
+          id: `var-${sIdx}`,
+          size: s,
+          price: finalPrice,
+          priceAED: finalPrice,
+          priceAed: finalPrice,
+          originalPrice: finalOldPrice,
+          originalPriceAED: finalOldPrice,
+          originalPriceAed: finalOldPrice,
+          inStock: true,
+          image: mainImage
+        });
+      });
+    } else if (flavors.length > 0) {
+      flavors.forEach((f, fIdx) => {
+        standardizedVariants.push({
+          id: `var-${fIdx}`,
+          flavor: f,
+          price: finalPrice,
+          priceAED: finalPrice,
+          priceAed: finalPrice,
+          originalPrice: finalOldPrice,
+          originalPriceAED: finalOldPrice,
+          originalPriceAed: finalOldPrice,
+          inStock: true,
+          image: mainImage
+        });
+      });
+    }
 
     if (title && (priceAED > 0 || mainImage)) {
       return {
@@ -304,12 +356,13 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Pr
         sourceUrl,
         weightKg: 0.8,
         description: description || 'مکمل ورزشی و تغذیه‌ای باکیفیت و اورجینال از دکتر نیوتریشن دبی',
-        flavors: flavors.map((f, i) => ({ id: `flv-${i}`, flavor: f, name: f, inStock: true })),
-        sizes: sizes.map((s, i) => ({ id: `sz-${i}`, size: s, name: s, priceAED: finalPrice, weightKg: 0.8, inStock: true })),
+        flavors: flavors,
+        sizes: sizes,
+        variants: standardizedVariants,
         variantMatrix: {
           flavors,
           sizes,
-          items: sizes.map((s, i) => ({ id: `var-${i}`, size: s, priceAED: finalPrice, inStock: true }))
+          items: standardizedVariants
         }
       };
     }
@@ -334,7 +387,7 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Pr
     const data = microRes.data?.data;
     if (data && (data.title || data.image?.url)) {
       const cleanTitle = (data.title || '').replace(/\s*\|\s*Dr\s*Nutrition.*$/i, '').trim();
-      const pAed = parseFloat(data.price || 0) || 59.14;
+      const pAed = parseFloat(data.price || 0) || 0;
       const img = sanitizeImageUrl(data.image?.url, enAeUrl);
       if (cleanTitle) {
         return {
@@ -365,7 +418,7 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Pr
     const jsonRes = await axios.get(jsonUrl, { headers, timeout: 8000 });
     const p = jsonRes.data?.product;
     if (p && p.title) {
-      const pPrice = parseFloat(p.variants?.[0]?.price || 0) || 59.14;
+      const pPrice = parseFloat(p.variants?.[0]?.price || 0) || 0;
       const pImg = sanitizeImageUrl(p.image?.src || p.images?.[0]?.src, enAeUrl);
       return {
         ok: true,

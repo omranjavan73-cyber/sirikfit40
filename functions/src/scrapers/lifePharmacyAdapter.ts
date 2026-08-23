@@ -28,6 +28,38 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
           const mainImage = sanitizeImageUrl(p.images?.featured_image || (p.images && p.images[0]?.image_url), targetUrl);
           const galleryImages = (p.images || []).map((im: any) => sanitizeImageUrl(im.image_url || im, targetUrl)).filter(Boolean);
 
+          const flavorsSet = new Set<string>();
+          const sizesSet = new Set<string>();
+          const variantsList: any[] = [];
+
+          if (Array.isArray(p.variants || p.options)) {
+            const arr = p.variants || p.options;
+            arr.forEach((v: any, idx: number) => {
+              const sz = v.size || v.weight || v.option1 || '';
+              const flv = v.flavor || v.option2 || '';
+              if (sz) sizesSet.add(String(sz));
+              if (flv) flavorsSet.add(String(flv));
+              const vPrice = parseFloat(v.price || v.offer_price || priceAED) || priceAED || 89.00;
+              const vOrig = parseFloat(v.regular_price || origPriceAED) || vPrice;
+              variantsList.push({
+                id: `var-${v.id || idx}`,
+                size: sz || undefined,
+                flavor: flv || undefined,
+                price: vPrice,
+                priceAED: vPrice,
+                priceAed: vPrice,
+                originalPrice: vOrig > vPrice ? vOrig : undefined,
+                originalPriceAED: vOrig > vPrice ? vOrig : undefined,
+                originalPriceAed: vOrig > vPrice ? vOrig : undefined,
+                inStock: v.in_stock !== false && v.is_available !== false,
+                image: sanitizeImageUrl(v.image || mainImage, targetUrl)
+              });
+            });
+          }
+
+          const flavors = Array.from(flavorsSet);
+          const sizes = Array.from(sizesSet);
+
           if (title && (priceAED > 0 || mainImage)) {
             return {
               ok: true,
@@ -48,7 +80,15 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
               store: storeName,
               sourceUrl: targetUrl,
               weightKg: 0.5,
-              description: p.description ? p.description.replace(/<[^>]*>/g, ' ').trim() : 'مکمل و اقلام دارویی اورجینال از لایف فارمسی دبی'
+              description: p.description ? p.description.replace(/<[^>]*>/g, ' ').trim() : 'مکمل و اقلام دارویی اورجینال از لایف فارمسی دبی',
+              flavors: flavors,
+              sizes: sizes,
+              variants: variantsList,
+              variantMatrix: {
+                flavors,
+                sizes,
+                items: variantsList
+              }
             };
           }
         }

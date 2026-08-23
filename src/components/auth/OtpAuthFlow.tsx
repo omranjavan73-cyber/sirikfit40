@@ -24,6 +24,10 @@ export const OtpAuthFlow: React.FC<OtpAuthFlowProps> = ({ onAuthSuccess }) => {
 
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!fullName.trim()) {
+      toast.error('لطفاً نام و نام خانوادگی خود را وارد کنید');
+      return;
+    }
     const cleanMobile = mobile.trim().replace(/[^0-9]/g, '');
     if (!cleanMobile.match(/^09[0-9]{9}$/)) {
       toast.error('لطفاً شماره موبایل معتبر ۱۱ رقمی ایران را وارد کنید (مثال: 09123456789)');
@@ -127,13 +131,16 @@ export const OtpAuthFlow: React.FC<OtpAuthFlowProps> = ({ onAuthSuccess }) => {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-gray-700">نام و نام خانوادگی:</label>
+            <label className="text-xs font-bold text-gray-700">
+              نام و نام خانوادگی <span className="text-red-600 font-extrabold">* (الزامی)</span>
+            </label>
             <input
               type="text"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               placeholder="مثال: علیرضا حسینی"
               className="p-3 text-xs bg-gray-50 border border-gray-300 rounded-2xl outline-none focus:border-black font-bold"
+              required
             />
           </div>
 

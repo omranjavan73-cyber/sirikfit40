@@ -35,13 +35,24 @@ export async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<Sc
         }
       });
 
-      const structuredVariants = variants.map((v: any, idx: number) => ({
-        id: `var-${v.id || idx}`,
-        size: v.option1 || v.title,
-        priceAED: parseFloat(v.price) || priceAED,
-        weightKg: v.grams ? parseFloat((v.grams / 1000).toFixed(2)) : 0.8,
-        inStock: v.available !== false
-      }));
+      const structuredVariants = variants.map((v: any, idx: number) => {
+        const vPrice = parseFloat(v.price) || priceAED;
+        const vOrigPrice = parseFloat(v.compare_at_price) || (origPriceAED > vPrice ? origPriceAED : undefined);
+        return {
+          id: `var-${v.id || idx}`,
+          size: v.option1 || v.title,
+          flavor: v.option2 || undefined,
+          price: vPrice,
+          priceAED: vPrice,
+          priceAed: vPrice,
+          originalPrice: vOrigPrice,
+          originalPriceAED: vOrigPrice,
+          originalPriceAed: vOrigPrice,
+          weightKg: v.grams ? parseFloat((v.grams / 1000).toFixed(2)) : 0.8,
+          inStock: v.available !== false,
+          image: sanitizeImageUrl(v.featured_image?.src || mainImage, targetUrl)
+        };
+      });
 
       return {
         ok: true,
@@ -63,8 +74,8 @@ export async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<Sc
         sourceUrl: targetUrl,
         weightKg: v0.grams ? parseFloat((v0.grams / 1000).toFixed(2)) : 0.8,
         description: p.body_html ? p.body_html.replace(/<[^>]*>/g, ' ').trim() : 'مکمل اورجینال فروشگاه GNC',
-        flavors: flavors.map((f, i) => ({ id: `flv-${i}`, flavor: f, name: f, inStock: true })),
-        sizes: sizes.map((s, i) => ({ id: `sz-${i}`, size: s, name: s, priceAED: priceAED, weightKg: 0.8, inStock: true })),
+        flavors: flavors,
+        sizes: sizes,
         variants: structuredVariants,
         variantMatrix: {
           flavors,

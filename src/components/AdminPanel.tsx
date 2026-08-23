@@ -165,6 +165,8 @@ import { AdminDiscounts } from './AdminDiscounts';
 import { AdminAccounting } from './AdminAccounting';
 import { AdminScraperLogs } from './AdminScraperLogs';
 import { AdminSeo } from './AdminSeo';
+import { DealsAdmin } from '../pages/admin/DealsAdmin';
+import { IranWarehouseAdmin } from '../pages/admin/IranWarehouseAdmin';
 
 const DEFAULT_WAREHOUSE_CATEGORIES: WarehouseCategory[] = [
   {
@@ -4859,8 +4861,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
-          {/* SUB-VIEW 1: INVENTORY (انبار ایران) */}
+          {/* SUB-VIEW 1: INVENTORY (انبار ایران و موتور ماتریس واریانت‌ها) */}
           {activeProductSubTab === 'inventory' && (
+            <IranWarehouseAdmin
+              items={localInventoryList}
+              settings={settings}
+              cms={cms}
+              taxonomyList={taxonomyList}
+              onSaveItems={async (updatedItems) => {
+                setLocalInventoryList(updatedItems);
+                const updatedCms = {
+                  ...(cms || {}),
+                  localInventory: updatedItems,
+                  updatedAt: Date.now()
+                };
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+                  localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+                  window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+                  window.dispatchEvent(new Event('storage'));
+                }
+                onUpdateCms(updatedCms as any);
+                await Promise.all([
+                  setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
+                  setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
+                ]);
+              }}
+              showToast={showToast}
+            />
+          )}
+          {false && (
             <div className="space-y-6">
               {(saveCmsSuccess || saveProductsSuccess) && (
                 <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-bold flex items-center gap-2 shadow-2xs">
@@ -5529,8 +5559,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           )}
 
-          {/* SUB-VIEW 2: DEALS (پیشنهادهای ویژه) */}
+          {/* SUB-VIEW 2: DEALS (پیشنهادهای ویژه و موتور لینک‌های کمکی واریانت) */}
           {activeProductSubTab === 'deals' && (
+            <DealsAdmin
+              deals={dealsList}
+              settings={settings}
+              cms={cms}
+              taxonomyList={taxonomyList}
+              onSaveDeals={async (updatedDeals) => {
+                setDealsList(updatedDeals);
+                const updatedCms = {
+                  ...(cms || {}),
+                  deals: updatedDeals,
+                  updatedAt: Date.now()
+                };
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+                  localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+                  window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+                  window.dispatchEvent(new Event('storage'));
+                }
+                onUpdateCms(updatedCms as any);
+                await Promise.all([
+                  setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
+                  setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
+                ]);
+              }}
+              showToast={showToast}
+            />
+          )}
+          {false && (
             <div className="space-y-6">
               {saveCmsSuccess && (
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center gap-2">
@@ -8470,8 +8528,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* 🟢 Persistent Sticky Bottom Save Bar across all Management Tabs (except pricingRules which has its own single action bar) */}
-      {activeAdminSubTab !== 'pricingRules' && (
+      {/* 🟢 Persistent Sticky Bottom Save Bar across all Management Tabs (except pricingRules and landingSettings which have their own single action bar) */}
+      {activeAdminSubTab !== 'pricingRules' && activeAdminSubTab !== 'landingSettings' && (
         <StickyBottomSaveBar
           onSave={handleStickySave}
           isSaving={isAnySaving}

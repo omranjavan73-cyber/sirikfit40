@@ -45,12 +45,14 @@ export const AboutModal: React.FC<ModalBaseProps> = ({ onClose, settings: custom
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 pb-3.5">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-black text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs">
-              SF
+            <div className="w-10 h-10 rounded-2xl bg-black text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Building2 className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-black text-sm sm:text-base text-gray-950">درباره ما | سیریک فیت</h3>
-              <span className="text-[11px] font-bold text-red-600 block">{settings.brandSubtitle || 'تأمین و واردات مستقیم مکمل از دبی'}</span>
+              <h3 className="font-black text-sm sm:text-base text-gray-950">درباره {settings.brandName || 'سیریک فیت'}</h3>
+              {settings.brandSubtitle && (
+                <span className="text-[11px] font-bold text-red-600 block">{settings.brandSubtitle}</span>
+              )}
             </div>
           </div>
           <button
@@ -64,15 +66,17 @@ export const AboutModal: React.FC<ModalBaseProps> = ({ onClose, settings: custom
         </div>
 
         {/* Brand Statement */}
-        <div className="bg-gray-50 border border-gray-200 p-4 rounded-2xl space-y-2">
-          <span className="text-xs font-black text-gray-900 block flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-red-600"></span>
-            مرجع تخصصی مکمل‌های ورزشی اورجینال
-          </span>
-          <p className="text-xs text-gray-700 leading-relaxed font-medium">
-            {settings.aboutText || 'سیریک فیت (SIRIK FIT) مرجع تخصصی تأمین و واردات مستقیم مکمل‌های ورزشی و غذایی اورجینال از معتبرترین برندهای جهانی و نمایندگی‌های امارات متحده عربی است.'}
-          </p>
-        </div>
+        {settings.aboutText && (
+          <div className="bg-gray-50 border border-gray-200 p-4 rounded-2xl space-y-2">
+            <span className="text-xs font-black text-gray-900 block flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-red-600"></span>
+              {settings.brandName || 'سیریک فیت'}
+            </span>
+            <p className="text-xs text-gray-700 leading-relaxed font-medium">
+              {settings.aboutText}
+            </p>
+          </div>
+        )}
 
         {/* Highlight Badges */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -94,14 +98,16 @@ export const AboutModal: React.FC<ModalBaseProps> = ({ onClose, settings: custom
         </div>
 
         {/* Guarantee Badge Box */}
-        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between">
-          <span className="text-xs font-black text-emerald-900">
-            {settings.deliveryGuaranteeBadge || 'تضمین ۱۰۰٪ اصالت کالا | ارسال ۵ الی ۱۰ روز کاری'}
-          </span>
-          <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-600 text-white">
-            تایید شده
-          </span>
-        </div>
+        {settings.deliveryGuaranteeBadge && (
+          <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between">
+            <span className="text-xs font-black text-emerald-900">
+              {settings.deliveryGuaranteeBadge}
+            </span>
+            <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-600 text-white">
+              تایید شده
+            </span>
+          </div>
+        )}
 
         {/* Close CTA */}
         <button
@@ -226,83 +232,79 @@ export const ContactModal: React.FC<ModalBaseProps> = ({ onClose, settings: cust
         {/* Contact Cards */}
         <div className="flex flex-col gap-3 text-right" dir="rtl">
           {/* Telegram Card */}
-          {settings.showTelegram !== false && (
+          {settings.showTelegram !== false && settings.telegramId && (
             <a
               href={`https://t.me/${tgUser}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-gray-200 hover:border-sky-400 shadow-xs transition-all cursor-pointer group"
+              className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-gray-200 hover:border-sky-400 shadow-xs transition-all cursor-pointer gap-2 group"
             >
-              <span className="bg-sky-500 text-white text-[11px] font-black px-3 py-1.5 rounded-xl shadow-2xs">
+              <span className="shrink-0 bg-sky-500 text-white text-[11px] font-black px-3 py-1.5 rounded-xl shadow-2xs">
                 {settings.telegramActionText || 'چت آنلاین'}
               </span>
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col text-right">
-                  <span className="text-xs font-black text-gray-900">تلگرام پشتیبانی و سفارش</span>
-                  <span className="text-[11px] text-gray-500 font-semibold dir-ltr font-mono">@{tgUser}</span>
-                </div>
-                <div className="w-10 h-10 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-xs shrink-0">
-                  <Send className="w-5 h-5" />
-                </div>
+              <div className="flex-1 flex flex-col text-right min-w-0 pr-1">
+                <span className="text-xs font-black text-gray-900 truncate">تلگرام پشتیبانی و سفارش</span>
+                <span className="text-[11px] text-gray-500 font-semibold dir-ltr text-right font-mono truncate">
+                  {settings.telegramId.startsWith('@') ? settings.telegramId : `@${settings.telegramId}`}
+                </span>
+              </div>
+              <div className="shrink-0 w-10 h-10 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-xs">
+                <Send className="w-5 h-5" />
               </div>
             </a>
           )}
 
           {/* Email Card */}
-          {settings.showEmail !== false && (
+          {settings.showEmail !== false && settings.supportEmail && (
             <a
-              href={`mailto:${settings.supportEmail || 'info@sirikfit.ir'}`}
-              className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-gray-200 hover:border-red-400 shadow-xs transition-all cursor-pointer group"
+              href={`mailto:${settings.supportEmail}`}
+              className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-gray-200 hover:border-red-400 shadow-xs transition-all cursor-pointer gap-2 group"
             >
-              <span className="bg-gray-100 text-gray-700 text-[11px] font-black px-3 py-1.5 rounded-xl border border-gray-200">
+              <span className="shrink-0 bg-gray-100 text-gray-700 text-[11px] font-black px-3 py-1.5 rounded-xl border border-gray-200">
                 {settings.emailActionText || 'ارسال ایمیل'}
               </span>
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col text-right">
-                  <span className="text-xs font-black text-gray-900">ایمیل رسمی سیریک فیت</span>
-                  <span className="text-[11px] text-gray-500 font-semibold dir-ltr font-mono">{settings.supportEmail || 'info@sirikfit.ir'}</span>
-                </div>
-                <div className="w-10 h-10 rounded-2xl bg-red-600 text-white flex items-center justify-center shadow-xs shrink-0">
-                  <Mail className="w-5 h-5" />
-                </div>
+              <div className="flex-1 flex flex-col text-right min-w-0 pr-1">
+                <span className="text-xs font-black text-gray-900 truncate">ایمیل رسمی پشتیبانی</span>
+                <span className="text-[11px] text-gray-500 font-semibold dir-ltr text-right font-mono truncate">{settings.supportEmail}</span>
+              </div>
+              <div className="shrink-0 w-10 h-10 rounded-2xl bg-red-600 text-white flex items-center justify-center shadow-xs">
+                <Mail className="w-5 h-5" />
               </div>
             </a>
           )}
 
           {/* Phone Card */}
-          {settings.showPhone !== false && (
+          {settings.showPhone !== false && settings.supportPhone && (
             <a
-              href={`tel:${settings.supportPhone || '02191000000'}`}
-              className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-gray-200 hover:border-emerald-400 shadow-xs transition-all cursor-pointer group"
+              href={`tel:${settings.supportPhone.replace(/[^0-9+]/g, '')}`}
+              className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-gray-200 hover:border-emerald-400 shadow-xs transition-all cursor-pointer gap-2 group"
             >
-              <span className="bg-emerald-600 text-white text-[11px] font-black px-3 py-1.5 rounded-xl shadow-2xs">
+              <span className="shrink-0 bg-emerald-600 text-white text-[11px] font-black px-3 py-1.5 rounded-xl shadow-2xs">
                 {settings.phoneActionText || 'تماس تلفنی'}
               </span>
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col text-right">
-                  <span className="text-xs font-black text-gray-900">شماره تماس پشتیبانی</span>
-                  <span className="text-[11px] text-gray-500 font-semibold dir-ltr font-mono">{settings.supportPhone || '021-91000000'}</span>
-                </div>
-                <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
-                  <Phone className="w-5 h-5" />
-                </div>
+              <div className="flex-1 flex flex-col text-right min-w-0 pr-1">
+                <span className="text-xs font-black text-gray-900 truncate">شماره تماس پشتیبانی</span>
+                <span className="text-[11px] text-gray-500 font-semibold dir-ltr text-right font-mono truncate">{settings.supportPhone}</span>
+              </div>
+              <div className="shrink-0 w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                <Phone className="w-5 h-5" />
               </div>
             </a>
           )}
 
           {/* Working Hours & Office Location */}
-          {(settings.showHours !== false || settings.showAddress !== false) && (
+          {((settings.showHours !== false && settings.supportHours) || (settings.showAddress !== false && settings.officeLocation)) && (
             <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-200 flex flex-col gap-2 text-xs text-gray-700">
-              {settings.showHours !== false && (
+              {settings.showHours !== false && settings.supportHours && (
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span className="font-bold">{settings.supportHours || 'پاسخگویی همه‌روزه، ساعت ۹ صبح الی ۲۳'}</span>
+                  <span className="font-bold">{settings.supportHours}</span>
                 </div>
               )}
-              {settings.showAddress !== false && (
+              {settings.showAddress !== false && settings.officeLocation && (
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-purple-500 shrink-0" />
-                  <span className="font-medium">{settings.officeLocation || 'دفتر هماهنگی و ارسال مرسولات دبی و ایران'}</span>
+                  <span className="font-medium">{settings.officeLocation}</span>
                 </div>
               )}
             </div>
@@ -476,17 +478,19 @@ export const FaqModal: React.FC<ModalBaseProps> = ({ onClose, settings: customSe
         </div>
 
         {/* Support Callout */}
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] font-bold text-amber-900 flex items-center justify-between">
-          <span>سوال دیگری دارید؟</span>
-          <a
-            href={`https://t.me/${(settings.telegramId || 'SIRIK_FIT_Support').replace('@', '').replace('https://t.me/', '')}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-amber-800 underline font-black"
-          >
-            ارتباط با پشتیبانی در تلگرام
-          </a>
-        </div>
+        {settings.showTelegram !== false && settings.telegramId && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] font-bold text-amber-900 flex items-center justify-between">
+            <span>سوال دیگری دارید؟</span>
+            <a
+              href={`https://t.me/${settings.telegramId.replace('@', '').replace('https://t.me/', '')}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-amber-800 underline font-black"
+            >
+              ارتباط با پشتیبانی در تلگرام
+            </a>
+          </div>
+        )}
 
         {/* Close Button */}
         <button

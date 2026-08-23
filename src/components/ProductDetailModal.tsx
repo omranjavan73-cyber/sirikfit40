@@ -228,6 +228,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const basePriceAed = currentProd.priceAed || 100;
   const baseWeightKg = currentProd.weightKg || 0.5;
   const originalPriceAed = currentProd.originalPriceAed;
+  const isAvailable = matchedVariant ? matchedVariant.inStock !== false : (currentProd.inStock !== false);
   
   // Rate & Financial parameters
   const activeAedRate = getEffectiveAedRate(settings) || settings?.aedRate || 55000;
@@ -827,13 +828,23 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             {/* Add to Cart Button */}
             <button
               type="button"
+              disabled={!isAvailable}
               onClick={(e) => {
                 e.stopPropagation();
-                handleAdd();
+                if (isAvailable) handleAdd();
               }}
-              className="flex-1 bg-black hover:bg-gray-900 active:scale-95 text-white font-bold py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 shadow-lg text-xs sm:text-sm transition-all cursor-pointer"
+              className={`flex-1 font-bold py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 shadow-lg text-xs sm:text-sm transition-all ${
+                !isAvailable 
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none' 
+                  : 'bg-black hover:bg-gray-900 active:scale-95 text-white cursor-pointer'
+              }`}
             >
-              {isAdded ? (
+              {!isAvailable ? (
+                <>
+                  <AlertCircle className="w-4 h-4 text-gray-500" />
+                  <span>ناموجود در انبار مبدأ</span>
+                </>
+              ) : isAdded ? (
                 <>
                   <Check className="w-4 h-4 text-emerald-400" />
                   <span>به سبد خرید اضافه شد!</span>

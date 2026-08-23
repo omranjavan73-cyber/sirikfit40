@@ -33,7 +33,7 @@ import { defaultLandingSettings } from './types';
 import { getLandingSettings } from './services/settingsService';
 import { toPersianDigits, getEffectiveAedRate, calculateFinalToman } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -397,6 +397,8 @@ function MainApp() {
     let unsubCms: (() => void) | null = null;
     let unsubGen: (() => void) | null = null;
     let unsubLanding: (() => void) | null = null;
+    let unsubSpecialDeals: (() => void) | null = null;
+    let unsubIranWarehouse: (() => void) | null = null;
 
     const handlePricingUpdate = (data: any) => {
       if (!data) return;
@@ -584,6 +586,38 @@ function MainApp() {
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore landing settings onSnapshot notice:', err);
       });
+
+      // 8. Real-time collection sync for special_deals
+      unsubSpecialDeals = onSnapshot(collection(db, 'special_deals'), (snap) => {
+        if (!snap.empty) {
+          const loadedDeals: any[] = [];
+          snap.forEach(docSnap => {
+            loadedDeals.push({ id: docSnap.id, ...docSnap.data() });
+          });
+          setCmsConfig(prev => {
+            if (!prev) return prev;
+            return { ...prev, deals: loadedDeals };
+          });
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('Firestore special_deals onSnapshot notice:', err);
+      });
+
+      // 9. Real-time collection sync for iran_warehouse
+      unsubIranWarehouse = onSnapshot(collection(db, 'iran_warehouse'), (snap) => {
+        if (!snap.empty) {
+          const loadedLocal: any[] = [];
+          snap.forEach(docSnap => {
+            loadedLocal.push({ id: docSnap.id, ...docSnap.data() });
+          });
+          setCmsConfig(prev => {
+            if (!prev) return prev;
+            return { ...prev, localInventory: loadedLocal };
+          });
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('Firestore iran_warehouse onSnapshot notice:', err);
+      });
     } catch (fsErr) {
       console.warn('Error setting up Firestore onSnapshot listeners:', fsErr);
     }
@@ -596,6 +630,8 @@ function MainApp() {
       if (unsubCms) unsubCms();
       if (unsubGen) unsubGen();
       if (unsubLanding) unsubLanding();
+      if (unsubSpecialDeals) unsubSpecialDeals();
+      if (unsubIranWarehouse) unsubIranWarehouse();
     };
   }, []);
 
@@ -1040,8 +1076,8 @@ function MainApp() {
 
             {/* Popular Samples Section (نمونه‌های محبوب) */}
             {(() => {
-              const popularDeals = (cmsConfig?.deals || []).filter(d => d && (d.isPopular === true || d.isPopularSample === true) && d.isActive !== false);
-              const popularLocal = (cmsConfig?.localInventory || []).filter(i => i && (i.isPopular === true || i.isPopularSample === true) && i.inStock !== false);
+              const popularDeals = (cmsConfig?.deals || []).filter(d => d && d.isActive === true && (d.isPopular === true || d.isPopularSample === true));
+              const popularLocal = (cmsConfig?.localInventory || []).filter(i => i && i.isActive === true && i.inStock !== false && (i.isPopular === true || i.isPopularSample === true));
 
               let popularList: PopularProductItem[] = [
                 ...popularLocal.map(item => ({
@@ -1111,7 +1147,8 @@ function MainApp() {
                         inStock: local.inStock ?? true,
                         isLocalInventory: true,
                         flavors: local.flavors || [],
-                        sizes: local.sizes || []
+                        sizes: local.sizes || [],
+                        variants: local.variants || []
                       });
                       setActiveTab('detail');
                       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1150,7 +1187,8 @@ function MainApp() {
                         profitMargin: dealMargin,
                         inStock: true,
                         flavors: deal.flavors || [],
-                        sizes: deal.sizes || []
+                        sizes: deal.sizes || [],
+                        variants: deal.variants || []
                       });
                       setActiveTab('detail');
                       window.scrollTo({ top: 0, behavior: 'smooth' });

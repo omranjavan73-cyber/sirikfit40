@@ -918,19 +918,55 @@ export interface ParsedProduct {
 
 export interface ProductVariant {
   id: string;
+  size?: string;
+  flavor?: string;
+  price: number;            // Active Selling Price AED
+  originalPrice?: number;   // Strikethrough Price AED
+  inStock: boolean;
+  image?: string;
+  sku?: string;
   title?: string;
-  flavor?: string; // e.g., "Green Apple", "Blue Raspberry", "Chocolate"
-  size?: string;   // e.g., "50 Servings", "1 kg", "2.3 kg"
   name?: string;
   priceAed?: number;
   priceAED?: number;
   originalPriceAed?: number;
   originalPriceAED?: number;
   priceToman?: number;
-  inStock?: boolean;
-  image?: string;
   imageThumbnail?: string;
   url?: string;
+  weightKg?: number;
+}
+
+export interface NormalizedProduct {
+  id?: string;
+  title: string;
+  titleFa?: string;
+  titleEn?: string;
+  brand?: string;
+  storeName?: string;
+  sourceUrl?: string;
+  url?: string;
+  price: number;
+  priceAed?: number;
+  priceAED?: number;
+  originalPrice?: number;
+  originalPriceAed?: number;
+  originalPriceAED?: number;
+  discountPercent?: number;
+  currency?: string;
+  mainImage?: string;
+  image?: string;
+  imageUrl?: string;
+  images?: string[];
+  galleryImages?: string[];
+  weightKg?: number;
+  description?: string;
+  descriptionFa?: string;
+  inStock?: boolean;
+  sizes: string[];
+  flavors: string[];
+  variants: ProductVariant[];
+  selectedVariant?: { size?: string; flavor?: string };
 }
 
 export interface CartItem {

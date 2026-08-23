@@ -4,7 +4,7 @@
  * Provides:
  * 1. Foreign Unit Conversion to clear Persian equivalents (LB -> KG, gm -> g, servings, sachet packs, capsules/tablets).
  * 2. Comprehensive supplement flavor translation dictionary.
- * 3. Dynamic Persian product caption generator.
+ * 3. Dynamic Persian product title & caption generator.
  */
 
 // 1. Convert Foreign Units to Persian
@@ -108,7 +108,95 @@ export function translateFlavor(flavor: string | null | undefined): string {
   return FLAVOR_TRANSLATIONS[lower] || flavor;
 }
 
-// 3. Dynamic Persian Caption Generator
+// 3. Supplement Keywords Dictionary for Translating Titles
+const SUPPLEMENT_KEYWORDS: Array<[RegExp, string]> = [
+  [/100%\s*Whey\s*Gold\s*Standard/gi, 'پروتئین وی گلد استاندارد ۱۰۰٪'],
+  [/Gold\s*Standard\s*100%\s*Whey/gi, 'پروتئین وی گلد استاندارد ۱۰۰٪'],
+  [/100%\s*Whey\s*Protein/gi, 'پروتئین وی ۱۰۰٪'],
+  [/Whey\s*Protein\s*Isolate/gi, 'پروتئین وی ایزوله'],
+  [/Hydrolyzed\s*Whey\s*Protein/gi, 'پروتئین وی هیدرولیز شده'],
+  [/Whey\s*Protein/gi, 'پروتئین وی'],
+  [/Iso\s*100/gi, 'پروتئین ایزو ۱۰۰'],
+  [/Mass\s*Tech\s*Elite/gi, 'گینر مس تک الیت'],
+  [/Mass\s*Tech/gi, 'گینر مس تک'],
+  [/Critical\s*Mass\s*(?:Professional|Lean\s*Mass\s*Gainz|Original)?/gi, 'گینر کریتیکال مس'],
+  [/Serious\s*Mass/gi, 'گینر سیریوس مس'],
+  [/Mass\s*Gainer/gi, 'گینر افزایش وزن'],
+  [/Weight\s*Gainer/gi, 'گینر افزایش وزن'],
+  [/Creatine\s*Monohydrate/gi, 'کراتین مونوهیدرات'],
+  [/Micronized\s*Creatine/gi, 'کراتین میکرونایز شده'],
+  [/Creatine/gi, 'کراتین'],
+  [/BCAA\s*Amino/gi, 'آمینو اسید بی سی ای ای'],
+  [/BCAA/gi, 'مکمل بی سی ای ای'],
+  [/EAA/gi, 'آمینو اسیدهای ضروری EAA'],
+  [/Glutamine/gi, 'گلوتامین'],
+  [/Pre-?Workout/gi, 'پمپ قبل از تمرین'],
+  [/C4\s*Original/gi, 'پمپ C4 اورجینال'],
+  [/C4\s*Extreme/gi, 'پمپ C4 اکستریم'],
+  [/Animal\s*Pak/gi, 'مولتی ویتامین انیمال پک'],
+  [/Multivitamin/gi, 'مولتی ویتامین تخصصی'],
+  [/Omega\s*3/gi, 'امگا ۳'],
+  [/Fish\s*Oil/gi, 'روغن ماهی (امگا ۳)'],
+  [/Casein\s*Protein/gi, 'پروتئین کازئین'],
+  [/Casein/gi, 'کازئین دیرجذب'],
+  [/Collagen/gi, 'کلاژن'],
+  [/L-Carnitine/gi, 'ال کارنیتین'],
+  [/Fat\s*Burner/gi, 'چربی‌سوز'],
+  [/Testosterone\s*Booster/gi, 'تقویت‌کننده تستوسترون']
+];
+
+const BRAND_TRANSLATIONS: Record<string, string> = {
+  'optimum nutrition': 'اپتیموم نوتریشن (ON)',
+  'on': 'اپتیموم نوتریشن (ON)',
+  'muscletech': 'ماسل تک (MuscleTech)',
+  'applied nutrition': 'اپلاید نوتریشن (Applied Nutrition)',
+  'dymatize': 'دایماتیز (Dymatize)',
+  'cellucor': 'سلکور (Cellucor)',
+  'myprotein': 'مای پروتئین (Myprotein)',
+  'rule 1': 'رول وان (Rule 1)',
+  'rule one': 'رول وان (Rule 1)',
+  'universal nutrition': 'یونیورسال نوتریشن (Universal)',
+  'kevin levrone': 'کوین لورون (Kevin Levrone)',
+  'dr. nutrition': 'دکتر نوتریشن (Dr. Nutrition)',
+  'gnc': 'جی ان سی (GNC)',
+  'scitec': 'سایتک (Scitec)'
+};
+
+/**
+ * Generates an automatic Persian localized title from an English product title
+ */
+export function generatePersianTitle(rawTitle: string, brand?: string): string {
+  if (!rawTitle) return '';
+  let clean = rawTitle.trim();
+
+  // Remove duplicate brand in beginning if present
+  let matchedBrandFa = '';
+  if (brand) {
+    const bLower = brand.toLowerCase().trim();
+    matchedBrandFa = BRAND_TRANSLATIONS[bLower] || brand;
+  }
+
+  // Look for keywords
+  let translatedKeyword = '';
+  for (const [pattern, fa] of SUPPLEMENT_KEYWORDS) {
+    if (pattern.test(clean)) {
+      translatedKeyword = fa;
+      break;
+    }
+  }
+
+  if (translatedKeyword) {
+    if (matchedBrandFa) {
+      return `${translatedKeyword} ${matchedBrandFa}`;
+    }
+    return `مکمل ${translatedKeyword} (${clean})`;
+  }
+
+  // Fallback: return rawTitle with brand if available
+  return clean;
+}
+
+// 4. Dynamic Persian Caption Generator
 export function generatePersianProductCaption(product: {
   title: string;
   selectedFlavor?: string | null;

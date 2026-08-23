@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Send, Mail, Phone } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { LandingSettings } from '../types';
@@ -27,10 +28,9 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
   // Direct real-time Firestore onSnapshot subscription
   useEffect(() => {
     let unsubscribeLanding: (() => void) | null = null;
-    let unsubscribeGeneral: (() => void) | null = null;
 
     if (db) {
-      // Listen to settings/landing
+      // Listen strictly to settings/landing
       try {
         unsubscribeLanding = onSnapshot(doc(db, 'settings', 'landing'), (snap) => {
           if (snap.exists()) {
@@ -46,23 +46,6 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
       } catch (err) {
         console.error('Error listening to settings/landing:', err);
       }
-
-      // Also listen to settings/general as sync fallback
-      try {
-        unsubscribeGeneral = onSnapshot(doc(db, 'settings', 'general'), (snap) => {
-          if (snap.exists()) {
-            const genData = snap.data() as any;
-            if (genData) {
-              setCurrentSettings(prev => ({
-                ...prev,
-                ...(genData.telegramId ? { telegramId: genData.telegramId } : {}),
-                ...(genData.supportPhone ? { supportPhone: genData.supportPhone } : {}),
-                ...(genData.supportEmail ? { supportEmail: genData.supportEmail } : {})
-              }));
-            }
-          }
-        });
-      } catch (_) {}
     } else {
       getLandingSettings().then((fetched) => {
         if (fetched) setCurrentSettings(fetched);
@@ -79,11 +62,9 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
 
     return () => {
       if (unsubscribeLanding) unsubscribeLanding();
-      if (unsubscribeGeneral) unsubscribeGeneral();
       window.removeEventListener('landingSettingsUpdated', handleUpdate);
     };
   }, []);
-
 
   // Update when prop changes
   useEffect(() => {
@@ -93,7 +74,8 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
   }, [customSettings]);
 
   const settings = currentSettings;
-  const telegramUser = (settings.telegramId || 'SIRIK_FIT_Support').replace('@', '').replace('https://t.me/', '');
+  const rawTg = settings.telegramId || '';
+  const telegramUser = rawTg.replace('@', '').replace('https://t.me/', '');
 
   return (
     <>
@@ -106,27 +88,26 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
             {/* Col 1: Brand & About Summary */}
             {settings.showAbout && (
               <div className="flex flex-col gap-2.5">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-black text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs">
-                    SF
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-sm font-black text-gray-950 truncate">
-                      {settings.brandName || 'سیریک فیت | SIRIK FIT'}
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm font-black text-gray-950 truncate">
+                    {settings.brandName}
+                  </span>
+                  {settings.brandSubtitle && (
+                    <span className="text-[11px] font-bold text-red-600 truncate mt-0.5">
+                      {settings.brandSubtitle}
                     </span>
-                    <span className="text-[11px] font-bold text-red-600 truncate">
-                      {settings.brandSubtitle || 'تأمین و واردات مستقیم مکمل از دبی'}
-                    </span>
+                  )}
+                </div>
+                {settings.aboutText && (
+                  <p className="text-xs leading-relaxed text-gray-600 font-medium">
+                    {settings.aboutText}
+                  </p>
+                )}
+                {settings.deliveryGuaranteeBadge && (
+                  <div className="flex items-center gap-2 mt-auto pt-2 text-[11px] font-extrabold text-emerald-600 flex-wrap">
+                    <span>✓ {settings.deliveryGuaranteeBadge}</span>
                   </div>
-                </div>
-                <p className="text-xs leading-relaxed text-gray-600 font-medium">
-                  {settings.aboutText || 'سیریک فیت (SIRIK FIT) مرجع تخصصی تأمین و واردات مستقیم مکمل‌های ورزشی و غذایی اورجینال از معتبرترین برندهای جهانی و نمایندگی‌های امارات متحده عربی است.'}
-                </p>
-                <div className="flex items-center gap-2 mt-auto pt-2 text-[11px] font-extrabold text-emerald-600 flex-wrap">
-                  <span>✓ تضمین ۱۰۰٪ اصالت کالا</span>
-                  <span>•</span>
-                  <span>ارسال مستقیم و پلمپ دبی</span>
-                </div>
+                )}
               </div>
             )}
 
@@ -142,7 +123,7 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
                     onClick={() => setActiveModal('about')}
                     className="text-right text-gray-700 hover:text-red-600 transition-colors flex items-center gap-1.5 cursor-pointer py-0.5"
                   >
-                    <span className="text-red-500">✦</span> درباره سیریک فیت
+                    <span className="text-red-500">✦</span> درباره {settings.brandName || 'سیریک فیت'}
                   </button>
                 )}
                 {settings.showBenefits && (
@@ -184,45 +165,104 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
               </div>
             </div>
 
-            {/* Col 3: Direct Contact Channels */}
-            {settings.showContact && (
-              <div className="flex flex-col gap-2.5">
+            {/* Col 3: Direct Contact Channels - Matching Modal Style */}
+            {settings.showContact !== false && (
+              <div className="flex flex-col gap-2.5 w-full">
                 <span className="text-xs font-black text-gray-950 border-r-2 border-red-600 pr-2">
-                  راه‌های ارتباط و پشتیبانی
+                  راههای ارتباط و پشتیبانی
                 </span>
-                <div className="flex flex-col gap-2">
-                  {/* Telegram */}
+
+                <div className="flex flex-col gap-2 w-full">
+                  {/* 1. Telegram Card */}
                   {settings.showTelegram !== false && (
                     <a
-                      href={`https://t.me/${telegramUser}`}
+                      href={`https://t.me/${(settings.telegramId || '').replace('@', '').replace('https://t.me/', '')}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center justify-between p-2.5 !bg-white rounded-xl border border-gray-200 hover:border-sky-400 transition-all text-xs font-bold shadow-2xs group"
+                      className="flex items-center justify-between p-3 bg-white rounded-2xl border border-gray-200 hover:border-sky-400 shadow-xs transition-all gap-2 w-full"
                     >
-                      <span className="text-gray-900 dir-ltr group-hover:text-sky-600 transition-colors">@{telegramUser}</span>
-                      <span className="text-[11px] text-sky-600 bg-sky-50 px-2 py-0.5 rounded-md font-extrabold">{settings.telegramActionText || 'تلگرام آنلاین'}</span>
+                      {/* Action Badge (Left) */}
+                      <span className="shrink-0 bg-sky-500 text-white text-[10px] font-black px-2.5 py-1 rounded-xl shadow-xs">
+                        {settings.telegramActionText || 'چت آنلاین'}
+                      </span>
+
+                      {/* Info Text (Center) */}
+                      <div className="flex-1 flex flex-col text-right min-w-0 pr-1">
+                        <span className="text-xs font-black text-gray-900 truncate">
+                          تلگرام پشتیبانی و سفارش
+                        </span>
+                        <span className="text-[10px] text-gray-400 font-medium truncate dir-ltr text-right">
+                          {settings.telegramId || 'پاسخگویی سریع'}
+                        </span>
+                      </div>
+
+                      {/* Icon (Right) */}
+                      <div className="shrink-0 w-9 h-9 rounded-xl bg-sky-500 text-white flex items-center justify-center shadow-xs">
+                        <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+                        </svg>
+                      </div>
                     </a>
                   )}
 
-                  {/* Email */}
+                  {/* 2. Official Email Card */}
                   {settings.showEmail !== false && (
                     <a
                       href={`mailto:${settings.supportEmail || 'info@sirikfit.ir'}`}
-                      className="flex items-center justify-between p-2.5 !bg-white rounded-xl border border-gray-200 hover:border-gray-400 transition-all text-xs font-bold shadow-2xs group"
+                      className="flex items-center justify-between p-3 bg-white rounded-2xl border border-gray-200 hover:border-red-400 shadow-xs transition-all gap-2 w-full"
                     >
-                      <span className="text-gray-900 dir-ltr group-hover:text-red-600 transition-colors">{settings.supportEmail || 'info@sirikfit.ir'}</span>
-                      <span className="text-[11px] text-gray-500 font-extrabold">{settings.emailActionText || 'ایمیل پشتیبانی'}</span>
+                      {/* Action Badge (Left) */}
+                      <span className="shrink-0 bg-gray-100 text-gray-700 text-[10px] font-black px-2.5 py-1 rounded-xl">
+                        {settings.emailActionText || 'ارسال ایمیل'}
+                      </span>
+
+                      {/* Info Text (Center) */}
+                      <div className="flex-1 flex flex-col text-right min-w-0 pr-1">
+                        <span className="text-xs font-black text-gray-900 truncate">
+                          ایمیل رسمی پشتیبانی
+                        </span>
+                        <span className="text-[10px] text-gray-400 font-medium truncate dir-ltr text-right">
+                          {settings.supportEmail || 'info@sirikfit.ir'}
+                        </span>
+                      </div>
+
+                      {/* Icon (Right) */}
+                      <div className="shrink-0 w-9 h-9 rounded-xl bg-red-600 text-white flex items-center justify-center shadow-xs">
+                        <svg className="w-5 h-5 fill-none stroke-current stroke-2" viewBox="0 0 24 24">
+                          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                          <polyline points="22,6 12,13 2,6"/>
+                        </svg>
+                      </div>
                     </a>
                   )}
 
-                  {/* Phone */}
+                  {/* 3. Phone Support Card */}
                   {settings.showPhone !== false && (
                     <a
-                      href={`tel:${settings.supportPhone || '02191000000'}`}
-                      className="flex items-center justify-between p-2.5 !bg-white rounded-xl border border-gray-200 hover:border-emerald-400 transition-all text-xs font-bold shadow-2xs group"
+                      href={`tel:${settings.supportPhone || '09174670046'}`}
+                      className="flex items-center justify-between p-3 bg-white rounded-2xl border border-gray-200 hover:border-emerald-400 shadow-xs transition-all gap-2 w-full"
                     >
-                      <span className="text-gray-900 dir-ltr group-hover:text-emerald-600 transition-colors">{settings.supportPhone || '021-91000000'}</span>
-                      <span className="text-[11px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-extrabold">{settings.phoneActionText || 'تماس تلفنی'}</span>
+                      {/* Action Badge (Left) */}
+                      <span className="shrink-0 bg-emerald-600 text-white text-[10px] font-black px-2.5 py-1 rounded-xl shadow-xs">
+                        {settings.phoneActionText || 'تماس تلفنی'}
+                      </span>
+
+                      {/* Info Text (Center) */}
+                      <div className="flex-1 flex flex-col text-right min-w-0 pr-1">
+                        <span className="text-xs font-black text-gray-900 truncate">
+                          شماره تماس پشتیبانی
+                        </span>
+                        <span className="text-[10px] text-gray-400 font-bold truncate dir-ltr text-right">
+                          {settings.supportPhone || '09174670046'}
+                        </span>
+                      </div>
+
+                      {/* Icon (Right) */}
+                      <div className="shrink-0 w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                        <svg className="w-5 h-5 fill-none stroke-current stroke-2" viewBox="0 0 24 24">
+                          <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/>
+                        </svg>
+                      </div>
                     </a>
                   )}
                 </div>
@@ -231,28 +271,18 @@ export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSe
 
           </div>
 
-          {/* Clean Permanent Enamad Container */}
-          {settings.showTrustBadges && settings.showEnamad !== false && (
-            <div className="flex flex-col items-center justify-center p-5 !bg-gray-50 rounded-3xl border border-gray-200 gap-2 mt-2">
-              <span className="text-xs font-black text-gray-900">
-                نماد اعتماد الکترونیکی
+          {/* Pure White Official eNAMAD Container */}
+          {settings.showEnamad !== false && (
+            <div className="w-full flex flex-col items-center justify-center p-6 bg-white rounded-3xl border border-gray-200 shadow-xs gap-2 mt-4 text-center" dir="rtl">
+              <span className="text-xs font-black text-gray-950">
+                نماد اعتماد الکترونیکی (اینماد)
               </span>
+              <p className="text-[11px] text-gray-500 max-w-sm mb-2">
+                دارای مجوز رسمی از مرکز توسعه تجارت الکترونیکی (جهت استعلام کلیک کنید)
+              </p>
 
-              <div className="p-3 bg-white rounded-2xl border border-gray-200 shadow-xs flex items-center justify-center min-h-[90px] min-w-[90px]">
-                <a
-                  referrerPolicy="origin"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  href="https://trustseal.enamad.ir/?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
-                >
-                  <img
-                    referrerPolicy="origin"
-                    src="https://trustseal.enamad.ir/logo.aspx?id=7355626&Code=jj9HCtmWurzgveMEKQyc6iOcMamK4RG8"
-                    alt="نماد تجارت الکترونیکی اینماد"
-                    className="cursor-pointer max-h-20 w-auto object-contain hover:scale-105 transition-transform"
-                  />
-                </a>
-              </div>
+              {/* Dynamic Official eNAMAD Badge */}
+              <ENamadBadge />
             </div>
           )}
 

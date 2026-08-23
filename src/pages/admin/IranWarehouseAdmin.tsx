@@ -1,0 +1,916 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Sparkles, Zap, Plus, Trash2, RefreshCw, Save, Layers,
+  Check, Scale, Eye, EyeOff, ChevronDown, ChevronUp,
+  Search, Building2, Globe
+} from 'lucide-react';
+import type { LocalInventoryItem, ProductVariant, FinancialSettings } from '../../types';
+import { formatToman, toPersianDigits, getEffectiveAedRate } from '../../utils/formatters';
+import {
+  PRESET_FLAVORS, PRESET_SIZES, STANDARD_SIZE_OPTIONS,
+  convertLbsToKg
+} from '../../utils/variantPresets';
+import {
+  TaxonomyCategory, DEFAULT_TAXONOMY, fetchTaxonomyFromFirestore
+} from '../../utils/taxonomyHelper';
+import { generatePersianTitle } from '../../utils/supplementLocalization';
+import { saveAdminProducts, deleteProductFromFirestore } from '../../services/productService';
+
+interface IranWarehouseAdminProps {
+  items: LocalInventoryItem[];
+  settings?: FinancialSettings;
+  cms?: any;
+  taxonomyList?: any[];
+  onSaveItems: (updatedItems: LocalInventoryItem[]) => Promise<void>;
+  showToast?: (msg: string, type: 'success' | 'error' | 'info') => void;
+}
+
+const COLLECTION_NAME = 'iran_warehouse';
+
+import { parseWeightKg, computeVariantToman } from '../../utils/pricingCalculator';
+
+export { parseWeightKg };
+export const parseSizeWeightKg = parseWeightKg;
+
+// Predictable Toman selling price formula
+export function computeTomanSellingPrice(
+  priceAed: number,
+  weightKg: number,
+  aedRate: number,
+  cargoRatePerKg: number,
+  profitMargin: number
+): number {
+  if (!priceAed || priceAed <= 0) return 0;
+  const cargoCostAed = (weightKg || 0.8) * (cargoRatePerKg || 35);
+  const totalCostAed = priceAed + cargoCostAed;
+  const marginMult = (profitMargin || 20) > 1 ? (1 + (profitMargin || 20) / 100) : (1 + (profitMargin || 20));
+  const finalToman = totalCostAed * (aedRate || 51400) * marginMult;
+  return Math.round(finalToman / 1000) * 1000;
+}
+
+export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
+  items: initialItems = [],
+  settings,
+  cms,
+  taxonomyList = [],
+  onSaveItems,
+  showToast
+}) => {
+  const [items, setItems] = useState<LocalInventoryItem[]>(initialItems);
+  const [categoriesTree, setCategoriesTree] = useState<TaxonomyCategory[]>(DEFAULT_TAXONOMY);
+  const [newItemUrl, setNewItemUrl] = useState('');
+  const [newItemCategory, setNewItemCategory] = useState('');
+  const [newItemSubCategory, setNewItemSubCategory] = useState('');
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Per-item accordion expand state
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  // Per-item aux link input
+  const [auxLinks, setAuxLinks] = useState<Record<string, string>>({});
+  const [auxLoading, setAuxLoading] = useState<Record<string, boolean>>({});
+  // Per-item custom flavor/size inputs
+  const [customFlavors, setCustomFlavors] = useState<Record<string, string>>({});
+  const [customSizes, setCustomSizes] = useState<Record<string, { val: string; unit: string }>>({});
+  // Per-variant custom row mode
+  const [customRowMode, setCustomRowMode] = useState<Record<string, { customSize?: boolean; customFlavor?: boolean }>>({});
+
+  // Search & filter state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'popular' | 'draft'>('all');
+
+  const aedRate = getEffectiveAedRate(settings, cms) || 51400;
+  const cargoRate = settings?.cargoRatePerKg || 35;
+  const margin = settings?.profitMargin || 20;
+
+  useEffect(() => {
+    fetchTaxonomyFromFirestore().then(loaded => {
+      if (Array.isArray(loaded) && loaded.length > 0) {
+        setCategoriesTree(loaded);
+        if (!newItemCategory) {
+          setNewItemCategory(loaded[0].name);
+          setNewItemSubCategory(loaded[0].subCategories?.[0]?.name || '');
+        }
+      } else if (taxonomyList.length > 0) {
+        setCategoriesTree(taxonomyList);
+        if (!newItemCategory) setNewItemCategory(taxonomyList[0]?.name || '');
+      }
+    }).catch(() => {});
+  }, []);
+
+  // ── Filtering ──────────────────────────────────────────────────────────
+  const filteredItems = useMemo(() => {
+    return items.filter(item => {
+      const q = searchTerm.toLowerCase();
+      const matchSearch = !q ||
+        item.title?.toLowerCase().includes(q) ||
+        (item as any).titleFa?.toLowerCase().includes(q) ||
+        (item as any).titleEn?.toLowerCase().includes(q) ||
+        item.brand?.toLowerCase().includes(q) ||
+        item.id?.toLowerCase().includes(q);
+      const matchCat = filterCategory === 'all' || item.mainCategory === filterCategory || item.category === filterCategory;
+      const matchStatus =
+        filterStatus === 'all' ? true :
+        filterStatus === 'active' ? item.isActive === true :
+        filterStatus === 'popular' ? (item as any).isPopular === true :
+        filterStatus === 'draft' ? item.isActive !== true : true;
+      return matchSearch && matchCat && matchStatus;
+    });
+  }, [items, searchTerm, filterCategory, filterStatus]);
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+  const calcToman = (priceAed: number, wt: number) =>
+    computeTomanSellingPrice(priceAed, wt, aedRate, cargoRate, margin);
+
+  const toggleExpand = (id: string) =>
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  // ── Field update helpers ───────────────────────────────────────────────
+  const updateItem = (id: string, patch: Partial<LocalInventoryItem>) => {
+    setItems(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const updated = { ...item, ...patch };
+      if ('mainCategory' in patch) {
+        const cat = categoriesTree.find(c => c.name === patch.mainCategory);
+        updated.category = patch.mainCategory as string;
+        updated.subcategory = cat?.subCategories?.[0]?.name || '';
+        updated.subCategory = cat?.subCategories?.[0]?.name || '';
+      }
+      if ('subcategory' in patch) {
+        updated.subCategory = patch.subcategory as string;
+      }
+      return updated;
+    }));
+  };
+
+  const updateVariant = (itemId: string, varId: string, field: string, value: any) => {
+    setItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
+      const variants = (item.variants || []).map(v => {
+        if (v.id !== varId) return v;
+        const up: any = { ...v, [field]: value };
+        if (field === 'price' || field === 'priceAed') {
+          const p = value === '' ? 0 : parseFloat(value) || 0;
+          up.price = p;
+          up.priceAed = p;
+          up.priceAED = p;
+          const wt = parseSizeWeightKg(v.size, item.weightKg || 0.8);
+          up.priceToman = calcToman(p, wt);
+        } else if (field === 'size') {
+          const wt = parseSizeWeightKg(value, item.weightKg || 0.8);
+          up.weightKg = wt;
+          const p = Number(v.priceAed || v.price || item.priceAed || 0);
+          up.priceToman = calcToman(p, wt);
+        } else if (field === 'priceToman') {
+          up.priceToman = value === '' ? 0 : parseInt(value) || 0;
+        }
+        return up;
+      });
+      return { ...item, variants };
+    }));
+  };
+
+  const addVariantRow = (itemId: string) => {
+    const item = items.find(i => i.id === itemId);
+    const pAed = Number(item?.priceAed) || 100;
+    const defFlavor = (item?.flavors as any)?.[0] || 'بدون طعم (Unflavored)';
+    const defSize = (item?.sizes as any)?.[0] || '2.45 kg';
+    const wt = parseSizeWeightKg(defSize, item?.weightKg || 0.8);
+    const newV: ProductVariant = {
+      id: `var-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
+      size: defSize,
+      flavor: defFlavor,
+      price: pAed,
+      priceAed: pAed,
+      priceAED: pAed,
+      weightKg: wt,
+      priceToman: calcToman(pAed, wt),
+      inStock: true,
+      image: item?.image || item?.imageUrl || ''
+    };
+    setItems(prev => prev.map(i => i.id !== itemId ? i : { ...i, variants: [...(i.variants || []), newV] }));
+  };
+
+  const deleteVariant = (itemId: string, varId: string) =>
+    setItems(prev => prev.map(i => i.id !== itemId ? i : { ...i, variants: (i.variants || []).filter(v => v.id !== varId) }));
+
+  const toggleFlavor = (itemId: string, flavor: string) => {
+    setItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
+      const cur = (item.flavors as any as string[]) || [];
+      const upd = cur.includes(flavor) ? cur.filter(f => f !== flavor) : [...cur, flavor];
+      return { ...item, flavors: upd as any, allowedFlavors: upd as any };
+    }));
+  };
+
+  const addCustomFlavor = (itemId: string) => {
+    const f = (customFlavors[itemId] || '').trim();
+    if (!f) return;
+    setItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
+      const cur = (item.flavors as any as string[]) || [];
+      if (cur.includes(f)) return item;
+      const upd = [...cur, f];
+      return { ...item, flavors: upd as any, allowedFlavors: upd as any };
+    }));
+    setCustomFlavors(p => ({ ...p, [itemId]: '' }));
+    if (showToast) showToast(`طعم "${f}" اضافه شد`, 'success');
+  };
+
+  const toggleSize = (itemId: string, size: string) => {
+    setItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
+      const cur = (item.sizes as any as string[]) || [];
+      const upd = cur.includes(size) ? cur.filter(s => s !== size) : [...cur, size];
+      return { ...item, sizes: upd as any, allowedSizes: upd as any };
+    }));
+  };
+
+  const addCustomSize = (itemId: string) => {
+    const inp = customSizes[itemId] || { val: '', unit: 'kg' };
+    const num = parseFloat(inp.val);
+    if (!num || isNaN(num)) { if (showToast) showToast('مقدار عددی معتبر وارد کنید', 'error'); return; }
+    let label = '';
+    if (inp.unit === 'lbs') label = `${num} lbs (${convertLbsToKg(num)} kg)`;
+    else if (inp.unit === 'sachets') label = `${num} ساشه`;
+    else if (inp.unit === 'caps') label = `${num} کپسول / قرص`;
+    else label = `${num} kg`;
+    setItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
+      const cur = (item.sizes as any as string[]) || [];
+      if (cur.includes(label)) return item;
+      const upd = [...cur, label];
+      return { ...item, sizes: upd as any, allowedSizes: upd as any };
+    }));
+    setCustomSizes(p => ({ ...p, [itemId]: { val: '', unit: 'kg' } }));
+    if (showToast) showToast(`سایز "${label}" اضافه شد`, 'success');
+  };
+
+  // ── Primary Scraper (Extracts Dual English + Persian Titles) ───────────
+  const handleExtract = async () => {
+    if (!newItemUrl.trim()) { if (showToast) showToast('لینک وارد کنید', 'error'); return; }
+    setIsExtracting(true);
+    try {
+      const res = await fetch('/api/scrape-product', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: newItemUrl.trim() })
+      });
+      const data = await res.json();
+      if (!data?.title && !data?.priceAED && !data?.price) throw new Error('استخراج ناموفق');
+
+      const defSize = '2.45 kg';
+      const wt = parseWeightKg(defSize, parseFloat(data.weightKg) || 0.8);
+      const img = data.image || data.imageUrl || '';
+      const mainCat = newItemCategory || categoriesTree[0]?.name || 'مکمل‌های ورزشی';
+      const subCat = newItemSubCategory || categoriesTree[0]?.subCategories?.[0]?.name || '';
+
+      const rawTitleEn = data.titleEn || data.title || '';
+      const brand = data.brand || 'دبی';
+      const localizedFa = data.titleFa || generatePersianTitle(rawTitleEn, brand);
+
+      const initVariant: ProductVariant = {
+        id: `var-init-${Date.now()}`,
+        size: defSize,
+        flavor: 'شکلات (Chocolate)',
+        price: pAed,
+        priceAed: pAed,
+        priceAED: pAed,
+        weightKg: wt,
+        priceToman: calcToman(pAed, wt),
+        inStock: true,
+        image: img
+      };
+
+      const newItem: LocalInventoryItem = {
+        id: `local-${Date.now()}`,
+        title: localizedFa || rawTitleEn,
+        titleFa: localizedFa,
+        titleEn: rawTitleEn,
+        brand,
+        category: mainCat,
+        mainCategory: mainCat,
+        subcategory: subCat,
+        subCategory: subCat,
+        priceAed: pAed,
+        basePriceAed: pAed,
+        originalPriceAed: 0,
+        weightKg: wt,
+        priceToman: calcToman(pAed, wt),
+        originalPriceToman: 0,
+        stockQuantity: 10,
+        stockCount: 10,
+        image: img,
+        imageUrl: img,
+        images: img ? [img] : [],
+        galleryImages: img ? [img] : [],
+        url: newItemUrl.trim(),
+        storeName: data.storeName || '',
+        inStock: true,
+        isActive: false, // DRAFT
+        isPopular: false,
+        isFeatured: false,
+        flavors: ['شکلات (Chocolate)'] as any,
+        allowedFlavors: ['شکلات (Chocolate)'] as any,
+        sizes: ['2.45 kg'] as any,
+        allowedSizes: ['2.45 kg'] as any,
+        variants: [initVariant]
+      };
+
+      setItems(prev => [newItem, ...prev]);
+      setExpandedIds(prev => new Set([newItem.id, ...prev]));
+      setNewItemUrl('');
+      if (showToast) showToast('محصول با عناوین فارسی و انگلیسی استخراج و به عنوان پیش‌نویس ذخیره شد.', 'success');
+    } catch (err: any) {
+      if (showToast) showToast('خطا در استخراج: ' + err.message, 'error');
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  // ── Auxiliary Scraper ─────────────────────────────────────────────────
+  const handleExtractAux = async (itemId: string) => {
+    const url = (auxLinks[itemId] || '').trim();
+    if (!url) { if (showToast) showToast('لینک کمکی وارد کنید', 'error'); return; }
+    setAuxLoading(p => ({ ...p, [itemId]: true }));
+    try {
+      const res = await fetch('/api/scrape-variant', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      const data = await res.json();
+      if (!data?.priceAED && !data?.price) throw new Error('استخراج واریانت ناموفق');
+
+      const pAed = parseFloat(data.priceAED || data.priceAed || data.price || 0);
+      const item = items.find(i => i.id === itemId);
+      const sz = data.size || '2.45 kg';
+      const flv = data.flavor || 'اصلی';
+      const wt = parseSizeWeightKg(sz, item?.weightKg || 0.8);
+      const img = data.image || data.imageUrl || '';
+
+      const newV: ProductVariant = {
+        id: `var-aux-${Date.now()}`,
+        size: sz,
+        flavor: flv,
+        price: pAed,
+        priceAed: pAed,
+        priceAED: pAed,
+        weightKg: wt,
+        priceToman: calcToman(pAed, wt),
+        inStock: true,
+        image: img,
+        url
+      };
+
+      setItems(prev => prev.map(i => {
+        if (i.id !== itemId) return i;
+        const flavors = Array.from(new Set([...(i.flavors as any as string[] || []), flv]));
+        const sizes = Array.from(new Set([...(i.sizes as any as string[] || []), sz]));
+        return { ...i, variants: [...(i.variants || []), newV], flavors: flavors as any, sizes: sizes as any };
+      }));
+      setAuxLinks(p => ({ ...p, [itemId]: '' }));
+      if (showToast) showToast(`واریانت "${flv} - ${sz}" اضافه شد`, 'success');
+    } catch (err: any) {
+      if (showToast) showToast('خطا در استخراج کمکی: ' + err.message, 'error');
+    } finally {
+      setAuxLoading(p => ({ ...p, [itemId]: false }));
+    }
+  };
+
+  // ── Delete item ────────────────────────────────────────────────────────
+  const handleDelete = async (itemId: string) => {
+    if (!confirm('آیا از حذف این محصول مطمئن هستید؟')) return;
+    const updated = items.filter(i => i.id !== itemId);
+    setItems(updated);
+    try {
+      await deleteProductFromFirestore(COLLECTION_NAME, itemId);
+      await onSaveItems(updated);
+      if (showToast) showToast('محصول با موفقیت حذف شد', 'success');
+    } catch (err: any) {
+      if (showToast) showToast('خطا در حذف: ' + err.message, 'error');
+    }
+  };
+
+  // ── Bulletproof Save Handler (No hanging, instant state lock & unlock) ──
+  const handleSaveAll = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      await saveAdminProducts(COLLECTION_NAME, items);
+      await onSaveItems(items);
+      if (showToast) showToast('تمامی محصولات و تنظیمات انبار ایران با موفقیت ذخیره شدند', 'success');
+    } catch (err: any) {
+      console.error('CRITICAL FIRESTORE SAVE ERROR (IranWarehouse):', err);
+      if (showToast) showToast('خطا در ذخیره‌سازی دیتابیس: ' + (err.message || 'نامشخص'), 'error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5 font-['Vazirmatn',sans-serif] text-right" dir="rtl">
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-3xl p-5 shadow-xs">
+        <div>
+          <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-emerald-600" />
+            <span>مدیریت انبار ایران ({toPersianDigits(items.length)} محصول)</span>
+          </h3>
+          <p className="text-[11px] text-slate-500 mt-0.5">مدیریت موجودی تحویل فوری، عناوین دوزبانه (FA/EN) و ذخیره مطمئن در Firestore</p>
+        </div>
+        <button
+          type="button"
+          onClick={handleSaveAll}
+          disabled={isSaving}
+          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-2xl transition flex items-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
+        >
+          {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          <span>{isSaving ? 'در حال ذخیره...' : 'ذخیره سراسری انبار ایران'}</span>
+        </button>
+      </div>
+
+      {/* ── URL Extractor Bar ── */}
+      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-3xl p-5 space-y-3">
+        <p className="text-xs font-black text-emerald-900 flex items-center gap-2">
+          <Zap className="w-4 h-4" />
+          <span>استخراج محصول جدید به عنوان پیش‌نویس (تولید خودکار عنوان فارسی و انگلیسی):</span>
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+          <input
+            type="text" value={newItemUrl}
+            onChange={e => setNewItemUrl(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleExtract()}
+            placeholder="https://www.drnutrition.com/..."
+            className="sm:col-span-5 bg-white border border-emerald-300 text-slate-900 text-xs px-3 py-2.5 rounded-xl focus:outline-none focus:border-emerald-600 dir-ltr font-mono"
+          />
+          <select
+            value={newItemCategory}
+            onChange={e => {
+              setNewItemCategory(e.target.value);
+              const cat = categoriesTree.find(c => c.name === e.target.value);
+              setNewItemSubCategory(cat?.subCategories?.[0]?.name || '');
+            }}
+            className="sm:col-span-3 bg-white border border-emerald-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold"
+          >
+            {categoriesTree.map(c => <option key={c.id || c.slug} value={c.name}>{c.name}</option>)}
+          </select>
+          <select
+            value={newItemSubCategory}
+            onChange={e => setNewItemSubCategory(e.target.value)}
+            className="sm:col-span-2 bg-white border border-emerald-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold"
+          >
+            {(categoriesTree.find(c => c.name === newItemCategory)?.subCategories || []).map(s =>
+              <option key={s.id || s.slug} value={s.name}>{s.name}</option>
+            )}
+          </select>
+          <button
+            type="button" onClick={handleExtract}
+            disabled={isExtracting || !newItemUrl.trim()}
+            className="sm:col-span-2 bg-slate-900 hover:bg-black text-white font-black text-xs px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+          >
+            {isExtracting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            <span>{isExtracting ? 'استخراج...' : 'استخراج پیش‌نویس'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ── Search & Filter Bar ── */}
+      <div className="flex flex-wrap gap-2 items-center bg-white border border-slate-200 rounded-2xl px-4 py-3">
+        <div className="flex items-center gap-2 flex-1 min-w-48">
+          <Search className="w-4 h-4 text-slate-400 shrink-0" />
+          <input
+            type="text" value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="جستجو در عنوان فارسی، انگلیسی، برند..."
+            className="flex-1 text-xs bg-transparent outline-none text-slate-900 placeholder-slate-400"
+          />
+        </div>
+        <select
+          value={filterCategory}
+          onChange={e => setFilterCategory(e.target.value)}
+          className="bg-slate-50 border border-slate-200 text-xs px-3 py-1.5 rounded-xl font-bold text-slate-700 focus:outline-none"
+        >
+          <option value="all">همه دسته‌ها</option>
+          {categoriesTree.map(c => <option key={c.id || c.slug} value={c.name}>{c.name}</option>)}
+        </select>
+        <div className="flex gap-1">
+          {(['all', 'active', 'popular', 'draft'] as const).map(s => (
+            <button key={s} type="button"
+              onClick={() => setFilterStatus(s)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${filterStatus === s ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              {s === 'all' ? 'همه' : s === 'active' ? 'فعالها' : s === 'popular' ? '★ پرطرفدار' : 'پیشنویس'}
+            </button>
+          ))}
+        </div>
+        <span className="text-[11px] text-slate-400 font-bold">{toPersianDigits(filteredItems.length)} مورد</span>
+      </div>
+
+      {/* ── Product Accordion List ── */}
+      <div className="space-y-2">
+        {filteredItems.map((item, idx) => {
+          const isOpen = expandedIds.has(item.id);
+          const flavorsPool = (item.flavors as any as string[]) || [];
+          const sizesPool = (item.sizes as any as string[]) || [];
+          const subCats = categoriesTree.find(c => c.name === (item.mainCategory || item.category))?.subCategories || [];
+
+          return (
+            <div key={item.id}
+              className={`rounded-2xl border transition-all ${item.isActive ? 'border-slate-200 bg-white' : 'border-dashed border-amber-300 bg-amber-50/30'}`}
+            >
+              {/* ── Compact Header Row ── */}
+              <div className="flex items-center gap-2 px-4 py-3">
+                <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 font-black text-[11px] flex items-center justify-center shrink-0 border border-slate-200">
+                  {toPersianDigits(idx + 1)}
+                </span>
+
+                {(item.image || item.imageUrl) && (
+                  <img
+                    src={item.image || item.imageUrl}
+                    alt={item.title}
+                    className="w-10 h-10 object-contain rounded-xl border border-slate-200 bg-white p-0.5 shrink-0"
+                  />
+                )}
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-black text-slate-900 truncate">{item.title}</p>
+                  {(item as any).titleEn && (
+                    <p className="text-[10px] text-slate-400 font-mono truncate dir-ltr text-right">
+                      {(item as any).titleEn}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    {item.brand && (
+                      <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-md">{item.brand}</span>
+                    )}
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5 ${item.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {item.isActive ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
+                      {item.isActive ? 'فعال' : 'پیش‌نویس'}
+                    </span>
+                    {(item as any).isPopular && (
+                      <span className="text-[10px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-2xs">
+                        <Sparkles className="w-2.5 h-2.5" />★ پرطرفدار
+                      </span>
+                    )}
+                    <span className="text-[10px] text-slate-500 font-medium">واریانت: {toPersianDigits(item.variants?.length || 0)}</span>
+                    <span className="text-[10px] text-emerald-600 font-mono">{item.priceAed} AED</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Publish toggle */}
+                  <button type="button"
+                    onClick={() => updateItem(item.id, { isActive: !item.isActive })}
+                    className={`p-1.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${item.isActive ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    title={item.isActive ? 'غیرفعال کردن' : 'فعال‌سازی'}
+                  >
+                    {item.isActive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {/* isPopular toggle with amber visual highlight */}
+                  <button type="button"
+                    onClick={() => updateItem(item.id, { isPopular: !(item as any).isPopular } as any)}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1 cursor-pointer border ${
+                      (item as any).isPopular
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                        : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+                    }`}
+                    title="نمایش در نمونه‌های پرطرفدار بالای صفحه اصلی"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{(item as any).isPopular ? '★ پرطرفدار' : 'عادی'}</span>
+                  </button>
+
+                  <button type="button"
+                    onClick={() => handleDelete(item.id)}
+                    className="p-1.5 text-rose-400 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition cursor-pointer"
+                    title="حذف"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button type="button"
+                    onClick={() => toggleExpand(item.id)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition text-[11px] font-bold cursor-pointer"
+                  >
+                    {isOpen ? <><ChevronUp className="w-3.5 h-3.5" /><span>بستن</span></> : <><ChevronDown className="w-3.5 h-3.5" /><span>ویرایش</span></>}
+                  </button>
+                </div>
+              </div>
+
+              {/* ── Expandable Body ── */}
+              {isOpen && (
+                <div className="px-4 pb-4 space-y-4 border-t border-slate-100 pt-4">
+                  {/* Dual Title Editors: Persian & English */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        عنوان فارسی محصول (Title FA):
+                      </label>
+                      <input
+                        type="text"
+                        value={(item as any).titleFa || item.title || ''}
+                        onChange={e => updateItem(item.id, { titleFa: e.target.value, title: e.target.value } as any)}
+                        placeholder="نام و عنوان محصول به فارسی..."
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-black text-slate-900 focus:outline-none focus:border-emerald-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                        <Globe className="w-3.5 h-3.5 text-slate-400" />
+                        <span>عنوان انگلیسی محصول (Title EN):</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={(item as any).titleEn || ''}
+                        onChange={e => updateItem(item.id, { titleEn: e.target.value } as any)}
+                        placeholder="Original English Product Name..."
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-emerald-600 dir-ltr"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Category & Subcategory */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1">دسته‌بندی اصلی:</label>
+                      <select
+                        value={item.mainCategory || item.category || ''}
+                        onChange={e => updateItem(item.id, { mainCategory: e.target.value } as any)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                      >
+                        {categoriesTree.map(c => <option key={c.id || c.slug} value={c.name}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1">زیردسته:</label>
+                      <select
+                        value={item.subcategory || item.subCategory || ''}
+                        onChange={e => updateItem(item.id, { subcategory: e.target.value })}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                      >
+                        {subCats.map(s => <option key={s.id || s.slug} value={s.name}>{s.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Publish & Popular toggles */}
+                  <div className="flex gap-3 flex-wrap">
+                    <button type="button"
+                      onClick={() => updateItem(item.id, { isActive: !item.isActive })}
+                      className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition cursor-pointer border ${item.isActive ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+                    >
+                      {item.isActive ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                      <span>{item.isActive ? 'منتشر شده در سایت ✓' : 'پیش‌نویس (مخفی از سایت)'}</span>
+                    </button>
+                    <button type="button"
+                      onClick={() => updateItem(item.id, { isPopular: !(item as any).isPopular } as any)}
+                      className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition cursor-pointer border ${(item as any).isPopular ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>{(item as any).isPopular ? '★ پرطرفدار (نمایش در خانه) ✓' : 'نمایش در نمونه‌های پرطرفدار'}</span>
+                    </button>
+                  </div>
+
+                  {/* Allowed Flavors Pool */}
+                  <details className="group">
+                    <summary className="cursor-pointer text-xs font-black text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 flex items-center gap-2 list-none select-none hover:bg-amber-100 transition">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      <span>انتخاب طعم‌های مجاز ({toPersianDigits(flavorsPool.length)} طعم انتخاب شده)</span>
+                      <ChevronDown className="w-3.5 h-3.5 mr-auto text-amber-600 group-open:rotate-180 transition-transform" />
+                    </summary>
+                    <div className="mt-2 p-3 bg-amber-50/60 border border-amber-200 rounded-xl space-y-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRESET_FLAVORS.map(f => {
+                          const checked = flavorsPool.includes(f.name) || flavorsPool.includes(f.nameEn);
+                          return (
+                            <button key={f.id} type="button"
+                              onClick={() => toggleFlavor(item.id, f.name)}
+                              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border flex items-center gap-1 cursor-pointer transition ${checked ? 'bg-amber-500 text-white border-amber-600' : 'bg-white text-slate-700 border-slate-200 hover:border-amber-400'}`}
+                            >
+                              {checked && <Check className="w-3 h-3" />}
+                              {f.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex gap-2">
+                        <input type="text" value={customFlavors[item.id] || ''}
+                          onChange={e => setCustomFlavors(p => ({ ...p, [item.id]: e.target.value }))}
+                          placeholder="طعم سفارشی..."
+                          className="flex-1 bg-white border border-amber-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-amber-500"
+                        />
+                        <button type="button" onClick={() => addCustomFlavor(item.id)}
+                          className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg cursor-pointer shrink-0">
+                          + افزودن
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+
+                  {/* Allowed Sizes Pool */}
+                  <details className="group">
+                    <summary className="cursor-pointer text-xs font-black text-blue-900 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 flex items-center gap-2 list-none select-none hover:bg-blue-100 transition">
+                      <Scale className="w-3.5 h-3.5 text-blue-600" />
+                      <span>انتخاب سایزها و وزن‌های مجاز ({toPersianDigits(sizesPool.length)} سایز)</span>
+                      <ChevronDown className="w-3.5 h-3.5 mr-auto text-blue-600 group-open:rotate-180 transition-transform" />
+                    </summary>
+                    <div className="mt-2 p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRESET_SIZES.map(sz => {
+                          const checked = sizesPool.includes(sz.label);
+                          return (
+                            <button key={sz.id} type="button"
+                              onClick={() => toggleSize(item.id, sz.label)}
+                              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border flex items-center gap-1 cursor-pointer transition ${checked ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-slate-700 border-slate-200 hover:border-blue-400'}`}
+                            >
+                              {checked && <Check className="w-3 h-3" />}
+                              {sz.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex gap-2">
+                        <input type="number" step="0.1"
+                          value={customSizes[item.id]?.val || ''}
+                          onChange={e => setCustomSizes(p => ({ ...p, [item.id]: { val: e.target.value, unit: p[item.id]?.unit || 'kg' } }))}
+                          placeholder="مقدار (مثال: 5)"
+                          className="w-28 bg-white border border-blue-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-blue-500"
+                        />
+                        <select
+                          value={customSizes[item.id]?.unit || 'kg'}
+                          onChange={e => setCustomSizes(p => ({ ...p, [item.id]: { val: p[item.id]?.val || '', unit: e.target.value } }))}
+                          className="bg-white border border-blue-200 rounded-lg px-2 py-1 text-xs font-bold focus:outline-none"
+                        >
+                          <option value="kg">kg</option>
+                          <option value="lbs">lbs</option>
+                          <option value="sachets">ساشه</option>
+                          <option value="caps">کپسول</option>
+                        </select>
+                        <button type="button" onClick={() => addCustomSize(item.id)}
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg cursor-pointer shrink-0">
+                          + افزودن
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+
+                  {/* Variant Matrix */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                        <Layers className="w-4 h-4 text-emerald-600" />
+                        <span>ماتریس واریانت‌ها ({toPersianDigits(item.variants?.length || 0)} ردیف):</span>
+                      </span>
+                      <button type="button" onClick={() => addVariantRow(item.id)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl flex items-center gap-1.5 cursor-pointer">
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>+ افزودن سطر</span>
+                      </button>
+                    </div>
+
+                    {/* Aux scraper */}
+                    <div className="flex gap-2 bg-slate-50 border border-slate-200 p-2 rounded-xl">
+                      <input type="url"
+                        value={auxLinks[item.id] || ''}
+                        onChange={e => setAuxLinks(p => ({ ...p, [item.id]: e.target.value }))}
+                        placeholder="لینک کمکی طعم یا سایز دیگر..."
+                        className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-emerald-500 dir-ltr"
+                      />
+                      <button type="button"
+                        onClick={() => handleExtractAux(item.id)}
+                        disabled={auxLoading[item.id] || !(auxLinks[item.id] || '').trim()}
+                        className="px-3 py-1.5 bg-slate-900 hover:bg-black text-white text-xs font-black rounded-lg flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0">
+                        {auxLoading[item.id] ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                        <span>استخراج</span>
+                      </button>
+                    </div>
+
+                    {(!item.variants || item.variants.length === 0) && (
+                      <p className="text-[11px] text-slate-400 py-2">واریانتی ثبت نشده — دکمه «افزودن سطر» را بزنید.</p>
+                    )}
+
+                    {(item.variants || []).map(v => {
+                      const modeKey = `${item.id}_${v.id}`;
+                      const isCustFlavor = customRowMode[modeKey]?.customFlavor || (v.flavor && !flavorsPool.includes(v.flavor));
+                      const isCustSize = customRowMode[modeKey]?.customSize || (v.size && !STANDARD_SIZE_OPTIONS.includes(v.size));
+
+                      return (
+                        <div key={v.id}
+                          className="grid grid-cols-12 gap-1.5 items-center bg-white border border-slate-200 p-2 rounded-xl text-xs">
+                          {/* Thumb */}
+                          <div className="col-span-1 flex items-center justify-center">
+                            {v.image
+                              ? <img src={v.image} alt="" className="w-8 h-8 object-contain rounded-lg border border-slate-200 p-0.5" />
+                              : <div className="w-8 h-8 bg-slate-100 rounded-lg text-[9px] text-slate-400 flex items-center justify-center">تصویر</div>
+                            }
+                          </div>
+
+                          {/* Flavor */}
+                          <div className="col-span-3">
+                            {isCustFlavor
+                              ? <input type="text" value={v.flavor || ''}
+                                  onChange={e => updateVariant(item.id, v.id, 'flavor', e.target.value)}
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
+                              : <select value={v.flavor || (flavorsPool[0] || '')}
+                                  onChange={e => {
+                                    if (e.target.value === '__custom__') setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customFlavor: true } }));
+                                    else updateVariant(item.id, v.id, 'flavor', e.target.value);
+                                  }}
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none">
+                                  {flavorsPool.map(f => <option key={f} value={f}>{f}</option>)}
+                                  <option value="__custom__">+ طعم سفارشی...</option>
+                                </select>
+                            }
+                          </div>
+
+                          {/* Size */}
+                          <div className="col-span-3">
+                            {isCustSize
+                              ? <input type="text" value={v.size || ''}
+                                  onChange={e => updateVariant(item.id, v.id, 'size', e.target.value)}
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
+                              : <select value={STANDARD_SIZE_OPTIONS.includes(v.size || '') ? v.size : '__custom__'}
+                                  onChange={e => {
+                                    if (e.target.value === '__custom__') setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customSize: true } }));
+                                    else updateVariant(item.id, v.id, 'size', e.target.value);
+                                  }}
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none">
+                                  {STANDARD_SIZE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                  <option value="__custom__">+ سایر...</option>
+                                </select>
+                            }
+                          </div>
+
+                          {/* Price AED (Zero-padding bug fix) */}
+                          <div className="col-span-2">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={v.priceAed === 0 || v.priceAed === undefined || v.priceAed === '' ? '' : v.priceAed}
+                              placeholder="0"
+                              onChange={(e) => {
+                                const rawVal = e.target.value;
+                                const numVal = rawVal === '' ? 0 : parseFloat(rawVal);
+                                updateVariant(item.id, v.id, 'priceAed', numVal);
+                              }}
+                              onFocus={(e) => e.target.select()}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 font-mono font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 dir-ltr text-center"
+                            />
+                          </div>
+
+                          {/* Price Toman (Zero-padding bug fix) */}
+                          <div className="col-span-2">
+                            <input
+                              type="number"
+                              value={v.priceToman === 0 || v.priceToman === undefined || v.priceToman === '' ? '' : v.priceToman}
+                              placeholder="0"
+                              onChange={(e) => {
+                                const rawVal = e.target.value;
+                                const numVal = rawVal === '' ? 0 : parseInt(rawVal);
+                                updateVariant(item.id, v.id, 'priceToman', numVal);
+                              }}
+                              onFocus={(e) => e.target.select()}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 dir-ltr text-center"
+                            />
+                          </div>
+
+                          {/* Stock + Delete */}
+                          <div className="col-span-1 flex items-center justify-center gap-1">
+                            <button type="button"
+                              onClick={() => updateVariant(item.id, v.id, 'inStock', v.inStock === false ? true : false)}
+                              className={`w-6 h-6 rounded-lg flex items-center justify-center cursor-pointer transition ${v.inStock !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-400'}`}
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button type="button"
+                              onClick={() => deleteVariant(item.id, v.id)}
+                              className="text-slate-400 hover:text-rose-600 cursor-pointer p-1">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {filteredItems.length === 0 && (
+          <div className="text-center py-12 text-slate-400 text-sm font-medium">
+            {searchTerm || filterCategory !== 'all' || filterStatus !== 'all'
+              ? 'هیچ محصولی با این فیلترها یافت نشد'
+              : 'هنوز محصولی ثبت نشده است'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

@@ -5550,7 +5550,7 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         storeName: cached.storeName || 'فروشگاه آنلاین دبی',
         url: cleanUrl,
         variants: [],
-        description: `محصول استخراج شده (از کش)`
+        description: cached.description || ''
       });
     }
 
@@ -5773,6 +5773,43 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
 
 app.all('/api/parse-link', handleParseLinkRoute);
 app.all('/api/scrape-product', handleParseLinkRoute);
+
+// -------------------------------------------------------------------
+// AUXILIARY VARIANT SCRAPER ENDPOINT: /api/scrape-variant (POST / GET)
+// -------------------------------------------------------------------
+const handleScrapeVariantRoute = async (req: express.Request, res: express.Response) => {
+  try {
+    const rawUrl = req.method === 'POST' ? req.body?.url : req.query?.url;
+    const cleanUrl = extractCleanUrl(typeof rawUrl === 'string' ? rawUrl : '');
+
+    if (!cleanUrl || typeof cleanUrl !== 'string' || !cleanUrl.toLowerCase().startsWith('http')) {
+      return res.status(200).json({
+        ok: false,
+        success: false,
+        error: 'لینک ارسالی نامعتبر است',
+        priceAed: 0,
+        priceAED: 0,
+        inStock: false,
+        sourceUrl: cleanUrl || ''
+      });
+    }
+
+    const { scrapeVariantUrl } = await import('./functions/src/scrapers/variantScraper');
+    const result = await scrapeVariantUrl(cleanUrl);
+    return res.status(200).json(result);
+  } catch (err: any) {
+    return res.status(200).json({
+      ok: false,
+      success: false,
+      error: err.message || 'خطا در استخراج واریانت',
+      priceAed: 0,
+      priceAED: 0,
+      inStock: false
+    });
+  }
+};
+
+app.all('/api/scrape-variant', handleScrapeVariantRoute);
 
 // Catch-all handler for unhandled /api/* endpoints - ALWAYS return JSON!
 app.use('/api/*', (req, res) => {

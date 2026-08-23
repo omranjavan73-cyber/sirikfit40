@@ -1,5 +1,5 @@
 process.env.IS_FIREBASE_FUNCTION = "true";
-const { onRequest } = require("firebase-functions/v2/https");
+const { onRequest } = require("firebase-functions/https");
 
 let app;
 function getApp() {

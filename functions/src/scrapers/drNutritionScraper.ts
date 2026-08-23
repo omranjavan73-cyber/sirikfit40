@@ -60,11 +60,11 @@ export async function scrapeDrNutrition(url: string) {
     store: 'Dr. Nutrition',
     sourceUrl: cleanUrl,
     imageUrl,
-    priceAED: priceAED || 59.14,
-    originalPriceAED: originalPriceAED || priceAED || 59.14,
+    priceAED: priceAED || 0,
+    originalPriceAED: originalPriceAED || priceAED || 0,
     weightKg: 0.25,
     variants: [
-      { id: 'v1', size: '250 Gm', flavor: 'Icy Blue Raz', priceAED: priceAED || 59.14, weightKg: 0.25, inStock: true }
+      { id: 'v1', size: '250 Gm', flavor: 'Icy Blue Raz', priceAED: priceAED || 0, weightKg: 0.25, inStock: true }
     ]
   };
 }

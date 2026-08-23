@@ -8,13 +8,13 @@ import {
 } from './utils';
 import type { ScrapedProductResult } from './drNutritionAdapter';
 
-export function parseSporterStrict(html: string, url: string) {
+export function parseSporterStrict(html: string, url: string): ScrapedProductResult | null {
   const $ = cheerio.load(html);
 
   // 1. JSON-LD Title & Image Extraction
   let jsonTitle = '';
   let jsonImage = '';
-  const jsonLdPrices: number[] = [];
+  const galleryImages: string[] = [];
 
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
@@ -24,20 +24,10 @@ export function parseSporterStrict(html: string, url: string) {
         if (item && (item['@type'] === 'Product' || item.offers)) {
           jsonTitle = item.name || jsonTitle;
           jsonImage = Array.isArray(item.image) ? item.image[0] : (item.image || jsonImage);
-          const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
-          if (offer) {
-            if (offer.price) {
-              const p = parseFloat(String(offer.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-              if (!isNaN(p) && p > 0) jsonLdPrices.push(p);
-            }
-            if (offer.lowPrice) {
-              const lp = parseFloat(String(offer.lowPrice).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-              if (!isNaN(lp) && lp > 0) jsonLdPrices.push(lp);
-            }
-            if (offer.highPrice) {
-              const hp = parseFloat(String(offer.highPrice).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-              if (!isNaN(hp) && hp > 0) jsonLdPrices.push(hp);
-            }
+          if (Array.isArray(item.image)) {
+            item.image.forEach((img: string) => {
+              if (img && typeof img === 'string' && !galleryImages.includes(img)) galleryImages.push(img);
+            });
           }
         }
       }
@@ -47,77 +37,190 @@ export function parseSporterStrict(html: string, url: string) {
   const title = jsonTitle || $('h1.product-name, h1[itemprop="name"], h1.page-title').first().text().trim() || 'مکمل اسپورتر';
   const brand = $('.brand-name, .product-brand, [itemprop="brand"]').first().text().trim() || 'Sporter UAE';
 
-  // 2. BRUTE-FORCE MATHEMATICAL PRICE EXTRACTION
-  const extractedPrices: number[] = [];
+  // 2. BULLETPROOF 3-TIER PRICE EXTRACTION
+  let finalPrice = 0;
+  let oldPrice = 0;
 
-  // Extract from all price selectors
-  $('.price-box .price, span.price, [data-price-type] .price, .special-price .price, .old-price .price, .price-final_price .price, .product-info-price .price, .price').each((_, el) => {
-    const txt = $(el).text().replace(/,/g, '').trim();
-    const match = txt.match(/[\d.]+/);
-    if (match) {
-      const val = parseFloat(match[0]);
-      if (!isNaN(val) && val > 0 && val < 50000) {
-        extractedPrices.push(Math.round(val * 100) / 100);
+  // TIER 1: EXTRACT FROM MAGENTO PRICE CONFIG JSON (100% ACCURATE)
+  $('script[type="text/x-magento-init"]').each((_, el) => {
+    try {
+      const json = JSON.parse($(el).html() || '{}');
+      const priceBox = json['[data-role=priceBox]']?.priceBox?.priceConfig?.prices 
+                    || json['#product_addtocart_form']?.priceBox?.priceConfig?.prices;
+      if (priceBox) {
+        if (priceBox.finalPrice?.amount) finalPrice = parseFloat(String(priceBox.finalPrice.amount));
+        if (priceBox.oldPrice?.amount) oldPrice = parseFloat(String(priceBox.oldPrice.amount));
       }
-    }
+    } catch (_) {}
   });
 
-  // Include JSON-LD prices
-  jsonLdPrices.forEach(p => {
-    if (p > 0 && p < 50000) extractedPrices.push(Math.round(p * 100) / 100);
-  });
+  // TIER 2: ATTRIBUTE-BASED TARGETING
+  if (!finalPrice) {
+    const finalPriceAttr = $('[data-price-type="finalPrice"]').first().attr('data-price-amount');
+    if (finalPriceAttr) finalPrice = parseFloat(finalPriceAttr);
 
-  // Meta tag prices
-  const metaPriceMatch = $('meta[property="product:price:amount"], meta[property="og:price:amount"]').attr('content');
-  if (metaPriceMatch) {
-    const mp = parseFloat(metaPriceMatch.replace(/,/g, '').replace(/[^0-9.]/g, ''));
-    if (!isNaN(mp) && mp > 0 && mp < 50000) extractedPrices.push(Math.round(mp * 100) / 100);
+    const oldPriceAttr = $('[data-price-type="oldPrice"]').first().attr('data-price-amount');
+    if (oldPriceAttr) oldPrice = parseFloat(oldPriceAttr);
   }
 
-  // De-duplicate array
-  const uniquePrices = Array.from(new Set(extractedPrices)).filter(p => p > 0);
+  // TIER 3: AGGRESSIVE DOM PURGE FALLBACK
+  if (!finalPrice) {
+    // First, explicitly delete all strikethrough nodes from the Cheerio instance
+    $('.old-price, del, s, [data-price-type="oldPrice"], .price-box .old-price').remove();
 
-  let currentPrice = 0;
-  let originalPrice: number | undefined;
-
-  if (uniquePrices.length > 0) {
-    // ACTIVE selling price is strictly Math.min(...extractedPrices)
-    currentPrice = Math.min(...uniquePrices);
-    const maxPrice = Math.max(...uniquePrices);
-
-    // Strikethrough price is strictly Math.max(...extractedPrices) if higher than active price
-    if (maxPrice > currentPrice) {
-      originalPrice = maxPrice;
+    // Read the remaining .price element text (guaranteed to be the active selling price)
+    const remainingPriceTxt = $('.price-box .price, span.price, .special-price .price, .price-final_price .price, .product-info-price .price, .price').first().text().replace(/,/g, '').trim();
+    const match = remainingPriceTxt.match(/[\d.]+/);
+    if (match) {
+      finalPrice = parseFloat(match[0]);
     }
   }
 
-  const discountPercent = (originalPrice && originalPrice > currentPrice)
-    ? Math.round(((originalPrice - currentPrice) / originalPrice) * 100)
+  // Fallback to meta tags if still zero
+  if (!finalPrice) {
+    const metaPriceMatch = $('meta[property="product:price:amount"], meta[property="og:price:amount"]').attr('content');
+    if (metaPriceMatch) {
+      const mp = parseFloat(metaPriceMatch.replace(/,/g, '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(mp) && mp > 0 && mp < 50000) finalPrice = mp;
+    }
+  }
+
+  // 3. NORMALIZATION OUTPUT
+  const activePrice = Math.round(finalPrice * 100) / 100;
+  const normalizedOldPrice = (oldPrice && oldPrice > activePrice) ? Math.round(oldPrice * 100) / 100 : undefined;
+  const discountPercent = normalizedOldPrice
+    ? Math.round(((normalizedOldPrice - activePrice) / normalizedOldPrice) * 100)
     : undefined;
 
-  const mainImg = jsonImage || $('meta[property="og:image"]').attr('content') || $('.gallery-placeholder img').first().attr('src') || '';
+  // 3. EXTRACT SIZES, FLAVORS & SWATCHES
+  const flavorsSet = new Set<string>();
+  const sizesSet = new Set<string>();
+
+  // From Magento JSON scripts
+  $('script[type="text/x-magento-init"]').each((_, el) => {
+    try {
+      const raw = $(el).html() || '{}';
+      if (raw.includes('Magento_Swatches/js/swatch-renderer') || raw.includes('spConfig')) {
+        const parsed = JSON.parse(raw);
+        const swatchRenderer = parsed['[data-role=swatch-options]']?.['Magento_Swatches/js/swatch-renderer'] ||
+                               parsed['#product_addtocart_form']?.['Magento_Swatches/js/swatch-renderer'] ||
+                               parsed['*']?.['Magento_Swatches/js/swatch-renderer'] ||
+                               parsed['*']?.['spConfig'];
+        const jsonConfig = swatchRenderer?.jsonConfig || swatchRenderer;
+        if (jsonConfig?.attributes) {
+          Object.values(jsonConfig.attributes).forEach((attr: any) => {
+            const code = String(attr.code || attr.label || '').toLowerCase();
+            if (Array.isArray(attr.options)) {
+              attr.options.forEach((opt: any) => {
+                const optName = String(opt.label || '').trim();
+                if (optName) {
+                  if (code.includes('flavor') || code.includes('طعم')) flavorsSet.add(optName);
+                  else if (code.includes('size') || code.includes('weight') || code.includes('حجم')) sizesSet.add(optName);
+                }
+              });
+            }
+          });
+        }
+      }
+    } catch (_) {}
+  });
+
+  // From DOM Swatch Elements
+  $('.swatch-attribute-flavor .swatch-option, .swatch-attribute[data-attribute-code*="flavor"] .swatch-option, .flavor-item, [data-attribute-code*="flavor"] .swatch-select-option').each((_, el) => {
+    const optText = $(el).text().trim() || $(el).attr('data-option-label') || $(el).attr('title') || '';
+    if (optText) flavorsSet.add(optText);
+  });
+
+  $('.swatch-attribute-size .swatch-option, .swatch-attribute[data-attribute-code*="size"] .swatch-option, .swatch-attribute[data-attribute-code*="weight"] .swatch-option, .size-item, [data-attribute-code*="size"] .swatch-select-option').each((_, el) => {
+    const optText = $(el).text().trim() || $(el).attr('data-option-label') || $(el).attr('title') || '';
+    if (optText) sizesSet.add(optText);
+  });
+
+  const flavors = Array.from(flavorsSet);
+  const sizes = Array.from(sizesSet);
+
+  // Construct standardized ProductVariant matrix
+  const standardizedVariants: any[] = [];
+  if (sizes.length > 0 && flavors.length > 0) {
+    sizes.forEach((s, sIdx) => {
+      flavors.forEach((f, fIdx) => {
+        standardizedVariants.push({
+          id: `var-${sIdx}-${fIdx}`,
+          size: s,
+          flavor: f,
+          price: activePrice,
+          priceAED: activePrice,
+          priceAed: activePrice,
+          originalPrice: normalizedOldPrice,
+          originalPriceAED: normalizedOldPrice,
+          originalPriceAed: normalizedOldPrice,
+          inStock: true,
+          image: mainImg
+        });
+      });
+    });
+  } else if (sizes.length > 0) {
+    sizes.forEach((s, sIdx) => {
+      standardizedVariants.push({
+        id: `var-${sIdx}`,
+        size: s,
+        price: activePrice,
+        priceAED: activePrice,
+        priceAed: activePrice,
+        originalPrice: normalizedOldPrice,
+        originalPriceAED: normalizedOldPrice,
+        originalPriceAed: normalizedOldPrice,
+        inStock: true,
+        image: mainImg
+      });
+    });
+  } else if (flavors.length > 0) {
+    flavors.forEach((f, fIdx) => {
+      standardizedVariants.push({
+        id: `var-${fIdx}`,
+        flavor: f,
+        price: activePrice,
+        priceAED: activePrice,
+        priceAed: activePrice,
+        originalPrice: normalizedOldPrice,
+        originalPriceAED: normalizedOldPrice,
+        originalPriceAed: normalizedOldPrice,
+        inStock: true,
+        image: mainImg
+      });
+    });
+  }
 
   return {
     ok: true,
     success: true,
     title,
+    titleFa: generateBilingualProductTitle(title, 'Sporter'),
     brand,
     storeName: 'Sporter UAE',
     sourceUrl: url,
-    priceAed: currentPrice,
-    priceAED: currentPrice,
-    price: currentPrice,
-    originalPriceAed: originalPrice,
-    originalPriceAED: originalPrice,
-    originalPrice: originalPrice,
+    priceAed: activePrice,
+    priceAED: activePrice,
+    price: activePrice,
+    originalPriceAed: normalizedOldPrice,
+    originalPriceAED: normalizedOldPrice,
+    originalPrice: normalizedOldPrice,
     discountPercent,
     currency: 'AED',
     mainImage: mainImg,
     image: mainImg,
     imageUrl: mainImg,
-    galleryImages: [mainImg].filter(Boolean),
-    images: [mainImg].filter(Boolean),
-    weightKg: 0.8
+    galleryImages: galleryImages.filter(Boolean),
+    images: galleryImages.filter(Boolean),
+    weightKg: 0.8,
+    flavors: flavors,
+    sizes: sizes,
+    variants: standardizedVariants,
+    variantMatrix: {
+      flavors,
+      sizes,
+      items: standardizedVariants
+    }
   };
 }
 

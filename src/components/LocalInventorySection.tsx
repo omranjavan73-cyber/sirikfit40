@@ -19,7 +19,7 @@ export const LocalInventorySection: React.FC<LocalInventorySectionProps> = ({
   onAddToCart
 }) => {
   const [selectedLocalForModal, setSelectedLocalForModal] = useState<LocalInventoryItem | null>(null);
-  const visibleItems = (items || []).filter(item => item && item.inStock !== false);
+  const visibleItems = (items || []).filter(item => item && item.isActive !== false && item.inStock !== false);
 
   if (visibleItems.length === 0) {
     return null;

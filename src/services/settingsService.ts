@@ -96,7 +96,6 @@ export const defaultLandingSettings: LandingSettings = {
 };
 
 export const getLandingSettings = async (): Promise<LandingSettings> => {
-  // 1. Direct Firestore Fetch
   try {
     if (db) {
       const docRef = doc(db, 'settings', 'landing');
@@ -111,25 +110,9 @@ export const getLandingSettings = async (): Promise<LandingSettings> => {
       }
     }
   } catch (err) {
-    console.error('Error loading landing settings from Firestore:', err);
+    console.error('Error fetching settings/landing from Firestore:', err);
   }
 
-  // 2. API Backend Fetch Fallback
-  try {
-    if (typeof window !== 'undefined') {
-      const res = await fetch('/api/landing-settings');
-      if (res.ok) {
-        const json = await res.json();
-        if (json?.ok && json.landingSettings && Object.keys(json.landingSettings).length > 0) {
-          const merged: LandingSettings = { ...defaultLandingSettings, ...json.landingSettings };
-          localStorage.setItem('sirikfit_landing_settings', JSON.stringify(merged));
-          return merged;
-        }
-      }
-    }
-  } catch (_) {}
-
-  // 3. LocalStorage Fallback
   if (typeof window !== 'undefined') {
     const cached = localStorage.getItem('sirikfit_landing_settings');
     if (cached) {
@@ -143,35 +126,19 @@ export const getLandingSettings = async (): Promise<LandingSettings> => {
   return defaultLandingSettings;
 };
 
-export const saveLandingSettings = async (settings: Partial<LandingSettings>): Promise<boolean> => {
+export const saveLandingSettings = async (data: Partial<LandingSettings>): Promise<boolean> => {
   try {
+    console.log('SAVING_PAYLOAD:', data);
     const payload: LandingSettings = {
       ...defaultLandingSettings,
-      ...settings,
+      ...data,
       updatedAt: new Date().toISOString()
     } as any;
 
-    // 1. Firestore Write
     if (db) {
-      const docRef = doc(db, 'settings', 'landing');
-      await setDoc(docRef, payload, { merge: true });
-      try {
-        await setDoc(doc(db, 'settings', 'general'), payload, { merge: true });
-      } catch (_) {}
+      await setDoc(doc(db, 'settings', 'landing'), payload, { merge: true });
     }
 
-    // 2. API Backend Write
-    try {
-      if (typeof window !== 'undefined') {
-        fetch('/api/landing-settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        }).catch(() => {});
-      }
-    } catch (_) {}
-
-    // 3. LocalStorage & Custom Event Write
     if (typeof window !== 'undefined') {
       localStorage.setItem('sirikfit_landing_settings', JSON.stringify(payload));
       window.dispatchEvent(new CustomEvent('landingSettingsUpdated', { detail: payload }));
@@ -179,8 +146,8 @@ export const saveLandingSettings = async (settings: Partial<LandingSettings>): P
 
     return true;
   } catch (err) {
-    console.error('Error saving landing settings:', err);
-    return false;
+    console.error('Error saving to settings/landing:', err);
+    throw err;
   }
 };
 

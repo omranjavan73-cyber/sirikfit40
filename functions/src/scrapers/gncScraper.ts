@@ -10,6 +10,7 @@ import {
 
 export async function scrapeGnc(url: string) {
   const cleanUrl = url.trim();
+  console.log('[gncScraper] start', cleanUrl);
   const headers = getStandardScraperHeaders(cleanUrl);
 
   // 1. Tier 1: Shopify JSON API

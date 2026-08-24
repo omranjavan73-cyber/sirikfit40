@@ -31,4 +31,8 @@ exports.syncproductprices = onSchedule(
   }
 );
 
-
+// Warm-up / health-check endpoint — returns 200 "pong" immediately
+exports.ping = onRequest({ cors: true, maxInstances: 2, timeoutSeconds: 10 }, (req, res) => {
+  console.log('[ping] warm-up request received');
+  res.status(200).send('pong');
+});

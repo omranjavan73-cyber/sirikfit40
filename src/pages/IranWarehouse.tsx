@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import type { LocalInventoryItem, FinancialSettings } from '../types';
+import type { ProductDetailModalProduct } from '../components/ProductDetailModal';
 import { fetchIranWarehouseFromFirestore } from '../services/productService';
 import { InventoryPage } from '../components/InventoryPage';
+import { ProductDetailModal } from '../components/ProductDetailModal';
 
 interface IranWarehousePageProps {
   items?: LocalInventoryItem[];
@@ -11,6 +13,33 @@ interface IranWarehousePageProps {
   onSelectLocalProduct?: (item: LocalInventoryItem) => void;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+}
+
+/** Map a LocalInventoryItem to the shape expected by ProductDetailModal */
+function toModalProduct(item: LocalInventoryItem): ProductDetailModalProduct {
+  return {
+    id: item.id,
+    title: item.title,
+    englishTitle: item.englishTitle,
+    url: item.url,
+    // priceAed is optional on LocalInventoryItem but required by the modal; default to 0
+    priceAed: item.priceAed ?? 0,
+    priceToman: item.priceToman,
+    originalPriceToman: item.originalPriceToman,
+    calculatedTomanOverride: item.calculatedTomanOverride,
+    isLocalInventory: item.isLocalInventory ?? true,
+    isIranWarehouse: item.isIranWarehouse ?? true,
+    weightKg: item.weightKg,
+    image: item.image,
+    images: item.images,
+    brand: item.brand,
+    category: item.category,
+    description: item.description,
+    deliveryBadge: item.deliveryBadge,
+    flavors: item.flavors as string[] | undefined,
+    sizes: item.sizes as string[] | undefined,
+    variants: item.variants,
+  };
 }
 
 export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
@@ -21,6 +50,8 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
   showToast
 }) => {
   const [itemsList, setItemsList] = useState<LocalInventoryItem[]>(initialItems || []);
+  const [selectedItem, setSelectedItem] = useState<LocalInventoryItem | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     if (initialItems && initialItems.length > 0) {
@@ -56,7 +87,8 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
     if (onSelectLocalProduct) {
       onSelectLocalProduct(item);
     } else {
-      window.dispatchEvent(new CustomEvent('openProductDetail', { detail: item }));
+      setSelectedItem(item);
+      setIsModalOpen(true);
     }
   };
 
@@ -68,6 +100,13 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
         onSelectLocalProduct={handleSelect}
         onAddToCart={onAddToCart}
         showToast={showToast}
+      />
+      <ProductDetailModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        product={selectedItem ? toModalProduct(selectedItem) : null}
+        settings={settings}
+        onAddToCart={onAddToCart}
       />
     </div>
   );

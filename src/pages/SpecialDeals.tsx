@@ -4,6 +4,7 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import type { FeaturedDeal, FinancialSettings } from '../types';
 import { fetchSpecialDealsFromFirestore } from '../services/productService';
 import { FeaturedDeals } from '../components/FeaturedDeals';
+import { ProductDetailModal } from '../components/ProductDetailModal';
 
 interface SpecialDealsPageProps {
   deals?: FeaturedDeal[];
@@ -21,6 +22,8 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
   showToast
 }) => {
   const [dealsList, setDealsList] = useState<FeaturedDeal[]>(initialDeals || []);
+const [selectedDeal, setSelectedDeal] = useState<FeaturedDeal | null>(null);
+const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     if (initialDeals && initialDeals.length > 0) {
@@ -56,7 +59,8 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
     if (onSelectDeal) {
       onSelectDeal(deal);
     } else {
-      window.dispatchEvent(new CustomEvent('openProductDetail', { detail: deal }));
+      setSelectedDeal(deal);
+      setIsModalOpen(true);
     }
   };
 
@@ -68,6 +72,13 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
         onSelectDeal={handleSelect}
         onAddToCart={onAddToCart}
         showToast={showToast}
+      />
+      <ProductDetailModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        product={selectedDeal}
+        settings={settings}
+        onAddToCart={onAddToCart}
       />
     </div>
   );

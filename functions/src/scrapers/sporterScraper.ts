@@ -4,6 +4,7 @@ import { parseSporterHtml } from './sporterAdapter';
 
 export async function scrapeSporter(url: string) {
   const cleanUrl = url.trim();
+  console.log('[sporterScraper] start', cleanUrl);
   const res = await axios.get(cleanUrl, { headers: BROWSER_HEADERS, timeout: 15000 });
   const parsed = parseSporterHtml(res.data, cleanUrl);
 

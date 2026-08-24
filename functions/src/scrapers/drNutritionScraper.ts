@@ -8,9 +8,12 @@ import {
   extractEmbeddedJsonData
 } from './utils';
 
+// Exported so other scrapers (e.g. sporterScraper) can reuse the same headers
+export const BROWSER_HEADERS = getStandardScraperHeaders('https://www.drnutrition.com');
+
 export async function scrapeDrNutrition(url: string) {
   const cleanUrl = url.trim();
-  const headers = getStandardScraperHeaders(cleanUrl);
+  console.log('[drNutritionScraper] start', cleanUrl);
 
   // Normalize URL to /en-ae/
   let enAeUrl = cleanUrl.replace(/https?:\/\/(www\.)?drnutrition\.com/i, 'https://www.drnutrition.com');
@@ -20,6 +23,7 @@ export async function scrapeDrNutrition(url: string) {
     enAeUrl = enAeUrl.replace('drnutrition.com/', 'drnutrition.com/en-ae/');
   }
 
+  const headers = getStandardScraperHeaders(enAeUrl);
   const res = await axios.get(enAeUrl, { headers, timeout: 15000 });
   const html = res.data;
   if (!html || typeof html !== 'string') {

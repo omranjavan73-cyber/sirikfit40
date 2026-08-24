@@ -1121,6 +1121,29 @@ async function saveBackupSchedule(scheduleConfig: any): Promise<boolean> {
   }
 }
 
+// Background Scheduled Backup Timer (checks every 30 minutes with graceful error handling)
+if (process.env.IS_FIREBASE_FUNCTION !== 'true') {
+  setInterval(async () => {
+    try {
+      const sched = await getBackupSchedule();
+      if (sched && sched.enabled) {
+        const intervalMs = (Number(sched.intervalHours) || 24) * 3600 * 1000;
+        const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
+        if (Date.now() - lastRun >= intervalMs) {
+          console.log('[Auto-Backup] Executing scheduled backup...');
+          await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبان‌گیر خودکار (Cron)');
+          await saveBackupSchedule({
+            lastRunTimestamp: new Date().toISOString(),
+            nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[Auto-Backup] Scheduled timer error:', err);
+    }
+  }, 30 * 60 * 1000);
+}
+
 async function createBackupSnapshot(type: 'MANUAL' | 'AUTOMATIC' | 'EMAIL_BACKUP' = 'MANUAL', createdBy = 'Admin') {
   const store = await getStoreData(true);
   const snapshotData = {

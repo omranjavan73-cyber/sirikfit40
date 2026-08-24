@@ -128,16 +128,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Detect Firebase Cloud Function / Cloud Run environment
-const isFirebaseCloudEnv = !!(
-  process.env.K_SERVICE ||
-  process.env.FUNCTION_TARGET ||
-  process.env.FIREBASE_CONFIG ||
-  process.env.GAE_ENV ||
-  process.env.GOOGLE_CLOUD_PROJECT ||
-  process.env.IS_FIREBASE_FUNCTION === 'true'
-);
-const isCloudEnv = isFirebaseCloudEnv;
+// File persistence setup
+const isCloudEnv = !!(process.env.K_SERVICE || process.env.FUNCTION_TARGET || process.env.GAE_ENV || process.env.GOOGLE_CLOUD_PROJECT);
 const DATA_DIR = isCloudEnv ? path.join('/tmp', 'data') : path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 
@@ -899,38 +891,11 @@ app.get('/api/settings', async (req, res) => {
   res.json(store.settings);
 });
 
-// GET /api/landing-settings
-app.get('/api/landing-settings', async (req, res) => {
-  try {
-    const store = await getStoreData();
-    res.json({ ok: true, landingSettings: store.landingSettings || (store.cms as any)?.landingSettings || {} });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message });
-  }
-});
-
-// POST /api/landing-settings
-app.post('/api/landing-settings', async (req, res) => {
-  try {
-    const payload = req.body || {};
-    const store = readStore();
-    store.landingSettings = { ...(store.landingSettings || {}), ...payload, updatedAt: new Date().toISOString() };
-    if (store.cms) {
-      (store.cms as any).landingSettings = store.landingSettings;
-    }
-    await persistCms(store.cms);
-    res.json({ ok: true, success: true, landingSettings: store.landingSettings });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message });
-  }
-});
-
 // GET /api/cms
 app.get('/api/cms', async (req, res) => {
   const store = await getStoreData();
   res.json(store.cms);
 });
-
 
 // POST /api/cms
 app.post('/api/cms', async (req, res) => {
@@ -1217,26 +1182,26 @@ async function createBackupSnapshot(type: 'MANUAL' | 'AUTOMATIC' | 'EMAIL_BACKUP
   return backupRecord;
 }
 
-// 1. Guard Scheduled Background Tasks
-if (!isFirebaseCloudEnv && process.env.NODE_ENV !== 'test') {
-  setInterval(async () => {
-    try {
-      const sched = await getBackupSchedule();
-      if (sched && sched.enabled) {
-        const intervalMs = (Number(sched.intervalHours) || 24) * 3600 * 1000;
-        const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
-        if (Date.now() - lastRun >= intervalMs) {
-          console.log('[Auto-Backup] Executing scheduled backup...');
-          await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبانگیر خودکار (Cron)');
-          await saveBackupSchedule({
-            lastRunTimestamp: new Date().toISOString(),
-            nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
-          });
-        }
+// Background Scheduled Backup Timer (checks every 30 minutes with graceful error handling)
+setInterval(async () => {
+  try {
+    const sched = await getBackupSchedule();
+    if (sched && sched.enabled) {
+      const intervalMs = (Number(sched.intervalHours) || 24) * 3600 * 1000;
+      const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
+      if (Date.now() - lastRun >= intervalMs) {
+        console.log('[Auto-Backup] Executing scheduled backup...');
+        await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبان‌گیر خودکار (Cron)');
+        await saveBackupSchedule({
+          lastRunTimestamp: new Date().toISOString(),
+          nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
+        });
       }
-    } catch (_err) {}
-  }, 30 * 60 * 1000);
-}
+    }
+  } catch (_err) {
+    // Gracefully catch any unexpected background timer issue
+  }
+}, 30 * 60 * 1000);
 
 // Security & Admin Password APIs
 app.get('/api/admin/security', async (req, res) => {
@@ -1723,106 +1688,6 @@ app.post('/api/auth/login', async (req, res) => {
   const { passwordHash, ...userPayload } = user;
   return res.json({ success: true, user: userPayload });
 });
-
-// -------------------------------------------------------------
-// Iranian SMS OTP Authentication Routes
-// -------------------------------------------------------------
-interface OtpEntry {
-  code: string;
-  mobile: string;
-  fullName?: string;
-  expiresAt: number;
-}
-const otpStore = new Map<string, OtpEntry>();
-
-const handleSendOtp = async (req: express.Request, res: express.Response) => {
-  try {
-    const { mobile, fullName, name } = req.body || {};
-    const rawMobile = String(mobile || '').trim();
-    const cleanMobile = rawMobile.replace(/[^0-9]/g, '');
-    
-    if (!cleanMobile || !cleanMobile.startsWith('09') || cleanMobile.length !== 11) {
-      return res.status(400).json({ success: false, error: 'لطفاً شماره موبایل معتبر ۱۱ رقمی ایران را وارد کنید (مثال: 09123456789)' });
-    }
-
-    // Generate 5-digit OTP
-    const generatedCode = Math.floor(10000 + Math.random() * 90000).toString();
-    const expiresAt = Date.now() + 120 * 1000;
-
-    otpStore.set(cleanMobile, {
-      code: generatedCode,
-      mobile: cleanMobile,
-      fullName: (fullName || name || '').trim(),
-      expiresAt
-    });
-
-    console.log(`[SMS OTP] Code generated for ${cleanMobile}: ${generatedCode}`);
-
-    return res.status(200).json({
-      ok: true,
-      success: true,
-      message: 'کد تأیید پیامک شد',
-      expiresIn: 120,
-      remainingSeconds: 120
-    });
-  } catch (err: any) {
-    console.error('Error in send-otp:', err);
-    return res.status(500).json({ success: false, error: 'خطا در ارسال پیامک' });
-  }
-};
-
-const handleVerifyOtp = async (req: express.Request, res: express.Response) => {
-  try {
-    const { mobile, otp, code, fullName, name } = req.body || {};
-    const rawMobile = String(mobile || '').trim();
-    const cleanMobile = rawMobile.replace(/[^0-9]/g, '');
-    const enteredCode = String(otp || code || '').trim();
-
-    if (!cleanMobile || !enteredCode) {
-      return res.status(400).json({ success: false, error: 'شماره موبایل و کد تأیید الزامی است' });
-    }
-
-    const cached = otpStore.get(cleanMobile);
-    const isValid = enteredCode === '12345' || (cached && cached.code === enteredCode && cached.expiresAt > Date.now());
-
-    if (!isValid) {
-      return res.status(400).json({ success: false, error: 'کد وارد شده اشتباه یا منقضی شده است' });
-    }
-
-    // Clear used OTP
-    otpStore.delete(cleanMobile);
-
-    const effectiveName = (fullName || name || cached?.fullName || 'کاربر سیریک فیت').trim();
-    const userPayload = {
-      id: 'usr_' + cleanMobile,
-      uid: 'user_' + cleanMobile,
-      name: effectiveName,
-      fullName: effectiveName,
-      phoneNumber: cleanMobile,
-      mobile: cleanMobile,
-      role: 'customer',
-      createdAt: new Date().toISOString()
-    };
-
-    await persistUser(userPayload).catch(() => {});
-
-    return res.status(200).json({
-      ok: true,
-      success: true,
-      message: 'ورود موفقیت‌آمیز بود',
-      token: 'jwt_session_' + Buffer.from(cleanMobile).toString('base64'),
-      user: userPayload
-    });
-  } catch (err: any) {
-    console.error('Error in verify-otp:', err);
-    return res.status(500).json({ success: false, error: 'خطا در اعتبارسنجی کد' });
-  }
-};
-
-app.post('/api/send-otp', handleSendOtp);
-app.post('/api/auth/send-otp', handleSendOtp);
-app.post('/api/verify-otp', handleVerifyOtp);
-app.post('/api/auth/verify-otp', handleVerifyOtp);
 
 // POST /api/admin/login
 app.post('/api/admin/login', (req, res) => {
@@ -2597,14 +2462,16 @@ function normalizeTargetUrl(rawUrl: string): string {
 const localMemoryScrapeCache = new Map<string, { data: any; expiresAt: number }>();
 
 function computeUrlHash(urlStr: string): string {
-  return crypto.createHash('md5').update(urlStr.toLowerCase().trim()).digest('hex');
+  return crypto.createHash('sha256').update(urlStr.toLowerCase().trim()).digest('hex');
 }
 
-async function getCachedScrapedProduct(urlHash: string) {
+async function getCachedScrapedProduct(urlHash: string): Promise<{ data: any; isStale: boolean } | null> {
+  const now = Date.now();
   // 1. Check in-memory cache first
   const memCached = localMemoryScrapeCache.get(urlHash);
-  if (memCached && memCached.expiresAt > Date.now()) {
-    return memCached.data;
+  if (memCached && memCached.expiresAt > now) {
+    const isStale = memCached.data?.staleAfter ? now >= memCached.data.staleAfter : false;
+    return { data: memCached.data, isStale };
   }
 
   // 2. Check Firestore cache
@@ -2613,13 +2480,13 @@ async function getCachedScrapedProduct(urlHash: string) {
     const snap = await getDoc(docRef);
     if (snap.exists()) {
       const data = snap.data();
-      if (data && data.expiresAt && data.expiresAt > Date.now()) {
+      if (data && data.expiresAt && data.expiresAt > now) {
         localMemoryScrapeCache.set(urlHash, { data, expiresAt: data.expiresAt });
-        return data;
+        const isStale = data.staleAfter ? now >= data.staleAfter : false;
+        return { data, isStale };
       }
     }
   } catch (err) {
-    // Non-fatal cache read issue, continue with live scraping
     if (process.env.NODE_ENV === 'development') {
       console.log('[Cache] Firestore cache miss or read bypass');
     }
@@ -2630,22 +2497,37 @@ async function getCachedScrapedProduct(urlHash: string) {
 async function saveScrapedProductToCache(
   urlHash: string,
   originalUrl: string,
-  data: { title: string; price: number; currency?: string; image?: string; storeName?: string; galleryImages?: string[]; variantGroups?: any[] }
+  data: any
 ) {
   const now = Date.now();
-  const expiresAt = now + (24 * 60 * 60 * 1000); // 24 Hours TTL
+  const staleAfter = now + (3 * 24 * 60 * 60 * 1000); // 3 Days SWR Stale Window
+  const expiresAt = now + (30 * 24 * 60 * 60 * 1000); // 30 Days TTL
   const cacheObj = {
     urlHash,
+    url: originalUrl,
     originalUrl,
+    fetchedAt: now,
+    staleAfter,
+    expiresAt,
+    productData: data,
     title: data.title || '',
-    price: data.price,
+    price: data.price || data.priceAed || data.priceAED || 0,
     currency: data.currency || 'AED',
-    image: data.image || '',
-    galleryImages: data.galleryImages || [],
+    image: data.image || data.mainImage || '',
+    galleryImages: data.galleryImages || data.images || [],
     variantGroups: data.variantGroups || [],
+    variants: data.variants || [],
+    variantMatrix: data.variantMatrix || null,
+    flavors: data.flavors || [],
+    sizes: data.sizes || [],
+    options: data.options || [],
     storeName: data.storeName || '',
-    createdAt: now,
-    expiresAt
+    description: data.description || '',
+    features: data.features || [],
+    videos: data.videos || [],
+    originalPriceAed: data.originalPriceAed,
+    discountPercent: data.discountPercent,
+    createdAt: now
   };
 
   // 1. Store in memory
@@ -2654,14 +2536,14 @@ async function saveScrapedProductToCache(
   // 2. Persist to Firestore
   try {
     const docRef = doc(db, 'scraped_products_cache', urlHash);
-    await setDoc(docRef, cacheObj);
+    await setDoc(docRef, cacheObj, { merge: true });
   } catch (err) {
-    // Non-fatal cache write issue
     if (process.env.NODE_ENV === 'development') {
       console.log('[Cache] Firestore cache write notice');
     }
   }
 }
+
 
 const sanitizeImageUrl = (rawImg: string, cleanUrl: string = '') => {
   if (!rawImg) return '';
@@ -4159,23 +4041,15 @@ async function fetchWithMicrolink(targetUrl: string, storeName: string): Promise
 
 // -------------------------------------------------------------------
 // ADAPTER 1: DR NUTRITION DEDICATED ADAPTER (drNutritionAdapter)
-// Multi-tier extraction pipeline handling Cloudflare protection
-// TIER 1: Direct HTTP (fast, may hit CF 403)
-// TIER 2: ScraperAPI with JS rendering (bypasses CF via proxy browser)
-// TIER 3: ScraperAPI without rendering (cheaper fallback)
-// TIER 4: Microlink with prerender
-// TIER 5: Jina Reader (markdown output with smart parser)
-// TIER 6: Shopify .js/.json endpoints
-// TIER 7: Structured failure
 // -------------------------------------------------------------------
 async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdapterResult> {
   const storeName = "Dr. Nutrition";
   const headers = getStandardScraperHeaders(targetUrl);
-  const extractionLog: any[] = [];
-  const t0 = Date.now();
 
-  // URL Normalization
+  // Standardize Dr. Nutrition URL with clean fallbacks
   let drUrl = targetUrl.replace(/https?:\/\/(www\.)?drnutrition\.com/i, 'https://www.drnutrition.com');
+  const cleanOriginal = drUrl;
+  
   let enAeUrl = drUrl;
   if (/\/(ar|en)-[a-z]{2}\//i.test(drUrl)) {
     enAeUrl = drUrl.replace(/\/(ar|en)-[a-z]{2}\//i, '/en-ae/');
@@ -4183,215 +4057,174 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
     enAeUrl = drUrl.replace('drnutrition.com/', 'drnutrition.com/en-ae/');
   }
 
-  // Slug title inference helper (used when all scraping fails)
-  const inferTitleFromSlug = (url: string): { title: string; brand: string } => {
+  const urlCandidates = [enAeUrl, cleanOriginal];
+  if (!urlCandidates.includes(drUrl)) urlCandidates.unshift(drUrl);
+
+  // TIER 1: DIRECT FETCH + EXACT JSON PARSING (Fast check)
+  for (const fetchUrl of [enAeUrl]) {
     try {
-      const slug = url.split('/').filter(Boolean).pop() || '';
-      const clean = slug.replace(/[-_]/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()).trim();
-      const brandPatterns: [RegExp, string][] = [
-        [/applied[\s-]nutrition/i, 'Applied Nutrition'],
-        [/optimum[\s-]nutrition|on[\s-]gold/i, 'Optimum Nutrition'],
-        [/dymatize/i, 'Dymatize'], [/myprotein/i, 'Myprotein'],
-        [/muscletech/i, 'MuscleTech'], [/cellucor|c4[\s-]/i, 'Cellucor'],
-        [/isopure/i, 'Isopure'], [/now[\s-]foods/i, 'NOW Foods'],
-      ];
-      let brand = 'Dr. Nutrition';
-      for (const [pat, b] of brandPatterns) { if (pat.test(slug)) { brand = b; break; } }
-      return { title: clean.slice(0, 120), brand };
-    } catch (_e) { return { title: 'Dr. Nutrition Product', brand: 'Dr. Nutrition' }; }
-  };
-
-  // Jina Markdown parser (handles markdown output from r.jina.ai)
-  const parseJinaMarkdown = (md: string, sourceUrl: string): ParseAdapterResult | null => {
-    if (!md || md.length < 100) return null;
-    let title = '', brand = '', price = 0;
-    let originalPriceVal: number | undefined;
-    let discountPct: number | undefined;
-    const gallery: string[] = [];
-    const flavors: string[] = [], sizes: string[] = [];
-    const flvOpts: any[] = [], szOpts: any[] = [];
-    let desc = '';
-
-    const h1 = md.match(/^#\s+([^\n]+)/m);
-    if (h1) title = cleanTitleStr(h1[1].replace(/\|\s*Dr\.?\s*Nutrition.*/i, '').trim());
-    if (!title) {
-      const tl = md.match(/Title:\s*([^\n]+)/i);
-      if (tl) title = cleanTitleStr(tl[1].trim());
-    }
-    const bm = md.match(/By\s+([A-Za-z0-9\s&.\-]+?)(?:\n|\|)/i) || md.match(/Brand:\s*([^\n]+)/i);
-    if (bm) brand = bm[1].trim();
-
-    const fp = md.match(/AED\s*([\d,]+\.?\d*)\s+AED\s*([\d,]+\.?\d*)\s+([\d]+)%\s*OFF/i);
-    if (fp) {
-      price = parseFloat(fp[1].replace(/,/g, ''));
-      originalPriceVal = parseFloat(fp[2].replace(/,/g, ''));
-      discountPct = parseInt(fp[3], 10);
-    } else {
-      const dp = md.match(/AED\s*([\d,]+\.?\d*)\s+AED\s*([\d,]+\.?\d*)/i);
-      if (dp) {
-        const p1 = parseFloat(dp[1].replace(/,/g, '')), p2 = parseFloat(dp[2].replace(/,/g, ''));
-        price = Math.min(p1, p2); originalPriceVal = Math.max(p1, p2);
-        if (originalPriceVal > price) discountPct = Math.round(((originalPriceVal - price) / originalPriceVal) * 100);
-      } else {
-        const sp = md.match(/AED\s*([\d,]+\.?\d*)/i);
-        if (sp) price = parseFloat(sp[1].replace(/,/g, ''));
-      }
-    }
-
-    Array.from(md.matchAll(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/gi)).forEach(m => {
-      let imgUrl = m[2].trim();
-      if (imgUrl.includes('/_next/image') && imgUrl.includes('url=')) {
-        const up = imgUrl.match(/url=([^&]+)/);
-        if (up) { try { imgUrl = decodeURIComponent(up[1]); } catch (_) {} }
-      }
-      const s = sanitizeImageUrl(imgUrl, sourceUrl);
-      if (s && !gallery.includes(s) && !s.includes('logo') && !s.includes('icon') && !s.includes('.svg') && !s.includes('flag')) gallery.push(s);
-    });
-
-    const secRx = /###\s+([^\n]+)\n([\s\S]*?)(?=(?:###|##|#\s|Delivery|ADD TO CART|Ship to|$))/gi;
-    let sm: RegExpExecArray | null;
-    while ((sm = secRx.exec(md)) !== null) {
-      const hd = (sm[1] || '').trim().toLowerCase();
-      const bd = sm[2] || '';
-      const skipKws = ['description', 'how to use', 'health notes', 'product details', 'features', 'nutrition', 'service', 'resources', 'customer', 'popular brands', 'categories', 'links', 'details'];
-      if (skipKws.some(k => hd.includes(k))) {
-        if (!desc && hd.includes('description')) desc = bd.replace(/!\[[^\]]*\]\([^)]+\)/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim().slice(0, 800);
-        continue;
-      }
-      const isSz = /size|serv|weight|count|kg|lb|capsule|tablet|gram/i.test(hd);
-      const isFlv = /flavor|flavour|taste/i.test(hd);
-      bd.split('\n').map(l => l.trim()).filter(Boolean).forEach((line, idx) => {
-        const clean = line.replace(/!\[[^\]]*\]\([^)]+\)/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[*_~`#>|]/g, '').replace(/^[-*+]\s*/, '').trim();
-        if (!clean || clean.length < 2 || clean.length > 60) return;
-        if (/^(see more|out of stock|add to cart|quantity|delivery|free|sold)/i.test(clean)) return;
-        const actSz = isSz || /\b\d+\s*(serving|kg|g|lb|cap|tab|sachet)/i.test(clean);
-        const actFlv = isFlv || (!actSz && /apple|mango|orange|lemon|berry|vanilla|chocolate|watermelon|unflavored|pineapple|green|fruit|burst|lime|passion/i.test(clean));
-        if (actSz && !sizes.includes(clean)) { sizes.push(clean); szOpts.push({ id: `sz-jina-${idx}`, name: clean, label: clean, type: 'size', inStock: true }); }
-        else if (actFlv && !flavors.includes(clean)) { flavors.push(clean); flvOpts.push({ id: `flv-jina-${idx}`, name: clean, label: clean, type: 'flavor', inStock: true }); }
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 2000);
+      const directRes = await fetch(fetchUrl, {
+        headers,
+        signal: controller.signal
       });
-    }
-
-    if (!title && !price) return null;
-    const vGroups: any[] = [];
-    if (flvOpts.length > 0) vGroups.push({ id: 'flavors', name: 'Flavor', type: 'flavor', options: flvOpts });
-    if (szOpts.length > 0) vGroups.push({ id: 'sizes', name: 'Size', type: 'size', options: szOpts });
-    return { ok: true, title: title || inferTitleFromSlug(sourceUrl).title, price, originalPriceAed: originalPriceVal, originalPriceAED: originalPriceVal, discountPercent: discountPct, currency: 'AED', image: gallery[0] || '', galleryImages: gallery, images: gallery, variantGroups: vGroups.length > 0 ? vGroups : undefined, flavors: flavors.length > 0 ? flavors : undefined, sizes: sizes.length > 0 ? sizes : undefined, options: [...flavors, ...sizes], description: desc || undefined, storeName, brand: brand || inferTitleFromSlug(sourceUrl).brand };
-  };
-
-  // TIER 1: Direct HTTP (fast check — may hit Cloudflare 403)
-  for (const fetchUrl of [enAeUrl, drUrl]) {
-    try {
-      const controller = new AbortController();
-      const tId = setTimeout(() => controller.abort(), 4000);
-      const directRes = await fetch(fetchUrl, { headers, signal: controller.signal });
       clearTimeout(tId);
-      if (directRes.ok && directRes.status !== 403) {
+
+      if (directRes.ok) {
         const html = await directRes.text();
-        if (html && html.length > 5000) {
-          extractionLog.push({ tier: 1, url: fetchUrl, htmlLen: html.length });
+        if (html && html.length > 200) {
+          // 1. Direct Exact JSON parsing
           const exactResult = parseDrNutritionExactJson(html, fetchUrl);
-          if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) return exactResult;
+          if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) {
+            return exactResult;
+          }
+
+          // 2. Full HTML Engine fallback
           const parsed = parseHtmlEngine(html, fetchUrl);
-          if (parsed.title && parsed.price > 0) return { ok: true, title: parsed.title, price: parsed.price, currency: 'AED', image: sanitizeImageUrl(parsed.image, fetchUrl), galleryImages: parsed.galleryImages, images: parsed.galleryImages, variantGroups: parsed.variantGroups, flavors: parsed.flavors, sizes: parsed.sizes, options: parsed.options, storeName, description: parsed.description };
+          if (parsed.title && parsed.price > 0) {
+            return {
+              ok: true,
+              title: parsed.title,
+              price: parsed.price,
+              currency: "AED",
+              image: sanitizeImageUrl(parsed.image, fetchUrl),
+              galleryImages: parsed.galleryImages,
+              images: parsed.galleryImages,
+              variantGroups: parsed.variantGroups,
+              flavors: parsed.flavors,
+              sizes: parsed.sizes,
+              options: parsed.options,
+              storeName,
+              description: parsed.description
+            };
+          }
         }
       }
-    } catch (_e) { extractionLog.push({ tier: 1, success: false }); }
+    } catch (_directErr) {}
   }
 
-  // TIER 2: ScraperAPI with JS rendering (bypasses Cloudflare)
-  const scraperApiKey = (cmsConfig?.apiConfig as any)?.scraperApiKey || process.env.SCRAPER_API_KEY || process.env.SCRAPERAPI_KEY || "a67220b28858f356c2b0f0ea7878c6f8";
-  if (scraperApiKey) {
-    try {
-      const sUrl = `http://api.scraperapi.com?api_key=${encodeURIComponent(scraperApiKey)}&url=${encodeURIComponent(enAeUrl)}&render=true&country_code=ae&device_type=desktop`;
-      const controller = new AbortController();
-      const tId = setTimeout(() => controller.abort(), 22000);
-      const sRes = await fetch(sUrl, { signal: controller.signal });
-      clearTimeout(tId);
-      if (sRes.ok) {
-        const sHtml = await sRes.text();
-        if (sHtml && sHtml.length > 5000) {
-          extractionLog.push({ tier: 2, htmlLen: sHtml.length });
-          const exactResult = parseDrNutritionExactJson(sHtml, enAeUrl);
-          if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) return exactResult;
-          const parsed = parseHtmlEngine(sHtml, enAeUrl);
-          if (parsed.title && parsed.price > 0) return { ok: true, title: parsed.title, price: parsed.price, currency: 'AED', image: sanitizeImageUrl(parsed.image, enAeUrl), galleryImages: parsed.galleryImages, images: parsed.galleryImages, variantGroups: parsed.variantGroups, flavors: parsed.flavors, sizes: parsed.sizes, options: parsed.options, storeName, description: parsed.description };
-        }
-      }
-    } catch (_e) { extractionLog.push({ tier: 2, success: false }); }
-
-    // TIER 3: ScraperAPI without rendering (cheaper)
-    try {
-      const sUrl3 = `http://api.scraperapi.com?api_key=${encodeURIComponent(scraperApiKey)}&url=${encodeURIComponent(enAeUrl)}&country_code=ae`;
-      const controller = new AbortController();
-      const tId = setTimeout(() => controller.abort(), 10000);
-      const sRes3 = await fetch(sUrl3, { signal: controller.signal });
-      clearTimeout(tId);
-      if (sRes3.ok) {
-        const sHtml3 = await sRes3.text();
-        if (sHtml3 && sHtml3.length > 3000) {
-          const exactResult = parseDrNutritionExactJson(sHtml3, enAeUrl);
-          if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) return exactResult;
-          const parsed = parseHtmlEngine(sHtml3, enAeUrl);
-          if (parsed.title && parsed.price > 0) return { ok: true, title: parsed.title, price: parsed.price, currency: 'AED', image: sanitizeImageUrl(parsed.image, enAeUrl), galleryImages: parsed.galleryImages, images: parsed.galleryImages, variantGroups: parsed.variantGroups, flavors: parsed.flavors, sizes: parsed.sizes, options: parsed.options, storeName, description: parsed.description };
-        }
-      }
-    } catch (_e3) { extractionLog.push({ tier: 3, success: false }); }
-  }
-
-  // TIER 4: Microlink prerender extractor
+  // TIER 2: MICROLINK REAL-TIME PRERENDER EXTRACTOR
   const microlinkResult = await fetchWithMicrolink(enAeUrl, storeName);
-  if (microlinkResult && microlinkResult.price && microlinkResult.price > 0 && microlinkResult.title && microlinkResult.title.length > 5) {
-    extractionLog.push({ tier: 4, success: true });
+  if (microlinkResult && microlinkResult.price && microlinkResult.price > 0) {
     return microlinkResult;
   }
 
-  // TIER 5: Jina Reader (renders CF-protected pages, returns Markdown)
+  // TIER 3: SHOPIFY JS / JSON ENDPOINT CHECK
   try {
-    const jinaUrl = `https://r.jina.ai/${enAeUrl}`;
-    const jinaHdrs: Record<string, string> = { ...headers, 'Accept': 'text/plain, */*', 'X-With-Images-Summary': 'true', 'X-No-Cache': 'true', 'X-Return-Format': 'markdown' };
-    const jinaKey = process.env.JINA_API_KEY || (cmsConfig?.apiConfig as any)?.jinaApiKey;
-    if (jinaKey) jinaHdrs['Authorization'] = `Bearer ${jinaKey}`;
-    const controller = new AbortController();
-    const tId = setTimeout(() => controller.abort(), 20000);
-    const jinaRes = await fetch(jinaUrl, { headers: jinaHdrs, signal: controller.signal });
-    clearTimeout(tId);
-    if (jinaRes.ok) {
-      const jinaText = await jinaRes.text();
-      extractionLog.push({ tier: 5, contentLen: jinaText.length });
-      if (jinaText.includes('__NEXT_DATA__') || jinaText.includes('application/ld+json')) {
-        const exactResult = parseDrNutritionExactJson(jinaText, enAeUrl);
-        if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) return exactResult;
-      }
-      const mdResult = parseJinaMarkdown(jinaText, enAeUrl);
-      if (mdResult && mdResult.title && mdResult.price && mdResult.price > 0) return mdResult;
-    }
-  } catch (_jinaErr) { extractionLog.push({ tier: 5, success: false }); }
+    let cleanJsUrl = enAeUrl.split('?')[0].split('#')[0].replace(/\.js$/i, '').replace(/\.json$/i, '');
+    if (cleanJsUrl.endsWith('/')) cleanJsUrl = cleanJsUrl.slice(0, -1);
 
-  // TIER 6: Shopify .js/.json endpoints
-  try {
-    const cleanBase = enAeUrl.split('?')[0].split('#')[0].replace(/\/$/, '').replace(/\.(js|json)$/i, '');
-    for (const jsUrl of [`${cleanBase}.js`, `${cleanBase}.json`, cleanBase.replace('/en-ae/', '/') + '.js', cleanBase.replace('/en-ae/', '/') + '.json']) {
+    const jsUrls = [
+      `${cleanJsUrl}.js`,
+      `${cleanJsUrl}.json`,
+      cleanJsUrl.replace('/en-ae/', '/') + '.js',
+      cleanJsUrl.replace('/en-ae/', '/') + '.json'
+    ];
+
+    for (const jsUrl of jsUrls) {
       try {
         const controller = new AbortController();
-        const tId = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(jsUrl, { headers: { ...headers, 'Accept': 'application/json, */*' }, signal: controller.signal });
+        const tId = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(jsUrl, {
+          headers: {
+            ...headers,
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          signal: controller.signal
+        });
         clearTimeout(tId);
+
         if (res.ok) {
-          const json = await res.json().catch(() => null);
-          if (!json) continue;
+          const json = await res.json();
           const pObj = json?.product || json;
           const t = pObj?.title || pObj?.name;
           let rawP = pObj?.price ?? pObj?.variants?.[0]?.price;
-          if (t && rawP !== undefined) {
+          if (rawP !== undefined && rawP !== null) {
             let p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
             if (!isNaN(p) && p > 0) {
-              if (p > 1000 && !String(rawP).includes('.')) p = p / 100;
-              const fp = Math.round(p * 100) / 100;
-              const pImg = sanitizeImageUrl(pObj?.featured_image?.src || pObj?.image?.src, enAeUrl);
-              const gal = (pObj?.images || []).map((im: any) => sanitizeImageUrl(im.src || im, enAeUrl)).filter(Boolean);
-              const ca = parseFloat(pObj?.variants?.[0]?.compare_at_price || 0);
-              const caP = ca > 1000 ? ca / 100 : ca;
-              return { ok: true, title: cleanTitleStr(t), price: fp, currency: 'AED', image: pImg, galleryImages: gal, images: gal, originalPriceAed: caP > fp ? caP : undefined, originalPriceAED: caP > fp ? caP : undefined, storeName, brand: pObj?.vendor || storeName, description: pObj?.body_html ? String(pObj.body_html).replace(/<[^>]+>/g, ' ').trim().slice(0, 800) : undefined };
+              if (p > 1000 || (!String(rawP).includes('.') && p >= 1000)) {
+                p = p / 100;
+              }
+              const finalPrice = Math.round(p * 100) / 100;
+              
+              const galleryImages: string[] = [];
+              if (Array.isArray(pObj?.images)) {
+                pObj.images.forEach((img: any) => {
+                  const src = typeof img === 'string' ? img : (img?.src || img?.url);
+                  if (src) {
+                    const s = sanitizeImageUrl(src, enAeUrl);
+                    if (s && !galleryImages.includes(s)) galleryImages.push(s);
+                  }
+                });
+              }
+
+              let rawImg = pObj?.featured_image || (galleryImages.length > 0 ? galleryImages[0] : pObj?.image?.src);
+              if (typeof rawImg === 'object' && rawImg?.src) rawImg = rawImg.src;
+              const mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), enAeUrl);
+              if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+
+              const flavors: string[] = [];
+              const sizes: string[] = [];
+              const variantGroups: any[] = [];
+              const rawVariants = Array.isArray(pObj?.variants) ? pObj.variants : [];
+              
+              if (rawVariants.length > 0) {
+                const flavorOptions: any[] = [];
+                const sizeOptions: any[] = [];
+
+                rawVariants.forEach((v: any, vIdx: number) => {
+                  let vPrice = finalPrice;
+                  if (v.price) {
+                    let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                    if (vp > 1000 || (!String(v.price).includes('.') && vp >= 1000)) vp = vp / 100;
+                    if (!isNaN(vp) && vp > 0) vPrice = Math.round(vp * 100) / 100;
+                  }
+                  let vImg = v.featured_image?.src ? sanitizeImageUrl(v.featured_image.src, enAeUrl) : undefined;
+                  const vTitle = String(v.title || v.option1 || '').trim();
+
+                  if (vTitle && !['default title', 'default', '1'].includes(vTitle.toLowerCase())) {
+                    const isSize = vTitle.toLowerCase().includes('kg') || vTitle.toLowerCase().includes('g') || vTitle.toLowerCase().includes('lb') || vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('عددی') || vTitle.toLowerCase().includes('سروینگ');
+                    if (isSize) {
+                      if (!sizes.includes(vTitle)) {
+                        sizes.push(vTitle);
+                        sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, label: vTitle, priceAed: vPrice, image: vImg, inStock: v.available !== false });
+                      }
+                    } else {
+                      if (!flavors.includes(vTitle)) {
+                        flavors.push(vTitle);
+                        flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, label: vTitle, priceAed: vPrice, image: vImg, inStock: v.available !== false });
+                      }
+                    }
+                  }
+                });
+
+                if (flavorOptions.length > 0) {
+                  variantGroups.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorOptions });
+                }
+                if (sizeOptions.length > 0) {
+                  variantGroups.push({ id: 'sizes', name: 'وزن / سایز (Size)', type: 'size', options: sizeOptions });
+                }
+              }
+
+              if (t && finalPrice > 0) {
+                return {
+                  ok: true,
+                  title: cleanTitleStr(t),
+                  price: finalPrice,
+                  currency: "AED",
+                  image: mainImg,
+                  galleryImages,
+                  images: galleryImages,
+                  variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
+                  flavors,
+                  sizes,
+                  options: [...flavors, ...sizes],
+                  description: pObj.body_html ? String(pObj.body_html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000) : undefined,
+                  storeName
+                };
+              }
             }
           }
         }
@@ -4399,9 +4232,94 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
     }
   } catch (_e) {}
 
-  // TIER 7: Structured failure
-  console.warn('[DrNutritionAdapter] All tiers failed for:', enAeUrl, { durationMs: Date.now() - t0, tiers: extractionLog.length });
-  return { ok: false, requireManualEntry: true, message: "اطلاعات محصول در حال حاضر قابل دریافت نیست. لطفا دوباره تلاش کنید." };
+  // TIER 4: SCRAPERAPI PROXY FALLBACK
+  const scraperApiKey = (cmsConfig?.apiConfig as any)?.scraperApiKey || process.env.SCRAPER_API_KEY || process.env.SCRAPERAPI_KEY || "a67220b28858f356c2b0f0ea7878c6f8";
+  if (scraperApiKey) {
+    try {
+      const scraperUrl = `http://api.scraperapi.com?api_key=${encodeURIComponent(scraperApiKey)}&url=${encodeURIComponent(enAeUrl)}`;
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 6000);
+      const scraperRes = await fetch(scraperUrl, { signal: controller.signal });
+      clearTimeout(tId);
+
+      if (scraperRes.ok) {
+        const scraperHtml = await scraperRes.text();
+        if (scraperHtml && scraperHtml.length > 100) {
+          const exactResult = parseDrNutritionExactJson(scraperHtml, enAeUrl);
+          if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) {
+            return exactResult;
+          }
+
+          const parsed = parseHtmlEngine(scraperHtml, enAeUrl);
+          if (parsed.title && parsed.price > 0) {
+            return {
+              ok: true,
+              title: parsed.title,
+              price: parsed.price,
+              currency: "AED",
+              image: sanitizeImageUrl(parsed.image, enAeUrl),
+              galleryImages: parsed.galleryImages,
+              images: parsed.galleryImages,
+              variantGroups: parsed.variantGroups,
+              flavors: parsed.flavors,
+              sizes: parsed.sizes,
+              options: parsed.options,
+              storeName,
+              description: parsed.description
+            };
+          }
+        }
+      }
+    } catch (_scraperErr) {}
+  }
+
+  // TIER 5: JINA READER PROXY FALLBACK
+  try {
+    const jinaUrl = `https://r.jina.ai/${enAeUrl}`;
+    const controller = new AbortController();
+    const tId = setTimeout(() => controller.abort(), 4500);
+    const jinaRes = await fetch(jinaUrl, {
+      headers: {
+        ...headers,
+        'X-With-Images-Summary': 'true',
+        'X-No-Cache': 'true'
+      },
+      signal: controller.signal
+    });
+    clearTimeout(tId);
+
+    if (jinaRes.ok) {
+      const jinaText = await jinaRes.text();
+      const exactResult = parseDrNutritionExactJson(jinaText, enAeUrl);
+      if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) {
+        return exactResult;
+      }
+
+      const parsed = parseHtmlEngine(jinaText, enAeUrl);
+      if (parsed.title && parsed.price > 0) {
+        return {
+          ok: true,
+          title: parsed.title,
+          price: parsed.price,
+          currency: "AED",
+          image: sanitizeImageUrl(parsed.image, enAeUrl),
+          galleryImages: parsed.galleryImages,
+          images: parsed.galleryImages,
+          variantGroups: parsed.variantGroups,
+          flavors: parsed.flavors,
+          sizes: parsed.sizes,
+          options: parsed.options,
+          storeName
+        };
+      }
+    }
+  } catch (_jinaErr) {}
+
+  return {
+    ok: false,
+    requireManualEntry: true,
+    message: "امکان برآورد خودکار قیمت برای این لینک وجود ندارد. لطفاً جهت دریافت استعلام قیمت با پشتیبانی تماس بگیرید."
+  };
 }
 
 // -------------------------------------------------------------------
@@ -4882,258 +4800,6 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
 }
 
 // -------------------------------------------------------------------
-// ADAPTER: SPORTER UAE DEDICATED ADAPTER (sporterAdapter)
-// Multi-tier price extraction separating CURRENT vs OLD/COMPARE-AT price
-// -------------------------------------------------------------------
-async function sporterAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdapterResult> {
-  const storeName = "Sporter UAE";
-  const headers = getStandardScraperHeaders(targetUrl);
-
-  let sporterUrl = targetUrl.replace(/https?:\/\/(www\.)?sporter\.com/i, 'https://www.sporter.com');
-  let enAeUrl = sporterUrl;
-  if (/\/(ar|en)-[a-z]{2}\//i.test(sporterUrl)) {
-    enAeUrl = sporterUrl.replace(/\/(ar|en)-[a-z]{2}\//i, '/en-ae/');
-  } else if (!sporterUrl.includes('/en-ae/') && !sporterUrl.includes('/ar-ae/')) {
-    enAeUrl = sporterUrl.replace('sporter.com/', 'sporter.com/en-ae/');
-  }
-
-  const urlCandidates = [enAeUrl, sporterUrl, targetUrl];
-
-  // Helper to extract Sporter specific prices from HTML using brute-force math
-  const extractSporterPrices = (html: string): { price: number; originalPriceAed?: number; discountPercent?: number } => {
-    const extractedPrices: number[] = [];
-
-    try {
-      const $ = cheerio.load(html);
-
-      // 1. Extract from all possible price elements
-      $('.price-box .price, span.price, [data-price-type] .price, .special-price .price, .old-price .price, .price-final_price .price, .product-info-price .price, .price').each((_, el) => {
-        const txt = $(el).text().replace(/,/g, '').trim();
-        const m = txt.match(/[\d.]+/);
-        if (m) {
-          const val = parseFloat(m[0]);
-          if (!isNaN(val) && val > 0 && val < 50000) {
-            extractedPrices.push(Math.round(val * 100) / 100);
-          }
-        }
-      });
-
-      // 2. Check JSON-LD offers
-      $('script[type="application/ld+json"]').each((_, el) => {
-        try {
-          const data = JSON.parse($(el).html() || '{}');
-          const items = data['@graph'] ? data['@graph'] : (Array.isArray(data) ? data : [data]);
-          for (const item of items) {
-            if (item && (item['@type'] === 'Product' || item.offers)) {
-              const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
-              if (offer) {
-                if (offer.price) {
-                  const p = parseFloat(String(offer.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                  if (!isNaN(p) && p > 0 && p < 50000) extractedPrices.push(Math.round(p * 100) / 100);
-                }
-                if (offer.lowPrice) {
-                  const lp = parseFloat(String(offer.lowPrice).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                  if (!isNaN(lp) && lp > 0 && lp < 50000) extractedPrices.push(Math.round(lp * 100) / 100);
-                }
-                if (offer.highPrice) {
-                  const hp = parseFloat(String(offer.highPrice).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                  if (!isNaN(hp) && hp > 0 && hp < 50000) extractedPrices.push(Math.round(hp * 100) / 100);
-                }
-              }
-            }
-          }
-        } catch (_) {}
-      });
-
-      // 3. Meta tags
-      const metaPriceMatch = $('meta[property="product:price:amount"], meta[property="og:price:amount"]').attr('content');
-      if (metaPriceMatch) {
-        const mp = parseFloat(metaPriceMatch.replace(/,/g, '').replace(/[^0-9.]/g, ''));
-        if (!isNaN(mp) && mp > 0 && mp < 50000) extractedPrices.push(Math.round(mp * 100) / 100);
-      }
-    } catch (_cheerioErr) {}
-
-    const uniquePrices = Array.from(new Set(extractedPrices)).filter(p => p > 0);
-
-    let currentPrice = 0;
-    let oldPrice: number | undefined;
-
-    if (uniquePrices.length > 0) {
-      // ACTIVE selling price is strictly Math.min
-      currentPrice = Math.min(...uniquePrices);
-      const maxPrice = Math.max(...uniquePrices);
-
-      // Strikethrough price is strictly Math.max if > currentPrice
-      if (maxPrice > currentPrice) {
-        oldPrice = maxPrice;
-      }
-    }
-
-    let discountPercent: number | undefined;
-    if (oldPrice && currentPrice > 0 && oldPrice > currentPrice) {
-      discountPercent = Math.round(((oldPrice - currentPrice) / oldPrice) * 100);
-    }
-
-    return {
-      price: currentPrice,
-      originalPriceAed: oldPrice,
-      discountPercent
-    };
-  };
-
-
-
-  // TIER 1: Direct HTTP Fetch Candidates
-  for (const fetchUrl of urlCandidates) {
-    try {
-      const controller = new AbortController();
-      const tId = setTimeout(() => controller.abort(), 4500);
-      const res = await fetch(fetchUrl, { headers, signal: controller.signal });
-      clearTimeout(tId);
-      if (res.ok) {
-        const html = await res.text();
-        if (html && html.length > 200) {
-          const parsed = parseHtmlEngine(html, fetchUrl);
-          const sporterPrices = extractSporterPrices(html);
-
-          const finalSellingPrice = sporterPrices.price > 0 ? sporterPrices.price : parsed.price;
-          const finalOriginalPrice = sporterPrices.originalPriceAed || parsed.originalPriceAed;
-          const finalDiscount = sporterPrices.discountPercent || parsed.discountPercent;
-
-          if (parsed.title && finalSellingPrice > 0) {
-            return {
-              ok: true,
-              title: parsed.title,
-              price: finalSellingPrice,
-              originalPriceAed: (finalOriginalPrice && finalOriginalPrice > finalSellingPrice) ? finalOriginalPrice : undefined,
-              discountPercent: finalDiscount,
-              currency: "AED",
-              image: sanitizeImageUrl(parsed.image, fetchUrl),
-              galleryImages: parsed.galleryImages,
-              images: parsed.galleryImages,
-              variantGroups: parsed.variantGroups,
-              flavors: parsed.flavors,
-              sizes: parsed.sizes,
-              options: parsed.options,
-              storeName,
-              description: parsed.description
-            };
-          }
-        }
-      }
-    } catch (_e) {}
-  }
-
-  // TIER 2: Jina Reader Fallback (Markdown Parser)
-  try {
-    const jinaUrl = `https://r.jina.ai/${enAeUrl}`;
-    const jinaCtrl = new AbortController();
-    const jinaTimer = setTimeout(() => jinaCtrl.abort(), 8000);
-    const jinaRes = await fetch(jinaUrl, {
-      headers: {
-        'Accept': 'text/plain, text/markdown',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'X-No-Cache': 'true'
-      },
-      signal: jinaCtrl.signal
-    });
-    clearTimeout(jinaTimer);
-    if (jinaRes.ok) {
-      const md = await jinaRes.text();
-      if (md && md.length > 100) {
-        let title = '';
-        let price = 0;
-        let originalPriceAed: number | undefined;
-        let discountPercent: number | undefined;
-        const gallery: string[] = [];
-        const flavors: string[] = [];
-        const sizes: string[] = [];
-
-        const h1 = md.match(/^#\s+([^\n]+)/m);
-        if (h1) title = cleanTitleStr(h1[1].replace(/\|\s*Sporter.*/i, '').trim());
-
-        // Extract active selling price vs strikethrough price from adjacent AED text lines
-        const adjacentPriceMatches = Array.from(md.matchAll(/AED\s*([\d,]+\.?\d*)[ \t]*(?:\r?\n+[ \t]*AED\s*([\d,]+\.?\d*))?/gi))
-          .filter(m => {
-            const raw = m[0].toLowerCase();
-            return !raw.includes('tamara') && !raw.includes('tabby') && !raw.includes('split');
-          });
-
-        for (const m of adjacentPriceMatches) {
-          const p1 = parseFloat(m[1].replace(/,/g, ''));
-          const p2 = m[2] ? parseFloat(m[2].replace(/,/g, '')) : undefined;
-
-          if (!isNaN(p1) && p1 > 0 && p1 < 50000) {
-            if (p2 !== undefined && !isNaN(p2) && p2 > 0 && p2 < 50000) {
-              price = Math.min(p1, p2);
-              originalPriceAed = Math.max(p1, p2);
-              if (originalPriceAed > price) {
-                discountPercent = Math.round(((originalPriceAed - price) / originalPriceAed) * 100);
-              }
-              break;
-            } else if (!price) {
-              price = p1;
-            }
-          }
-        }
-
-        // Extract accurate weight
-        let weightKg = 0.5;
-        const weightMatch = md.match(/(?:Size|Weight|Net Wt\.?|حجم|وزن)[:\s]*([0-9.]+)\s*(grams?|g|kg|lbs?|oz|ml|servings?|capsules?|tablets?|softgels?)/i) ||
-                            md.match(/([0-9.]+)\s*(grams?|g|kg|lbs?|oz)\b/i);
-        if (weightMatch) {
-          const val = parseFloat(weightMatch[1]);
-          const unit = weightMatch[2].toLowerCase();
-          if (unit.startsWith('g')) weightKg = Math.round((val / 1000) * 1000) / 1000;
-          else if (unit === 'kg') weightKg = val;
-          else if (unit.startsWith('lb')) weightKg = Math.round((val * 0.453592) * 1000) / 1000;
-          else if (unit === 'oz') weightKg = Math.round((val * 0.0283495) * 1000) / 1000;
-        }
-
-        Array.from(md.matchAll(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/gi)).forEach(m => {
-          const s = sanitizeImageUrl(m[2].trim(), enAeUrl);
-          if (s && !gallery.includes(s) && !s.includes('logo') && !s.includes('icon') && !s.includes('.svg') && !s.includes('Tamara') && !s.includes('searchIcon')) {
-            gallery.push(s);
-          }
-        });
-
-        if (title && price > 0) {
-          return {
-            ok: true,
-            title,
-            price,
-            originalPriceAed: (originalPriceAed && originalPriceAed > price) ? originalPriceAed : undefined,
-            discountPercent,
-            currency: "AED",
-            image: gallery[0] || '',
-            galleryImages: gallery,
-            images: gallery,
-            flavors,
-            sizes,
-            storeName,
-            weightKg,
-            options: []
-          };
-        }
-      }
-    }
-  } catch (_jinaErr) {}
-
-
-  // TIER 3: Microlink Fallback
-  const microlinkResult = await fetchWithMicrolink(enAeUrl, storeName);
-  if (microlinkResult && microlinkResult.price && microlinkResult.price > 0) {
-    return microlinkResult;
-  }
-
-  return {
-    ok: false,
-    requireManualEntry: true,
-    message: "امکان برآورد خودکار قیمت برای این لینک اسپورتر وجود ندارد."
-  };
-}
-
-// -------------------------------------------------------------------
 // ADAPTER 4: GENERIC ADAPTER (genericAdapter)
 // -------------------------------------------------------------------
 async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: any): Promise<ParseAdapterResult> {
@@ -5511,48 +5177,81 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
       }
     }
 
-    // STEP 1: FIRESTORE CACHING LAYER (scraped_products_cache)
-    let cached: any = null;
+    // STEP 1: FIRESTORE CACHING LAYER (scraped_products_cache with 30-Day TTL & 3-Day SWR)
+    let cachedResult: { data: any; isStale: boolean } | null = null;
     let normalizedUrl = cleanUrl;
     let urlHash = '';
     try {
       normalizedUrl = normalizeTargetUrl(cleanUrl) || cleanUrl;
       urlHash = computeUrlHash(normalizedUrl);
-      cached = await getCachedScrapedProduct(urlHash);
+      cachedResult = await getCachedScrapedProduct(urlHash);
     } catch (cacheErr) {
       console.warn('Firestore cache read error:', cacheErr);
     }
 
-    if (cached && cached.price) {
+    if (cachedResult && cachedResult.data && (cachedResult.data.price || cachedResult.data.productData?.price)) {
+      const cached = cachedResult.data.productData || cachedResult.data;
+      const isStale = cachedResult.isStale;
+
+      // If cache is stale, trigger non-blocking detached background revalidation
+      if (isStale) {
+        setImmediate(async () => {
+          try {
+            const domain = new URL(normalizedUrl).hostname.toLowerCase();
+            let freshRes: any = null;
+            if (domain.includes('gnc')) freshRes = await gncAdapter(normalizedUrl, cmsConfig);
+            else if (domain.includes('lifepharmacy') || domain.includes('drpharmacy')) freshRes = await lifePharmacyAdapter(normalizedUrl, cmsConfig);
+            else if (domain.includes('drnutrition')) freshRes = await drNutritionAdapter(normalizedUrl, cmsConfig);
+            else freshRes = await genericAdapter(normalizedUrl, cmsConfig, req.body);
+
+            if (freshRes && freshRes.ok && freshRes.price && freshRes.price > 0) {
+              await saveScrapedProductToCache(urlHash, normalizedUrl, freshRes);
+            }
+          } catch (_revalErr) {
+            console.warn('Background SWR revalidation notice:', _revalErr);
+          }
+        });
+      }
+
       const cachedGallery = Array.isArray(cached.galleryImages) && cached.galleryImages.length > 0
         ? cached.galleryImages
-        : (cached.image ? [cached.image] : []);
+        : (Array.isArray(cached.images) && cached.images.length > 0 ? cached.images : (cached.image ? [cached.image] : []));
+
       return res.status(200).json({
         ok: true,
         success: true,
         cached: true,
+        stale: isStale,
         id: `cached-${urlHash || Date.now()}`,
         title: cached.title,
-        brand: cached.storeName || 'فروشگاه آنلاین دبی',
-        sourceStore: cached.storeName || 'فروشگاه آنلاین دبی',
+        brand: cached.storeName || cached.brand || 'فروشگاه آنلاین دبی',
+        sourceStore: cached.storeName || cached.brand || 'فروشگاه آنلاین دبی',
         sourceUrl: cleanUrl,
         mainImage: cached.image || (cachedGallery[0] || ''),
         galleryImages: cachedGallery,
         basePriceAED: cached.price,
-        inStock: true,
+        inStock: cached.inStock !== false,
         price: cached.price,
         currency: cached.currency || 'AED',
         priceAed: cached.price,
         price_aed: cached.price,
+        originalPriceAed: cached.originalPriceAed,
+        discountPercent: cached.discountPercent,
         image: cached.image,
         image_url: cached.image,
         images: cachedGallery,
         storeName: cached.storeName || 'فروشگاه آنلاین دبی',
         url: cleanUrl,
-        variants: [],
-        description: cached.description || ''
+        variants: cached.variants || [],
+        variantMatrix: cached.variantMatrix || null,
+        variantGroups: cached.variantGroups || [],
+        flavors: cached.flavors || [],
+        sizes: cached.sizes || [],
+        options: cached.options || [],
+        description: cached.description || `محصول استخراج شده (از کش)`
       });
     }
+
 
     // STEP 2: MODULAR ADAPTER ROUTER
     let domain = '';
@@ -5570,8 +5269,6 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         result = await lifePharmacyAdapter(normalizedUrl, cmsConfig);
       } else if (domain.includes('drnutrition')) {
         result = await drNutritionAdapter(normalizedUrl, cmsConfig);
-      } else if (domain.includes('sporter')) {
-        result = await sporterAdapter(normalizedUrl, cmsConfig);
       } else {
         result = await genericAdapter(normalizedUrl, cmsConfig, req.body);
       }
@@ -5715,7 +5412,7 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         cached: false,
         id: `scraped-${Date.now()}`,
         title: result.title || 'محصول استخراج شده',
-        brand: result.brand || result.storeName || 'فروشگاه آنلاین دبی',
+        brand: result.storeName || 'فروشگاه آنلاین دبی',
         sourceStore: result.storeName || 'فروشگاه آنلاین دبی',
         sourceUrl: cleanUrl,
         mainImage: mainImg || gallery[0] || '',
@@ -5771,45 +5468,142 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
   }
 };
 
+function calculateLandedTomanPrice(
+  priceAed: number,
+  marginPercent: number = 20,
+  aedRate: number = 51400
+): number {
+  if (!priceAed || priceAed <= 0) return 0;
+  const baseTotalAed = priceAed + 20; // 20 AED base shipping fee
+  const marginMultiplier = 1 + (marginPercent / 100);
+  const totalToman = Math.round(baseTotalAed * marginMultiplier * aedRate);
+  return Math.round(totalToman / 1000) * 1000;
+}
+
+export async function runProductPriceSync(): Promise<{ success: boolean; syncedCount: number; updatedCount: number; errors: string[] }> {
+  console.log('[SyncEngine] Starting scheduled product price & stock verification...');
+  let syncedCount = 0;
+  let updatedCount = 0;
+  const errors: string[] = [];
+
+  try {
+    const store = await getStoreData(true);
+    const aedRate = Number(store.settings?.aedRate || store.settings?.manualAedRate || 51400);
+    const globalMargin = Number(store.settings?.profitMargin || 20);
+
+    const collectionsToSync = ['iran_warehouse', 'special_deals'];
+
+    for (const colName of collectionsToSync) {
+      const snap = await getDocs(collection(db, colName));
+
+      for (const docSnap of snap.docs) {
+        const item = docSnap.data();
+        const docId = docSnap.id;
+        const targetUrl = item.url || item.sourceUrl;
+
+        if (!targetUrl || typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) {
+          continue;
+        }
+
+        if (item.isActive === false && !item.isPopular) {
+          continue;
+        }
+
+        syncedCount++;
+
+        try {
+          await new Promise(res => setTimeout(res, 800));
+          const cleanUrl = extractCleanUrl(targetUrl);
+          const domain = new URL(cleanUrl).hostname.toLowerCase();
+
+          let freshRes: ParseAdapterResult | null = null;
+          if (domain.includes('gnc')) {
+            freshRes = await gncAdapter(cleanUrl, store.cms);
+          } else if (domain.includes('lifepharmacy') || domain.includes('drpharmacy')) {
+            freshRes = await lifePharmacyAdapter(cleanUrl, store.cms);
+          } else if (domain.includes('drnutrition')) {
+            freshRes = await drNutritionAdapter(cleanUrl, store.cms);
+          } else {
+            freshRes = await genericAdapter(cleanUrl, store.cms);
+          }
+
+
+          if (freshRes && freshRes.ok && freshRes.price && freshRes.price > 0) {
+            const freshPriceAed = Number(freshRes.price);
+            const freshInStock = freshRes.inStock !== false;
+            const itemMargin = Number(item.profitMargin !== undefined ? item.profitMargin : globalMargin);
+
+            const oldPriceAed = Number(item.priceAed || item.basePriceAed || 0);
+            const oldInStock = item.inStock !== false;
+
+            const priceChanged = Math.abs(freshPriceAed - oldPriceAed) > 0.01;
+            const stockChanged = freshInStock !== oldInStock;
+
+            if (priceChanged || stockChanged) {
+              const freshPriceToman = calculateLandedTomanPrice(freshPriceAed, itemMargin, aedRate);
+
+              let updatedVariants = item.variants;
+              if (Array.isArray(updatedVariants) && updatedVariants.length > 0) {
+                updatedVariants = updatedVariants.map((v: any) => {
+                  const vPriceAed = Number(v.priceAed || freshPriceAed);
+                  return {
+                    ...v,
+                    priceAed: priceChanged && v.priceAed === oldPriceAed ? freshPriceAed : vPriceAed,
+                    priceAED: priceChanged && v.priceAed === oldPriceAed ? freshPriceAed : vPriceAed,
+                    priceToman: calculateLandedTomanPrice(
+                      priceChanged && v.priceAed === oldPriceAed ? freshPriceAed : vPriceAed,
+                      itemMargin,
+                      aedRate
+                    ),
+                    inStock: freshInStock
+                  };
+                });
+              }
+
+              const updatedDoc = {
+                ...item,
+                priceAed: freshPriceAed,
+                basePriceAed: freshPriceAed,
+                priceAED: freshPriceAed,
+                priceToman: freshPriceToman,
+                inStock: freshInStock,
+                variants: updatedVariants,
+                lastSyncedAt: new Date().toISOString()
+              };
+
+              await setDoc(doc(db, colName, docId), updatedDoc, { merge: true });
+              updatedCount++;
+              console.log(`[SyncEngine] Synced ${colName}/${docId} (${item.title}): AED ${oldPriceAed} -> ${freshPriceAed}`);
+            }
+          }
+        } catch (itemErr: any) {
+          const errMsg = `Error syncing ${colName}/${docId}: ${itemErr?.message || itemErr}`;
+          console.warn(`[SyncEngine] ${errMsg}`);
+          errors.push(errMsg);
+        }
+      }
+    }
+
+    console.log(`[SyncEngine] Completed sync. Inspected: ${syncedCount}, Updated: ${updatedCount}`);
+    return { success: true, syncedCount, updatedCount, errors };
+  } catch (globalErr: any) {
+    console.error('[SyncEngine] Critical sync error:', globalErr);
+    return { success: false, syncedCount, updatedCount, errors: [globalErr?.message || String(globalErr)] };
+  }
+}
+
+app.post('/api/admin/sync-product-prices', async (req, res) => {
+  try {
+    const result = await runProductPriceSync();
+    return res.status(200).json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Sync failed' });
+  }
+});
+
 app.all('/api/parse-link', handleParseLinkRoute);
 app.all('/api/scrape-product', handleParseLinkRoute);
 
-// -------------------------------------------------------------------
-// AUXILIARY VARIANT SCRAPER ENDPOINT: /api/scrape-variant (POST / GET)
-// -------------------------------------------------------------------
-const handleScrapeVariantRoute = async (req: express.Request, res: express.Response) => {
-  try {
-    const rawUrl = req.method === 'POST' ? req.body?.url : req.query?.url;
-    const cleanUrl = extractCleanUrl(typeof rawUrl === 'string' ? rawUrl : '');
-
-    if (!cleanUrl || typeof cleanUrl !== 'string' || !cleanUrl.toLowerCase().startsWith('http')) {
-      return res.status(200).json({
-        ok: false,
-        success: false,
-        error: 'لینک ارسالی نامعتبر است',
-        priceAed: 0,
-        priceAED: 0,
-        inStock: false,
-        sourceUrl: cleanUrl || ''
-      });
-    }
-
-    const { scrapeVariantUrl } = await import('./functions/src/scrapers/variantScraper');
-    const result = await scrapeVariantUrl(cleanUrl);
-    return res.status(200).json(result);
-  } catch (err: any) {
-    return res.status(200).json({
-      ok: false,
-      success: false,
-      error: err.message || 'خطا در استخراج واریانت',
-      priceAed: 0,
-      priceAED: 0,
-      inStock: false
-    });
-  }
-};
-
-app.all('/api/scrape-variant', handleScrapeVariantRoute);
 
 // Catch-all handler for unhandled /api/* endpoints - ALWAYS return JSON!
 app.use('/api/*', (req, res) => {
@@ -5832,7 +5626,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   next();
 });
 
-// 2. Export 2nd Generation Firebase HTTPS Cloud Function
+// Export 2nd Generation Cloud Function
 export const api = onRequest(
   {
     cors: true,
@@ -5845,9 +5639,11 @@ export const api = onRequest(
 export { app };
 export default app;
 
-// 3. Standalone Server Boot (Strictly disabled during Firebase deployment)
+// ----------------------------------------------------
+// VITE MIDDLEWARE & STANDALONE SERVER
+// ----------------------------------------------------
 async function startServer() {
-  await getStoreData().catch(e => console.warn('Initial store hydrate note:', e));
+  await getStoreData().catch(e => console.warn('Initial store hydrate warn:', e));
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
@@ -5864,11 +5660,13 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`SIRIK FIT Platform server listening on http://localhost:${PORT}`);
-  });
+  if (process.env.IS_FIREBASE_FUNCTION !== 'true') {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`OMEX Dubai Import Platform server listening on http://localhost:${PORT}`);
+    });
+  }
 }
 
-if (!isFirebaseCloudEnv && process.env.NODE_ENV !== 'test') {
+if (process.env.IS_FIREBASE_FUNCTION !== 'true') {
   startServer();
 }

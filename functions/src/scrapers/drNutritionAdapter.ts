@@ -7,6 +7,22 @@ import {
   generateBilingualProductTitle
 } from './utils';
 
+export interface ExtractedProduct {
+  titleFa: string;
+  titleEn: string;
+  brand: string;
+  priceAed: number;
+  originalPriceAed?: number;
+  discountPercent?: number;
+  imageUrl: string;
+  galleryImages: string[];
+  sizes: string[];
+  flavors: string[];
+  inStock: boolean;
+  variants?: any[];
+  description?: string;
+}
+
 export interface ScrapedProductResult {
   ok?: boolean;
   success?: boolean;
@@ -14,10 +30,14 @@ export interface ScrapedProductResult {
   titleFa?: string;
   price: number;
   priceAED: number;
+  priceAed?: number;
   originalPriceAed?: number;
   originalPriceAED?: number;
+  originalPrice?: number;
+  discountPercent?: number;
   currency: string;
   image: string;
+  mainImage?: string;
   imageUrl?: string;
   images?: string[];
   galleryImages?: string[];
@@ -41,6 +61,217 @@ export interface ScrapedProductResult {
   options?: string[];
 }
 
+export const extractRobustProductData = (html: string, sourceUrl: string): ExtractedProduct => {
+  const $ = cheerio.load(html);
+  let priceAed = 0;
+  let originalPriceAed = 0;
+  let titleEn = $('h1.page-title, h1[data-ui-id="page-title-wrapper"], h1.product-title, h1').first().text().trim();
+  let brand = $('.product-brand, .brand-name, [itemprop="brand"]').first().text().trim() || 'Applied Nutrition';
+  let imageUrl = $('meta[property="og:image"]').attr('content') || $('.gallery-placeholder img, [itemprop="image"], .fotorama__img').first().attr('src') || '';
+  const galleryImages: string[] = [];
+  const flavorsSet = new Set<string>();
+  const sizesSet = new Set<string>();
+  let description = '';
+
+  // Tier 1: Parse __NEXT_DATA__ (for Dr. Nutrition / Next.js SPA pages)
+  const nextDataScript = $('#__NEXT_DATA__').html();
+  if (nextDataScript) {
+    try {
+      const nextJson = JSON.parse(nextDataScript);
+      const productNode = nextJson?.props?.pageProps?.product || nextJson?.props?.pageProps?.productData || nextJson?.props?.pageProps?.initialData?.product;
+      if (productNode) {
+        priceAed = Number(productNode.final_price || productNode.special_price || productNode.price_range?.minimum_price?.final_price?.value || productNode.price || 0);
+        originalPriceAed = Number(productNode.regular_price || productNode.price_range?.minimum_price?.regular_price?.value || productNode.price || 0);
+        titleEn = productNode.name || productNode.title || titleEn;
+        brand = productNode.brand || productNode.brand_name || productNode.manufacturer || brand;
+        if (productNode.image?.url || productNode.image) {
+          imageUrl = productNode.image?.url || productNode.image;
+        }
+        if (Array.isArray(productNode.media_gallery || productNode.images)) {
+          (productNode.media_gallery || productNode.images).forEach((m: any) => {
+            const u = sanitizeImageUrl(m.url || m.file || m, sourceUrl);
+            if (u && !galleryImages.includes(u)) galleryImages.push(u);
+          });
+        }
+        if (productNode.description?.html || productNode.description) {
+          description = String(productNode.description?.html || productNode.description || '').replace(/<[^>]*>/g, ' ').trim();
+        }
+
+        // Swatches from Next.js
+        if (Array.isArray(productNode.configurable_options || productNode.variants)) {
+          (productNode.configurable_options || productNode.variants).forEach((opt: any) => {
+            const optLabel = String(opt.label || opt.attribute_code || '').toLowerCase();
+            if (Array.isArray(opt.values)) {
+              opt.values.forEach((val: any) => {
+                const valLabel = String(val.label || val.store_label || '').trim();
+                if (valLabel) {
+                  if (optLabel.includes('flavor') || optLabel.includes('طعم')) flavorsSet.add(valLabel);
+                  else if (optLabel.includes('size') || optLabel.includes('weight') || optLabel.includes('حجم')) sizesSet.add(valLabel);
+                }
+              });
+            }
+          });
+        }
+      }
+    } catch (_e) {
+      console.warn('NextData parse failed, proceeding to Tier 2');
+    }
+  }
+
+  // Tier 1.5: Parse Magento text/x-magento-init (if present)
+  if (!priceAed || priceAed === 0) {
+    $('script[type="text/x-magento-init"]').each((_, el) => {
+      try {
+        const json = JSON.parse($(el).html() || '{}');
+        const priceBox = json['[data-role=priceBox]']?.priceBox?.priceConfig?.prices 
+                      || json['#product_addtocart_form']?.priceBox?.priceConfig?.prices
+                      || json['*']?.priceBox?.priceConfig?.prices;
+        if (priceBox) {
+          if (priceBox.finalPrice?.amount) {
+            priceAed = parseFloat(String(priceBox.finalPrice.amount)) || priceAed;
+          }
+          if (priceBox.oldPrice?.amount) {
+            originalPriceAed = parseFloat(String(priceBox.oldPrice.amount)) || originalPriceAed;
+          }
+        }
+      } catch (_e) {}
+    });
+  }
+
+  // Tier 2: Parse JSON-LD Schema
+  if (!priceAed || priceAed === 0) {
+    $('script[type="application/ld+json"]').each((_, el) => {
+      try {
+        const json = JSON.parse($(el).html() || '{}');
+        const target = json['@type'] === 'Product' || json['@type'] === 'IndividualProduct'
+          ? json
+          : (Array.isArray(json['@graph']) ? json['@graph'].find((it: any) => it['@type'] === 'Product') : null);
+        if (target) {
+          if (!titleEn && target.name) titleEn = String(target.name).trim();
+          if (target.brand?.name) brand = String(target.brand.name).trim();
+          if (target.image) {
+            const im = Array.isArray(target.image) ? target.image[0] : (typeof target.image === 'object' ? target.image.url : target.image);
+            if (im && !imageUrl) imageUrl = sanitizeImageUrl(im, sourceUrl);
+          }
+          const offer = Array.isArray(target.offers) ? target.offers[0] : target.offers;
+          if (offer && offer.price) {
+            priceAed = parseFloat(String(offer.price).replace(/[^\d.]/g, '')) || 0;
+          }
+        }
+      } catch (_e) {}
+    });
+  }
+
+  // Tier 3: Parse OpenGraph & Meta Price Tags
+  if (!priceAed || priceAed === 0) {
+    const metaPrice = $('meta[property="product:price:amount"]').attr('content') || $('meta[name="twitter:data1"]').attr('content');
+    if (metaPrice) {
+      priceAed = parseFloat(metaPrice.replace(/[^\d.]/g, '')) || 0;
+    }
+  }
+
+  // Tier 4: DOM Selectors (Magento / Custom eCommerce)
+  if (!priceAed || priceAed === 0) {
+    const activePriceText = $('[data-price-type="finalPrice"] .price, .special-price .price, .product-info-price .price:not(.old-price *), .price-wrapper .price').first().text();
+    priceAed = parseFloat(activePriceText.replace(/[^\d.]/g, '')) || 0;
+
+    const oldPriceText = $('[data-price-type="oldPrice"] .price, .old-price .price, del .price').first().text();
+    originalPriceAed = parseFloat(oldPriceText.replace(/[^\d.]/g, '')) || 0;
+  }
+
+  // Parse Swatches from DOM
+  $('.swatch-attribute-flavor .swatch-option, .swatch-attribute[data-attribute-code*="flavor"] .swatch-option, .flavor-item').each((_, el) => {
+    const optText = $(el).text().trim() || $(el).attr('data-option-label') || $(el).attr('title') || '';
+    if (optText && !isOutOfStockElement($.html(el), optText)) flavorsSet.add(optText);
+  });
+  $('.swatch-attribute-size .swatch-option, .swatch-attribute[data-attribute-code*="size"] .swatch-option, .size-item').each((_, el) => {
+    const optText = $(el).text().trim() || $(el).attr('data-option-label') || $(el).attr('title') || '';
+    if (optText && !isOutOfStockElement($.html(el), optText)) sizesSet.add(optText);
+  });
+
+  const flavors = Array.from(flavorsSet).filter(f => f && f.length > 1 && !['default', 'standard', 'پیش‌فرض'].includes(f.toLowerCase()));
+  const sizes = Array.from(sizesSet).filter(s => s && s.length > 1 && !['default', 'standard', 'پیش‌فرض'].includes(s.toLowerCase()));
+  const cleanImage = sanitizeImageUrl(imageUrl, sourceUrl);
+
+  if (cleanImage && !galleryImages.includes(cleanImage)) {
+    galleryImages.unshift(cleanImage);
+  }
+
+  const finalPrice = priceAed > 0 ? priceAed : 0;
+  const finalOriginal = (originalPriceAed && originalPriceAed > finalPrice) ? originalPriceAed : undefined;
+  const discountPercent = finalOriginal && finalPrice > 0
+    ? Math.round(((finalOriginal - finalPrice) / finalOriginal) * 100)
+    : undefined;
+
+  // Build variants
+  const standardizedVariants: any[] = [];
+  if (sizes.length > 0 && flavors.length > 0) {
+    sizes.forEach((s, sIdx) => {
+      flavors.forEach((f, fIdx) => {
+        standardizedVariants.push({
+          id: `var-${sIdx}-${fIdx}`,
+          size: s,
+          flavor: f,
+          price: finalPrice,
+          priceAED: finalPrice,
+          priceAed: finalPrice,
+          originalPrice: finalOriginal,
+          originalPriceAED: finalOriginal,
+          originalPriceAed: finalOriginal,
+          inStock: true,
+          image: cleanImage
+        });
+      });
+    });
+  } else if (sizes.length > 0) {
+    sizes.forEach((s, sIdx) => {
+      standardizedVariants.push({
+        id: `var-${sIdx}`,
+        size: s,
+        price: finalPrice,
+        priceAED: finalPrice,
+        priceAed: finalPrice,
+        originalPrice: finalOriginal,
+        originalPriceAED: finalOriginal,
+        originalPriceAed: finalOriginal,
+        inStock: true,
+        image: cleanImage
+      });
+    });
+  } else if (flavors.length > 0) {
+    flavors.forEach((f, fIdx) => {
+      standardizedVariants.push({
+        id: `var-${fIdx}`,
+        flavor: f,
+        price: finalPrice,
+        priceAED: finalPrice,
+        priceAed: finalPrice,
+        originalPrice: finalOriginal,
+        originalPriceAED: finalOriginal,
+        originalPriceAed: finalOriginal,
+        inStock: true,
+        image: cleanImage
+      });
+    });
+  }
+
+  return {
+    titleFa: generateBilingualProductTitle(titleEn, brand),
+    titleEn: titleEn || 'نامشخص',
+    brand: brand || 'Dr. Nutrition',
+    priceAed: finalPrice,
+    originalPriceAed: finalOriginal,
+    discountPercent,
+    imageUrl: cleanImage || '',
+    galleryImages,
+    sizes,
+    flavors,
+    variants: standardizedVariants,
+    description,
+    inStock: !html.includes('Out of stock') && !html.includes('ناموجود')
+  };
+};
+
 export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<ScrapedProductResult | null> {
   const storeName = "Dr. Nutrition";
   const headers = getStandardScraperHeaders(targetUrl);
@@ -56,481 +287,105 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Pr
 
   const urlCandidates = Array.from(new Set([enAeUrl, drUrl, targetUrl]));
 
-  // Helper parser for HTML body containing Next.js or Magento or Schema.org
-  const parseDrNutritionHtml = (html: string, sourceUrl: string): ScrapedProductResult | null => {
-    if (!html || typeof html !== 'string') return null;
-    const $ = cheerio.load(html);
-
-    let title = '';
-    let brand = 'Applied Nutrition';
-    let priceAED = 0;
-    let originalPriceAED = 0;
-    let mainImage = '';
-    const galleryImages: string[] = [];
-    const flavorsSet = new Set<string>();
-    const sizesSet = new Set<string>();
-    const variants: any[] = [];
-    let description = '';
-
-    // 1. NEXT.JS __NEXT_DATA__ EXTRACTION
-    try {
-      const nextDataScript = $('#__NEXT_DATA__').html();
-      if (nextDataScript) {
-        const nextJson = JSON.parse(nextDataScript);
-        const pageProps = nextJson?.props?.pageProps || {};
-        const p = pageProps.product || pageProps.productData || pageProps.initialData?.product;
-        if (p) {
-          if (p.name || p.title) title = String(p.name || p.title).trim();
-          if (p.brand || p.manufacturer) brand = String(p.brand || p.manufacturer || p.brandName || '').trim();
-          
-          if (p.price || p.special_price || p.final_price || p.price_range?.minimum_price?.final_price?.value) {
-            priceAED = parseFloat(p.special_price || p.final_price || p.price_range?.minimum_price?.final_price?.value || p.price);
-          }
-          if (p.regular_price || p.price_range?.minimum_price?.regular_price?.value) {
-            originalPriceAED = parseFloat(p.regular_price || p.price_range?.minimum_price?.regular_price?.value);
-          }
-
-          if (p.image || p.small_image?.url || p.thumbnail?.url) {
-            mainImage = sanitizeImageUrl(p.image?.url || p.image || p.small_image?.url || p.thumbnail?.url, sourceUrl);
-          }
-          if (Array.isArray(p.media_gallery || p.media_gallery_entries || p.images)) {
-            const arr = p.media_gallery || p.media_gallery_entries || p.images;
-            arr.forEach((m: any) => {
-              const u = sanitizeImageUrl(m.url || m.file || m, sourceUrl);
-              if (u && !galleryImages.includes(u)) galleryImages.push(u);
-            });
-          }
-
-          if (p.description?.html || p.description) {
-            description = String(p.description?.html || p.description || '').replace(/<[^>]*>/g, ' ').trim();
-          }
-
-          // Next.js Configurable Variants & Swatches
-          if (Array.isArray(p.configurable_options || p.variants)) {
-            const opts = p.configurable_options || p.variants;
-            opts.forEach((opt: any) => {
-              const optLabel = String(opt.label || opt.attribute_code || '').toLowerCase();
-              if (Array.isArray(opt.values)) {
-                opt.values.forEach((val: any) => {
-                  const valLabel = String(val.label || val.store_label || '').trim();
-                  if (valLabel) {
-                    if (optLabel.includes('flavor') || optLabel.includes('طعم')) flavorsSet.add(valLabel);
-                    else if (optLabel.includes('size') || optLabel.includes('weight') || optLabel.includes('حجم') || optLabel.includes('وزن')) sizesSet.add(valLabel);
-                  }
-                });
-              }
-            });
-          }
-        }
-      }
-    } catch (_nextErr) {}
-
-    // 2. MAGENTO 2 x-magento-init EXTRACTION
-    if (!priceAED || galleryImages.length === 0) {
-      $('script[type="text/x-magento-init"]').each((_, el) => {
-        try {
-          const raw = $(el).html() || '{}';
-          if (raw.includes('Magento_Swatches/js/swatch-renderer') || raw.includes('spConfig')) {
-            const parsed = JSON.parse(raw);
-            const swatchRenderer = parsed['[data-role=swatch-options]']?.['Magento_Swatches/js/swatch-renderer'] ||
-                                   parsed['#product_addtocart_form']?.['Magento_Swatches/js/swatch-renderer'] ||
-                                   parsed['*']?.['Magento_Swatches/js/swatch-renderer'] ||
-                                   parsed['*']?.['spConfig'];
-
-            const jsonConfig = swatchRenderer?.jsonConfig || swatchRenderer;
-            if (jsonConfig) {
-              if (jsonConfig.prices?.finalPrice?.amount) {
-                priceAED = parseFloat(jsonConfig.prices.finalPrice.amount);
-              }
-              if (jsonConfig.prices?.oldPrice?.amount) {
-                originalPriceAED = parseFloat(jsonConfig.prices.oldPrice.amount);
-              }
-
-              // Parse swatches & images
-              if (jsonConfig.images) {
-                Object.values(jsonConfig.images).forEach((imgGroup: any) => {
-                  if (Array.isArray(imgGroup)) {
-                    imgGroup.forEach((im: any) => {
-                      const u = sanitizeImageUrl(im.full || im.img || im.thumb, sourceUrl);
-                      if (u && !galleryImages.includes(u)) galleryImages.push(u);
-                    });
-                  }
-                });
-              }
-
-              if (jsonConfig.attributes) {
-                Object.values(jsonConfig.attributes).forEach((attr: any) => {
-                  const code = String(attr.code || attr.label || '').toLowerCase();
-                  if (Array.isArray(attr.options)) {
-                    attr.options.forEach((opt: any) => {
-                      const optName = String(opt.label || '').trim();
-                      if (optName) {
-                        if (code.includes('flavor') || code.includes('طعم')) flavorsSet.add(optName);
-                        else if (code.includes('size') || code.includes('weight') || code.includes('حجم')) sizesSet.add(optName);
-                      }
-                    });
-                  }
-                });
-              }
-            }
-          }
-        } catch (_magErr) {}
-      });
-    }
-
-    // 3. SCHEMA.ORG JSON-LD EXTRACTION
-    if (!priceAED || !title) {
-      $('script[type="application/ld+json"]').each((_, el) => {
-        try {
-          const json = JSON.parse($(el).html() || '{}');
-          const target = json['@type'] === 'Product' || json['@type'] === 'IndividualProduct'
-            ? json
-            : (Array.isArray(json['@graph']) ? json['@graph'].find((it: any) => it['@type'] === 'Product') : null);
-
-          if (target) {
-            if (!title && target.name) title = String(target.name).trim();
-            if (target.brand?.name) brand = String(target.brand.name).trim();
-            if (target.image) {
-              const im = Array.isArray(target.image) ? target.image[0] : (typeof target.image === 'object' ? target.image.url : target.image);
-              if (im) {
-                const cleanIm = sanitizeImageUrl(im, sourceUrl);
-                if (!mainImage) mainImage = cleanIm;
-                if (!galleryImages.includes(cleanIm)) galleryImages.push(cleanIm);
-              }
-            }
-            if (target.offers) {
-              const offer = Array.isArray(target.offers) ? target.offers[0] : target.offers;
-              if (offer && offer.price && !priceAED) {
-                priceAED = parseFloat(offer.price);
-              }
-            }
-            if (target.description && !description) {
-              description = String(target.description).replace(/<[^>]*>/g, ' ').trim();
-            }
-          }
-        } catch (_ldErr) {}
-      });
-    }
-
-    // 4. HTML DOM FALLBACK PARSING
-    if (!title) {
-      title = $('h1.product-title, h1[itemprop="name"], h1.page-title, .product-info-main h1, h1').first().text().trim();
-      if (!title) title = $('meta[property="og:title"]').attr('content') || '';
-    }
-    title = title.replace(/\s*\|\s*Dr\s*Nutrition.*$/i, '').trim();
-
-    if (!brand || brand === 'Applied Nutrition') {
-      const domBrand = $('.product-brand, .brand-name, [itemprop="brand"], .product-info-main .brand').first().text().trim();
-      if (domBrand) brand = domBrand;
-    }
-
-    if (!priceAED) {
-      const specialPriceText = $('.special-price .price, [data-price-type="finalPrice"] .price, .product-info-price .price:not(.old-price .price)').first().text();
-      const match = specialPriceText.replace(/,/g, '').match(/[\d.]+/);
-      if (match) priceAED = parseFloat(match[0]);
-    }
-    if (!priceAED) {
-      const anyPrice = $('[itemprop="price"], .price-box .price').not('.old-price *').first().text();
-      const match = anyPrice.replace(/,/g, '').match(/[\d.]+/);
-      if (match) priceAED = parseFloat(match[0]);
-    }
-
-    if (!originalPriceAED) {
-      const oldPriceText = $('.old-price .price, del .price, del').first().text();
-      const oldMatch = oldPriceText.replace(/,/g, '').match(/[\d.]+/);
-      if (oldMatch) originalPriceAED = parseFloat(oldMatch[0]);
-    }
-
-    // Extract images from DOM
-    if (!mainImage) {
-      const ogImg = $('meta[property="og:image"]').attr('content');
-      if (ogImg) mainImage = sanitizeImageUrl(ogImg, sourceUrl);
-    }
-    $('.fotorama__img, .gallery-placeholder img, .product.media img, [data-gallery-role="gallery-placeholder"] img').each((_, el) => {
-      const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-full');
-      if (src) {
-        const clean = sanitizeImageUrl(src, sourceUrl);
-        if (clean && !galleryImages.includes(clean)) galleryImages.push(clean);
-      }
-    });
-    if (mainImage && !galleryImages.includes(mainImage)) galleryImages.unshift(mainImage);
-    if (galleryImages.length > 0 && !mainImage) mainImage = galleryImages[0];
-
-    // Extract swatches (Flavors and Sizes) from DOM
-    $('.swatch-attribute-flavor .swatch-option, .swatch-attribute[data-attribute-code*="flavor"] .swatch-option, .flavor-item').each((_, el) => {
-      const optHtml = $.html(el);
-      const optText = $(el).text().trim() || $(el).attr('data-option-label') || $(el).attr('title') || '';
-      if (optText && !isOutOfStockElement(optHtml, optText)) {
-        flavorsSet.add(optText);
-      }
-    });
-
-    $('.swatch-attribute-size .swatch-option, .swatch-attribute[data-attribute-code*="size"] .swatch-option, .size-item').each((_, el) => {
-      const optHtml = $.html(el);
-      const optText = $(el).text().trim() || $(el).attr('data-option-label') || $(el).attr('title') || '';
-      if (optText && !isOutOfStockElement(optHtml, optText)) {
-        sizesSet.add(optText);
-      }
-    });
-
-    const flavors = Array.from(flavorsSet);
-    const sizes = Array.from(sizesSet);
-
-    const finalPrice = priceAED > 0 ? priceAED : 0;
-    const finalOldPrice = (originalPriceAED && originalPriceAED > finalPrice) ? originalPriceAED : undefined;
-    const discountPercent = (finalOldPrice && finalOldPrice > finalPrice)
-      ? Math.round(((finalOldPrice - finalPrice) / finalOldPrice) * 100)
-      : undefined;
-
-    // Construct standardized ProductVariant matrix
-    const standardizedVariants: any[] = [];
-    if (sizes.length > 0 && flavors.length > 0) {
-      sizes.forEach((s, sIdx) => {
-        flavors.forEach((f, fIdx) => {
-          standardizedVariants.push({
-            id: `var-${sIdx}-${fIdx}`,
-            size: s,
-            flavor: f,
-            price: finalPrice,
-            priceAED: finalPrice,
-            priceAed: finalPrice,
-            originalPrice: finalOldPrice,
-            originalPriceAED: finalOldPrice,
-            originalPriceAed: finalOldPrice,
-            inStock: true,
-            image: mainImage
-          });
-        });
-      });
-    } else if (sizes.length > 0) {
-      sizes.forEach((s, sIdx) => {
-        standardizedVariants.push({
-          id: `var-${sIdx}`,
-          size: s,
-          price: finalPrice,
-          priceAED: finalPrice,
-          priceAed: finalPrice,
-          originalPrice: finalOldPrice,
-          originalPriceAED: finalOldPrice,
-          originalPriceAed: finalOldPrice,
-          inStock: true,
-          image: mainImage
-        });
-      });
-    } else if (flavors.length > 0) {
-      flavors.forEach((f, fIdx) => {
-        standardizedVariants.push({
-          id: `var-${fIdx}`,
-          flavor: f,
-          price: finalPrice,
-          priceAED: finalPrice,
-          priceAed: finalPrice,
-          originalPrice: finalOldPrice,
-          originalPriceAED: finalOldPrice,
-          originalPriceAed: finalOldPrice,
-          inStock: true,
-          image: mainImage
-        });
-      });
-    }
-
-    if (title && (priceAED > 0 || mainImage)) {
-      return {
-        ok: true,
-        success: true,
-        title,
-        titleFa: generateBilingualProductTitle(title, brand),
-        price: finalPrice,
-        priceAED: finalPrice,
-        originalPriceAed: finalOldPrice,
-        originalPriceAED: finalOldPrice,
-        discountPercent,
-        currency: "AED",
-        image: mainImage || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=800',
-        imageUrl: mainImage,
-        images: galleryImages.length > 0 ? galleryImages : (mainImage ? [mainImage] : []),
-        galleryImages: galleryImages.length > 0 ? galleryImages : (mainImage ? [mainImage] : []),
-        brand,
-        storeName,
-        store: storeName,
-        sourceUrl,
-        weightKg: 0.8,
-        description: description || 'مکمل ورزشی و تغذیه‌ای باکیفیت و اورجینال از دکتر نیوتریشن دبی',
-        flavors: flavors,
-        sizes: sizes,
-        variants: standardizedVariants,
-        variantMatrix: {
-          flavors,
-          sizes,
-          items: standardizedVariants
-        }
-      };
-    }
-    return null;
-  };
-
-  // TIER 1: DIRECT AXIOS WITH BROWSER HEADERS
   for (const url of urlCandidates) {
     try {
       const response = await axios.get(url, { headers, timeout: 15000 });
       if (response.data && typeof response.data === 'string') {
-        const parsed = parseDrNutritionHtml(response.data, url);
-        if (parsed && parsed.title && parsed.priceAED > 0) return parsed;
+        const robust = extractRobustProductData(response.data, url);
+        if (robust && robust.titleEn && robust.priceAed > 0) {
+          return {
+            ok: true,
+            success: true,
+            title: robust.titleEn,
+            titleFa: robust.titleFa,
+            brand: robust.brand,
+            storeName,
+            sourceUrl: url,
+            priceAed: robust.priceAed,
+            priceAED: robust.priceAed,
+            price: robust.priceAed,
+            originalPriceAed: robust.originalPriceAed,
+            originalPriceAED: robust.originalPriceAed,
+            originalPrice: robust.originalPriceAed,
+            discountPercent: robust.discountPercent,
+            currency: 'AED',
+            mainImage: robust.imageUrl,
+            image: robust.imageUrl,
+            imageUrl: robust.imageUrl,
+            galleryImages: robust.galleryImages,
+            images: robust.galleryImages,
+            weightKg: 0.8,
+            flavors: robust.flavors,
+            sizes: robust.sizes,
+            variants: robust.variants || [],
+            variantMatrix: {
+              flavors: robust.flavors,
+              sizes: robust.sizes,
+              items: robust.variants || []
+            },
+            description: robust.description
+          };
+        }
       }
     } catch (_e) {}
   }
 
-  // TIER 2: MICROLINK EVALUATION
+  // Jina Reader Fallback
   try {
-    const microUrl = `https://api.microlink.io?url=${encodeURIComponent(enAeUrl)}&prerender=true&waitForTimeout=3000`;
-    const microRes = await axios.get(microUrl, { timeout: 12000 });
-    const data = microRes.data?.data;
-    if (data && (data.title || data.image?.url)) {
-      const cleanTitle = (data.title || '').replace(/\s*\|\s*Dr\s*Nutrition.*$/i, '').trim();
-      const pAed = parseFloat(data.price || 0) || 0;
-      const img = sanitizeImageUrl(data.image?.url, enAeUrl);
-      if (cleanTitle) {
+    const jinaUrl = `https://r.jina.ai/${enAeUrl}`;
+    const jinaRes = await axios.get(jinaUrl, {
+      headers: { ...headers, 'Accept': 'text/plain, text/markdown', 'X-With-Images-Summary': 'true' },
+      timeout: 12000
+    });
+    if (jinaRes.data && typeof jinaRes.data === 'string') {
+      const md = jinaRes.data;
+      let title = '';
+      let price = 0;
+      let originalPrice: number | undefined;
+
+      const h1 = md.match(/^#\s+([^\n]+)/m);
+      if (h1) title = h1[1].replace(/\|\s*Dr\s*Nutrition.*/i, '').trim();
+
+      const priceMatches = Array.from(md.matchAll(/AED\s*([\d,]+\.?\d*)/gi))
+        .map(m => parseFloat(m[1].replace(/,/g, '')))
+        .filter(p => !isNaN(p) && p > 0 && p < 50000);
+
+      if (priceMatches.length > 0) {
+        price = Math.min(...priceMatches);
+        const max = Math.max(...priceMatches);
+        if (max > price) originalPrice = max;
+      }
+
+      const imgMatch = md.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/i);
+      const img = imgMatch ? sanitizeImageUrl(imgMatch[1], enAeUrl) : '';
+
+      if (title && price > 0) {
         return {
           ok: true,
           success: true,
-          title: cleanTitle,
-          titleFa: generateBilingualProductTitle(cleanTitle, 'Dr. Nutrition'),
-          price: pAed,
-          priceAED: pAed,
-          originalPriceAED: pAed,
+          title,
+          titleFa: generateBilingualProductTitle(title, 'Dr. Nutrition'),
+          brand: 'Dr. Nutrition',
+          storeName,
+          sourceUrl: targetUrl,
+          priceAed: price,
+          priceAED: price,
+          price,
+          originalPriceAed: originalPrice,
+          originalPriceAED: originalPrice,
+          originalPrice,
+          discountPercent: originalPrice ? Math.round(((originalPrice - price) / originalPrice) * 100) : undefined,
           currency: 'AED',
+          mainImage: img,
           image: img,
           imageUrl: img,
           galleryImages: img ? [img] : [],
           images: img ? [img] : [],
-          brand: 'Dr. Nutrition',
-          storeName,
-          sourceUrl: enAeUrl,
           weightKg: 0.8
         };
       }
-    }
-  } catch (_mErr) {}
-
-  // TIER 3: SHOPIFY JS / JSON FALLBACK
-  try {
-    const jsonUrl = enAeUrl.split('?')[0].replace(/\/$/, '') + '.json';
-    const jsonRes = await axios.get(jsonUrl, { headers, timeout: 8000 });
-    const p = jsonRes.data?.product;
-    if (p && p.title) {
-      const pPrice = parseFloat(p.variants?.[0]?.price || 0) || 0;
-      const pImg = sanitizeImageUrl(p.image?.src || p.images?.[0]?.src, enAeUrl);
-      return {
-        ok: true,
-        success: true,
-        title: p.title,
-        titleFa: generateBilingualProductTitle(p.title, p.vendor),
-        price: pPrice,
-        priceAED: pPrice,
-        originalPriceAED: parseFloat(p.variants?.[0]?.compare_at_price || 0) || pPrice,
-        currency: 'AED',
-        image: pImg,
-        imageUrl: pImg,
-        galleryImages: (p.images || []).map((im: any) => sanitizeImageUrl(im.src, enAeUrl)),
-        brand: p.vendor || 'Dr. Nutrition',
-        storeName,
-        sourceUrl: enAeUrl,
-        weightKg: parseFloat(p.variants?.[0]?.grams ? (p.variants[0].grams / 1000).toFixed(2) : '0.8') || 0.8
-      };
-    }
-  } catch (_shopErr) {}
-
-  // TIER 4: SCRAPERAPI FALLBACK
-  const scraperApiKey = cmsConfig?.scraperApiKey || process.env.SCRAPERAPI_KEY;
-  if (scraperApiKey) {
-    try {
-      const sApiUrl = `http://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(enAeUrl)}&render=true`;
-      const sRes = await axios.get(sApiUrl, { timeout: 18000 });
-      if (sRes.data && typeof sRes.data === 'string') {
-        const parsed = parseDrNutritionHtml(sRes.data, enAeUrl);
-        if (parsed && parsed.title && parsed.priceAED > 0) return parsed;
-      }
-    } catch (_sErr) {}
-  }
-
-  // TIER 5: JINA READER FALLBACK
-  try {
-    const jinaUrl = `https://r.jina.ai/${enAeUrl}`;
-    const jinaRes = await axios.get(jinaUrl, {
-      headers: { ...headers, 'X-With-Images-Summary': 'true', 'X-No-Cache': 'true' },
-      timeout: 10000
-    });
-    if (jinaRes.data && typeof jinaRes.data === 'string') {
-      const parsed = parseDrNutritionHtml(jinaRes.data, enAeUrl);
-      if (parsed && parsed.title) return parsed;
     }
   } catch (_jErr) {}
 
   return null;
 }
-
-export async function parseDrNutrition(html: string, url: string) {
-  const $ = cheerio.load(html);
-
-  // 1. Check Next.js Hydration Data
-  const nextDataScript = $('#__NEXT_DATA__').html();
-  if (nextDataScript) {
-    try {
-      const parsed = JSON.parse(nextDataScript);
-      const product = parsed?.props?.pageProps?.product;
-      if (product) {
-        const price = parseFloat(product.final_price || product.price || product.special_price || 0);
-        return {
-          ok: true,
-          success: true,
-          title: product.name || product.title,
-          brand: product.brand_name || 'Dr. Nutrition',
-          storeName: 'Dr. Nutrition',
-          sourceUrl: url,
-          priceAed: price,
-          priceAED: price,
-          price: price,
-          mainImage: product.image_url || product.image || (product.media_gallery?.[0]?.url ?? ''),
-          image: product.image_url || product.image || (product.media_gallery?.[0]?.url ?? ''),
-          imageUrl: product.image_url || product.image || (product.media_gallery?.[0]?.url ?? ''),
-          weightKg: parseFloat(product.weight) || 0.8,
-          flavors: product.flavors || [],
-          sizes: product.sizes || []
-        };
-      }
-    } catch (_) {}
-  }
-
-  // 2. DOM Parsing Fallback
-  let title = $('h1.page-title, h1[itemprop="name"]').first().text().trim();
-  if (!title) title = $('meta[property="og:title"]').attr('content') || '';
-  title = title.replace(/\s*\|\s*Dr\.?\s*Nutrition.*$/i, '').trim();
-
-  let priceAED = 0;
-  const priceText = $('.special-price .price, [data-price-type="finalPrice"] .price, span.price').first().text();
-  const match = priceText.replace(/,/g, '').match(/[\d.]+/);
-  if (match) priceAED = parseFloat(match[0]);
-
-  const image = $('meta[property="og:image"]').attr('content') || $('.product.media img').first().attr('src') || '';
-
-  return {
-    ok: true,
-    success: true,
-    title: title || 'مکمل دکتر نوتریشن',
-    brand: 'Dr. Nutrition',
-    storeName: 'Dr. Nutrition',
-    sourceUrl: url,
-    priceAed: priceAED,
-    priceAED: priceAED,
-    price: priceAED,
-    mainImage: image,
-    image: image,
-    imageUrl: image,
-    weightKg: 0.8
-  };
-}
-
-export async function parseDrNutritionProduct(html: string, targetUrl: string) {
-  return parseDrNutrition(html, targetUrl);
-}
-

@@ -1,9 +1,21 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import type { NormalizedProduct, ProductVariant } from '../types';
+import type { NormalizedProduct } from '../types';
 import { useCart } from '../context/CartContext';
-import { formatToman, toPersianDigits } from '../utils/formatters';
-import { parseWeightKg, computeVariantToman } from '../utils/pricingCalculator';
-import { ShoppingCart, Check, AlertCircle, Sparkles, Scale } from 'lucide-react';
+import { calculateProductTomanPrice } from '../utils/pricingCalculator';
+import {
+  matchVariantValues,
+  areVariantsMatching,
+  getActiveVariants,
+  getAllFlavors,
+  getAllSizes,
+  getAvailableSizesForFlavor,
+  findExactVariant,
+  isFlavorAvailable,
+  isSizeAvailableForFlavor,
+  handleFlavorChange,
+  handleSizeChange
+} from '../utils/variantMatrixEngine';
+import { ShoppingCart, Check, AlertCircle } from 'lucide-react';
 
 interface ProductDetailsProps {
   product: NormalizedProduct;
@@ -13,6 +25,20 @@ interface ProductDetailsProps {
   onAddToCart?: (item: any) => void;
 }
 
+// 1. String Normalizer: Strips parentheses, extra spaces, and handles lowercase
+const cleanStr = (str: string = ''): string => {
+  return String(str)
+    .replace(/\(.*?\)/g, '') // remove anything inside parentheses
+    .replace(/[()]/g, '')
+    .trim()
+    .toLowerCase();
+};
+
+const cleanSize = (sizeStr: string = ''): string => {
+  const match = String(sizeStr).match(/([\d.]+)/);
+  return match ? match[1] : String(sizeStr).trim();
+};
+
 export const ProductDetails: React.FC<ProductDetailsProps> = ({
   product,
   aedRate = 55000,
@@ -20,110 +46,181 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
   profitMargin = 20,
   onAddToCart
 }) => {
-  // 1. Collect all unique flavors and sizes directly from the saved variants array
-  const availableFlavors = useMemo(() => {
-    const set = new Set<string>();
-    if (product.variants && product.variants.length > 0) {
-      product.variants.forEach((v: any) => {
-        if (v.flavor) set.add(v.flavor);
-      });
+  const { addToCart } = useCart();
+
+  // ── Store / Brand Badge Resolver (Rendered cleanly above title) ──────────────
+  const storeBadge = useMemo(() => {
+    const s = ((product as any)?.storeName || product?.brand || '').toLowerCase();
+    if (s.includes('dr. nutrition') || s.includes('dr nutrition') || s.includes('drnutrition')) {
+      return { name: 'Dr. Nutrition', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' };
     }
-    if (set.size === 0 && product.flavors && product.flavors.length > 0) {
-      product.flavors.forEach((f: any) => {
-        const name = typeof f === 'string' ? f : (f?.name || f?.flavor);
-        if (name) set.add(name);
-      });
+    if (s.includes('gnc')) {
+      return { name: 'GNC Store', bg: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' };
     }
-    return Array.from(set);
+    if (s.includes('sporter')) {
+      return { name: 'Sporter', bg: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' };
+    }
+    if (s.includes('life pharmacy') || s.includes('lifepharmacy')) {
+      return { name: 'Life Pharmacy', bg: 'bg-cyan-50 text-cyan-700 border-cyan-200', dot: 'bg-cyan-500' };
+    }
+    if (s.includes('انبار ایران') || s.includes('iran') || (product as any)?.category === 'inventory') {
+      return { name: 'انبار ایران (تحویل فوری)', bg: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' };
+    }
+    return { name: (product as any)?.storeName || product?.brand || 'فروشگاه معتبر دبی', bg: 'bg-slate-100 text-slate-800 border-slate-200', dot: 'bg-slate-500' };
   }, [product]);
 
-  const availableSizes = useMemo(() => {
-    const set = new Set<string>();
-    if (product.variants && product.variants.length > 0) {
-      product.variants.forEach((v: any) => {
-        if (v.size) set.add(v.size);
-      });
-    }
-    if (set.size === 0 && product.sizes && product.sizes.length > 0) {
-      product.sizes.forEach((s: any) => {
-        const name = typeof s === 'string' ? s : (s?.name || s?.label || s?.size);
-        if (name) set.add(name);
-      });
-    }
-    return Array.from(set);
-  }, [product]);
+  // 2. Extract active variants directly from product.variants as single source of truth
+  const activeVariants = useMemo(() => {
+    return getActiveVariants(product?.variants);
+  }, [product?.variants]);
 
-  // 2. Selection State
-  const [selectedFlavor, setSelectedFlavor] = useState<string>(availableFlavors[0] || '');
-  const [selectedSize, setSelectedSize] = useState<string>(availableSizes[0] || '');
+  // Extract Unique Global Flavors and Sizes directly from active variants (or allowed fallbacks)
+  const availableFlavors: string[] = useMemo(() => {
+    if (activeVariants.length > 0) {
+      return getAllFlavors(activeVariants);
+    }
+    const raw = (product as any)?.allowedFlavors || (product as any)?.flavors || [];
+    return Array.from(new Set(raw.map((f: any) => String(typeof f === 'string' ? f : (f?.name || f?.flavor || f?.label || ''))).filter(Boolean))) as string[];
+  }, [activeVariants, product]);
+
+  const availableSizes: string[] = useMemo(() => {
+    if (activeVariants.length > 0) {
+      return getAllSizes(activeVariants);
+    }
+    const raw = (product as any)?.allowedSizes || (product as any)?.sizes || [];
+    return Array.from(new Set(raw.map((s: any) => String(typeof s === 'string' ? s : (s?.name || s?.size || s?.label || ''))).filter(Boolean))) as string[];
+  }, [activeVariants, product]);
+
+  // Initial selection
+  const [selectedFlavor, setSelectedFlavor] = useState<string>(() => {
+    const activeList = getActiveVariants(product?.variants);
+    if (activeList.length > 0) {
+      return activeList[0]?.flavor || '';
+    }
+    return '';
+  });
+
+  const [selectedSize, setSelectedSize] = useState<string>(() => {
+    const activeList = getActiveVariants(product?.variants);
+    if (activeList.length > 0) {
+      return activeList[0]?.size || activeList[0]?.name || '';
+    }
+    return '';
+  });
+
   const [quantity, setQuantity] = useState<number>(1);
   const [isAdded, setIsAdded] = useState<boolean>(false);
+  const [selectedGalleryImage, setSelectedGalleryImage] = useState<string>('');
 
-  // Sync state if options change
+  // 3. Primary Flavor & Dependent Size Availability Checks
+  // Check if a Size is valid for the currently selected Flavor
+  const isSizeAvailable = (size: string): boolean => {
+    if (activeVariants.length === 0) return true;
+    return isSizeAvailableForFlavor(activeVariants, size, selectedFlavor);
+  };
+
+  // Flavor is NEVER disabled by size. All configured flavors remain selectable.
+  const isFlavorAvailable = (_flavor: string): boolean => {
+    return true;
+  };
+
+  // 4. Click Handlers
+  const handleFlavorClick = (flavor: string) => {
+    const res = handleFlavorChange(activeVariants, flavor, selectedSize);
+    setSelectedFlavor(res.flavor);
+    setSelectedSize(res.size);
+  };
+
+  const handleSizeClick = (size: string) => {
+    // Size simply selects the size; does NOT disable or filter flavors
+    setSelectedSize(size);
+  };
+
+  // Initial auto-sync on mount or product change
   useEffect(() => {
-    if (availableFlavors.length > 0 && (!selectedFlavor || !availableFlavors.includes(selectedFlavor))) {
-      setSelectedFlavor(availableFlavors[0]);
+    if (activeVariants.length > 0) {
+      const exact = findExactVariant(activeVariants, selectedFlavor, selectedSize);
+      if (!exact) {
+        const first = activeVariants[0];
+        if (first.flavor) setSelectedFlavor(first.flavor);
+        if (first.size || first.name) setSelectedSize(first.size || first.name);
+      }
+    } else {
+      if (availableFlavors.length > 0 && !selectedFlavor) {
+        setSelectedFlavor(availableFlavors[0]);
+      }
+      if (availableSizes.length > 0 && !selectedSize) {
+        setSelectedSize(availableSizes[0]);
+      }
     }
-  }, [availableFlavors]);
+  }, [activeVariants, availableFlavors, availableSizes]);
 
-  useEffect(() => {
-    if (availableSizes.length > 0 && (!selectedSize || !availableSizes.includes(selectedSize))) {
-      setSelectedSize(availableSizes[0]);
-    }
-  }, [availableSizes]);
-
-  // 3. Resolve active variant & matching price
+  // 5. Exact Active Variant Resolution & Dynamic Pricing
   const activeVariant = useMemo(() => {
-    if (!product.variants || product.variants.length === 0) return null;
+    if (activeVariants.length === 0) return null;
+    return findExactVariant(activeVariants, selectedFlavor, selectedSize);
+  }, [activeVariants, selectedFlavor, selectedSize]);
 
-    // Exact match (Flavor + Size)
-    const exact = product.variants.find(
-      (v: any) =>
-        (!selectedFlavor || v.flavor === selectedFlavor) &&
-        (!selectedSize || v.size === selectedSize)
-    );
-    if (exact) return exact;
-
-    // Match flavor only
-    const matchFlavor = product.variants.find((v: any) => v.flavor === selectedFlavor);
-    if (matchFlavor) return matchFlavor;
-
-    // Match size only
-    const matchSize = product.variants.find((v: any) => v.size === selectedSize);
-    if (matchSize) return matchSize;
-
-    return product.variants[0];
-  }, [product.variants, selectedFlavor, selectedSize]);
-
-  // 4. Compute active dynamic prices & stock
-  const currentPriceAed = activeVariant?.priceAed ?? activeVariant?.priceAED ?? activeVariant?.price ?? product.priceAED ?? product.priceAed ?? product.price ?? 0;
-  const currentOriginalPriceAed = activeVariant?.originalPriceAed ?? activeVariant?.originalPriceAED ?? activeVariant?.originalPrice ?? product.originalPriceAED ?? product.originalPriceAed ?? product.originalPrice;
-  const effectiveWeightKg = parseWeightKg(activeVariant?.size || selectedSize, activeVariant?.weightKg || product.weightKg || 0.8);
+  const currentPriceAed = activeVariant 
+    ? Number(activeVariant.priceAed || activeVariant.priceAED || 0) 
+    : Number((product as any)?.basePriceAed || product?.priceAed || 0);
 
   const currentPriceToman = useMemo(() => {
-    if (activeVariant?.priceToman && activeVariant.priceToman > 0) {
-      return activeVariant.priceToman;
+    if (activeVariant && Number(activeVariant.priceToman) > 0) {
+      return Number(activeVariant.priceToman);
     }
-    return computeVariantToman(currentPriceAed, activeVariant?.size || selectedSize, effectiveWeightKg, {
-      aedRate,
-      cargoRatePerKg,
-      profitMargin
-    });
-  }, [activeVariant, currentPriceAed, effectiveWeightKg, selectedSize, cargoRatePerKg, profitMargin, aedRate]);
+    if ((product as any)?.priceToman) {
+      return Number((product as any).priceToman);
+    }
+    const margin = (product as any).profitMargin !== undefined ? (product as any).profitMargin : profitMargin;
+    return Number(calculateProductTomanPrice({
+      priceAed: currentPriceAed,
+      profitMarginPercent: margin,
+      aedToTomanRate: aedRate,
+      baseShippingAed: 20
+    }));
+  }, [activeVariant, (product as any)?.priceToman, (product as any)?.profitMargin, profitMargin, currentPriceAed, aedRate]);
 
-  const activeImage = activeVariant?.image || product.imageUrl || product.image || product.mainImage || '';
-  const isAvailable = activeVariant ? (activeVariant.inStock !== false) : (product.inStock !== false);
+  // Compute active combination stock availability
+  const isComboAvailable = useMemo(() => {
+    if (!product.variants || product.variants.length === 0) {
+      return product.inStock !== false;
+    }
+    if (selectedFlavor && selectedSize) {
+      const exact = product.variants.find(
+        (v: any) => cleanStr(v.flavor) === cleanStr(selectedFlavor) && cleanSize(v.size) === cleanSize(selectedSize)
+      );
+      if (!exact) return false;
+      return exact.inStock !== false;
+    }
+    if (activeVariant) {
+      return activeVariant.inStock !== false;
+    }
+    return product.inStock !== false;
+  }, [product.variants, product.inStock, selectedFlavor, selectedSize, activeVariant]);
+
+  // Gallery list construction
+  const rawImages = product.images || (product as any).galleryImages || (product.imageUrl ? [product.imageUrl] : [product.image]);
+  const galleryList = useMemo(() => {
+    const list = Array.isArray(rawImages) ? rawImages.filter(Boolean) : [];
+    if (activeVariant?.image && !list.includes(activeVariant.image)) {
+      list.unshift(activeVariant.image);
+    }
+    return list;
+  }, [rawImages, activeVariant]);
+
+  const mainDisplayImage = selectedGalleryImage || activeVariant?.image || product.imageUrl || product.image || product.mainImage || '';
 
   const handleAddToCart = () => {
-    if (!isAvailable) return;
+    if (!isComboAvailable) return;
     const payload = {
       id: `${product.id || product.url || product.title}_${selectedSize}_${selectedFlavor}`,
-      title: product.title,
+      title: product.titleFa || product.title,
       priceAED: currentPriceAed,
       priceToman: currentPriceToman,
       selectedSize,
       selectedFlavor,
-      imageUrl: activeImage,
+      imageUrl: mainDisplayImage,
       quantity,
       product
     };
@@ -140,45 +237,77 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm font-['Vazirmatn',sans-serif]" dir="rtl">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Product Image */}
-        <div className="flex flex-col items-center justify-center p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800 relative">
-          {activeImage ? (
-            <img
-              src={activeImage}
-              alt={product.title}
-              className="max-h-80 w-auto object-contain transition-all duration-300 hover:scale-105"
-            />
-          ) : (
-            <div className="w-48 h-48 bg-gray-200 dark:bg-gray-700 rounded-2xl flex items-center justify-center text-gray-400">
-              بدون تصویر
-            </div>
-          )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        {/* Product Image Stage (Purged of clutter) */}
+        <div className="flex flex-col space-y-3">
+          <div className="flex flex-col items-center justify-center p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800 relative min-h-[300px]">
+            {mainDisplayImage ? (
+              <img
+                src={mainDisplayImage}
+                alt={product.title}
+                referrerPolicy="no-referrer"
+                className="max-h-80 w-auto object-contain transition-all duration-300 hover:scale-105"
+              />
+            ) : (
+              <div className="w-48 h-48 bg-gray-200 dark:bg-gray-700 rounded-2xl flex items-center justify-center text-gray-400">
+                بدون تصویر
+              </div>
+            )}
 
-          {!isAvailable && (
-            <span className="absolute top-3 right-3 bg-red-500 text-white text-[11px] font-black px-2.5 py-1 rounded-xl shadow-xs">
-              ناموجود
-            </span>
+            {!isComboAvailable && (
+              <span className="absolute top-3.5 left-3.5 bg-red-500 text-white text-[11px] font-black px-2.5 py-1 rounded-xl shadow-xs">
+                ناموجود
+              </span>
+            )}
+          </div>
+
+          {/* Gallery Thumbnails */}
+          {galleryList.length > 1 && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 dir-ltr no-scrollbar">
+              {galleryList.map((imgUrl, idx) => {
+                const isSelected = (mainDisplayImage === imgUrl);
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setSelectedGalleryImage(imgUrl)}
+                    className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition-all p-1 bg-white dark:bg-gray-800 cursor-pointer shrink-0 ${
+                      isSelected
+                        ? 'border-red-600 ring-2 ring-red-600/20'
+                        : 'border-gray-200 dark:border-gray-700 opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    <img
+                      src={imgUrl}
+                      alt={`View ${idx + 1}`}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-contain"
+                    />
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 
-        {/* Product Info & Controls */}
+        {/* Product Info, Clean Dual Pricing & Smart Variant Selectors */}
         <div className="flex flex-col justify-between space-y-4">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              {product.brand && (
-                <span className="text-xs font-black text-red-600 bg-red-50 dark:bg-red-950/40 px-2.5 py-1 rounded-lg">
+          <div className="space-y-3.5">
+            {/* Store / Brand Badge Cleanly Above Title */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border shadow-2xs ${storeBadge.bg}`}>
+                <span className={`w-2 h-2 rounded-full ${storeBadge.dot} animate-pulse`} />
+                <span>{storeBadge.name}</span>
+              </span>
+
+              {product.brand && product.brand !== storeBadge.name && (
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700">
                   {product.brand}
-                </span>
-              )}
-              {((product as any).isFeatured || (product as any).isPopular) && (
-                <span className="text-xs font-black text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 rounded-lg flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" />
-                  <span>پرطرفدار</span>
                 </span>
               )}
             </div>
 
+            {/* Bilingual Titles */}
             <div>
               <h1 className="text-base sm:text-lg font-black text-gray-950 dark:text-white leading-relaxed">
                 {product.titleFa || product.title}
@@ -190,55 +319,60 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
               )}
             </div>
 
-            {/* Price Box */}
-            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <div>
-                <span className="text-xs text-gray-500 block mb-0.5">قیمت نهایی تحویل ایران:</span>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-xl font-black text-emerald-600">
-                    {formatToman(currentPriceToman)}
-                  </span>
-                  <span className="text-xs font-bold text-gray-500">تومان</span>
+            {/* Clean White High-Contrast Pricing Box */}
+            <div className="grid grid-cols-2 gap-3 my-5" dir="rtl">
+              {/* Right Box: Toman Price (Delivered Iran) */}
+              <div className="flex flex-col items-center justify-center p-4 bg-white border-2 border-red-100 rounded-2xl shadow-sm text-center">
+                <span className="text-[12px] font-bold text-gray-500 mb-1">تحویل ایران</span>
+                <div className="flex items-center justify-center gap-1 font-black text-xl text-red-600">
+                  <span>{Number(currentPriceToman || 0).toLocaleString('fa-IR')}</span>
+                  <span className="text-xs font-bold">تومان</span>
                 </div>
               </div>
-              <div className="text-left dir-ltr">
-                <span className="text-xs font-mono font-bold text-gray-700 dark:text-gray-300 block">
-                  {currentPriceAed} AED
-                </span>
-                {currentOriginalPriceAed && currentOriginalPriceAed > currentPriceAed && (
-                  <span className="text-[11px] font-mono text-gray-400 line-through">
-                    {currentOriginalPriceAed} AED
-                  </span>
-                )}
+
+              {/* Left Box: AED Dubai Price */}
+              <div className="flex flex-col items-center justify-center p-4 bg-white border-2 border-gray-200 rounded-2xl shadow-sm text-center">
+                <span className="text-[12px] font-bold text-gray-500 mb-1">قیمت درهم (دبی)</span>
+                <div className="flex items-center justify-center gap-1.5 font-black text-xl text-gray-900" dir="ltr">
+                  <span className="text-xs font-black text-emerald-600">AED</span>
+                  <span>{Number(currentPriceAed || 0).toLocaleString('en-US')}</span>
+                </div>
               </div>
             </div>
 
-            {/* Flavor Swatches */}
+            {/* Flavor Selector */}
             {availableFlavors.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-700 dark:text-gray-300 block">
-                    انتخاب طعم:
+                  <span className="text-xs font-bold text-gray-700 block">
+                    طعم (Flavor):
                   </span>
-                  <span className="text-xs font-black text-slate-900 dark:text-white">
-                    {selectedFlavor}
-                  </span>
+                  {selectedFlavor && (
+                    <span className="text-xs font-black text-slate-900">
+                      {selectedFlavor}
+                    </span>
+                  )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {availableFlavors.map((flv) => {
-                    const isSelected = selectedFlavor === flv;
+                <div className="flex flex-wrap gap-2 my-2">
+                  {availableFlavors.map((flavor: string) => {
+                    const isSelected = matchVariantValues(selectedFlavor, flavor);
+                    const isAvailable = isFlavorAvailable(flavor);
+
                     return (
                       <button
-                        key={flv}
+                        key={flavor}
                         type="button"
-                        onClick={() => setSelectedFlavor(flv)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        disabled={!isAvailable}
+                        onClick={() => handleFlavorClick(flavor)}
+                        className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all ${
                           isSelected
-                            ? 'bg-black text-white dark:bg-white dark:text-black shadow-xs ring-2 ring-black/20'
-                            : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 hover:bg-gray-200'
+                            ? 'bg-red-600 text-white shadow-md ring-2 ring-red-500/20 border-red-600'
+                            : isAvailable
+                            ? 'bg-white text-gray-800 border border-gray-200 hover:border-gray-400 cursor-pointer'
+                            : 'opacity-25 line-through cursor-not-allowed pointer-events-none bg-gray-100 text-gray-400 border border-dashed border-gray-300'
                         }`}
                       >
-                        {flv}
+                        {flavor}
                       </button>
                     );
                   })}
@@ -246,32 +380,39 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
               </div>
             )}
 
-            {/* Size Swatches */}
+            {/* Size Selector */}
             {availableSizes.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-700 dark:text-gray-300 block">
-                    انتخاب سایز / وزن:
+                  <span className="text-xs font-bold text-gray-700 block">
+                    وزن / سایز (Size):
                   </span>
-                  <span className="text-xs font-black text-slate-900 dark:text-white">
-                    {selectedSize}
-                  </span>
+                  {selectedSize && (
+                    <span className="text-xs font-black text-slate-900">
+                      {selectedSize}
+                    </span>
+                  )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {availableSizes.map((sz) => {
-                    const isSelected = selectedSize === sz;
+                <div className="flex flex-wrap gap-2 my-2">
+                  {availableSizes.map((size: string) => {
+                    const isSelected = matchVariantValues(selectedSize, size);
+                    const isAvailable = isSizeAvailable(size);
+
                     return (
                       <button
-                        key={sz}
+                        key={size}
                         type="button"
-                        onClick={() => setSelectedSize(sz)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        disabled={!isAvailable}
+                        onClick={() => handleSizeClick(size)}
+                        className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all ${
                           isSelected
-                            ? 'bg-black text-white dark:bg-white dark:text-black shadow-xs ring-2 ring-black/20'
-                            : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 hover:bg-gray-200'
+                            ? 'bg-red-600 text-white shadow-md ring-2 ring-red-500/20 border-red-600'
+                            : isAvailable
+                            ? 'bg-white text-gray-800 border border-gray-200 hover:border-gray-400 cursor-pointer'
+                            : 'opacity-25 line-through cursor-not-allowed pointer-events-none bg-gray-100 text-gray-400 border border-dashed border-gray-300'
                         }`}
                       >
-                        {sz}
+                        {size}
                       </button>
                     );
                   })}
@@ -287,17 +428,17 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
               <button
                 type="button"
                 onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                className="w-6 h-6 flex items-center justify-center font-bold text-gray-700 dark:text-gray-200 cursor-pointer"
+                className="w-6 h-6 flex items-center justify-center font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:text-black dark:hover:text-white"
               >
                 -
               </button>
               <span className="text-xs font-black min-w-[16px] text-center">
-                {toPersianDigits(quantity)}
+                {quantity.toLocaleString('fa-IR')}
               </span>
               <button
                 type="button"
                 onClick={() => setQuantity(quantity + 1)}
-                className="w-6 h-6 flex items-center justify-center font-bold text-gray-700 dark:text-gray-200 cursor-pointer"
+                className="w-6 h-6 flex items-center justify-center font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:text-black dark:hover:text-white"
               >
                 +
               </button>
@@ -306,20 +447,20 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
             {/* Add to Cart */}
             <button
               type="button"
-              disabled={!isAvailable}
+              disabled={!isComboAvailable}
               onClick={handleAddToCart}
               className={`flex-1 py-3 px-4 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                !isAvailable
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                !isComboAvailable
+                  ? 'bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed border border-gray-300 dark:border-gray-700'
                   : isAdded
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-black hover:bg-gray-900 text-white shadow-md'
+                  ? 'bg-red-600 text-white'
+                  : 'bg-red-600 hover:bg-red-700 text-white shadow-md active:scale-95'
               }`}
             >
-              {!isAvailable ? (
+              {!isComboAvailable ? (
                 <>
-                  <AlertCircle className="w-4 h-4 text-gray-500" />
-                  <span>ناموجود در این ترکیب</span>
+                  <AlertCircle className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                  <span>ناموجود در این مشخصات</span>
                 </>
               ) : isAdded ? (
                 <>
@@ -339,3 +480,4 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
     </div>
   );
 };
+

@@ -1,4 +1,4 @@
-﻿export interface ParsedAttributes {
+export interface ParsedAttributes {
   size?: string;
   flavor?: string;
   weightKg?: number;

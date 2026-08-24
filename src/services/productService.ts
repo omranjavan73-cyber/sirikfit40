@@ -1,98 +1,181 @@
 import { db } from '../firebase';
-import { collection, doc, getDocs, getDoc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
 import type { FeaturedDeal, LocalInventoryItem } from '../types';
+import { parseWeightKg, calculateProductTomanPrice } from '../utils/pricingCalculator';
 
 export const SPECIAL_DEALS_COLLECTION = 'special_deals';
 export const IRAN_WAREHOUSE_COLLECTION = 'iran_warehouse';
 
-import { parseWeightKg } from '../utils/pricingCalculator';
+export interface StandardProductDoc {
+  id: string;
+  title: string;
+  titleFa: string;
+  titleEn: string;
+  brand: string;
+  category: string;
+  mainCategory: string;
+  subcategory: string;
+  subCategory: string;
+  caption: string;
+  description: string;
+  image: string;
+  imageUrl: string;
+  images: string[];
+  galleryImages: string[];
+  basePriceAed: number;
+  priceAed: number;
+  originalPriceAed: number;
+  profitMargin: number;
+  weightKg: number;
+  priceToman: number;
+  originalPriceToman: number;
+  stockQuantity: number;
+  stockCount: number;
+  url: string;
+  storeName: string;
+  inStock: boolean;
+  isActive: boolean;
+  isPopular: boolean;
+  isFeatured: boolean;
+  allowedFlavors: string[];
+  flavors: string[];
+  allowedSizes: string[];
+  sizes: string[];
+  variants: Array<{
+    id: string;
+    flavor: string;
+    size: string;
+    priceAed: number;
+    price: number;
+    priceAED: number;
+    priceToman: number;
+    weightKg: number;
+    image: string;
+    inStock: boolean;
+    url?: string;
+  }>;
+  updatedAt: string;
+}
 
-export const cleanProductForFirestore = (prod: any) => {
-  const titleFa = prod.titleFa || prod.title || prod.titleEn || '';
-  const titleEn = prod.titleEn || prod.rawTitle || prod.title || '';
-  const primaryTitle = titleFa || titleEn || 'بدون عنوان';
+export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 51400): StandardProductDoc => {
+  const baseAed = Number(prod.basePriceAed || prod.priceAed || prod.price || 0);
+  const margin = Number(prod.profitMargin !== undefined && prod.profitMargin !== null && !isNaN(Number(prod.profitMargin)) ? prod.profitMargin : 20);
   const baseWeight = Number(prod.weightKg || 0.8);
-  const basePriceAed = Number(prod.basePriceAed || prod.priceAed || prod.price || 0);
 
-  const cleanVariants = (prod.variants || []).map((v: any) => ({
-    id: String(v.id || Math.random().toString(36).substring(2, 8)),
-    flavor: String(v.flavor || ''),
-    size: String(v.size || ''),
-    priceAed: Number(v.priceAed || v.price || v.priceAED || basePriceAed),
-    price: Number(v.price || v.priceAed || v.priceAED || basePriceAed),
-    priceAED: Number(v.priceAED || v.priceAed || v.price || basePriceAed),
-    priceToman: Number(v.priceToman || 0),
-    weightKg: parseWeightKg(v.size, Number(v.weightKg) || baseWeight),
-    image: v.image || prod.imageUrl || prod.image || '',
-    inStock: v.inStock !== false
-  }));
+  const defaultToman = calculateProductTomanPrice({
+    priceAed: baseAed,
+    profitMarginPercent: margin,
+    aedToTomanRate,
+    baseShippingAed: 20
+  });
+
+  const titleFa = String(prod.titleFa || prod.title || 'محصول بدون عنوان');
+  const titleEn = String(prod.titleEn || prod.rawTitle || '');
+  const primaryTitle = titleFa || titleEn || 'محصول بدون عنوان';
+  const img = String(prod.imageUrl || prod.image || '');
+
+  const rawFlavors = Array.isArray(prod.allowedFlavors) ? prod.allowedFlavors : (Array.isArray(prod.flavors) ? prod.flavors : []);
+  const cleanFlavors = rawFlavors.filter((f: any) => typeof f === 'string' && f.trim().length > 0);
+
+  const rawSizes = Array.isArray(prod.allowedSizes) ? prod.allowedSizes : (Array.isArray(prod.sizes) ? prod.sizes : []);
+  const cleanSizes = rawSizes.filter((s: any) => typeof s === 'string' && s.trim().length > 0);
+
+  const rawVariants = Array.isArray(prod.variants) ? prod.variants : [];
+  const cleanVariants = rawVariants.map((v: any) => {
+    const vAed = Number(v.priceAed || v.price || v.priceAED || baseAed || 0);
+    const vToman = Number(v.priceToman || calculateProductTomanPrice({
+      priceAed: vAed,
+      profitMarginPercent: margin,
+      aedToTomanRate,
+      baseShippingAed: 20
+    }));
+
+    return {
+      id: String(v.id || Math.random().toString(36).substring(2, 8)),
+      flavor: String(v.flavor || ''),
+      size: String(v.size || ''),
+      priceAed: vAed,
+      price: vAed,
+      priceAED: vAed,
+      priceToman: vToman,
+      weightKg: parseWeightKg(v.size, Number(v.weightKg) || baseWeight),
+      image: String(v.image || img || ''),
+      inStock: v.inStock !== false,
+      ...(v.url ? { url: String(v.url) } : {})
+    };
+  });
 
   return {
     id: String(prod.id || Date.now()),
     title: primaryTitle,
     titleFa,
     titleEn,
-    brand: prod.brand || '',
-    category: prod.category || prod.mainCategory || 'مکمل‌های ورزشی',
-    mainCategory: prod.mainCategory || prod.category || 'مکمل‌های ورزشی',
-    subcategory: prod.subcategory || prod.subCategory || '',
-    subCategory: prod.subCategory || prod.subcategory || '',
-    caption: prod.caption || '',
-    description: prod.description || '',
-    image: prod.image || prod.imageUrl || '',
-    imageUrl: prod.imageUrl || prod.image || '',
-    images: Array.isArray(prod.images) ? prod.images : (prod.image ? [prod.image] : []),
-    galleryImages: Array.isArray(prod.galleryImages) ? prod.galleryImages : (prod.image ? [prod.image] : []),
-    basePriceAed,
-    priceAed: Number(prod.priceAed || basePriceAed),
+    brand: String(prod.brand || ''),
+    category: String(prod.category || prod.mainCategory || 'مکمل‌های ورزشی'),
+    mainCategory: String(prod.mainCategory || prod.category || 'مکمل‌های ورزشی'),
+    subcategory: String(prod.subcategory || prod.subCategory || ''),
+    subCategory: String(prod.subCategory || prod.subcategory || ''),
+    caption: String(prod.caption || ''),
+    description: String(prod.description || ''),
+    image: img,
+    imageUrl: img,
+    images: Array.isArray(prod.images) ? prod.images.filter(Boolean) : (img ? [img] : []),
+    galleryImages: Array.isArray(prod.galleryImages) ? prod.galleryImages.filter(Boolean) : (img ? [img] : []),
+    basePriceAed: baseAed,
+    priceAed: Number(prod.priceAed || baseAed),
     originalPriceAed: Number(prod.originalPriceAed || 0),
+    profitMargin: margin,
     weightKg: baseWeight,
-    priceToman: Number(prod.priceToman || 0),
+    priceToman: Number(prod.priceToman || defaultToman),
     originalPriceToman: Number(prod.originalPriceToman || 0),
     stockQuantity: Number(prod.stockQuantity || 10),
     stockCount: Number(prod.stockCount || prod.stockQuantity || 10),
-    url: prod.url || '',
-    storeName: prod.storeName || 'فروشگاه دبی',
+    url: String(prod.url || ''),
+    storeName: String(prod.storeName || 'فروشگاه دبی'),
     inStock: prod.inStock !== false,
     isActive: Boolean(prod.isActive),
     isPopular: Boolean(prod.isPopular),
     isFeatured: Boolean(prod.isFeatured || prod.isPopular),
-    allowedFlavors: Array.isArray(prod.allowedFlavors) ? prod.allowedFlavors : (Array.isArray(prod.flavors) ? prod.flavors : []),
-    flavors: Array.isArray(prod.flavors) ? prod.flavors : (Array.isArray(prod.allowedFlavors) ? prod.allowedFlavors : []),
-    allowedSizes: Array.isArray(prod.allowedSizes) ? prod.allowedSizes : (Array.isArray(prod.sizes) ? prod.sizes : []),
-    sizes: Array.isArray(prod.sizes) ? prod.sizes : (Array.isArray(prod.allowedSizes) ? prod.allowedSizes : []),
+    allowedFlavors: cleanFlavors,
+    flavors: cleanFlavors,
+    allowedSizes: cleanSizes,
+    sizes: cleanSizes,
     variants: cleanVariants,
     updatedAt: new Date().toISOString()
   };
 };
 
+export const cleanProductForFirestore = sanitizeProductForFirestore;
+
 /**
- * Direct, isolated, bulletproof Firestore writer for Admin Panels
+ * Deep, atomic, sanitized Firestore product writer
  */
-export async function saveAdminProducts(
+export async function saveAllAdminProducts(
   collectionName: 'special_deals' | 'iran_warehouse',
-  productsList: any[]
+  products: any[]
 ): Promise<void> {
-  if (!Array.isArray(productsList)) {
+  if (!Array.isArray(products)) {
     throw new Error('لیست محصولات نامعتبر است');
   }
 
-  const cleanList: any[] = [];
+  const cleanList: StandardProductDoc[] = [];
 
-  for (const item of productsList) {
+  for (const item of products) {
     if (!item.id) continue;
-    const cleanDoc = sanitizePayloadForFirestore(cleanProductForFirestore(item));
+    const cleanDoc = sanitizeProductForFirestore(item);
     cleanList.push(cleanDoc);
     const docRef = doc(db, collectionName, cleanDoc.id);
-    await setDoc(docRef, cleanDoc, { merge: true });
+    await setDoc(docRef, sanitizePayloadForFirestore(cleanDoc), { merge: true });
   }
 
-  // Also sync to settings/cms for instant backward compatibility & live reactive App.tsx state
+  // Sync to settings/cms for instant backward compatibility & live reactive App.tsx state
   const cmsKey = collectionName === 'iran_warehouse' ? 'localInventory' : 'deals';
   const cmsRef = doc(db, 'settings', 'cms');
   await setDoc(cmsRef, { [cmsKey]: cleanList, updatedAt: new Date().toISOString() }, { merge: true });
 }
+
+export const saveAdminProducts = saveAllAdminProducts;
 
 /**
  * Fetch all Special Deals from Firestore

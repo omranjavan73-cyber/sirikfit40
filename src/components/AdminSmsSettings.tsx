@@ -11,7 +11,9 @@ import {
   AlertCircle,
   Settings,
   Zap,
-  CheckCircle2
+  CheckCircle2,
+  Lock,
+  ShoppingBag
 } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -20,7 +22,11 @@ export interface SmsConfig {
   apiKey: string;
   adminMobile: string;
   otpPattern: string;
+  otpTemplateId?: string;
+  resetPasswordPattern: string;
+  resetPasswordTemplateId?: string;
   orderSuccessCustomerPattern: string;
+  orderSuccessTemplateId?: string;
   enabled: boolean;
   provider?: string;
 }
@@ -29,6 +35,7 @@ const DEFAULT_SMS_CONFIG: SmsConfig = {
   apiKey: 'NxE8MgW74US6JDbMM6Gcd5JvERuacKTZ6rSaqTw1YTRtqcuZ',
   adminMobile: '',
   otpPattern: '256428',
+  resetPasswordPattern: '664247',
   orderSuccessCustomerPattern: '595534',
   enabled: true,
   provider: 'smsir'
@@ -46,7 +53,7 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
 
   // Test SMS State
   const [testMobile, setTestMobile] = useState<string>('');
-  const [testType, setTestType] = useState<'otp' | 'order'>('otp');
+  const [testType, setTestType] = useState<'otp' | 'reset_password' | 'order'>('otp');
   const [isSendingTest, setIsSendingTest] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<{ success?: boolean; message?: string } | null>(null);
 
@@ -57,7 +64,14 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
         const docRef = doc(db, 'settings', 'sms');
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
-          setConfig({ ...DEFAULT_SMS_CONFIG, ...docSnap.data() });
+          const data = docSnap.data();
+          setConfig({
+            ...DEFAULT_SMS_CONFIG,
+            ...data,
+            otpPattern: data.otpPattern || data.otpTemplateId || DEFAULT_SMS_CONFIG.otpPattern,
+            resetPasswordPattern: data.resetPasswordPattern || data.resetPasswordTemplateId || DEFAULT_SMS_CONFIG.resetPasswordPattern,
+            orderSuccessCustomerPattern: data.orderSuccessCustomerPattern || data.orderSuccessTemplateId || DEFAULT_SMS_CONFIG.orderSuccessCustomerPattern
+          });
         }
       } catch (err) {
         console.error('Error loading SMS settings:', err);
@@ -76,6 +90,9 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
       const docRef = doc(db, 'settings', 'sms');
       const updatedConfig = {
         ...config,
+        otpTemplateId: config.otpPattern,
+        resetPasswordTemplateId: config.resetPasswordPattern,
+        orderSuccessTemplateId: config.orderSuccessCustomerPattern,
         provider: 'smsir',
         updatedAt: new Date().toISOString()
       };
@@ -89,7 +106,7 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
       }).catch(() => {});
 
       setSaveSuccess(true);
-      if (showToast) showToast('تنظیمات سامانه پیامکی sms.ir با موفقیت ذخیره شد.', 'success');
+      if (showToast) showToast('تنظیمات ۳ قالب سامانه پیامکی sms.ir با موفقیت ذخیره شد.', 'success');
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Error saving SMS config:', err);
@@ -114,7 +131,12 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mobile: testMobile.trim(),
-          config: config,
+          config: {
+            ...config,
+            otpTemplateId: config.otpPattern,
+            resetPasswordTemplateId: config.resetPasswordPattern,
+            orderSuccessTemplateId: config.orderSuccessCustomerPattern
+          },
           type: testType
         })
       });
@@ -157,11 +179,11 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
                   تنظیمات سامانه پیامک اختصاصی sms.ir (Fast-Send)
                 </h2>
                 <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-400/30">
-                  ارسال سریع خدماتی
+                  ۳ قالب تایید شده خدماتی
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                ارسال خودکار کدهای ورود یکبار مصرف (OTP) و پیامک تایید سفارش به خریدار از طریق وب‌سرویس پترن sms.ir
+                ارسال خودکار کدهای ورود یکبار مصرف (OTP)، بازیابی رمز عبور و تایید ثبت سفارش به خریدار از طریق وب‌سرویس پترن sms.ir
               </p>
             </div>
           </div>
@@ -185,7 +207,7 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
 
       {/* Main Settings Form */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left Column: API Key & Templates */}
+        {/* Left Column: API Key & 3 Official Templates */}
         <div className="lg:col-span-2 space-y-5">
           {/* Card 1: API Key & Admin Mobile */}
           <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xs space-y-5">
@@ -236,18 +258,24 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
             </div>
           </div>
 
-          {/* Card 2: Pattern Code Mappings */}
+          {/* Card 2: 3 Official Pattern Code Mappings */}
           <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xs space-y-4">
-            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
-              <Zap className="w-4 h-4 text-amber-500" />
-              <span>شناسه‌های قالب پیامک (Template IDs)</span>
-            </h3>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-500" />
+                <span>شناسه‌های ۳ قالب پیامک تایید شده (Template IDs)</span>
+              </h3>
+              <span className="text-[10px] text-slate-500 font-bold">Fast Send Verification</span>
+            </div>
 
             <div className="space-y-4 text-xs">
-              {/* Template 1: OTP */}
+              {/* Template 1: OTP Login */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="font-black text-slate-800">۱. شناسه قالب کد تایید ورود (OTP Template ID):</label>
+                  <label className="font-black text-slate-800 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span>قالب ۱: تایید هویت / ورود با پیامک (OTP Login):</span>
+                  </label>
                   <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
                     متغیر: CODE
                   </span>
@@ -260,16 +288,45 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
                   className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr font-mono font-bold"
                   dir="ltr"
                 />
-                <span className="text-[10px] text-slate-500 block">
-                  شناسه قالب تایید هویت در sms.ir (پیش‌فرض: ۲۵۶۴۲۸)
-                </span>
+                <div className="flex items-center justify-between text-[10px] text-slate-500">
+                  <span>شناسه قالب تایید هویت در sms.ir (پیش‌فرض: ۲۵۶۴۲۸)</span>
+                  <span className="font-mono text-slate-600 bg-slate-200/60 px-1.5 py-0.5 rounded">کد ورود شما به سیریک فیت: #CODE#</span>
+                </div>
               </div>
 
-              {/* Template 2: Order Confirmation */}
+              {/* Template 2: Password Reset */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="font-black text-slate-800">۲. شناسه قالب ثبت سفارش خریدار (Order Success Template ID):</label>
-                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
+                  <label className="font-black text-slate-800 flex items-center gap-1.5">
+                    <Lock className="w-4 h-4 text-indigo-600" />
+                    <span>قالب ۲: بازیابی کلمه عبور (Password Reset):</span>
+                  </label>
+                  <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md font-bold">
+                    متغیر: CODE
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={config.resetPasswordPattern}
+                  onChange={(e) => setConfig({ ...config, resetPasswordPattern: e.target.value })}
+                  placeholder="664247"
+                  className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr font-mono font-bold"
+                  dir="ltr"
+                />
+                <div className="flex items-center justify-between text-[10px] text-slate-500">
+                  <span>شناسه قالب بازیابی رمز عبور در sms.ir (پیش‌فرض: ۶۶۴۲۴۷)</span>
+                  <span className="font-mono text-slate-600 bg-slate-200/60 px-1.5 py-0.5 rounded">کد بازیابی رمز عبور شما: #CODE#</span>
+                </div>
+              </div>
+
+              {/* Template 3: Order Confirmation */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-black text-slate-800 flex items-center gap-1.5">
+                    <ShoppingBag className="w-4 h-4 text-amber-600" />
+                    <span>قالب ۳: تایید ثبت سفارش خریدار (Order Success):</span>
+                  </label>
+                  <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-bold">
                     متغیرها: NAME , ORDER_ID
                   </span>
                 </div>
@@ -281,9 +338,10 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
                   className="w-full bg-white border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-slate-900 dir-ltr font-mono font-bold"
                   dir="ltr"
                 />
-                <span className="text-[10px] text-slate-500 block">
-                  شناسه قالب پیامک تایید سفارش در sms.ir (پیش‌فرض: ۵۹۵۵۳۴)
-                </span>
+                <div className="flex items-center justify-between text-[10px] text-slate-500">
+                  <span>شناسه قالب پیامک تایید سفارش در sms.ir (پیش‌فرض: ۵۹۵۵۳۴)</span>
+                  <span className="font-mono text-slate-600 bg-slate-200/60 px-1.5 py-0.5 rounded">#NAME# عزیز، سفارش شما با موفقیت ثبت شد. شناسه: #ORDER_ID#</span>
+                </div>
               </div>
             </div>
           </div>
@@ -300,33 +358,44 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
 
             <div className="space-y-3 text-xs">
               <p className="text-slate-500 text-[11px] leading-relaxed">
-                جهت تست و صحت اتصال به وب‌سرویس sms.ir، شماره موبایل را وارد کرده و نوع پیامک را انتخاب کنید:
+                جهت تست و صحت اتصال به وب‌سرویس sms.ir، شماره موبایل را وارد کرده و قالب مدنظر را انتخاب کنید:
               </p>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">نوع پیامک آزمایشی:</label>
-                <div className="grid grid-cols-2 gap-2">
+                <label className="font-bold text-slate-700 block mb-1">نوع قالب آزمایشی:</label>
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     type="button"
                     onClick={() => setTestType('otp')}
-                    className={`py-2 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                    className={`py-2 px-1 rounded-xl text-[11px] font-bold border transition cursor-pointer text-center ${
                       testType === 'otp'
                         ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
                         : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                     }`}
                   >
-                    کد تایید (OTP)
+                    ۱. ورود (OTP)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTestType('reset_password')}
+                    className={`py-2 px-1 rounded-xl text-[11px] font-bold border transition cursor-pointer text-center ${
+                      testType === 'reset_password'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    ۲. بازیابی رمز
                   </button>
                   <button
                     type="button"
                     onClick={() => setTestType('order')}
-                    className={`py-2 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                    className={`py-2 px-1 rounded-xl text-[11px] font-bold border transition cursor-pointer text-center ${
                       testType === 'order'
                         ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
                         : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                     }`}
                   >
-                    تایید سفارش
+                    ۳. تایید سفارش
                   </button>
                 </div>
               </div>
@@ -393,7 +462,7 @@ export const AdminSmsSettings: React.FC<AdminSmsSettingsProps> = ({ showToast })
               ) : saveSuccess ? (
                 <>
                   <Check className="w-4 h-4 text-emerald-400" />
-                  <span>تنظیمات ذخیره شد</span>
+                  <span>تنظیمات ۳ قالب ذخیره شد</span>
                 </>
               ) : (
                 <>

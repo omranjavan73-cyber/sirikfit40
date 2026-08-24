@@ -39,8 +39,8 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
               const flv = v.flavor || v.option2 || '';
               if (sz) sizesSet.add(String(sz));
               if (flv) flavorsSet.add(String(flv));
-              const vPrice = parseFloat(v.price || v.offer_price || priceAED) || priceAED || 89.00;
-              const vOrig = parseFloat(v.regular_price || origPriceAED) || vPrice;
+              const vPrice = extractPriceNumber(v.price || v.offer_price || priceAED);
+              const vOrig = extractPriceNumber(v.regular_price || origPriceAED);
               variantsList.push({
                 id: `var-${v.id || idx}`,
                 size: sz || undefined,
@@ -60,19 +60,19 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
           const flavors = Array.from(flavorsSet);
           const sizes = Array.from(sizesSet);
 
-          if (title && (priceAED > 0 || mainImage)) {
+          if (title && priceAED > 0) {
             return {
               ok: true,
               success: true,
               title,
               titleFa: generateBilingualProductTitle(title, brand),
-              price: priceAED || 89.00,
-              priceAED: priceAED || 89.00,
-              originalPriceAed: origPriceAED || priceAED || 89.00,
-              originalPriceAED: origPriceAED || priceAED || 89.00,
+              price: priceAED,
+              priceAED: priceAED,
+              originalPriceAed: origPriceAED > priceAED ? origPriceAED : undefined,
+              originalPriceAED: origPriceAED > priceAED ? origPriceAED : undefined,
               currency: "AED",
-              image: mainImage,
-              imageUrl: mainImage,
+              image: mainImage || '',
+              imageUrl: mainImage || '',
               images: galleryImages.length > 0 ? galleryImages : (mainImage ? [mainImage] : []),
               galleryImages: galleryImages.length > 0 ? galleryImages : (mainImage ? [mainImage] : []),
               brand,
@@ -99,10 +99,9 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
       title = title.replace(/\s*\|\s*Life\s*Pharmacy.*$/i, '').trim();
       const mainImage = sanitizeImageUrl($('meta[property="og:image"]').attr('content') || '', targetUrl);
       const priceText = $('.price, [data-price]').first().text();
-      const match = priceText.replace(/,/g, '').match(/[\d.]+/);
-      const priceAED = match ? parseFloat(match[0]) : 89.00;
+      const priceAED = extractPriceNumber(priceText);
 
-      if (title && (priceAED > 0 || mainImage)) {
+      if (title && priceAED > 0) {
         return {
           ok: true,
           success: true,
@@ -112,8 +111,8 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
           priceAED: priceAED,
           originalPriceAED: priceAED,
           currency: "AED",
-          image: mainImage,
-          imageUrl: mainImage,
+          image: mainImage || '',
+          imageUrl: mainImage || '',
           galleryImages: mainImage ? [mainImage] : [],
           images: mainImage ? [mainImage] : [],
           brand: 'Life Pharmacy',
@@ -128,4 +127,5 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
 
   return null;
 }
+
 

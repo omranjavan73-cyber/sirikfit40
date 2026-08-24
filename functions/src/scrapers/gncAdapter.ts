@@ -101,18 +101,18 @@ export async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<Sc
 
     const mainImage = sanitizeImageUrl($('meta[property="og:image"]').attr('content') || $('.product-single__photo img').first().attr('src') || '', targetUrl);
 
-    if (title && (priceAED > 0 || mainImage)) {
+    if (title && priceAED > 0) {
       return {
         ok: true,
         success: true,
         title,
         titleFa: generateBilingualProductTitle(title, brand),
-        price: priceAED || 199.00,
-        priceAED: priceAED || 199.00,
-        originalPriceAED: priceAED || 199.00,
+        price: priceAED,
+        priceAED: priceAED,
+        originalPriceAED: priceAED,
         currency: "AED",
-        image: mainImage,
-        imageUrl: mainImage,
+        image: mainImage || '',
+        imageUrl: mainImage || '',
         galleryImages: mainImage ? [mainImage] : [],
         images: mainImage ? [mainImage] : [],
         brand,
@@ -126,4 +126,5 @@ export async function gncAdapter(targetUrl: string, cmsConfig?: any): Promise<Sc
 
   return null;
 }
+
 

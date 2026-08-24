@@ -1,3 +1,5 @@
+import * as cheerio from 'cheerio';
+
 // 1. Strict Out-Of-Stock & Disabled Filter
 export const isOutOfStockElement = (tagHtml: string, rawText?: string): boolean => {
   if (!tagHtml && !rawText) return false;
@@ -35,21 +37,38 @@ export const isOutOfStockElement = (tagHtml: string, rawText?: string): boolean 
   return false;
 };
 
-// 2. High-Res Image Sanitizer
+// 2. High-Res Image Sanitizer (Strict Logo / Badge / Icon / SVG Filtering)
 export const sanitizeImageUrl = (rawImg: string, cleanUrl: string = ''): string => {
-  if (!rawImg) return '';
+  if (!rawImg || typeof rawImg !== 'string') return '';
   let str = String(rawImg).trim().replace(/&amp;/g, '&').replace(/^["']|["']$/g, '').trim();
-  if (str.startsWith('//')) str = 'https:' + str;
-  else if (str.startsWith('/')) {
+
+  // Filter out inline SVGs or data URLs that are store logos/icons
+  if (str.startsWith('data:image/svg') || str.includes('logo') || str.includes('badge') || str.includes('icon') || str.includes('searchIcon') || str.includes('tamara') || str.includes('tabby')) {
+    if (!str.includes('product') && !str.includes('catalog') && !str.includes('media')) {
+      return '';
+    }
+  }
+
+  if (str.endsWith('.svg')) return '';
+
+  if (str.startsWith('//')) {
+    str = 'https:' + str;
+  } else if (str.startsWith('/')) {
     try {
       const u = new URL(cleanUrl || 'https://drnutrition.com');
       str = `${u.protocol}//${u.host}${str}`;
     } catch (_e) {
       str = 'https://drnutrition.com' + str;
     }
-  } else if (str.startsWith('http://')) str = str.replace('http://', 'https://');
+  } else if (str.startsWith('http://')) {
+    str = str.replace('http://', 'https://');
+  }
+
   str = str.split('"')[0].split("'")[0].split('\\')[0].trim();
-  return str.replace(/_(?:small|compact|thumb|medium|100x100|150x150|200x200|240x240|300x300)\.(jpe?g|png|webp|avif)/gi, '_1024x1024.$1');
+  
+  // Upgrade Shopify/Magento/E-Commerce thumbnail images to high-res master/1024x1024
+  str = str.replace(/_(?:small|compact|thumb|medium|100x100|150x150|200x200|240x240|300x300)\.(jpe?g|png|webp|avif)/gi, '_1024x1024.$1');
+  return str;
 };
 
 // 3. Digit Normalization
@@ -65,7 +84,54 @@ export const normalizeToEnglishDigits = (str: string): string => {
   return res;
 };
 
-// 4. Standard Browser Headers
+// 4. Exact Price Extractor (Regex + No Dummy Fallbacks)
+export const extractPriceNumber = (textOrVal: any): number => {
+  if (textOrVal === undefined || textOrVal === null) return 0;
+  if (typeof textOrVal === 'number') {
+    return isNaN(textOrVal) || textOrVal <= 0 ? 0 : Math.round(textOrVal * 100) / 100;
+  }
+  const cleanStr = normalizeToEnglishDigits(String(textOrVal)).replace(/,/g, '').trim();
+  
+  // Try matching AED / Dhs currency regex first
+  const currencyMatch = cleanStr.match(/(?:AED|Dhs\.?)\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+  if (currencyMatch && currencyMatch[1]) {
+    const val = parseFloat(currencyMatch[1]);
+    if (!isNaN(val) && val > 0) return Math.round(val * 100) / 100;
+  }
+
+  // General float match
+  const match = cleanStr.match(/([0-9]+(?:\.[0-9]{1,2})?)/);
+  if (match && match[1]) {
+    const val = parseFloat(match[1]);
+    if (!isNaN(val) && val > 0 && val < 500000) return Math.round(val * 100) / 100;
+  }
+  return 0;
+};
+
+// 5. Robust Array Deduplication & Cleaner
+export const deduplicateStrings = (items: (string | undefined | null)[]): string[] => {
+  if (!Array.isArray(items)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  const invalidPlaceholders = new Set([
+    'default', 'standard', 'normal', 'default title', 'پیش‌فرض', 'استاندارد', 'پیش‌فرض / استاندارد', 'none', 'null', 'undefined'
+  ]);
+
+  for (const item of items) {
+    if (!item || typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    const lower = trimmed.toLowerCase();
+    if (!trimmed || trimmed.length < 2) continue;
+    if (invalidPlaceholders.has(lower)) continue;
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      result.push(trimmed);
+    }
+  }
+  return result;
+};
+
+// 6. Standard Browser Headers
 export const getStandardScraperHeaders = (targetUrl?: string) => ({
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/json;q=0.9',
@@ -83,7 +149,83 @@ export const getStandardScraperHeaders = (targetUrl?: string) => ({
   'Upgrade-Insecure-Requests': '1'
 });
 
-// 5. Bilingual Persian Title Generator
+// 7. Embedded JSON Extractor Helper (__NEXT_DATA__, __INITIAL_STATE__, application/ld+json)
+export const extractEmbeddedJsonData = ($: cheerio.CheerioAPI): { nextData?: any; initialState?: any; jsonLd?: any[] } => {
+  let nextData: any = null;
+  let initialState: any = null;
+  const jsonLd: any[] = [];
+
+  try {
+    const nextHtml = $('#__NEXT_DATA__').html();
+    if (nextHtml) nextData = JSON.parse(nextHtml);
+  } catch (_e) {}
+
+  try {
+    $('script').each((_, el) => {
+      const txt = $(el).html() || '';
+      if (txt.includes('window.__INITIAL_STATE__') || txt.includes('__INITIAL_STATE__ =')) {
+        const match = txt.match(/__INITIAL_STATE__\s*=\s*({.*?});/s) || txt.match(/__INITIAL_STATE__\s*=\s*({.*})/s);
+        if (match && match[1]) {
+          try { initialState = JSON.parse(match[1]); } catch (_err) {}
+        }
+      }
+    });
+  } catch (_e) {}
+
+  try {
+    $('script[type="application/ld+json"]').each((_, el) => {
+      try {
+        const parsed = JSON.parse($(el).html() || '{}');
+        if (Array.isArray(parsed['@graph'])) {
+          jsonLd.push(...parsed['@graph']);
+        } else if (Array.isArray(parsed)) {
+          jsonLd.push(...parsed);
+        } else if (parsed && typeof parsed === 'object') {
+          jsonLd.push(parsed);
+        }
+      } catch (_err) {}
+    });
+  } catch (_e) {}
+
+  return { nextData, initialState, jsonLd };
+};
+
+// 8. Persian Title Translator & Dictionary Helper
+export const translateTitleToFa = (enTitle: string, brand: string = ''): string => {
+  if (!enTitle) return '';
+  let fa = enTitle.toLowerCase();
+  const dict: Record<string, string> = {
+    'whey protein isolate': 'پروتئین وی ایزوله',
+    'whey isolate': 'پروتئین وی ایزوله',
+    'whey protein': 'پروتئین وی',
+    'mass gainer': 'گینر افزایش وزن',
+    'serious mass': 'گینر سیریوس مس',
+    'gainer': 'گینر افزایش وزن',
+    'creatine monohydrate': 'کراتین مونوهیدرات',
+    'creatine powder': 'پودر کراتین خالص',
+    'creatine': 'کراتین',
+    'bcaa': 'آمینو اسید BCAA',
+    'eaa': 'آمینو اسید EAA',
+    'pre-workout': 'پمپ قبل تمرین',
+    'pre workout': 'پمپ قبل تمرین',
+    'multivitamin': 'مولتی ویتامین',
+    'multi-vitamin': 'مولتی ویتامین',
+    'fish oil': 'روغن ماهی',
+    'omega 3': 'امگا ۳',
+    'omega-3': 'امگا ۳',
+    'glutamine': 'گلوتامین',
+    'collagen': 'کلاژن',
+    'shaker': 'شیکر ورزشی',
+    'isolate': 'ایزوله'
+  };
+  Object.keys(dict).forEach(key => {
+    fa = fa.replace(new RegExp(key, 'gi'), dict[key]);
+  });
+  const brandPart = brand ? ` ${brand}` : '';
+  return `${fa}${brandPart}`.trim().replace(/\b\w/g, l => l.toUpperCase());
+};
+
+// 9. Bilingual Persian Title Generator
 export const generateBilingualProductTitle = (englishTitle: string, brand?: string): string => {
   if (!englishTitle) return '';
   const cleanEng = englishTitle.replace(/\s*\|\s*.*$/i, '').trim();
@@ -117,9 +259,10 @@ export const generateBilingualProductTitle = (englishTitle: string, brand?: stri
   } else if (lower.includes('glutamine')) {
     faPrefix = 'پودر گلوتامین ریکاوری عضلات';
   } else {
-    faPrefix = brand ? `مکمل اورجینال ${brand}` : 'مکمل ورزشی اصل';
+    faPrefix = translateTitleToFa(cleanEng, brand || '');
   }
 
   return `${faPrefix} (${cleanEng})`;
 };
+
 

@@ -2988,14 +2988,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const landingSyncPayload: Record<string, any> = {
         updatedAt: new Date().toISOString()
       };
-      if (currentHomeContent?.telegramHandle) landingSyncPayload.telegramId = currentHomeContent.telegramHandle;
-      if (currentHomeContent?.officePhone) landingSyncPayload.supportPhone = currentHomeContent.officePhone;
-      if (currentHomeContent?.adminDestinationEmail) landingSyncPayload.supportEmail = currentHomeContent.adminDestinationEmail;
-      if (currentHomeContent?.officeHours) landingSyncPayload.supportHours = currentHomeContent.officeHours;
-      if (currentHomeContent?.officeAddress) landingSyncPayload.officeLocation = currentHomeContent.officeAddress;
-      if (currentHomeContent?.siteTitle) landingSyncPayload.brandName = currentHomeContent.siteTitle;
-      if (currentHomeContent?.siteSubtitle) landingSyncPayload.brandSubtitle = currentHomeContent.siteSubtitle;
-      if (currentHomeContent?.aboutUsText) landingSyncPayload.aboutText = currentHomeContent.aboutUsText;
+      if ((currentHomeContent as any)?.telegramHandle) landingSyncPayload.telegramId = (currentHomeContent as any).telegramHandle;
+      if ((currentHomeContent as any)?.officePhone) landingSyncPayload.supportPhone = (currentHomeContent as any).officePhone;
+      if ((currentHomeContent as any)?.adminDestinationEmail) landingSyncPayload.supportEmail = (currentHomeContent as any).adminDestinationEmail;
+      if ((currentHomeContent as any)?.officeHours) landingSyncPayload.supportHours = (currentHomeContent as any).officeHours;
+      if ((currentHomeContent as any)?.officeAddress) landingSyncPayload.officeLocation = (currentHomeContent as any).officeAddress;
+      if ((currentHomeContent as any)?.siteTitle) landingSyncPayload.brandName = (currentHomeContent as any).siteTitle;
+      if ((currentHomeContent as any)?.siteSubtitle) landingSyncPayload.brandSubtitle = (currentHomeContent as any).siteSubtitle;
+      if ((currentHomeContent as any)?.aboutUsText) landingSyncPayload.aboutText = (currentHomeContent as any).aboutUsText;
       if (typeof showTrustBadges === 'boolean') landingSyncPayload.showTrustBadges = showTrustBadges;
       if (typeof showEnamad === 'boolean') landingSyncPayload.showEnamad = showEnamad;
 
@@ -8528,8 +8528,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* 🟢 Persistent Sticky Bottom Save Bar across all Management Tabs (except pricingRules and landingSettings which have their own single action bar) */}
-      {activeAdminSubTab !== 'pricingRules' && activeAdminSubTab !== 'landingSettings' && (
+      {/* 🟢 Persistent Sticky Bottom Save Bar across all Management Tabs (except pricingRules, landingSettings, and products which have their own single action bar) */}
+      {activeAdminSubTab !== 'pricingRules' && activeAdminSubTab !== 'landingSettings' && activeAdminSubTab !== 'products' && (
         <StickyBottomSaveBar
           onSave={handleStickySave}
           isSaving={isAnySaving}

@@ -961,6 +961,31 @@ function MainApp() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // 🟢 Global Storefront Event Listeners: openProductDetail & addToCartDirect
+  useEffect(() => {
+    const handleOpenProductDetailEvent = (e: any) => {
+      const prod = e?.detail;
+      if (prod) {
+        handleSelectDeal(prod);
+      }
+    };
+
+    const handleAddToCartDirectEvent = (e: any) => {
+      const prod = e?.detail;
+      if (prod) {
+        addToCart(prod);
+      }
+    };
+
+    window.addEventListener('openProductDetail', handleOpenProductDetailEvent as EventListener);
+    window.addEventListener('addToCartDirect', handleAddToCartDirectEvent as EventListener);
+
+    return () => {
+      window.removeEventListener('openProductDetail', handleOpenProductDetailEvent as EventListener);
+      window.removeEventListener('addToCartDirect', handleAddToCartDirectEvent as EventListener);
+    };
+  }, [settings, cmsConfig]);
+
   const handleSelectStoreSample = (storeName: string, defaultUrl: string) => {
     let sampleProduct: any = {
       title: `محصول سفارشی از ${storeName}`,

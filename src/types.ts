@@ -52,7 +52,7 @@ export interface ProductVariantMatrix {
   selectedVariant?: ProductVariantItem;
 }
 
-export interface NormalizedProduct {
+export interface ScrapedProductDetail {
   id: string;
   source: 'drnutrition' | 'gnc' | 'lifepharmacy' | 'generic';
   sourceUrl: string;
@@ -89,11 +89,17 @@ export interface FinancialSettings {
   manualAedRate?: number; // Manual override rate
   autoUpdateRates?: boolean; // Enable automatic API fetch switch
   currencyApiUrl?: string; // Rate API endpoint
-  cargoRatePerKg: number; // e.g., 35 AED per KG
-  profitMargin: number; // e.g., 15 (%)
+  cargoRatePerKg?: number; // e.g., 35 AED per KG
+  cargoFeePerKg?: number;
+  profitMargin?: number; // e.g., 15 (%)
+  profitMarginPercent?: number;
   minOrderAed?: number; // Deprecated: Minimum cart order in AED (e.g., 200)
   minOrderAmountToman?: number; // Minimum cart order in Toman (e.g., 5000000 or 0)
   minOrderLimitEnabled?: boolean; // Whether minimum order limit is enforced
+  insurancePercent?: number;
+  customsFeePercent?: number;
+  showEnamad?: boolean;
+  updatedAt?: string | number;
 }
 
 export interface StoreCardItem {

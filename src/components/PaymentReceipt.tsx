@@ -262,6 +262,13 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
               <span className="text-base sm:text-lg font-black">{formattedAmount}</span>
             </div>
           )}
+
+          {isSuccess && (
+            <div className="mt-4 inline-flex items-center justify-center gap-2 bg-emerald-50 border border-emerald-200/80 px-4 py-2.5 rounded-2xl text-emerald-800 text-xs font-bold shadow-xs">
+              <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>پیامک تایید سفارش و کد پیگیری برای شماره شما ارسال گردید.</span>
+            </div>
+          )}
         </div>
 
         {/* Receipt Details Body */}

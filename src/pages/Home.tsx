@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import type { FeaturedDeal, LocalInventoryItem, FinancialSettings } from '../types';
@@ -60,14 +60,14 @@ export const Home: React.FC<HomePageProps> = ({
     };
   }, []);
 
-  const activeDeals = deals.filter(d => d.isActive !== false);
-  const popularDeals = activeDeals.filter(d => (d as any).isPopular === true || (d as any).isPopularSample === true);
+  const activeDeals = deals.filter(d => d.isActive === true);
+  const popularDeals = deals.filter(d => d.isActive === true && (d as any).isPopular === true);
 
   return (
     <div className="space-y-8 font-['Vazirmatn',sans-serif]" dir="rtl">
       {popularDeals.length > 0 && (
         <PopularProductsCarousel
-          products={popularDeals}
+          products={popularDeals as any}
           onSelectProduct={onSelectProduct || ((p) => window.dispatchEvent(new CustomEvent('openProductDetail', { detail: p })))}
           onAddToCart={onAddToCart}
           showToast={showToast}

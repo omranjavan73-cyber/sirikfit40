@@ -1,11 +1,42 @@
 /**
- * Automated AED-to-Toman Formula Pricing with Admin Manual Override Support
+ * Automated AED-to-Toman Store Pricing Policy Engine
+ * 
+ * Business Rule:
+ * Supplements and vitamins share a standard handling profile.
+ * Do NOT multiply product weight in KG by a per-kg shipping rate for single-item pricing.
  * 
  * Formula:
- * Base Cost = (Price AED + (Weight Kg * Cargo Rate per Kg)) * AED Rate
- * Final Toman = Base Cost * (1 + (Profit Margin % / 100))
- * Rounded up to the nearest 1,000 Tomans: Math.ceil(withProfit / 1000) * 1000
+ * Base Cost (Toman) = Price AED * AED Rate
+ * Item Shipping (Toman) = Base Item Shipping (e.g. 20 AED) * AED Rate
+ * Final Toman = (Base Cost + Item Shipping) * (1 + (Profit Margin % / 100))
+ * (Rounded to the nearest 1,000 Toman)
  */
+
+export interface PricingPolicyParams {
+  priceAed: number;
+  profitMarginPercent?: number; // Default: 20 (%)
+  aedToTomanRate?: number;     // From global settings (e.g. 51,400)
+  baseShippingAed?: number;    // From global shipping rules (e.g. 20 AED base)
+}
+
+export const calculateProductTomanPrice = ({
+  priceAed,
+  profitMarginPercent = 20,
+  aedToTomanRate = 51400,
+  baseShippingAed = 20
+}: PricingPolicyParams): number => {
+  const pAed = Number(priceAed) || 0;
+  if (!pAed || isNaN(pAed) || pAed <= 0) return 0;
+
+  const rate = Number(aedToTomanRate) || 51400;
+  const itemCostToman = pAed * rate;
+  const shippingToman = (Number(baseShippingAed) || 20) * rate;
+  const margin = profitMarginPercent !== undefined ? Number(profitMarginPercent) : 20;
+  const marginMultiplier = 1 + (margin / 100);
+
+  const finalToman = (itemCostToman + shippingToman) * marginMultiplier;
+  return Math.round(finalToman / 1000) * 1000;
+};
 
 export const parseWeightKg = (sizeStr: string, fallbackWeight: number = 0.8): number => {
   if (!sizeStr) return fallbackWeight;
@@ -37,25 +68,22 @@ export const parseWeightKg = (sizeStr: string, fallbackWeight: number = 0.8): nu
 
 export const computeVariantToman = (
   priceAed: number,
-  size: string,
-  baseWeight: number = 0.8,
-  rates?: { aedToToman?: number; aedRate?: number; shippingPerKg?: number; cargoRatePerKg?: number; profitMargin?: number }
+  _size?: string,
+  _baseWeight: number = 0.8,
+  rates?: { aedToToman?: number; aedRate?: number; shippingPerKg?: number; cargoRatePerKg?: number; profitMargin?: number; baseShippingAed?: number }
 ): number => {
   const pAed = Number(priceAed) || 0;
   if (pAed <= 0) return 0;
-  const weight = parseWeightKg(size, baseWeight || 0.8);
   const aedRate = Number(rates?.aedToToman || rates?.aedRate || 51400);
-  const cargoRate = Number(rates?.shippingPerKg || rates?.cargoRatePerKg || 35);
-  
-  // Cargo cost in AED
-  const cargoCostAed = cargoRate > 1000 ? (weight * cargoRate) / aedRate : weight * cargoRate;
-  const totalCostAed = pAed + cargoCostAed;
   const margin = Number(rates?.profitMargin !== undefined ? rates.profitMargin : 20);
-  const marginMultiplier = margin > 1 ? (1 + margin / 100) : (1 + margin);
-  const totalWithProfit = totalCostAed * aedRate * marginMultiplier;
+  const baseShippingAed = Number(rates?.baseShippingAed || 20);
 
-  // Round to nearest 1,000 Toman
-  return Math.round(totalWithProfit / 1000) * 1000;
+  return calculateProductTomanPrice({
+    priceAed: pAed,
+    profitMarginPercent: margin,
+    aedToTomanRate: aedRate,
+    baseShippingAed
+  });
 };
 
 export interface PricingSettings {
@@ -65,22 +93,25 @@ export interface PricingSettings {
   profitMarginPercent?: number;
   cargoPerKg?: number;
   cargoCostPerKgAed?: number;
+  baseShippingAed?: number;
 }
 
 export function calculateTomanPrice(
   priceAED: number,
-  weightKg: number = 0.5,
+  _weightKg: number = 0.5,
   settings?: PricingSettings
 ): number {
   const aed = Number(priceAED) || 0;
-  const weight = Number(weightKg) || 0.5;
-  const cargoRate = Number(settings?.cargoRatePerKg ?? settings?.cargoCostPerKgAed ?? settings?.cargoPerKg ?? 35);
-  const totalAed = aed + (weight * cargoRate);
   const aedRate = Number(settings?.aedRate) || 51400;
-  const baseToman = totalAed * aedRate;
   const margin = Number(settings?.profitMarginPercent ?? settings?.profitMargin ?? 20);
-  const withProfit = baseToman * (1 + (margin / 100));
-  return Math.round(withProfit / 1000) * 1000;
+  const baseShippingAed = Number(settings?.baseShippingAed ?? 20);
+
+  return calculateProductTomanPrice({
+    priceAed: aed,
+    profitMarginPercent: margin,
+    aedToTomanRate: aedRate,
+    baseShippingAed
+  });
 }
 
 export function calculateSellingPriceToman(
@@ -122,19 +153,22 @@ export function getActivePrices(params: {
     return { priceAED: 0, priceToman: 0, weightKg: 0.8, isCustomPrice: false };
   }
 
-  const baseAed = Number(product.priceAED ?? product.priceAed ?? 0);
+  const baseAed = Number(product.priceAED ?? product.priceAed ?? product.basePriceAed ?? product.price ?? 0);
   const baseWeight = Number(product.weightKg ?? 0.8);
   const effectiveMargin = Number(product.profitMargin ?? product.marginPercent ?? settings?.profitMargin ?? 20);
-  const currentSettings: PricingSettings = {
-    ...settings,
-    profitMargin: effectiveMargin
-  };
+  const activeAedRate = Number(settings?.aedRate) || 51400;
+  const baseShipping = Number(settings?.baseShippingAed ?? 20);
 
   const defaultBaseToman = product.priceToman && product.priceToman > 0
     ? Number(product.priceToman)
     : (product.calculatedTomanOverride && product.calculatedTomanOverride > 0
         ? Number(product.calculatedTomanOverride)
-        : autoCalcToman(baseAed, baseWeight, currentSettings));
+        : calculateProductTomanPrice({
+            priceAed: baseAed,
+            profitMarginPercent: effectiveMargin,
+            aedToTomanRate: activeAedRate,
+            baseShippingAed: baseShipping
+          }));
 
   // 1. Check if product.variants has a matching variant
   if (Array.isArray(product.variants) && product.variants.length > 0) {
@@ -169,10 +203,11 @@ export function getActivePrices(params: {
       const vWeight = parseWeightKg(matchedV.size || selectedSizeName, matchedV.weightKg || baseWeight);
       const vToman = matchedV.priceToman && matchedV.priceToman > 0
         ? Number(matchedV.priceToman)
-        : computeVariantToman(vAed, matchedV.size || selectedSizeName || '', vWeight, {
-            aedRate: currentSettings.aedRate,
-            cargoRatePerKg: currentSettings.cargoRatePerKg,
-            profitMargin: currentSettings.profitMargin
+        : calculateProductTomanPrice({
+            priceAed: vAed,
+            profitMarginPercent: effectiveMargin,
+            aedToTomanRate: activeAedRate,
+            baseShippingAed: baseShipping
           });
 
       return {
@@ -199,7 +234,12 @@ export function getActivePrices(params: {
         const vWeight = parseWeightKg(matchedSize.size || matchedSize.name || selectedSizeName, matchedSize.weightKg ?? baseWeight);
         const vToman = (matchedSize.priceToman !== undefined && matchedSize.priceToman > 0)
           ? Number(matchedSize.priceToman)
-          : autoCalcToman(vAed, vWeight, currentSettings);
+          : calculateProductTomanPrice({
+              priceAed: vAed,
+              profitMarginPercent: effectiveMargin,
+              aedToTomanRate: activeAedRate,
+              baseShippingAed: baseShipping
+            });
 
         return {
           priceAED: vAed,
@@ -226,7 +266,12 @@ export function getActivePrices(params: {
         const vWeight = Number(matchedFlavor.weightKg ?? baseWeight);
         const vToman = (matchedFlavor.priceToman !== undefined && matchedFlavor.priceToman > 0)
           ? Number(matchedFlavor.priceToman)
-          : autoCalcToman(vAed, vWeight, currentSettings);
+          : calculateProductTomanPrice({
+              priceAed: vAed,
+              profitMarginPercent: effectiveMargin,
+              aedToTomanRate: activeAedRate,
+              baseShippingAed: baseShipping
+            });
 
         return {
           priceAED: vAed,

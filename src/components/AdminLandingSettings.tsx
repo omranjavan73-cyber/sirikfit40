@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import type { CmsConfig } from '../types';
 import { LandingSettingsAdmin } from '../pages/admin/LandingSettingsAdmin';
 

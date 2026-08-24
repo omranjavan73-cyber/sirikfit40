@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { Plus, Check } from 'lucide-react';
-import { Product } from '../types';
 import { formatPrice, formatAedValue } from '../utils/formatters';
 
-interface ProductCardProps {
-  product: Product | any;
+export interface ProductCardProps {
+  product: any;
   badgeText?: string;
   viewMode?: 'grid' | 'list';
   onSelect?: (product: any) => void;
@@ -40,6 +39,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   };
 
   const handleQuickAdd = (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
     if (onAddToCart) {
       onAddToCart(product);

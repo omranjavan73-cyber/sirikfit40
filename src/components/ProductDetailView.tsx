@@ -28,6 +28,19 @@ import { formatPersianSize, translateFlavor, generatePersianProductCaption } fro
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { getActivePrices } from '../utils/pricingCalculator';
 import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
+import {
+  matchVariantValues,
+  areVariantsMatching,
+  getActiveVariants,
+  getAllFlavors,
+  getAllSizes,
+  getAvailableSizesForFlavor,
+  findExactVariant,
+  isFlavorAvailable,
+  isSizeAvailableForFlavor,
+  handleFlavorChange,
+  handleSizeChange
+} from '../utils/variantMatrixEngine';
 
 /**
  * Utility to strip raw HTML tags and markdown formatting from scraped text
@@ -259,48 +272,47 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
     const dims: VariantDimension[] = [];
 
-    // Priority 1: Direct multi-variant array with price/weight per variant
+    // Priority 1: Direct multi-variant array with price/weight per variant (Single Source of Truth)
     if (Array.isArray(activeProd.variants) && activeProd.variants.length > 0) {
-      const sizeItems: VariantOption[] = [];
-      activeProd.variants.forEach((v: any, idx: number) => {
-        const vName = typeof v === 'string' ? v : (v.size || v.name || '');
-        if (!vName) return;
-        const vPrice = v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : (activeProd?.priceAed || 0));
-        const vWeight = v.weightKg !== undefined ? Number(v.weightKg) : (activeProd?.weightKg || 0.8);
-        sizeItems.push({
-          id: v.id || `sz-var-${idx}`,
-          name: vName,
-          priceAed: vPrice,
-          weightKg: vWeight,
-          image: v.imageThumbnail || v.image,
-          inStock: v.inStock !== false,
-          url: v.url
-        } as any);
+      const activeList = getActiveVariants(activeProd.variants);
+      const targetVariants = activeList.length > 0 ? activeList : activeProd.variants;
+      
+      const flavorNames = getAllFlavors(targetVariants);
+      const sizeNames = getAllSizes(targetVariants);
+      
+      const flavorItems: VariantOption[] = flavorNames.map((f, idx) => {
+        const vMatch = targetVariants.find(v => areVariantsMatching(v.flavor, f));
+        return {
+          id: `flv-var-${idx}`,
+          name: f,
+          priceAed: vMatch?.priceAED !== undefined ? Number(vMatch.priceAED) : (vMatch?.priceAed !== undefined ? Number(vMatch.priceAed) : (activeProd?.priceAed || 0)),
+          image: vMatch?.imageThumbnail || vMatch?.image,
+          inStock: true
+        };
       });
+
+      const sizeItems: VariantOption[] = sizeNames.map((s, idx) => {
+        const vMatch = targetVariants.find(v => areVariantsMatching(v.size || v.name, s));
+        return {
+          id: `sz-var-${idx}`,
+          name: s,
+          priceAed: vMatch?.priceAED !== undefined ? Number(vMatch.priceAED) : (vMatch?.priceAed !== undefined ? Number(vMatch.priceAed) : (activeProd?.priceAed || 0)),
+          weightKg: vMatch?.weightKg !== undefined ? Number(vMatch.weightKg) : (activeProd?.weightKg || 0.8),
+          image: vMatch?.imageThumbnail || vMatch?.image,
+          inStock: true,
+          url: vMatch?.url
+        };
+      });
+
+      // Flavor is primary, so flavor dimension is added first
+      if (flavorItems.length > 0) {
+        dims.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorItems });
+      }
 
       if (sizeItems.length > 0) {
         dims.push({ id: 'sizes', name: 'وزن / سایز (Size)', type: 'size', options: sizeItems });
       }
 
-      if (Array.isArray(activeProd.flavors) && activeProd.flavors.length > 0) {
-        dims.push({
-          id: 'flavors',
-          name: 'طعم (Flavor)',
-          type: 'flavor',
-          options: activeProd.flavors.map((f: any, idx: number) => {
-            const fName = typeof f === 'string' ? f : (f.flavor || f.name || '');
-            const fImg = typeof f === 'object' ? (f.imageUrl || f.image) : undefined;
-            const fAvail = typeof f === 'object' ? (f.isAvailable !== false && f.inStock !== false) : true;
-            return {
-              id: f.id || `flv-${idx}`,
-              name: fName,
-              priceAed: (typeof f === 'object' && (f.priceAED || f.priceAed)) ? (f.priceAED || f.priceAed) : (activeProd.priceAed || 0),
-              image: fImg,
-              inStock: fAvail
-            };
-          })
-        });
-      }
       return dims;
     }
 
@@ -364,24 +376,66 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     return dims;
   }, [activeProd]);
 
-  // Initialize selected variants
+  // Extract currently selected Flavor and Size option objects
+  const selectedFlavorOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('flavor') || dimId === 'flavors')?.[1] as VariantOption | undefined;
+  const selectedSizeOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('size') || dimId === 'sizes')?.[1] as VariantOption | undefined;
+
+  // Initialize selected variants directly from first active combination in matrix
   useEffect(() => {
-    if (dimensions.length > 0) {
+    if (!activeProd) return;
+    const activeList = getActiveVariants(activeProd.variants);
+    if (activeList.length > 0) {
+      const firstActive = activeList[0];
+      const initial: Record<string, VariantOption> = {};
+      const szVal = firstActive.size || firstActive.name;
+      const flvVal = firstActive.flavor;
+
+      if (szVal) {
+        const sizeDim = dimensions.find(d => d.id === 'sizes' || d.type === 'size');
+        const matchOpt = sizeDim?.options.find(o => areVariantsMatching(o.name, szVal)) || { id: 'sz-0', name: szVal, inStock: true };
+        initial['sizes'] = matchOpt;
+      }
+      if (flvVal) {
+        const flavorDim = dimensions.find(d => d.id === 'flavors' || d.type === 'flavor');
+        const matchOpt = flavorDim?.options.find(o => areVariantsMatching(o.name, flvVal)) || { id: 'flv-0', name: flvVal, inStock: true };
+        initial['flavors'] = matchOpt;
+      }
+      setSelectedVariants(initial);
+    } else if (dimensions.length > 0) {
       const initial: Record<string, VariantOption> = {};
       dimensions.forEach(dim => {
-        if (dim.options.length > 0 && !selectedVariants[dim.id]) {
+        if (dim.options.length > 0) {
           const firstInStock = dim.options.find(o => o.inStock !== false) || dim.options[0];
           initial[dim.id] = firstInStock;
         }
       });
-      if (Object.keys(initial).length > 0) {
-        setSelectedVariants(prev => ({ ...initial, ...prev }));
-      }
+      setSelectedVariants(initial);
     }
-  }, [dimensions]);
+  }, [activeProd?.id, activeProd?.variants]);
 
-  // Dynamically calculate effective Price AED based on selected variant
+  // Primary Flavor & Dependent Size Availability Checks
+  const isSizeAvailable = (sizeName: string): boolean => {
+    if (!activeProd?.variants || activeProd.variants.length === 0) return true;
+    return isSizeAvailableForFlavor(activeProd.variants, sizeName, selectedFlavorOpt?.name);
+  };
+
+  const isFlavorAvailable = (_flavorName: string): boolean => {
+    // Other flavors are NEVER disabled by size. Customer can always switch primary flavor.
+    return true;
+  };
+
+  // Accurate active variant lookup from Single Source of Truth
+  const exactActiveVariant = React.useMemo(() => {
+    if (!activeProd?.variants || !Array.isArray(activeProd.variants) || activeProd.variants.length === 0) return null;
+    return findExactVariant(activeProd.variants, selectedFlavorOpt?.name, selectedSizeOpt?.name);
+  }, [activeProd?.variants, selectedFlavorOpt?.name, selectedSizeOpt?.name]);
+
+  // Dynamically calculate effective Price AED based on exact active variant
   const selectedVariantPriceAed = React.useMemo(() => {
+    if (exactActiveVariant) {
+      const p = exactActiveVariant.priceAed ?? exactActiveVariant.priceAED;
+      if (p !== undefined && p !== null && Number(p) > 0) return Number(p);
+    }
     let p = product?.priceAed || 280;
     Object.values(selectedVariants).forEach((v: VariantOption) => {
       if (v?.priceAed && v.priceAed > 0) {
@@ -389,10 +443,14 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       }
     });
     return p;
-  }, [product?.priceAed, selectedVariants]);
+  }, [exactActiveVariant, product?.priceAed, selectedVariants]);
 
-  // Dynamically calculate effective Weight KG based on selected variant
+  // Dynamically calculate effective Weight KG based on exact active variant
   const selectedVariantWeightKg = React.useMemo(() => {
+    if (exactActiveVariant) {
+      const w = exactActiveVariant.weightKg;
+      if (w !== undefined && w !== null && Number(w) > 0) return Number(w);
+    }
     let w = product?.weightKg || 0.8;
     Object.values(selectedVariants).forEach((v: any) => {
       if (v?.weightKg && v.weightKg > 0) {
@@ -409,10 +467,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       }
     });
     return w;
-  }, [product?.weightKg, selectedVariants]);
-
-  const selectedFlavorOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('flavor') || dimId === 'flavors')?.[1] as VariantOption | undefined;
-  const selectedSizeOpt = Object.entries(selectedVariants).find(([dimId]) => dimId.toLowerCase().includes('size') || dimId === 'sizes')?.[1] as VariantOption | undefined;
+  }, [exactActiveVariant, product?.weightKg, selectedVariants]);
 
   const localizedCaption = React.useMemo(() => {
     if (!activeProd?.title) return '';
@@ -449,12 +504,17 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   }, [currentUser]);
 
   const safeCartItems = Array.isArray(cartItems) ? cartItems.filter(Boolean) : [];
-  const hasCart = safeCartItems.length > 0;
+  const isViewingProduct = Boolean(product && (product.title || product.id) && !(product as any).isCartOnly);
+  const hasCart = !isViewingProduct && safeCartItems.length > 0;
 
   // Single Product Calculations with full null safety guards
-  const priceAed = selectedVariantPriceAed || product?.priceAed || 280;
+  const priceAed = (exactActiveVariant && (exactActiveVariant.priceAed !== undefined || exactActiveVariant.priceAED !== undefined))
+    ? Number(exactActiveVariant.priceAed || exactActiveVariant.priceAED)
+    : (selectedVariantPriceAed || product?.priceAed || 280);
   const originalPriceAed = product?.originalPriceAed;
-  const weightKg = selectedVariantWeightKg || product?.weightKg || 0.8;
+  const weightKg = (exactActiveVariant && exactActiveVariant.weightKg)
+    ? Number(exactActiveVariant.weightKg)
+    : (selectedVariantWeightKg || product?.weightKg || 0.8);
 
   const activeAedRate = getEffectiveAedRate(settings, cms) || settings?.aedRate || 55000;
   const effectiveMargin = (product as any)?.profitMargin !== undefined && (product as any)?.profitMargin !== null
@@ -464,7 +524,9 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       : (settings?.profitMargin || 20));
 
   let singleToman = 0;
-  if (product) {
+  if (exactActiveVariant?.priceToman && Number(exactActiveVariant.priceToman) > 0) {
+    singleToman = Number(exactActiveVariant.priceToman);
+  } else if (product) {
     const activePricing = getActivePrices({
       product,
       selectedFlavorName: selectedFlavorOpt?.name,
@@ -1100,20 +1162,6 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             /* SINGLE PRODUCT VIEW WITH HIGH-RES GALLERY & HOVER ZOOM LENS */
             <div className="bg-white border border-gray-200 rounded-3xl p-4 sm:p-6 shadow-sm space-y-5 text-right font-['Vazirmatn',sans-serif]" dir="rtl">
               
-              {/* Delivery Origin & Stock Status */}
-              <div className="flex items-center justify-between gap-2 pb-3 border-b border-gray-100">
-                <div className="inline-flex items-center gap-1.5 bg-black text-white text-[11px] font-black px-3 py-1.5 rounded-full shadow-2xs">
-                  <span>🇦🇪</span>
-                  <span>مبدا سفارش:</span>
-                  <span className="text-red-400 font-extrabold">{product?.storeName || 'انبار دبی'}</span>
-                </div>
-
-                <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-gray-800 bg-gray-100 border border-gray-200 px-3 py-1 rounded-full">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                  <span>موجود در انبار امارات</span>
-                </div>
-              </div>
-
               {/* ------------------------------------------------------------------ */}
               {/* FULL-SIZE PROFESSIONAL PRODUCT GALLERY WITH HOVER ZOOM LENS */}
               {/* ------------------------------------------------------------------ */}
@@ -1127,22 +1175,6 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   onClick={() => openLightbox()}
                   className="relative w-full h-[380px] sm:h-[440px] md:h-[460px] bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden flex items-center justify-center p-4 shadow-sm cursor-zoom-in group"
                 >
-                  {/* Floating Store Badge (Top Right) */}
-                  {(() => {
-                    const storeTheme = getStoreBadgeTheme(product?.brand || (product as any)?.storeName);
-                    return (
-                      <div className={`absolute top-3.5 right-3.5 z-10 ${storeTheme.bg} text-[11px] font-bold px-3 py-1 rounded-full shadow-sm flex items-center gap-1.5 pointer-events-none`}>
-                        <span className={`w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse`} />
-                        <span>{storeTheme.name}</span>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Delivery Origin Tag (Top Left) */}
-                  <div className="absolute top-3.5 left-3.5 z-10 bg-gray-100 text-gray-800 text-[10px] font-bold px-2.5 py-1 rounded-full border border-gray-200 shadow-sm pointer-events-none">
-                    {product?.category === 'inventory' || (product as any)?.isLocal ? 'موجود در انبار ایران' : 'ارسال مستقیم دبی'}
-                  </div>
-
                   {activeImage ? (
                     <img
                       src={activeImage}
@@ -1217,11 +1249,29 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 )}
               </div>
 
+              {/* Primary Store / Brand Badge */}
+              {(() => {
+                const storeTheme = getStoreBadgeTheme(product?.brand || (product as any)?.storeName);
+                return (
+                  <div className="flex items-center gap-2 pt-2">
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border shadow-2xs ${storeTheme.bg}`}>
+                      <span className={`w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse`} />
+                      <span>{storeTheme.name}</span>
+                    </span>
+                  </div>
+                );
+              })()}
+
               {/* Product Title */}
-              <div className="space-y-1.5 text-right pt-2" dir="rtl">
+              <div className="space-y-1 text-right" dir="rtl">
                 <h1 className="font-black text-lg sm:text-xl text-gray-950 leading-snug">
-                  {localizedCaption || product?.title || ''}
+                  {localizedCaption || (product as any)?.titleFa || product?.title || ''}
                 </h1>
+                {(product as any)?.titleEn && (
+                  <p className="text-xs font-mono text-slate-500 dark:text-slate-400 dir-ltr text-right">
+                    {(product as any).titleEn}
+                  </p>
+                )}
               </div>
 
               {/* Dynamic Variant Selector Rows (ابعاد انتخابی کالا مثل طعم و سایز) */}
@@ -1254,12 +1304,26 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                         <div className="flex flex-wrap gap-2 pt-0.5 dir-ltr">
                           {dim.options.map((opt) => {
                             const isSelected = (currentSelected?.id === opt.id) || (currentSelected?.name === opt.name);
-                            const isAvailable = opt.inStock !== false;
+                            const isAvailable = (dim.type === 'size' || dim.id === 'sizes')
+                              ? (opt.inStock !== false && isSizeAvailable(opt.name))
+                              : (dim.type === 'flavor' || dim.id === 'flavors')
+                              ? (opt.inStock !== false && isFlavorAvailable(opt.name))
+                              : (opt.inStock !== false);
+
                             const localizedOpt = dim.type === 'flavor'
                               ? translateFlavor(opt.name)
                               : (dim.type === 'size'
                                 ? formatPersianSize(opt.name)
                                 : (opt.nameFa || (translateFlavor(opt.name) !== opt.name ? translateFlavor(opt.name) : formatPersianSize(opt.name))));
+
+                            let chipClass = '';
+                            if (isSelected) {
+                              chipClass = 'bg-red-600 text-white shadow-md ring-2 ring-red-500/20 border-red-600 font-bold';
+                            } else if (isAvailable) {
+                              chipClass = 'bg-white text-gray-800 border border-gray-200 hover:border-gray-400 cursor-pointer';
+                            } else {
+                              chipClass = 'opacity-25 line-through cursor-not-allowed pointer-events-none bg-gray-100 text-gray-400 border border-dashed border-gray-300';
+                            }
 
                             return (
                               <button
@@ -1268,10 +1332,29 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                 disabled={!isAvailable || isVariantLoading}
                                 onClick={async () => {
                                   if (!isAvailable) return;
-                                  setSelectedVariants(prev => ({
-                                    ...prev,
-                                    [dim.id]: opt
-                                  }));
+                                  let nextSelected = { ...selectedVariants };
+
+                                  if ((dim.type === 'flavor' || dim.id === 'flavors') && activeProd?.variants && Array.isArray(activeProd.variants)) {
+                                    const curSize = selectedSizeOpt?.name || '';
+                                    const res = handleFlavorChange(activeProd.variants, opt.name, curSize);
+                                    nextSelected['flavors'] = opt;
+                                    const sizeDim = dimensions.find(d => d.id === 'sizes' || d.type === 'size');
+                                    if (sizeDim) {
+                                      if (res.size) {
+                                        const matchOpt = sizeDim.options.find(o => areVariantsMatching(o.name, res.size)) || { id: 'sz-dyn', name: res.size, inStock: true };
+                                        nextSelected[sizeDim.id] = matchOpt;
+                                      } else {
+                                        delete nextSelected[sizeDim.id];
+                                      }
+                                    }
+                                  } else if ((dim.type === 'size' || dim.id === 'sizes')) {
+                                    // Size does not control or filter flavors
+                                    nextSelected['sizes'] = opt;
+                                  } else {
+                                    nextSelected[dim.id] = opt;
+                                  }
+
+                                  setSelectedVariants(nextSelected);
                                   if (opt.image) {
                                     setActiveImage(opt.image);
                                   }
@@ -1317,23 +1400,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                     }
                                   }
                                 }}
-                                className={`px-3.5 py-1.5 rounded-full text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
-                                  !isAvailable
-                                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through'
-                                    : isVariantLoading
-                                    ? 'opacity-60 cursor-wait bg-gray-50 text-gray-500 border-gray-200'
-                                    : isSelected
-                                    ? 'bg-red-600 text-white border-red-600 shadow-md scale-[1.02]'
-                                    : 'bg-white text-gray-800 border-gray-300 hover:border-red-400'
-                                }`}
+                                className={`px-3.5 py-1.5 rounded-full text-xs transition-all flex items-center gap-1.5 ${chipClass}`}
                               >
                                 {isSelected && isAvailable && <Check className="w-3 h-3 text-white" />}
                                 <span>{localizedOpt}</span>
-                                {!isAvailable && (
-                                  <span className="text-[10px] text-rose-500 font-normal no-underline mr-1">
-                                    (ناموجود)
-                                  </span>
-                                )}
                                 {isAvailable && opt.priceAed && opt.priceAed !== (activeProd?.priceAed || 0) && (
                                   <span className={`text-[10px] font-bold ${isSelected ? 'text-red-100' : 'text-gray-500'}`}>
                                     ({opt.priceAed} د.إ)
@@ -1349,39 +1419,40 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 </div>
               )}
 
-              {/* Pricing Cards */}
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div className="bg-white border-2 border-gray-100 rounded-2xl p-3.5 text-center space-y-0.5 shadow-2xs">
-                  <span className="text-[11px] text-gray-500 font-semibold block">تحویل ایران</span>
-                  <span className="font-black text-red-600 text-base md:text-lg block flex items-center justify-center gap-1.5">
+              {/* Clean White High-Contrast Pricing Box */}
+              <div className="grid grid-cols-2 gap-3 my-5" dir="rtl">
+                {/* Right Box: Toman Price (Delivered Iran) */}
+                <div className="flex flex-col items-center justify-center p-4 bg-white border-2 border-red-100 rounded-2xl shadow-sm text-center">
+                  <span className="text-[12px] font-bold text-gray-500 mb-1">تحویل ایران</span>
+                  <div className="flex items-center justify-center gap-1 font-black text-xl text-red-600">
                     {isVariantLoading ? (
                       <span className="flex items-center gap-1 text-gray-400 text-xs animate-pulse font-normal">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
                         <span>محاسبه مجدد...</span>
                       </span>
                     ) : (
-                      formatToman(singleToman)
+                      <>
+                        <span>{Number(singleToman || 0).toLocaleString('fa-IR')}</span>
+                        <span className="text-xs font-bold">تومان</span>
+                      </>
                     )}
-                  </span>
+                  </div>
                 </div>
 
-                <div className="bg-white border border-gray-200 rounded-2xl p-3.5 text-center space-y-0.5 shadow-2xs">
-                  <span className="text-[11px] text-gray-500 font-semibold block">قیمت درهم (دبی)</span>
-                  <div className="flex items-center justify-center gap-2">
-                    <span className="font-black text-gray-900 text-base md:text-lg block dir-ltr flex items-center justify-center gap-1.5">
-                      {isVariantLoading ? (
-                        <span className="flex items-center gap-1 text-gray-400 text-xs animate-pulse font-normal">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-600" />
-                          <span>استعلام...</span>
-                        </span>
-                      ) : (
-                        formatAed(priceAed)
-                      )}
-                    </span>
-                    {product?.originalPriceAed && product.originalPriceAed > priceAed && !isVariantLoading && (
-                      <span className="text-gray-400 font-bold text-xs line-through dir-ltr">
-                        {formatAed(product.originalPriceAed)}
+                {/* Left Box: AED Dubai Price */}
+                <div className="flex flex-col items-center justify-center p-4 bg-white border-2 border-gray-200 rounded-2xl shadow-sm text-center">
+                  <span className="text-[12px] font-bold text-gray-500 mb-1">قیمت درهم (دبی)</span>
+                  <div className="flex items-center justify-center gap-1.5 font-black text-xl text-gray-900" dir="ltr">
+                    {isVariantLoading ? (
+                      <span className="flex items-center gap-1 text-gray-400 text-xs animate-pulse font-normal">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-600" />
+                        <span>استعلام...</span>
                       </span>
+                    ) : (
+                      <>
+                        <span className="text-xs font-black text-emerald-600">AED</span>
+                        <span>{Number(priceAed || 0).toLocaleString('en-US')}</span>
+                      </>
                     )}
                   </div>
                 </div>

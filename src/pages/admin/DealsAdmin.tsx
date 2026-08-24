@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles, Zap, Plus, Trash2, RefreshCw, Save, Layers,
-  Check, Scale, Eye, EyeOff, ChevronDown, ChevronUp, Search, Globe
+  Check, Scale, Eye, EyeOff, ChevronDown, ChevronUp,
+  Search, Globe, Percent
 } from 'lucide-react';
 import type { FeaturedDeal, ProductVariant, FinancialSettings } from '../../types';
 import { formatToman, toPersianDigits, getEffectiveAedRate } from '../../utils/formatters';
@@ -13,7 +14,9 @@ import {
   TaxonomyCategory, DEFAULT_TAXONOMY, fetchTaxonomyFromFirestore
 } from '../../utils/taxonomyHelper';
 import { generatePersianTitle } from '../../utils/supplementLocalization';
-import { saveAdminProducts, deleteProductFromFirestore } from '../../services/productService';
+import { deleteDoc, doc, setDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
+import { parseWeightKg, calculateProductTomanPrice } from '../../utils/pricingCalculator';
 
 interface DealsAdminProps {
   deals: FeaturedDeal[];
@@ -26,26 +29,120 @@ interface DealsAdminProps {
 
 const COLLECTION_NAME = 'special_deals';
 
-import { parseWeightKg, computeVariantToman } from '../../utils/pricingCalculator';
-
 export { parseWeightKg };
 export const parseSizeWeightKg = parseWeightKg;
 
-// Predictable Toman selling price formula
+// Store Pricing Policy formula (Base AED cost + Fixed item shipping fee + Configurable Profit Margin %)
 export function computeTomanSellingPrice(
   priceAed: number,
-  weightKg: number,
+  _weightKg: number,
   aedRate: number,
-  cargoRatePerKg: number,
+  _cargoRatePerKg: number,
   profitMargin: number
 ): number {
   if (!priceAed || priceAed <= 0) return 0;
-  const cargoCostAed = (weightKg || 0.8) * (cargoRatePerKg || 35);
-  const totalCostAed = priceAed + cargoCostAed;
-  const marginMult = (profitMargin || 20) > 1 ? (1 + (profitMargin || 20) / 100) : (1 + (profitMargin || 20));
-  const finalToman = totalCostAed * (aedRate || 51400) * marginMult;
-  return Math.round(finalToman / 1000) * 1000;
+  return calculateProductTomanPrice({
+    priceAed,
+    profitMarginPercent: profitMargin,
+    aedToTomanRate: aedRate,
+    baseShippingAed: 20
+  });
 }
+
+// Strict Data Sanitizer: forces valid fallbacks and purges any undefined values
+export const sanitizeProductPayload = (prod: any, globalRate: number = 51400, defaultMargin: number = 20) => {
+  const margin = Number(prod.profitMargin !== undefined && prod.profitMargin !== null && !isNaN(Number(prod.profitMargin)) ? prod.profitMargin : defaultMargin);
+  const baseAed = Number(prod.basePriceAed || prod.priceAed || prod.price || 0);
+  const baseWeight = Number(prod.weightKg || 0.8);
+
+  const rawVariants = Array.isArray(prod.variants) ? prod.variants : [];
+  const cleanVariants = rawVariants.map((v: any) => {
+    const vAed = Number(v.priceAed ?? v.price ?? v.priceAED ?? baseAed ?? 0);
+    const vToman = Number(v.priceToman || calculateProductTomanPrice({
+      priceAed: vAed,
+      profitMarginPercent: margin,
+      aedToTomanRate: globalRate,
+      baseShippingAed: 20
+    }));
+
+    const cleanVar: Record<string, any> = {
+      id: String(v.id || `var-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`),
+      flavor: String(v.flavor || ''),
+      size: String(v.size || ''),
+      priceAed: vAed,
+      price: vAed,
+      priceAED: vAed,
+      priceToman: vToman,
+      weightKg: parseWeightKg(v.size, Number(v.weightKg) || baseWeight),
+      image: String(v.image || prod.imageUrl || prod.image || ''),
+      inStock: v.inStock !== false
+    };
+
+    if (v.url) {
+      cleanVar.url = String(v.url);
+    }
+
+    return cleanVar;
+  });
+
+  const productPriceToman = Number(prod.priceToman || calculateProductTomanPrice({
+    priceAed: baseAed,
+    profitMarginPercent: margin,
+    aedToTomanRate: globalRate,
+    baseShippingAed: 20
+  }));
+
+  const rawFlavors = Array.isArray(prod.allowedFlavors) ? prod.allowedFlavors : (Array.isArray(prod.flavors) ? prod.flavors : []);
+  const cleanFlavors = rawFlavors.filter((f: any) => typeof f === 'string' && f.trim().length > 0);
+
+  const rawSizes = Array.isArray(prod.allowedSizes) ? prod.allowedSizes : (Array.isArray(prod.sizes) ? prod.sizes : []);
+  const cleanSizes = rawSizes.filter((s: any) => typeof s === 'string' && s.trim().length > 0);
+
+  const titleFa = String(prod.titleFa || prod.title || prod.titleEn || 'بدون عنوان');
+  const titleEn = String(prod.titleEn || prod.rawTitle || '');
+  const mainImage = String(prod.imageUrl || prod.image || '');
+
+  return {
+    id: String(prod.id || `deal-${Date.now()}`),
+    title: titleFa,
+    titleFa,
+    titleEn,
+    brand: String(prod.brand || ''),
+    category: String(prod.category || prod.mainCategory || 'مکمل‌های ورزشی'),
+    mainCategory: String(prod.mainCategory || prod.category || 'مکمل‌های ورزشی'),
+    subcategory: String(prod.subcategory || prod.subCategory || ''),
+    subCategory: String(prod.subCategory || prod.subcategory || ''),
+    caption: String(prod.caption || ''),
+    description: String(prod.description || ''),
+    imageUrl: mainImage,
+    image: mainImage,
+    images: Array.isArray(prod.images) && prod.images.length > 0 ? prod.images.filter(Boolean).map(String) : (mainImage ? [mainImage] : []),
+    galleryImages: Array.isArray(prod.galleryImages) && prod.galleryImages.length > 0 ? prod.galleryImages.filter(Boolean).map(String) : (mainImage ? [mainImage] : []),
+    basePriceAed: baseAed,
+    priceAed: Number(prod.priceAed ?? baseAed),
+    originalPriceAed: Number(prod.originalPriceAed || 0),
+    profitMargin: margin,
+    weightKg: baseWeight,
+    priceToman: productPriceToman,
+    originalPriceToman: Number(prod.originalPriceToman || 0),
+    stockQuantity: Number(prod.stockQuantity !== undefined ? prod.stockQuantity : (prod.stockCount !== undefined ? prod.stockCount : 10)),
+    stockCount: Number(prod.stockCount !== undefined ? prod.stockCount : (prod.stockQuantity !== undefined ? prod.stockQuantity : 10)),
+    url: String(prod.url || ''),
+    storeName: String(prod.storeName || 'فروشگاه دبی'),
+    isActive: Boolean(prod.isActive),
+    isPopular: Boolean(prod.isPopular),
+    isFeatured: Boolean(prod.isFeatured || prod.isPopular),
+    inStock: prod.inStock !== false,
+    allowedFlavors: cleanFlavors,
+    flavors: cleanFlavors,
+    allowedSizes: cleanSizes,
+    sizes: cleanSizes,
+    variants: cleanVariants,
+    updatedAt: new Date().toISOString()
+  };
+};
+
+export const sanitizeProductDoc = sanitizeProductPayload;
 
 export const DealsAdmin: React.FC<DealsAdminProps> = ({
   deals: initialDeals = [],
@@ -75,8 +172,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'popular' | 'draft'>('all');
 
   const aedRate = getEffectiveAedRate(settings, cms) || 51400;
-  const cargoRate = settings?.cargoRatePerKg || 35;
-  const margin = settings?.profitMargin || 20;
+  const defaultMargin = Number(settings?.profitMargin || 20);
 
   useEffect(() => {
     fetchTaxonomyFromFirestore().then(loaded => {
@@ -112,8 +208,13 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
     });
   }, [deals, searchTerm, filterCategory, filterStatus]);
 
-  const calcToman = (priceAed: number, wt: number) =>
-    computeTomanSellingPrice(priceAed, wt, aedRate, cargoRate, margin);
+  const calcToman = (priceAed: number, marginVal?: number) =>
+    calculateProductTomanPrice({
+      priceAed,
+      profitMarginPercent: marginVal !== undefined ? marginVal : defaultMargin,
+      aedToTomanRate: aedRate,
+      baseShippingAed: 20
+    });
 
   const toggleExpand = (id: string) =>
     setExpandedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -122,6 +223,26 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
     setDeals(prev => prev.map(d => {
       if (d.id !== id) return d;
       const up = { ...d, ...patch };
+
+      if ('profitMargin' in patch) {
+        const newMargin = Number(patch.profitMargin !== undefined ? patch.profitMargin : defaultMargin);
+        up.profitMargin = newMargin;
+        const baseAed = Number(up.basePriceAed || up.priceAed || 0);
+        up.priceToman = calcToman(baseAed, newMargin);
+        up.variants = (up.variants || []).map(v => ({
+          ...v,
+          priceToman: calcToman(Number(v.priceAed || v.price || 0), newMargin)
+        }));
+      }
+
+      if ('priceAed' in patch || 'basePriceAed' in patch) {
+        const pAed = Number(patch.priceAed ?? patch.basePriceAed ?? up.priceAed);
+        up.priceAed = pAed;
+        up.basePriceAed = pAed;
+        const curMargin = up.profitMargin !== undefined ? up.profitMargin : defaultMargin;
+        up.priceToman = calcToman(pAed, curMargin);
+      }
+
       if ('mainCategory' in patch) {
         const cat = categoriesTree.find(c => c.name === patch.mainCategory);
         up.category = patch.mainCategory as string;
@@ -136,6 +257,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   const updateVariant = (dealId: string, varId: string, field: string, value: any) => {
     setDeals(prev => prev.map(d => {
       if (d.id !== dealId) return d;
+      const dealMargin = d.profitMargin !== undefined ? d.profitMargin : defaultMargin;
+
       const variants = (d.variants || []).map(v => {
         if (v.id !== varId) return v;
         const up: any = { ...v, [field]: value };
@@ -144,13 +267,12 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           up.price = p;
           up.priceAed = p;
           up.priceAED = p;
-          const wt = parseSizeWeightKg(v.size, d.weightKg || 0.8);
-          up.priceToman = calcToman(p, wt);
+          up.priceToman = calcToman(p, dealMargin);
         } else if (field === 'size') {
           const wt = parseSizeWeightKg(value, d.weightKg || 0.8);
           up.weightKg = wt;
           const p = Number(v.priceAed || v.price || d.priceAed || 0);
-          up.priceToman = calcToman(p, wt);
+          up.priceToman = calcToman(p, dealMargin);
         } else if (field === 'priceToman') {
           up.priceToman = value === '' ? 0 : parseInt(value) || 0;
         }
@@ -162,10 +284,11 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
 
   const addVariantRow = (dealId: string) => {
     const deal = deals.find(d => d.id === dealId);
-    const pAed = Number(deal?.priceAed) || 100;
+    const pAed = Number(deal?.priceAed || deal?.basePriceAed) || 100;
     const defFlavor = (deal?.flavors as any)?.[0] || 'بدون طعم (Unflavored)';
     const defSize = (deal?.sizes as any)?.[0] || '2.45 kg';
     const wt = parseSizeWeightKg(defSize, deal?.weightKg || 0.8);
+    const dealMargin = deal?.profitMargin !== undefined ? deal.profitMargin : defaultMargin;
     const newV: ProductVariant = {
       id: `var-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
       size: defSize,
@@ -174,7 +297,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       priceAed: pAed,
       priceAED: pAed,
       weightKg: wt,
-      priceToman: calcToman(pAed, wt),
+      priceToman: calcToman(pAed, dealMargin),
       inStock: true,
       image: deal?.image || deal?.imageUrl || ''
     };
@@ -248,9 +371,12 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       const data = await res.json();
       if (!data?.title && !data?.priceAED && !data?.price) throw new Error('استخراج ناموفق');
 
-      const defSize = '2.45 kg';
-      const wt = parseWeightKg(defSize, parseFloat(data.weightKg) || 0.8);
-      const img = data.image || data.imageUrl || '';
+      const pAed = parseFloat(data.priceAed || data.priceAED || data.price) || 0;
+      const img = data.mainImage || data.image || data.imageUrl || '';
+      const gallery = Array.isArray(data.galleryImages) && data.galleryImages.length > 0
+        ? data.galleryImages
+        : (img ? [img] : []);
+
       const mainCat = newDealCategory || categoriesTree[0]?.name || 'مکمل‌های ورزشی';
       const subCat = newDealSubCategory || categoriesTree[0]?.subCategories?.[0]?.name || '';
 
@@ -258,18 +384,50 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       const brand = data.brand || 'دبی';
       const localizedFa = data.titleFa || generatePersianTitle(rawTitleEn, brand);
 
-      const initVariant: ProductVariant = {
-        id: `var-init-${Date.now()}`,
-        size: defSize,
-        flavor: 'شکلات (Chocolate)',
-        price: pAed,
-        priceAed: pAed,
-        priceAED: pAed,
-        weightKg: wt,
-        priceToman: calcToman(pAed, wt),
-        inStock: true,
-        image: img
-      };
+      const extractedFlavors: string[] = Array.isArray(data.flavors) && data.flavors.length > 0
+        ? data.flavors
+        : ['شکلات (Chocolate)'];
+      const extractedSizes: string[] = Array.isArray(data.sizes) && data.sizes.length > 0
+        ? data.sizes
+        : ['2.45 kg'];
+
+      const defSize = extractedSizes[0] || '2.45 kg';
+      const wt = parseWeightKg(defSize, parseFloat(data.weightKg) || 0.8);
+
+      const dynamicVariants: ProductVariant[] = [];
+      if (Array.isArray(data.variants) && data.variants.length > 0) {
+        data.variants.forEach((v: any, idx: number) => {
+          const vPrice = parseFloat(v.priceAED || v.priceAed || v.price || pAed) || pAed;
+          const vSize = v.size || defSize;
+          const vFlavor = v.flavor || extractedFlavors[0] || 'شکلات (Chocolate)';
+          const vWeight = parseWeightKg(vSize, parseFloat(v.weightKg || data.weightKg) || 0.8);
+          dynamicVariants.push({
+            id: `var-${idx}-${Date.now()}`,
+            size: vSize,
+            flavor: vFlavor,
+            price: vPrice,
+            priceAed: vPrice,
+            priceAED: vPrice,
+            weightKg: vWeight,
+            priceToman: vPrice > 0 ? calcToman(vPrice, defaultMargin) : 0,
+            inStock: v.inStock !== false,
+            image: v.image || img
+          });
+        });
+      } else {
+        dynamicVariants.push({
+          id: `var-init-${Date.now()}`,
+          size: defSize,
+          flavor: extractedFlavors[0] || 'شکلات (Chocolate)',
+          price: pAed,
+          priceAed: pAed,
+          priceAED: pAed,
+          weightKg: wt,
+          priceToman: pAed > 0 ? calcToman(pAed, defaultMargin) : 0,
+          inStock: true,
+          image: img
+        });
+      }
 
       const newDeal: FeaturedDeal = {
         id: `deal-${Date.now()}`,
@@ -283,33 +441,35 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         subCategory: subCat,
         priceAed: pAed,
         basePriceAed: pAed,
-        originalPriceAed: 0,
+        profitMargin: defaultMargin,
+        originalPriceAed: parseFloat(data.originalPriceAed || data.originalPriceAED || 0) || 0,
         weightKg: wt,
-        priceToman: calcToman(pAed, wt),
+        priceToman: pAed > 0 ? calcToman(pAed, defaultMargin) : 0,
         originalPriceToman: 0,
         stockQuantity: 10,
         stockCount: 10,
         image: img,
         imageUrl: img,
-        images: img ? [img] : [],
-        galleryImages: img ? [img] : [],
+        images: gallery,
+        galleryImages: gallery,
         url: newDealUrl.trim(),
         storeName: data.storeName || '',
         inStock: true,
         isActive: false, // DRAFT
         isPopular: false,
         isFeatured: false,
-        flavors: ['شکلات (Chocolate)'] as any,
-        allowedFlavors: ['شکلات (Chocolate)'] as any,
-        sizes: ['2.45 kg'] as any,
-        allowedSizes: ['2.45 kg'] as any,
-        variants: [initVariant]
+        flavors: extractedFlavors as any,
+        allowedFlavors: extractedFlavors as any,
+        sizes: extractedSizes as any,
+        allowedSizes: extractedSizes as any,
+        variants: dynamicVariants
       };
 
       setDeals(prev => [newDeal, ...prev]);
       setExpandedIds(prev => new Set([newDeal.id, ...prev]));
       setNewDealUrl('');
-      if (showToast) showToast('محصول با عناوین فارسی و انگلیسی استخراج و به عنوان پیش‌نویس ذخیره شد.', 'success');
+      if (showToast) showToast('محصول و ماتریس متغیرها با موفقیت استخراج و به عنوان پیش‌نویس ذخیره شد.', 'success');
+
     } catch (err: any) {
       if (showToast) showToast('خطا در استخراج: ' + err.message, 'error');
     } finally {
@@ -335,6 +495,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       const flv = data.flavor || 'اصلی';
       const wt = parseSizeWeightKg(sz, deal?.weightKg || 0.8);
       const img = data.image || data.imageUrl || '';
+      const dealMargin = deal?.profitMargin !== undefined ? deal.profitMargin : defaultMargin;
 
       const newV: ProductVariant = {
         id: `var-aux-${Date.now()}`,
@@ -344,7 +505,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         priceAed: pAed,
         priceAED: pAed,
         weightKg: wt,
-        priceToman: calcToman(pAed, wt),
+        priceToman: calcToman(pAed, dealMargin),
         inStock: true,
         image: img,
         url
@@ -366,26 +527,46 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   };
 
   const handleDelete = async (dealId: string) => {
+    const targetDeal = deals.find(d => d.id === dealId);
+    // Instant discard for newly scraped drafts or unsaved items
+    if (targetDeal && (!targetDeal.isActive || dealId.startsWith('deal-') || dealId.startsWith('scraped-') || dealId.startsWith('draft-'))) {
+      const updated = deals.filter(d => d.id !== dealId);
+      setDeals(updated);
+      if (showToast) showToast('پیش‌نویس با موفقیت حذف شد', 'info');
+      return;
+    }
+
     if (!confirm('آیا از حذف این محصول مطمئن هستید؟')) return;
     const updated = deals.filter(d => d.id !== dealId);
     setDeals(updated);
     try {
-      await deleteProductFromFirestore(COLLECTION_NAME, dealId);
+      await deleteDoc(doc(db, COLLECTION_NAME, dealId));
       await onSaveDeals(updated);
       if (showToast) showToast('محصول با موفقیت حذف شد', 'success');
     } catch (err: any) {
-      if (showToast) showToast('خطا در حذف: ' + err.message, 'error');
+      console.error('Error deleting deal:', err);
+      if (showToast) showToast('خطا در حذف: ' + (err.message || 'نامشخص'), 'error');
     }
   };
 
-  // ── Bulletproof Save Handler (No hanging, instant state lock & unlock) ──
+  // ── Direct Native Firestore Save Handler (Bypasses legacy service) ──
   const handleSaveAll = async () => {
     if (isSaving) return;
     setIsSaving(true);
     try {
-      await saveAdminProducts(COLLECTION_NAME, deals);
-      await onSaveDeals(deals);
-      if (showToast) showToast('تمامی محصولات و تنظیمات پیشنهادها با موفقیت ذخیره شدند', 'success');
+      const cleanList: FeaturedDeal[] = [];
+
+      for (const deal of deals) {
+        if (!deal.id) continue;
+        const cleanDoc = sanitizeProductPayload(deal, aedRate, defaultMargin);
+        cleanList.push(cleanDoc as any);
+        await setDoc(doc(db, COLLECTION_NAME, cleanDoc.id), cleanDoc, { merge: true });
+      }
+
+      // Sync reactive state across UI and CMS
+      await onSaveDeals(cleanList);
+
+      if (showToast) showToast('تمامی آفرها، ماتریس واریانت‌ها و تنظیمات با موفقیت ذخیره شدند', 'success');
     } catch (err: any) {
       console.error('CRITICAL FIRESTORE SAVE ERROR (DealsAdmin):', err);
       if (showToast) showToast('خطا در ذخیره‌سازی دیتابیس: ' + (err.message || 'نامشخص'), 'error');
@@ -395,25 +576,16 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   };
 
   return (
-    <div className="space-y-5 font-['Vazirmatn',sans-serif] text-right" dir="rtl">
-      {/* ── Header ── */}
+    <div className="space-y-5 font-['Vazirmatn',sans-serif] text-right pb-36" dir="rtl">
+      {/* ── Header (Clean UI with single consolidated save pipeline) ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-3xl p-5 shadow-xs">
         <div>
           <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-500" />
             <span>مدیریت پیشنهادهای ویژه ({toPersianDigits(deals.length)} محصول)</span>
           </h3>
-          <p className="text-[11px] text-slate-500 mt-0.5">مدیریت پیشنهادهای خرید از دبی، عناوین دوزبانه (FA/EN) و ذخیره مطمئن در Firestore</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">فرمول قیمت‌گذاری فروشگاهی (هزینه ثابت حمل ۲۰ درهم + درصد سود اختصاصی) و ذخیره مستقیم در دیتابیس</p>
         </div>
-        <button
-          type="button"
-          onClick={handleSaveAll}
-          disabled={isSaving}
-          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-2xl transition flex items-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
-        >
-          {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          <span>{isSaving ? 'در حال ذخیره...' : 'ذخیره سراسری پیشنهادها'}</span>
-        </button>
       </div>
 
       {/* ── URL Extractor Bar ── */}
@@ -423,13 +595,26 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           <span>استخراج محصول جدید به عنوان پیش‌نویس (تولید خودکار عنوان فارسی و انگلیسی):</span>
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-          <input
-            type="text" value={newDealUrl}
-            onChange={e => setNewDealUrl(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleExtract()}
-            placeholder="https://www.drnutrition.com/..."
-            className="sm:col-span-5 bg-white border border-amber-300 text-slate-900 text-xs px-3 py-2.5 rounded-xl focus:outline-none focus:border-amber-600 dir-ltr font-mono"
-          />
+          <div className="relative flex items-center sm:col-span-5 w-full">
+            <input
+              type="text"
+              value={newDealUrl}
+              onChange={e => setNewDealUrl(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleExtract()}
+              placeholder="https://www.drnutrition.com/..."
+              className="w-full bg-white border border-amber-300 text-slate-900 text-xs pl-9 pr-3 py-2.5 rounded-xl focus:outline-none focus:border-amber-600 dir-ltr font-mono"
+            />
+            {newDealUrl && (
+              <button
+                type="button"
+                onClick={() => setNewDealUrl('')}
+                className="absolute left-2.5 p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                title="پاک کردن لینک"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
           <select
             value={newDealCategory}
             onChange={e => {
@@ -500,6 +685,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           const flavorsPool = (deal.flavors as any as string[]) || [];
           const sizesPool = (deal.sizes as any as string[]) || [];
           const subCats = categoriesTree.find(c => c.name === (deal.mainCategory || deal.category))?.subCategories || [];
+          const currentMargin = deal.profitMargin !== undefined ? deal.profitMargin : defaultMargin;
 
           return (
             <div key={deal.id}
@@ -540,7 +726,10 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                       </span>
                     )}
                     <span className="text-[10px] text-slate-500 font-medium">واریانت: {toPersianDigits(deal.variants?.length || 0)}</span>
-                    <span className="text-[10px] text-emerald-600 font-mono">{deal.priceAed} AED</span>
+                    <span className="text-[10px] text-emerald-600 font-mono font-bold">{deal.priceAed} AED</span>
+                    <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded-md">
+                      سود: {toPersianDigits(currentMargin)}٪
+                    </span>
                   </div>
                 </div>
 
@@ -554,26 +743,15 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                     {deal.isActive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                   </button>
 
-                  {/* isPopular toggle with amber visual highlight */}
                   <button type="button"
-                    onClick={() => updateDeal(deal.id, { isPopular: !(deal as any).isPopular } as any)}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1 cursor-pointer border ${
-                      (deal as any).isPopular
-                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
-                        : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
-                    }`}
-                    title="نمایش در نمونه‌های پرطرفدار بالای صفحه اصلی"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(deal.id);
+                    }}
+                    className="p-1.5 text-rose-500 hover:bg-rose-100 hover:text-rose-700 active:scale-95 rounded-lg transition cursor-pointer"
+                    title="حذف / لغو پیش‌نویس"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>{(deal as any).isPopular ? '★ پرطرفدار' : 'عادی'}</span>
-                  </button>
-
-                  <button type="button"
-                    onClick={() => handleDelete(deal.id)}
-                    className="p-1.5 text-rose-400 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition cursor-pointer"
-                    title="حذف"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4" />
                   </button>
 
                   <button type="button"
@@ -614,6 +792,53 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                         placeholder="Original English Product Name..."
                         className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-amber-600 dir-ltr"
                       />
+                    </div>
+                  </div>
+
+                  {/* Base Pricing & Dedicated Profit Margin Fields */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-amber-50/50 p-3.5 rounded-2xl border border-amber-200">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        قیمت پایه امارات (AED):
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={deal.basePriceAed || deal.priceAed || ''}
+                        onChange={e => {
+                          const val = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
+                          updateDeal(deal.id, { basePriceAed: val, priceAed: val });
+                        }}
+                        className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-600 dir-ltr"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-amber-900 mb-1 flex items-center gap-1">
+                        <Percent className="w-3.5 h-3.5 text-amber-600" />
+                        <span>درصد سود (پیش‌فرض: ۲۰٪):</span>
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="100"
+                        value={deal.profitMargin !== undefined ? deal.profitMargin : 20}
+                        onChange={e => {
+                          const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                          updateDeal(deal.id, { profitMargin: val });
+                        }}
+                        placeholder="20"
+                        className="w-full bg-white border border-amber-400 rounded-xl px-3 py-2 text-xs font-bold text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-500 dir-ltr text-center"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        قیمت محاسبه‌شده تومان:
+                      </label>
+                      <div className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-black text-emerald-700 flex items-center justify-between">
+                        <span>{formatToman(deal.priceToman || 0)}</span>
+                        <span className="text-[10px] text-slate-500 font-bold">تومان</span>
+                      </div>
                     </div>
                   </div>
 
@@ -742,7 +967,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                         <span>ماتریس واریانت‌ها ({toPersianDigits(deal.variants?.length || 0)} ردیف):</span>
                       </span>
                       <button type="button" onClick={() => addVariantRow(deal.id)}
-                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl flex items-center gap-1.5 cursor-pointer">
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs">
                         <Plus className="w-3.5 h-3.5" /><span>+ افزودن سطر</span>
                       </button>
                     </div>
@@ -810,7 +1035,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                                   <option value="__custom__">+ سایر...</option>
                                 </select>}
                           </div>
-                          {/* Price AED (Zero-padding bug fix) */}
+                          {/* Price AED */}
                           <div className="col-span-2">
                             <input
                               type="number"
@@ -827,7 +1052,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                             />
                           </div>
 
-                          {/* Price Toman (Zero-padding bug fix) */}
+                          {/* Price Toman */}
                           <div className="col-span-2">
                             <input
                               type="number"
@@ -873,6 +1098,20 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           </div>
         )}
       </div>
+
+      {/* Single Unified Floating Save Trigger */}
+      <div className="fixed bottom-20 inset-x-0 flex justify-center z-40 px-4 pointer-events-none">
+        <button
+          type="button"
+          onClick={handleSaveAll}
+          disabled={isSaving}
+          className="pointer-events-auto flex items-center justify-center gap-2.5 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-2xl shadow-xl hover:shadow-2xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed border border-emerald-500/30 backdrop-blur-sm"
+        >
+          <Save className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
+          <span>{isSaving ? 'در حال ذخیره‌سازی...' : 'ذخیره سراسری تنظیمات و محصولات'}</span>
+        </button>
+      </div>
     </div>
   );
 };
+

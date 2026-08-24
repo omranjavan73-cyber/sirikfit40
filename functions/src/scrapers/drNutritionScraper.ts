@@ -1,57 +1,132 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-
-export const BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8,fa;q=0.7',
-  'Accept-Encoding': 'gzip, deflate, br',
-  'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-  'Sec-Ch-Ua-Mobile': '?0',
-  'Sec-Ch-Ua-Platform': '"Windows"',
-  'Sec-Fetch-Dest': 'document',
-  'Sec-Fetch-Mode': 'navigate',
-  'Sec-Fetch-Site': 'none',
-  'Sec-Fetch-User': '?1',
-  'Upgrade-Insecure-Requests': '1',
-  'Cache-Control': 'max-age=0'
-};
+import {
+  sanitizeImageUrl,
+  getStandardScraperHeaders,
+  extractPriceNumber,
+  deduplicateStrings,
+  extractEmbeddedJsonData
+} from './utils';
 
 export async function scrapeDrNutrition(url: string) {
   const cleanUrl = url.trim();
-  const res = await axios.get(cleanUrl, { headers: BROWSER_HEADERS, timeout: 15000 });
-  const $ = cheerio.load(res.data);
+  const headers = getStandardScraperHeaders(cleanUrl);
 
-  let title = $('h1.product-title, h1[itemprop="name"], h1.page-title, h1').first().text().trim();
-  if (!title) title = $('meta[property="og:title"]').attr('content') || '';
-  title = title.replace(/\s*\|\s*Dr\s*Nutrition.*$/i, '').trim();
-
-  const brand = $('.product-brand, .brand-name, [itemprop="brand"]').first().text().trim() || 'Applied Nutrition';
-  const imageUrl = $('meta[property="og:image"]').attr('content') || $('.gallery-placeholder img, .fotorama__img').first().attr('src') || '';
-
-  // Extract Price (Ignore Old/Strikethrough Price)
-  let priceAED = 0;
-  let originalPriceAED = 0;
-
-  $('script[type="application/ld+json"]').each((_, el) => {
-    try {
-      const json = JSON.parse($(el).html() || '{}');
-      if ((json['@type'] === 'Product' || json['@type'] === 'IndividualProduct') && json.offers) {
-        const offer = Array.isArray(json.offers) ? json.offers[0] : json.offers;
-        if (offer && offer.price) priceAED = parseFloat(offer.price);
-      }
-    } catch (e) {}
-  });
-
-  if (!priceAED) {
-    const priceText = $('.special-price .price, .product-info-price .special-price, .price-wrapper[data-price-type="finalPrice"] .price, .price').not('.old-price *').first().text();
-    const match = priceText.replace(/,/g, '').match(/[\d.]+/);
-    if (match) priceAED = parseFloat(match[0]);
+  // Normalize URL to /en-ae/
+  let enAeUrl = cleanUrl.replace(/https?:\/\/(www\.)?drnutrition\.com/i, 'https://www.drnutrition.com');
+  if (/\/(ar|en)-[a-z]{2}\//i.test(enAeUrl)) {
+    enAeUrl = enAeUrl.replace(/\/(ar|en)-[a-z]{2}\//i, '/en-ae/');
+  } else if (!enAeUrl.includes('/en-ae/')) {
+    enAeUrl = enAeUrl.replace('drnutrition.com/', 'drnutrition.com/en-ae/');
   }
 
-  const oldPriceText = $('.old-price .price, del').first().text();
-  const oldMatch = oldPriceText.replace(/,/g, '').match(/[\d.]+/);
-  if (oldMatch) originalPriceAED = parseFloat(oldMatch[0]);
+  const res = await axios.get(enAeUrl, { headers, timeout: 15000 });
+  const html = res.data;
+  if (!html || typeof html !== 'string') {
+    return { success: false, error: 'Empty response from Dr. Nutrition' };
+  }
+
+  const $ = cheerio.load(html);
+  const { nextData, jsonLd } = extractEmbeddedJsonData($);
+
+  let title = '';
+  let brand = 'Dr. Nutrition';
+  let imageUrl = '';
+  const galleryImages: string[] = [];
+  let priceAED = 0;
+  let originalPriceAED = 0;
+  const flavorsList: string[] = [];
+  const sizesList: string[] = [];
+
+  // 1. Tier 1: Next.js __NEXT_DATA__
+  if (nextData) {
+    const productNode = nextData?.props?.pageProps?.product || nextData?.props?.pageProps?.productData || nextData?.props?.pageProps?.initialData?.product;
+    if (productNode) {
+      title = productNode.name || productNode.title || '';
+      brand = productNode.brand || productNode.brand_name || productNode.manufacturer || brand;
+      priceAED = extractPriceNumber(productNode.final_price || productNode.special_price || productNode.price_range?.minimum_price?.final_price?.value || productNode.price);
+      originalPriceAED = extractPriceNumber(productNode.regular_price || productNode.price_range?.minimum_price?.regular_price?.value || productNode.price);
+      if (productNode.image?.url || productNode.image) {
+        imageUrl = sanitizeImageUrl(productNode.image?.url || productNode.image, enAeUrl);
+      }
+      if (Array.isArray(productNode.media_gallery || productNode.images)) {
+        (productNode.media_gallery || productNode.images).forEach((m: any) => {
+          const u = sanitizeImageUrl(m.url || m.file || m, enAeUrl);
+          if (u && !galleryImages.includes(u)) galleryImages.push(u);
+        });
+      }
+      if (Array.isArray(productNode.configurable_options || productNode.variants)) {
+        (productNode.configurable_options || productNode.variants).forEach((opt: any) => {
+          const optLabel = String(opt.label || opt.attribute_code || '').toLowerCase();
+          if (Array.isArray(opt.values)) {
+            opt.values.forEach((val: any) => {
+              const valLabel = String(val.label || val.store_label || '').trim();
+              if (valLabel) {
+                if (optLabel.includes('flavor') || optLabel.includes('طعم')) flavorsList.push(valLabel);
+                else if (optLabel.includes('size') || optLabel.includes('weight') || optLabel.includes('حجم')) sizesList.push(valLabel);
+              }
+            });
+          }
+        });
+      }
+    }
+  }
+
+  // 2. Tier 2: JSON-LD Schema
+  if (!priceAED && jsonLd && jsonLd.length > 0) {
+    for (const item of jsonLd) {
+      if (item && (item['@type'] === 'Product' || item['@type'] === 'IndividualProduct' || item.offers)) {
+        if (!title && item.name) title = String(item.name).trim();
+        if (item.brand?.name) brand = String(item.brand.name).trim();
+        if (!imageUrl && item.image) {
+          const img = Array.isArray(item.image) ? item.image[0] : (typeof item.image === 'object' ? item.image.url : item.image);
+          imageUrl = sanitizeImageUrl(img, enAeUrl);
+        }
+        const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
+        if (offer && offer.price) {
+          priceAED = extractPriceNumber(offer.price);
+        }
+      }
+    }
+  }
+
+  // 3. Tier 3: Meta tags
+  if (!title) {
+    title = $('meta[property="og:title"]').attr('content') || $('h1.product-title, h1[itemprop="name"], h1.page-title, h1').first().text().trim();
+    title = title.replace(/\s*\|\s*Dr\s*Nutrition.*$/i, '').trim();
+  }
+  if (!imageUrl) {
+    const metaImg = $('meta[property="og:image"]').attr('content') || $('meta[name="twitter:image"]').attr('content');
+    imageUrl = sanitizeImageUrl(metaImg || '', enAeUrl);
+  }
+  if (!priceAED) {
+    const metaPrice = $('meta[property="product:price:amount"]').attr('content') || $('meta[name="twitter:data1"]').attr('content');
+    priceAED = extractPriceNumber(metaPrice);
+  }
+
+  // 4. Tier 4: DOM Fallback
+  if (!imageUrl) {
+    const domImg = $('.gallery-placeholder img, [itemprop="image"], .fotorama__img, .product-image-photo').first().attr('src');
+    imageUrl = sanitizeImageUrl(domImg || '', enAeUrl);
+  }
+  if (!priceAED) {
+    const priceText = $('.special-price .price, .product-info-price .special-price, .price-wrapper[data-price-type="finalPrice"] .price, .price').not('.old-price *').first().text();
+    priceAED = extractPriceNumber(priceText);
+  }
+  if (!originalPriceAED) {
+    const oldPriceText = $('.old-price .price, del, [data-price-type="oldPrice"] .price').first().text();
+    originalPriceAED = extractPriceNumber(oldPriceText);
+  }
+
+  const cleanFlavors = deduplicateStrings(flavorsList);
+  const cleanSizes = deduplicateStrings(sizesList);
+
+  if (!priceAED || priceAED <= 0) {
+    return {
+      success: false,
+      error: 'امکان استخراج قیمت زنده از این لینک وجود ندارد.'
+    };
+  }
 
   return {
     success: true,
@@ -59,12 +134,14 @@ export async function scrapeDrNutrition(url: string) {
     brand,
     store: 'Dr. Nutrition',
     sourceUrl: cleanUrl,
-    imageUrl,
-    priceAED: priceAED || 0,
-    originalPriceAED: originalPriceAED || priceAED || 0,
-    weightKg: 0.25,
-    variants: [
-      { id: 'v1', size: '250 Gm', flavor: 'Icy Blue Raz', priceAED: priceAED || 0, weightKg: 0.25, inStock: true }
-    ]
+    imageUrl: imageUrl || '',
+    galleryImages: galleryImages.filter(Boolean),
+    priceAED,
+    originalPriceAED: originalPriceAED > priceAED ? originalPriceAED : undefined,
+    weightKg: 0.8,
+    flavors: cleanFlavors,
+    sizes: cleanSizes,
+    inStock: !html.includes('Out of stock') && !html.includes('ناموجود')
   };
 }
+

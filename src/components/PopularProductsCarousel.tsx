@@ -67,6 +67,7 @@ interface PopularProductsCarouselProps {
   items?: PopularProductItem[];
   settings?: FinancialSettings;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
+  showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = ({

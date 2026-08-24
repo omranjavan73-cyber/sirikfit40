@@ -1,6 +1,6 @@
 {
-  "name": "Remix 1.1 sirikfit40",
-  "description": "SirikFit supplement purchasing platform with intelligent URL extractor and scraper validation",
+  "name": "@sirikfit40 2.1",
+  "description": "Imported from GitHub: omranjavan73-cyber/sirikfit40",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

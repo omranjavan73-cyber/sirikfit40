@@ -1,60 +1,39 @@
 import axios from 'axios';
-import * as cheerio from 'cheerio';
 import { BROWSER_HEADERS } from './drNutritionScraper';
+import { parseSporterHtml } from './sporterAdapter';
 
 export async function scrapeSporter(url: string) {
   const cleanUrl = url.trim();
   const res = await axios.get(cleanUrl, { headers: BROWSER_HEADERS, timeout: 15000 });
-  const $ = cheerio.load(res.data);
+  const parsed = parseSporterHtml(res.data, cleanUrl);
 
-  let title = $('h1.product-name, h1[itemprop="name"], h1').first().text().trim();
-  if (!title) title = $('meta[property="og:title"]').attr('content') || '';
-  title = title.replace(/\s*\|\s*Sporter.*$/i, '').trim();
-
-  const brand = $('.brand-name, [itemprop="brand"], .product-brand').first().text().trim() || 'MuscleTech';
-  const imageUrl = $('meta[property="og:image"]').attr('content') || $('.gallery-placeholder img').first().attr('src') || '';
-
-  let priceAED = 0;
-  let originalPriceAED = 0;
-
-  const oldPriceText = $('.old-price .price, [data-price-type="oldPrice"] .price, del .price, .regular-price .price').first().text();
-  const oldMatch = oldPriceText.replace(/,/g, '').match(/[\d.]+/);
-  if (oldMatch) originalPriceAED = parseFloat(oldMatch[0]);
-
-  const specialPriceText = $('.special-price .price, [data-price-type="finalPrice"] .price, .product-info-price .price:not(.old-price .price)').first().text();
-  const match = specialPriceText.replace(/,/g, '').match(/[\d.]+/);
-  if (match) {
-    priceAED = parseFloat(match[0]);
-  } else {
-    $('.price').each((_, el) => {
-      const isInsideOld = $(el).closest('.old-price, del, [data-price-type="oldPrice"]').length > 0;
-      if (!isInsideOld && !priceAED) {
-        const m = $(el).text().replace(/,/g, '').match(/[\d.]+/);
-        if (m) priceAED = parseFloat(m[0]);
-      }
-    });
+  if (parsed) {
+    return {
+      success: true,
+      title: parsed.title || 'محصول اسپورتر',
+      brand: parsed.brand || 'Sporter UAE',
+      store: 'Sporter UAE',
+      sourceUrl: cleanUrl,
+      imageUrl: parsed.image || parsed.mainImage || '',
+      priceAED: parsed.priceAED || parsed.price,
+      originalPriceAED: parsed.originalPriceAED || parsed.originalPriceAed,
+      discountPercent: parsed.discountPercent,
+      weightKg: parsed.weightKg || 1.8,
+      variants: parsed.variants || [
+        { id: 'v1', size: 'Standard', flavor: 'Default', priceAED: parsed.priceAED || parsed.price, inStock: true }
+      ]
+    };
   }
 
-  const finalPrice = priceAED > 0 ? priceAED : (originalPriceAED || 255.00);
-  const finalOldPrice = (originalPriceAED > finalPrice) ? originalPriceAED : undefined;
-  const discountPercent = (finalOldPrice && finalOldPrice > finalPrice)
-    ? Math.round(((finalOldPrice - finalPrice) / finalOldPrice) * 100)
-    : undefined;
-
   return {
-    success: true,
-    title: title || 'محصول اسپورتر',
-    brand,
+    success: false,
+    title: 'محصول اسپورتر',
+    brand: 'Sporter UAE',
     store: 'Sporter UAE',
     sourceUrl: cleanUrl,
-    imageUrl,
-    priceAED: finalPrice,
-    originalPriceAED: finalOldPrice,
-    discountPercent,
+    imageUrl: '',
+    priceAED: 0,
     weightKg: 1.8,
-    variants: [
-      { id: 'v1', size: '4 lbs', flavor: 'Milk Chocolate', priceAED: finalPrice, weightKg: 1.8, inStock: true },
-      { id: 'v2', size: '2 lbs', flavor: 'Milk Chocolate', priceAED: finalPrice > 100 ? 156.83 : finalPrice, weightKg: 0.9, inStock: true }
-    ]
+    variants: []
   };
 }

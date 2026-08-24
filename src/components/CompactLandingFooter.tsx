@@ -10,6 +10,12 @@ import { ENamadBadge } from './ENamadBadge';
 
 interface FooterProps {
   settings?: LandingSettings | null;
+  onOpenTerms?: () => void;
+  onOpenRules?: () => void;
+  onOpenFaq?: () => void;
+  onOpenAbout?: () => void;
+  onOpenBenefits?: () => void;
+  onOpenContact?: () => void;
 }
 
 export const CompactLandingFooter: React.FC<FooterProps> = ({ settings: customSettings }) => {

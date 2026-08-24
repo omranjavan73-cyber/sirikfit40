@@ -24,16 +24,15 @@ try {
     : getFirestore(firebaseApp);
 }
 
-// Calculate Landed Toman Price (Formula: (priceAed + 20 AED shipping) * (1 + margin%) * aedRate)
+// Calculate Landed Toman Price (Formula: Math.round((priceAed * aedRate * (1 + margin / 100)) / 1000) * 1000)
 function calculateLandedTomanPrice(
   priceAed: number,
   marginPercent: number = 20,
   aedRate: number = 51400
 ): number {
   if (!priceAed || priceAed <= 0) return 0;
-  const baseTotalAed = priceAed + 20; // 20 AED base shipping fee
   const marginMultiplier = 1 + (marginPercent / 100);
-  const totalToman = Math.round(baseTotalAed * marginMultiplier * aedRate);
+  const totalToman = priceAed * aedRate * marginMultiplier;
   return Math.round(totalToman / 1000) * 1000;
 }
 

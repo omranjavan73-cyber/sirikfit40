@@ -42,15 +42,7 @@ export const sanitizeImageUrl = (rawImg: string, cleanUrl: string = ''): string 
   if (!rawImg || typeof rawImg !== 'string') return '';
   let str = String(rawImg).trim().replace(/&amp;/g, '&').replace(/^["']|["']$/g, '').trim();
 
-  // Filter out inline SVGs or data URLs that are store logos/icons
-  if (str.startsWith('data:image/svg') || str.includes('logo') || str.includes('badge') || str.includes('icon') || str.includes('searchIcon') || str.includes('tamara') || str.includes('tabby')) {
-    if (!str.includes('product') && !str.includes('catalog') && !str.includes('media')) {
-      return '';
-    }
-  }
-
-  if (str.endsWith('.svg')) return '';
-
+  // Normalize protocol
   if (str.startsWith('//')) {
     str = 'https:' + str;
   } else if (str.startsWith('/')) {
@@ -65,7 +57,43 @@ export const sanitizeImageUrl = (rawImg: string, cleanUrl: string = ''): string 
   }
 
   str = str.split('"')[0].split("'")[0].split('\\')[0].trim();
-  
+
+  const lower = str.toLowerCase();
+
+  // Strict check: if the URL or file name contains logo, badge, icon, header, svg, favicon, etc., reject it
+  if (
+    lower.startsWith('data:image/svg') ||
+    lower.endsWith('.svg') ||
+    lower.includes('logo') ||
+    lower.includes('badge') ||
+    lower.includes('icon') ||
+    lower.includes('header') ||
+    lower.includes('favicon') ||
+    lower.includes('searchicon') ||
+    lower.includes('tamara') ||
+    lower.includes('tabby') ||
+    lower.includes('placeholder')
+  ) {
+    const urlWithoutQuery = lower.split('?')[0];
+    const filename = urlWithoutQuery.split('/').pop() || '';
+    if (
+      filename.includes('logo') ||
+      filename.includes('badge') ||
+      filename.includes('icon') ||
+      filename.includes('header') ||
+      filename.includes('favicon') ||
+      filename.includes('tamara') ||
+      filename.includes('tabby') ||
+      filename.includes('placeholder') ||
+      filename.endsWith('.svg')
+    ) {
+      return '';
+    }
+    if (!lower.includes('catalog/product') && !lower.includes('/products/') && !lower.includes('media/catalog') && !lower.includes('product-images')) {
+      return '';
+    }
+  }
+
   // Upgrade Shopify/Magento/E-Commerce thumbnail images to high-res master/1024x1024
   str = str.replace(/_(?:small|compact|thumb|medium|100x100|150x150|200x200|240x240|300x300)\.(jpe?g|png|webp|avif)/gi, '_1024x1024.$1');
   return str;

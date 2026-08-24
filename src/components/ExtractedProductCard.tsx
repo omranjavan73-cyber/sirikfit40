@@ -247,77 +247,52 @@ export const ExtractedProductCard: React.FC<ExtractedProductCardProps> = ({
             </div>
           </div>
 
-          {/* Interactive Variant Selectors (Flavors / Sizes / Options) */}
-          {validOptions.length > 0 && (
-            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-2.5">
-              <div className="flex items-center justify-between">
+          {/* Extracted Specifications & Badges (Clean Non-Clickable Informative Badges) */}
+          {(() => {
+            const cleanFlavors = Array.from(new Set((flavors || []).filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(f.trim().toLowerCase()))));
+            const cleanSizes = Array.from(new Set((sizes || []).filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(s.trim().toLowerCase()))));
+            const otherOptions = (validOptions || []).filter(o => !cleanFlavors.includes(o) && !cleanSizes.includes(o));
+
+            if (cleanFlavors.length === 0 && cleanSizes.length === 0 && otherOptions.length === 0) return null;
+
+            return (
+              <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-200 space-y-2">
                 <span className="text-xs font-black text-gray-950 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-red-600 inline-block"></span>
-                  <span>گزینه‌های قابل انتخاب (طعم / وزن / بسته‌بندی):</span>
+                  <span>مشخصات استخراج‌شده کالا (Flavor & Size):</span>
                 </span>
-                {selectedOption && validOptions.includes(selectedOption) && (
-                  <span className="text-[11px] text-gray-600 font-bold bg-white border border-gray-200 px-2.5 py-0.5 rounded-lg dir-rtl">
-                    انتخاب‌شده: <span className="text-gray-950 font-black">{translateFlavor(selectedOption) !== selectedOption ? translateFlavor(selectedOption) : formatPersianSize(selectedOption)}</span>
-                  </span>
-                )}
-              </div>
-
-              <div className="flex flex-wrap gap-2 pt-0.5 dir-ltr">
-                {validOptions.map((opt) => {
-                  const isSelected = selectedOption === opt;
-                  const matchedItem = variantItems.find(
-                    (v) =>
-                      v.title?.toLowerCase() === opt.toLowerCase() ||
-                      v.name?.toLowerCase() === opt.toLowerCase() ||
-                      v.size?.toLowerCase() === opt.toLowerCase() ||
-                      v.flavor?.toLowerCase() === opt.toLowerCase()
-                  );
-                  const isAvailable = matchedItem ? matchedItem.inStock !== false : true;
-                  const optPrice = matchedItem ? (matchedItem.priceAED ?? matchedItem.priceAed) : null;
-                  const hasDifferentPrice = optPrice && optPrice > 0 && optPrice !== priceAed;
-                  const localizedLabel = translateFlavor(opt) !== opt ? translateFlavor(opt) : formatPersianSize(opt);
-
-                  return (
-                    <button
-                      key={opt}
-                      type="button"
-                      disabled={!isAvailable}
-                      onClick={() => {
-                        if (!isAvailable) return;
-                        if (matchedItem?.image) {
-                          setSelectedImg(matchedItem.image);
-                        }
-                        if (onSelectOption) onSelectOption(opt);
-                      }}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all inline-flex items-center gap-1.5 cursor-pointer border ${
-                        !isAvailable
-                          ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through'
-                          : isSelected
-                          ? 'bg-red-600 text-white border-red-600 shadow-md scale-[1.02]'
-                          : 'bg-white text-gray-800 border-gray-300 hover:border-red-400'
-                      }`}
+                <div className="flex flex-wrap gap-2 pt-0.5">
+                  {cleanFlavors.map((flv) => (
+                    <span
+                      key={`flv-${flv}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-bold shadow-2xs"
                     >
-                      <span>{localizedLabel}</span>
-                      {!isAvailable && (
-                        <span className="text-[10px] text-rose-500 font-normal no-underline mr-1">
-                          (ناموجود)
-                        </span>
-                      )}
-                      {isAvailable && hasDifferentPrice && (
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded font-black ${
-                            isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {optPrice} AED
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+                      <span className="text-gray-500 font-medium text-[11px]">طعم:</span>
+                      <span className="text-gray-950 font-black">{translateFlavor(flv)}</span>
+                    </span>
+                  ))}
+                  {cleanSizes.map((sz) => (
+                    <span
+                      key={`sz-${sz}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-bold shadow-2xs"
+                    >
+                      <span className="text-gray-500 font-medium text-[11px]">سایز / وزن:</span>
+                      <span className="text-gray-950 font-black">{formatPersianSize(sz)}</span>
+                    </span>
+                  ))}
+                  {cleanFlavors.length === 0 && cleanSizes.length === 0 && otherOptions.map((opt) => (
+                    <span
+                      key={`opt-${opt}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-bold shadow-2xs"
+                    >
+                      <span className="text-gray-500 font-medium text-[11px]">گزینه:</span>
+                      <span className="text-gray-950 font-black">{translateFlavor(opt) !== opt ? translateFlavor(opt) : formatPersianSize(opt)}</span>
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Clean High-Contrast Product Specifications */}
           <div className="w-full flex flex-col gap-2.5 my-1">

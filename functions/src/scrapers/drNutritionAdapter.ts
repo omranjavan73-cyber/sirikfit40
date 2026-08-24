@@ -67,7 +67,7 @@ export const extractRobustProductData = (html: string, sourceUrl: string): Extra
   let originalPriceAed = 0;
   let titleEn = $('h1.page-title, h1[data-ui-id="page-title-wrapper"], h1.product-title, h1').first().text().trim();
   let brand = $('.product-brand, .brand-name, [itemprop="brand"]').first().text().trim() || 'Applied Nutrition';
-  let imageUrl = $('meta[property="og:image"]').attr('content') || $('.gallery-placeholder img, [itemprop="image"], .fotorama__img').first().attr('src') || '';
+  let imageUrl = sanitizeImageUrl($('meta[property="og:image"]').attr('content') || $('meta[name="twitter:image"]').attr('content') || $('.gallery-placeholder img, [itemprop="image"], .fotorama__img').first().attr('src') || '', sourceUrl);
   const galleryImages: string[] = [];
   const flavorsSet = new Set<string>();
   const sizesSet = new Set<string>();
@@ -85,7 +85,8 @@ export const extractRobustProductData = (html: string, sourceUrl: string): Extra
         titleEn = productNode.name || productNode.title || titleEn;
         brand = productNode.brand || productNode.brand_name || productNode.manufacturer || brand;
         if (productNode.image?.url || productNode.image) {
-          imageUrl = productNode.image?.url || productNode.image;
+          const pImg = sanitizeImageUrl(productNode.image?.url || productNode.image, sourceUrl);
+          if (pImg) imageUrl = pImg;
         }
         if (Array.isArray(productNode.media_gallery || productNode.images)) {
           (productNode.media_gallery || productNode.images).forEach((m: any) => {

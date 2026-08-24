@@ -5497,9 +5497,8 @@ function calculateLandedTomanPrice(
   aedRate: number = 51400
 ): number {
   if (!priceAed || priceAed <= 0) return 0;
-  const baseTotalAed = priceAed + 20; // 20 AED base shipping fee
   const marginMultiplier = 1 + (marginPercent / 100);
-  const totalToman = Math.round(baseTotalAed * marginMultiplier * aedRate);
+  const totalToman = priceAed * aedRate * marginMultiplier;
   return Math.round(totalToman / 1000) * 1000;
 }
 

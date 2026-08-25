@@ -17,6 +17,7 @@ import { generatePersianTitle } from '../../utils/supplementLocalization';
 import { deleteDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { calculateProductTomanPrice, parseWeightKg, computeVariantToman } from '../../utils/pricingCalculator';
+import { saveIranWarehouseItems } from '../../services/adminService';
 
 interface IranWarehouseAdminProps {
   items: LocalInventoryItem[];
@@ -612,16 +613,18 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
         if (!item.id) continue;
         const cleanDoc = sanitizeProductPayload(item, aedRate, margin);
         cleanList.push(cleanDoc as any);
-        await setDoc(doc(db, COLLECTION_NAME, cleanDoc.id), cleanDoc, { merge: true });
       }
+
+      // Execute bulk save across Firestore, LocalStorage and Server backend
+      const result = await saveIranWarehouseItems(cleanList, aedRate, margin);
 
       // Sync reactive state across UI and CMS
       await onSaveItems(cleanList);
 
-      if (showToast) showToast('تمامی محصولات و تنظیمات انبار ایران با موفقیت ذخیره شدند', 'success');
+      if (showToast) showToast(result.message || 'تمامی محصولات و تنظیمات انبار ایران با موفقیت ذخیره شدند', 'success');
     } catch (err: any) {
-      console.error('CRITICAL FIRESTORE SAVE ERROR (IranWarehouse):', err);
-      if (showToast) showToast('خطا در ذخیره‌سازی دیتابیس: ' + (err.message || 'نامشخص'), 'error');
+      console.error('Error saving IranWarehouse items:', err);
+      if (showToast) showToast('خطا در ذخیره‌سازی: ' + (err.message || 'نامشخص'), 'error');
     } finally {
       setIsSaving(false);
     }
@@ -1053,7 +1056,8 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                     {(item.variants || []).map(v => {
                       const modeKey = `${item.id}_${v.id}`;
                       const isCustFlavor = customRowMode[modeKey]?.customFlavor || (v.flavor && !flavorsPool.includes(v.flavor));
-                      const isCustSize = customRowMode[modeKey]?.customSize || (v.size && !STANDARD_SIZE_OPTIONS.includes(v.size));
+                      const availableRowSizes = Array.from(new Set([...sizesPool.filter(Boolean), ...STANDARD_SIZE_OPTIONS, ...(v.size ? [v.size] : [])]));
+                      const isCustSize = customRowMode[modeKey]?.customSize || (v.size && !availableRowSizes.includes(v.size));
 
                       return (
                         <div key={v.id}
@@ -1069,35 +1073,48 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                           {/* Flavor */}
                           <div className="col-span-3">
                             {isCustFlavor
-                              ? <input type="text" value={v.flavor || ''}
-                                  onChange={e => updateVariant(item.id, v.id, 'flavor', e.target.value)}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
+                              ? <div className="flex items-center gap-1">
+                                  <input type="text" value={v.flavor || ''}
+                                    onChange={e => updateVariant(item.id, v.id, 'flavor', e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
+                                  <button type="button" onClick={() => setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customFlavor: false } }))} className="text-[10px] text-blue-600 font-bold">لیست</button>
+                                </div>
                               : <select value={v.flavor || (flavorsPool[0] || '')}
                                   onChange={e => {
                                     if (e.target.value === '__custom__') setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customFlavor: true } }));
                                     else updateVariant(item.id, v.id, 'flavor', e.target.value);
                                   }}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none">
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none cursor-pointer">
                                   {flavorsPool.map(f => <option key={f} value={f}>{f}</option>)}
                                   <option value="__custom__">+ طعم سفارشی...</option>
                                 </select>
                             }
                           </div>
 
-                          {/* Size */}
+                          {/* Size Dropdown */}
                           <div className="col-span-3">
                             {isCustSize
-                              ? <input type="text" value={v.size || ''}
-                                  onChange={e => updateVariant(item.id, v.id, 'size', e.target.value)}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
-                              : <select value={STANDARD_SIZE_OPTIONS.includes(v.size || '') ? v.size : '__custom__'}
+                              ? <div className="flex items-center gap-1">
+                                  <input type="text" value={v.size || ''}
+                                    onChange={e => updateVariant(item.id, v.id, 'size', e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
+                                  <button type="button" onClick={() => setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customSize: false } }))} className="text-[10px] text-blue-600 font-bold">لیست</button>
+                                </div>
+                              : <select value={v.size || (availableRowSizes[0] || '')}
                                   onChange={e => {
                                     if (e.target.value === '__custom__') setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customSize: true } }));
                                     else updateVariant(item.id, v.id, 'size', e.target.value);
                                   }}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none">
-                                  {STANDARD_SIZE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                  <option value="__custom__">+ سایر...</option>
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none cursor-pointer">
+                                  {sizesPool.length > 0 && (
+                                    <optgroup label="✨ سایزهای فعال">
+                                      {sizesPool.map(opt => <option key={`pool-${opt}`} value={opt}>{opt}</option>)}
+                                    </optgroup>
+                                  )}
+                                  <optgroup label="📋 تمامی سایزهای استاندارد">
+                                    {STANDARD_SIZE_OPTIONS.filter(opt => !sizesPool.includes(opt)).map(opt => <option key={`std-${opt}`} value={opt}>{opt}</option>)}
+                                  </optgroup>
+                                  <option value="__custom__">+ سایر (تایپ دستی)...</option>
                                 </select>
                             }
                           </div>

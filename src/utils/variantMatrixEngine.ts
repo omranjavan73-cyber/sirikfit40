@@ -12,6 +12,8 @@
  * 6. Price & weight are resolved from the EXACT active (Flavor + Size) variant match.
  */
 
+import { sanitizeVariantLabel } from './formatters';
+
 export interface ProductVariantLike {
   id?: string;
   name?: string;
@@ -136,9 +138,9 @@ export const getAllFlavors = (variants: ProductVariantLike[] = []): string[] => 
   const uniqueFlavors: string[] = [];
 
   list.forEach((v) => {
-    if (v.flavor && v.flavor.trim() !== '') {
-      const flv = v.flavor.trim();
-      if (!uniqueFlavors.some((f) => areVariantsMatching(f, flv))) {
+    if (v.flavor && String(v.flavor).trim() !== '') {
+      const flv = sanitizeVariantLabel(v.flavor);
+      if (flv && !uniqueFlavors.some((f) => areVariantsMatching(f, flv))) {
         uniqueFlavors.push(flv);
       }
     }
@@ -156,7 +158,8 @@ export const getAllSizes = (variants: ProductVariantLike[] = []): string[] => {
   const uniqueSizes: string[] = [];
 
   list.forEach((v) => {
-    const vSize = (v.size || v.name || '').trim();
+    const rawSize = v.size || v.name || '';
+    const vSize = sanitizeVariantLabel(rawSize);
     if (vSize !== '') {
       if (!uniqueSizes.some((s) => areVariantsMatching(s, vSize))) {
         uniqueSizes.push(vSize);
@@ -189,7 +192,8 @@ export const getAvailableSizesForFlavor = (
 
   const uniqueSizes: string[] = [];
   pool.forEach((v) => {
-    const vSize = (v.size || v.name || '').trim();
+    const rawSize = v.size || v.name || '';
+    const vSize = sanitizeVariantLabel(rawSize);
     if (vSize !== '') {
       if (!uniqueSizes.some((s) => areVariantsMatching(s, vSize))) {
         uniqueSizes.push(vSize);

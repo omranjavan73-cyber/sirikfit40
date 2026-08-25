@@ -438,26 +438,19 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         </p>
       </div>
 
-      {/* URL Input Box with Orbiting Red Dot Indicator */}
-      <div className="relative z-10 mb-4">
-        <div className="orbit-container relative flex items-center gap-2 bg-[#F8FAFC] border-[1.5px] border-[#E5E5E5] focus-within:border-[#111111] rounded-[12px] px-3.5 py-2.5 mb-2.5 transition dir-ltr">
-          {/* Glowing Orbiting Red Dot Traveling Around Input Border */}
-          <div className="orbiting-red-dot" aria-hidden="true" />
-          
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Link2 className="w-5 h-5 text-red-500 shrink-0" />
-            {urlInput.length > 0 && (
-              <button
-                type="button"
-                onClick={handleClearUrl}
-                title="پاک کردن لینک"
-                aria-label="پاک کردن لینک"
-                className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-full p-1 transition-all cursor-pointer border-none flex items-center justify-center shrink-0"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            )}
+      {/* URL Input Box with Breathing Pulse Glow Guidance */}
+      <div className="relative z-10 mb-4 font-['Vazirmatn',sans-serif]">
+        <div 
+          className={`hero-url-input-wrapper relative flex items-center gap-2.5 bg-[#F8FAFC] border-[1.5px] rounded-2xl px-4 py-3 mb-2.5 transition-all shadow-xs ${
+            urlInput ? 'has-value' : ''
+          }`} 
+          dir="rtl"
+        >
+          {/* Animated Link Icon on right (RTL start) */}
+          <div className="flex items-center justify-center shrink-0">
+            <Link2 className={`w-5 h-5 text-red-600 shrink-0 transition-transform duration-300 ${!urlInput ? 'animate-pulse' : ''}`} />
           </div>
+
           <input
             ref={urlInputRef}
             type="text"
@@ -473,17 +466,29 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                 handleParseLink();
               }
             }}
-            placeholder="... لینک محصول را اینجا paste کنید"
-            className="w-full bg-transparent text-xs text-[#111111] placeholder:text-[#9ca3af] focus:outline-none font-sans font-medium text-right dir-rtl focus:text-left focus:dir-ltr placeholder:text-right"
+            placeholder="لینک محصول را اینجا paste کنید..."
+            className="w-full bg-transparent text-xs sm:text-sm font-bold text-[#111111] placeholder:text-[#9ca3af] placeholder:font-medium focus:outline-none text-right dir-rtl focus:text-left focus:dir-ltr placeholder:text-right"
             dir={urlInput ? "ltr" : "rtl"}
           />
+
+          {urlInput.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearUrl}
+              title="پاک کردن لینک"
+              aria-label="پاک کردن لینک"
+              className="text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full p-1.5 transition-all cursor-pointer border-none flex items-center justify-center shrink-0"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Extract Button */}
         <button
           onClick={() => handleParseLink()}
           disabled={isParsing}
-          className="w-full bg-[#111111] hover:bg-black text-white font-extrabold text-xs md:text-sm py-3 px-4 rounded-[12px] transition flex items-center justify-center gap-2 mb-1 cursor-pointer shadow-xs border-none active:scale-[0.99]"
+          className="w-full bg-[#111111] hover:bg-black text-white font-extrabold text-xs md:text-sm py-3.5 px-4 rounded-2xl transition flex items-center justify-center gap-2 mb-1 cursor-pointer shadow-sm border-none active:scale-[0.99] disabled:opacity-75"
         >
           {isParsing ? (
             <>

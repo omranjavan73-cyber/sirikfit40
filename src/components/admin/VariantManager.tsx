@@ -494,19 +494,36 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
                 key={sz.id || idx} 
                 className="flex flex-wrap items-center gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-2xs hover:border-slate-300 transition"
               >
-                {/* Size / LBS Input */}
+                {/* Size / LBS Input with instant datalist presets */}
                 <div className="flex flex-col gap-0.5">
                   <span className="text-[10px] text-slate-500 font-bold">سایز / حجم:</span>
                   <input
                     type="text"
+                    list={`size-presets-${idx}`}
                     value={sz.size || ''}
                     onChange={(e) => {
                       const val = e.target.value;
                       handleUpdateSize(idx, 'size', val);
                     }}
-                    placeholder="نام سایز (مثال: 5 lbs یا 250 g)"
-                    className="w-36 sm:w-44 p-2 text-xs font-bold border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:border-slate-900 focus:outline-none placeholder:text-slate-400"
+                    placeholder="انتخاب یا تایپ سایز (مثال: 60 Servings یا 2.45 kg)"
+                    className="w-36 sm:w-48 p-2 text-xs font-bold border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:border-slate-900 focus:outline-none placeholder:text-slate-400"
                   />
+                  <datalist id={`size-presets-${idx}`}>
+                    <option value="2.45 kg (5.4 lbs)" />
+                    <option value="2.27 kg (5 lbs)" />
+                    <option value="1.81 kg (4 lbs)" />
+                    <option value="1 kg (2.2 lbs)" />
+                    <option value="908 g (2 lbs)" />
+                    <option value="500 g" />
+                    <option value="250 g" />
+                    <option value="60 Servings" />
+                    <option value="120 Servings" />
+                    <option value="30 Servings" />
+                    <option value="30 ساشه (Sachets)" />
+                    <option value="60 کپسول (Capsules)" />
+                    <option value="90 کپسول (Capsules)" />
+                    <option value="120 کپسول (Capsules)" />
+                  </datalist>
                   {sz.displayLabel && sz.displayLabel !== sz.size && (
                     <span className="text-[9px] text-emerald-600 font-bold mt-0.5 max-w-[170px] truncate">
                       ✓ {sz.displayLabel}

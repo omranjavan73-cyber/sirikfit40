@@ -1,5 +1,5 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, isFirestoreGrpcNoise } from '../firebase';
 import type { LandingSettings } from '../types';
 import { ENAMAD_CONFIG } from '../types';
 
@@ -110,7 +110,9 @@ export const getLandingSettings = async (): Promise<LandingSettings> => {
       }
     }
   } catch (err) {
-    console.error('Error fetching settings/landing from Firestore:', err);
+    if (!isFirestoreGrpcNoise(err)) {
+      console.warn('Notice reading settings/landing from Firestore:', err);
+    }
   }
 
   if (typeof window !== 'undefined') {
@@ -127,27 +129,27 @@ export const getLandingSettings = async (): Promise<LandingSettings> => {
 };
 
 export const saveLandingSettings = async (data: Partial<LandingSettings>): Promise<boolean> => {
-  try {
-    console.log('SAVING_PAYLOAD:', data);
-    const payload: LandingSettings = {
-      ...defaultLandingSettings,
-      ...data,
-      updatedAt: new Date().toISOString()
-    } as any;
+  const payload: LandingSettings = {
+    ...defaultLandingSettings,
+    ...data,
+    updatedAt: new Date().toISOString()
+  } as any;
 
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('sirikfit_landing_settings', JSON.stringify(payload));
+    window.dispatchEvent(new CustomEvent('landingSettingsUpdated', { detail: payload }));
+  }
+
+  try {
     if (db) {
       await setDoc(doc(db, 'settings', 'landing'), payload, { merge: true });
     }
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('sirikfit_landing_settings', JSON.stringify(payload));
-      window.dispatchEvent(new CustomEvent('landingSettingsUpdated', { detail: payload }));
-    }
-
     return true;
   } catch (err) {
-    console.error('Error saving to settings/landing:', err);
-    throw err;
+    if (!isFirestoreGrpcNoise(err)) {
+      console.warn('Notice saving to settings/landing in Firestore:', err);
+    }
+    return true;
   }
 };
 

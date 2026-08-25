@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import type { FeaturedDeal, FinancialSettings } from '../types';
+import type { ProductDetailModalProduct } from '../components/ProductDetailModal';
 import { fetchSpecialDealsFromFirestore } from '../services/productService';
 import { FeaturedDeals } from '../components/FeaturedDeals';
 import { ProductDetailModal } from '../components/ProductDetailModal';
+import { calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
 
 interface SpecialDealsPageProps {
   deals?: FeaturedDeal[];
@@ -12,6 +14,44 @@ interface SpecialDealsPageProps {
   onSelectDeal?: (deal: FeaturedDeal) => void;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+}
+
+function toModalDeal(deal: FeaturedDeal, settings: FinancialSettings): ProductDetailModalProduct {
+  const effectiveRate = getEffectiveAedRate(settings) || settings.aedRate || 55000;
+  const margin = deal.profitMargin !== undefined ? deal.profitMargin : (deal.marginPercent !== undefined ? deal.marginPercent : (settings.profitMargin || 20));
+  const finalToman = (deal.priceToman && deal.priceToman > 0)
+    ? deal.priceToman
+    : (deal.calculatedTomanOverride && deal.calculatedTomanOverride > 0
+        ? deal.calculatedTomanOverride
+        : calculateFinalToman(deal.priceAed || 100, deal.weightKg || 0.5, settings.cargoRatePerKg || 35, margin, effectiveRate));
+
+  return {
+    id: deal.id,
+    title: deal.title,
+    englishTitle: deal.englishTitle,
+    url: deal.url,
+    priceAed: deal.priceAed,
+    originalPriceAed: deal.originalPriceAed,
+    priceToman: finalToman,
+    originalPriceToman: deal.originalPriceToman,
+    calculatedTomanOverride: finalToman,
+    profitMargin: margin,
+    discountPercent: deal.discountPercent,
+    weightKg: deal.weightKg || 0.5,
+    image: deal.image,
+    images: deal.images || (deal.image ? [deal.image] : []),
+    galleryImages: deal.galleryImages || deal.images || (deal.image ? [deal.image] : []),
+    storeName: deal.storeName || deal.brand || 'فروشگاه دبی',
+    brand: deal.brand || deal.storeName || 'دبی',
+    category: deal.category,
+    description: deal.description || '',
+    badge: deal.badge || '🔥 پیشنهاد ویژه',
+    flavors: deal.flavors as string[] | undefined,
+    sizes: deal.sizes as string[] | undefined,
+    variants: deal.variants,
+    variantMatrix: deal.variantMatrix,
+    variantGroups: deal.variantGroups
+  };
 }
 
 export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
@@ -76,7 +116,7 @@ const [isModalOpen, setIsModalOpen] = useState(false);
       <ProductDetailModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        product={selectedDeal}
+        product={selectedDeal ? toModalDeal(selectedDeal, settings) : null}
         settings={settings}
         onAddToCart={onAddToCart}
       />

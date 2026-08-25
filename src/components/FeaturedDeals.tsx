@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { SlidersHorizontal, X, ShoppingBag, Check } from 'lucide-react';
 import type { FeaturedDeal, FinancialSettings } from '../types';
 import { calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
@@ -7,6 +7,12 @@ import { TwoTierCategoryNav } from './TwoTierCategoryNav';
 import { ProductCatalogCard } from './ProductCatalogCard';
 import { FloatingViewSwitcher } from './FloatingViewSwitcher';
 import { matchProductTaxonomy } from '../utils/taxonomyHelper';
+import {
+  ProductFilterModal,
+  ProductFilterState,
+  DEFAULT_FILTER_STATE,
+  applyMultiVariableFilter
+} from './product/ProductFilterModal';
 
 interface FeaturedDealsProps {
   deals?: FeaturedDeal[];
@@ -128,21 +134,18 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
-  const [selectedStoreFilter, setSelectedStoreFilter] = useState<string>('all');
-  const [selectedDealForModal, setSelectedDealForModal] = useState<FeaturedDeal | null>(null);
+  const [filterState, setFilterState] = useState<ProductFilterState>(DEFAULT_FILTER_STATE);
 
   const rawDeals = (deals && deals.length > 0) ? deals : DEFAULT_DEALS;
   const activeDeals = (rawDeals || []).filter((d) => d && d.isActive !== false);
 
-  const filteredDeals = activeDeals.filter((deal) => {
-    // Store filter
-    if (selectedStoreFilter !== 'all') {
-      const dealStore = (deal.storeName || deal.brand || '').toLowerCase();
-      if (!dealStore.includes(selectedStoreFilter.toLowerCase())) return false;
-    }
+  const filteredDeals = useMemo(() => {
+    const matchedTaxonomy = activeDeals.filter((deal) => {
+      return matchProductTaxonomy(deal, selectedMainCat, selectedSubCat, searchQuery);
+    });
 
-    return matchProductTaxonomy(deal, selectedMainCat, selectedSubCat, searchQuery);
-  });
+    return applyMultiVariableFilter(matchedTaxonomy, filterState, searchQuery, settings);
+  }, [activeDeals, selectedMainCat, selectedSubCat, searchQuery, filterState, settings]);
 
   const getComputedToman = (deal: FeaturedDeal) => {
     if (deal.priceToman && deal.priceToman > 0) return deal.priceToman;
@@ -191,15 +194,15 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
             <ShoppingBag className="w-8 h-8" />
           </div>
           <div className="space-y-1">
-            <h3 className="font-extrabold text-sm text-slate-800">پیشنهادی با این مشخصات یافت نشد</h3>
-            <p className="text-xs text-slate-500 font-medium">می‌توانید فیلترها را پاک کنید یا از دسته‌بندی دیگری انتخاب نمایید.</p>
+            <h3 className="font-extrabold text-sm text-slate-800">پیشنهادی با فیلترهای انتخابی یافت نشد</h3>
+            <p className="text-xs text-slate-500 font-medium">می‌توانید فیلترها را ریست کنید یا از دسته‌بندی دیگری انتخاب نمایید.</p>
           </div>
           <button
             type="button"
             onClick={() => {
               setSelectedSubCat('all');
               setSearchQuery('');
-              setSelectedStoreFilter('all');
+              setFilterState(DEFAULT_FILTER_STATE);
             }}
             className="bg-slate-900 hover:bg-black text-white text-xs font-black px-6 py-2.5 rounded-2xl transition cursor-pointer"
           >
@@ -239,74 +242,14 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
         onOpenFilters={() => setIsFilterModalOpen(true)}
       />
 
-      {/* 4. Filter Drawer / Modal */}
-      {isFilterModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in font-['Vazirmatn',sans-serif] dir-rtl">
-          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl animate-slide-up">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                <SlidersHorizontal className="w-4 h-4 text-blue-700" />
-                <span>فیلترهای پیشرفته محصولات</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsFilterModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              {/* Store Filter */}
-              <div>
-                <label className="font-extrabold text-slate-800 block mb-2">فروشگاه مبدا دبی:</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { id: 'all', label: 'همه فروشگاه‌ها' },
-                    { id: 'gnc', label: 'GNC Store' },
-                    { id: 'dr nutrition', label: 'Dr. Nutrition' },
-                    { id: 'life', label: 'Life Pharmacy' }
-                  ].map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setSelectedStoreFilter(s.id)}
-                      className={`p-2.5 rounded-xl border font-bold text-center transition cursor-pointer ${
-                        selectedStoreFilter === s.id
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                      }`}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedStoreFilter('all');
-                  setIsFilterModalOpen(false);
-                }}
-                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2.5 rounded-xl transition cursor-pointer"
-              >
-                پاک کردن فیلترها
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsFilterModalOpen(false)}
-                className="flex-1 bg-blue-700 hover:bg-blue-800 text-white text-xs font-black py-2.5 rounded-xl transition cursor-pointer"
-              >
-                اعمال فیلتر
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 4. Advanced Multi-Variable Product Filter Modal */}
+      <ProductFilterModal
+        isOpen={isFilterModalOpen}
+        onClose={() => setIsFilterModalOpen(false)}
+        currentFilters={filterState}
+        onApplyFilters={(newFilters) => setFilterState(newFilters)}
+        totalResultsCount={filteredDeals.length}
+      />
 
     </div>
   );

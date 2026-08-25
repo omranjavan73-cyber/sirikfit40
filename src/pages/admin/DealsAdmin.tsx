@@ -17,6 +17,7 @@ import { generatePersianTitle } from '../../utils/supplementLocalization';
 import { deleteDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { parseWeightKg, calculateProductTomanPrice } from '../../utils/pricingCalculator';
+import { saveSpecialDeals } from '../../services/adminService';
 
 interface DealsAdminProps {
   deals: FeaturedDeal[];
@@ -560,16 +561,18 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         if (!deal.id) continue;
         const cleanDoc = sanitizeProductPayload(deal, aedRate, defaultMargin);
         cleanList.push(cleanDoc as any);
-        await setDoc(doc(db, COLLECTION_NAME, cleanDoc.id), cleanDoc, { merge: true });
       }
+
+      // Execute bulk save across Firestore, LocalStorage, and Server REST API
+      const result = await saveSpecialDeals(cleanList, aedRate, defaultMargin);
 
       // Sync reactive state across UI and CMS
       await onSaveDeals(cleanList);
 
-      if (showToast) showToast('تمامی آفرها، ماتریس واریانت‌ها و تنظیمات با موفقیت ذخیره شدند', 'success');
+      if (showToast) showToast(result.message || 'تمامی آفرها، ماتریس واریانت‌ها و تنظیمات با موفقیت ذخیره شدند', 'success');
     } catch (err: any) {
-      console.error('CRITICAL FIRESTORE SAVE ERROR (DealsAdmin):', err);
-      if (showToast) showToast('خطا در ذخیره‌سازی دیتابیس: ' + (err.message || 'نامشخص'), 'error');
+      console.error('Error saving Deals:', err);
+      if (showToast) showToast('خطا در ذخیره‌سازی: ' + (err.message || 'نامشخص'), 'error');
     } finally {
       setIsSaving(false);
     }
@@ -1022,17 +1025,27 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                           </div>
                           <div className="col-span-3">
                             {isCustSize
-                              ? <input type="text" value={v.size || ''}
-                                  onChange={e => updateVariant(deal.id, v.id, 'size', e.target.value)}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
-                              : <select value={STANDARD_SIZE_OPTIONS.includes(v.size || '') ? v.size : '__custom__'}
+                              ? <div className="flex items-center gap-1">
+                                  <input type="text" value={v.size || ''}
+                                    onChange={e => updateVariant(deal.id, v.id, 'size', e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
+                                  <button type="button" onClick={() => setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customSize: false } }))} className="text-[10px] text-amber-600 font-bold">لیست</button>
+                                </div>
+                              : <select value={v.size || (Array.from(new Set([...sizesPool.filter(Boolean), ...STANDARD_SIZE_OPTIONS, ...(v.size ? [v.size] : [])]))[0] || '')}
                                   onChange={e => {
                                     if (e.target.value === '__custom__') setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customSize: true } }));
                                     else updateVariant(deal.id, v.id, 'size', e.target.value);
                                   }}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none">
-                                  {STANDARD_SIZE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                  <option value="__custom__">+ سایر...</option>
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none cursor-pointer">
+                                  {sizesPool.length > 0 && (
+                                    <optgroup label="✨ سایزهای فعال">
+                                      {sizesPool.map(opt => <option key={`pool-${opt}`} value={opt}>{opt}</option>)}
+                                    </optgroup>
+                                  )}
+                                  <optgroup label="📋 تمامی سایزهای استاندارد">
+                                    {STANDARD_SIZE_OPTIONS.filter(opt => !sizesPool.includes(opt)).map(opt => <option key={`std-${opt}`} value={opt}>{opt}</option>)}
+                                  </optgroup>
+                                  <option value="__custom__">+ سایر (تایپ دستی)...</option>
                                 </select>}
                           </div>
                           {/* Price AED */}

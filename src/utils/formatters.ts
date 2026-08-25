@@ -264,12 +264,29 @@ export interface FormattedSizeResult {
   weightKg: number;     // e.g. 2.3
 }
 
+export function sanitizeVariantLabel(label: string | null | undefined): string {
+  if (!label || typeof label !== 'string') return '';
+  let clean = label.trim();
+
+  // Strip bracketed prices: (150 د.إ), ( 250 د.ا ), (120 AED), (50 درهم), (+30 AED), (+ 25 AED)
+  clean = clean.replace(/\(\s*[\+\-]?\s*\d+(?:\.\d+)?\s*(?:د\.إ|د\.ا|AED|aed|درهم|toman|تومان)?\s*\)/gi, '');
+  
+  // Strip trailing price additions: - 150 AED, + 25 AED, : 100 AED, 150 د.إ
+  clean = clean.replace(/(?:[-–—:]|\+)\s*\d+(?:\.\d+)?\s*(?:د\.إ|د\.ا|AED|aed|درهم|toman|تومان)\b/gi, '');
+  clean = clean.replace(/\b\d+(?:\.\d+)?\s*(?:د\.إ|د\.ا|درهم)\b/gi, '');
+
+  // Clean empty brackets or dangling separators left behind
+  clean = clean.replace(/\(\s*\)/g, '').replace(/[-–—:]\s*$/g, '').replace(/\s{2,}/g, ' ').trim();
+
+  return clean;
+}
+
 export function parseAndConvertSize(inputSize: string): FormattedSizeResult {
   if (!inputSize || typeof inputSize !== 'string') {
     return { displayLabel: 'سایز پیشفرض', rawSize: '', weightKg: 0.8 };
   }
 
-  const clean = inputSize.trim();
+  const clean = sanitizeVariantLabel(inputSize);
   const lower = clean.toLowerCase();
 
   // 1. Check LBS / Pounds (e.g., "5 lbs", "2 lbs", "10 lb", "5پوند")

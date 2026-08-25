@@ -16,6 +16,7 @@ import {
   handleSizeChange
 } from '../utils/variantMatrixEngine';
 import { ShoppingCart, Check, AlertCircle } from 'lucide-react';
+import { formatPersianSize, translateFlavor, sanitizeVariantLabel } from '../utils/supplementLocalization';
 
 interface ProductDetailsProps {
   product: NormalizedProduct;
@@ -349,7 +350,7 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
                   </span>
                   {selectedFlavor && (
                     <span className="text-xs font-black text-slate-900">
-                      {selectedFlavor}
+                      {translateFlavor(selectedFlavor)}
                     </span>
                   )}
                 </div>
@@ -357,6 +358,7 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
                   {availableFlavors.map((flavor: string) => {
                     const isSelected = matchVariantValues(selectedFlavor, flavor);
                     const isAvailable = isFlavorAvailable(flavor);
+                    const pureLabel = translateFlavor(flavor);
 
                     return (
                       <button
@@ -372,7 +374,7 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
                             : 'opacity-25 line-through cursor-not-allowed pointer-events-none bg-gray-100 text-gray-400 border border-dashed border-gray-300'
                         }`}
                       >
-                        {flavor}
+                        {pureLabel}
                       </button>
                     );
                   })}
@@ -389,7 +391,7 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
                   </span>
                   {selectedSize && (
                     <span className="text-xs font-black text-slate-900">
-                      {selectedSize}
+                      {formatPersianSize(selectedSize)}
                     </span>
                   )}
                 </div>
@@ -397,6 +399,7 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
                   {availableSizes.map((size: string) => {
                     const isSelected = matchVariantValues(selectedSize, size);
                     const isAvailable = isSizeAvailable(size);
+                    const pureLabel = formatPersianSize(size);
 
                     return (
                       <button
@@ -412,7 +415,7 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
                             : 'opacity-25 line-through cursor-not-allowed pointer-events-none bg-gray-100 text-gray-400 border border-dashed border-gray-300'
                         }`}
                       >
-                        {size}
+                        {pureLabel}
                       </button>
                     );
                   })}

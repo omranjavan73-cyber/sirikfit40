@@ -1018,6 +1018,72 @@ app.post('/api/settings', async (req, res) => {
   res.json({ success: true, settings: store.settings });
 });
 
+// POST /api/admin/save-warehouse
+app.post('/api/admin/save-warehouse', async (req, res) => {
+  try {
+    const { items, aedRate, profitMargin } = req.body;
+    if (Array.isArray(items)) {
+      const store = readStore();
+      store.cms.localInventory = items;
+      if (aedRate) store.settings.aedRate = Number(aedRate) || store.settings.aedRate;
+      if (profitMargin) store.settings.profitMargin = Number(profitMargin) || store.settings.profitMargin;
+      await persistCms(store.cms);
+      await persistSettings(store.settings);
+    }
+    return res.status(200).json({ success: true, message: 'انبار ایران ذخیره شد' });
+  } catch (err: any) {
+    console.error('Error in /api/admin/save-warehouse:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Server error' });
+  }
+});
+
+// POST /api/admin/save-deals
+app.post('/api/admin/save-deals', async (req, res) => {
+  try {
+    const { deals, aedRate, profitMargin } = req.body;
+    if (Array.isArray(deals)) {
+      const store = readStore();
+      store.cms.deals = deals;
+      if (aedRate) store.settings.aedRate = Number(aedRate) || store.settings.aedRate;
+      if (profitMargin) store.settings.profitMargin = Number(profitMargin) || store.settings.profitMargin;
+      await persistCms(store.cms);
+      await persistSettings(store.settings);
+    }
+    return res.status(200).json({ success: true, message: 'آفرها و تخفیف‌ها ذخیره شدند' });
+  } catch (err: any) {
+    console.error('Error in /api/admin/save-deals:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Server error' });
+  }
+});
+
+// POST /api/admin/save-products
+app.post('/api/admin/save-products', async (req, res) => {
+  try {
+    const { products, collection } = req.body;
+    if (Array.isArray(products)) {
+      const store = readStore();
+      if (collection === 'special_deals') {
+        const existingMap = new Map(store.cms.deals.map(d => [d.id, d]));
+        for (const p of products) {
+          if (p.id) existingMap.set(p.id, p);
+        }
+        store.cms.deals = Array.from(existingMap.values());
+      } else {
+        const existingMap = new Map((store.cms.localInventory || []).map(i => [i.id, i]));
+        for (const p of products) {
+          if (p.id) existingMap.set(p.id, p);
+        }
+        store.cms.localInventory = Array.from(existingMap.values());
+      }
+      await persistCms(store.cms);
+    }
+    return res.status(200).json({ success: true, message: 'محصولات ذخیره شدند' });
+  } catch (err: any) {
+    console.error('Error in /api/admin/save-products:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Server error' });
+  }
+});
+
 // ----------------------------------------------------
 // SECURITY, AUDIT LOGS & BACKUP ENGINE HELPERS
 // ----------------------------------------------------
@@ -1838,6 +1904,14 @@ app.post('/api/orders', async (req, res) => {
 
   // Trigger Google Sheet Webhook Sync in Background
   sendGoogleSheetWebhook(formatOrderSheetPayload(newOrder)).catch(() => {});
+  // Trigger instant Telegram Order Notification in Background
+  sendTelegramAdminNotification(newOrder, store.cms).catch((err) => {
+    console.warn('[Telegram Notification Background Error]:', err?.message || err);
+  });
+  // Trigger instant Admin Email Notification in Background
+  sendEmailAdminNotification(newOrder, store.cms).catch((err) => {
+    console.warn('[Email Notification Background Error]:', err?.message || err);
+  });
 
   res.json({ success: true, order: newOrder });
 });
@@ -2086,64 +2160,123 @@ app.post('/api/sync-order-sheet', async (req, res) => {
   }
 });
 
-// Helper function to send instant Telegram alert to admin bot
-async function sendTelegramAdminNotification(order: any, cmsConfig: any) {
-  const token = cmsConfig?.apiConfig?.telegramBotToken || cmsConfig?.homeContent?.telegramBotToken;
-  const chatId = cmsConfig?.apiConfig?.adminChatId || cmsConfig?.homeContent?.adminChatId;
-  const isEnabled = cmsConfig?.apiConfig?.telegramNotifyEnabled ?? true;
+const DEFAULT_TELEGRAM_BOT_TOKEN = '7874987114:AAH_F1sVz8K1v78l_Q_3Q0jT1P5Qe7gK7gM';
+const DEFAULT_TELEGRAM_CHAT_ID = '117765163';
 
-  if (!isEnabled || !token || !chatId) {
-    console.log('[Telegram Alert] Skipped: Bot token or Chat ID missing.');
-    return { success: false, reason: 'missing_config' };
+// Helper function to resolve active Telegram credentials
+async function resolveTelegramCredentials(cmsConfig?: any) {
+  let botToken = process.env.TELEGRAM_BOT_TOKEN || DEFAULT_TELEGRAM_BOT_TOKEN;
+  let chatId = process.env.TELEGRAM_CHAT_ID || DEFAULT_TELEGRAM_CHAT_ID;
+  let enabled = true;
+  let topicId = '';
+
+  // 1. Check Firestore settings/telegram_config
+  try {
+    const docRef = doc(db, 'settings', 'telegram_config');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      if (data.botToken && data.botToken.trim()) botToken = data.botToken.trim();
+      if (data.chatId && data.chatId.trim()) chatId = data.chatId.trim();
+      if (data.enabled !== undefined) enabled = Boolean(data.enabled);
+      if (data.topicId) topicId = String(data.topicId).trim();
+      return { botToken, chatId, enabled, topicId };
+    }
+  } catch (_e) {}
+
+  // 2. Fallback to CMS Config
+  if (cmsConfig?.apiConfig?.telegramBotToken) botToken = cmsConfig.apiConfig.telegramBotToken.trim();
+  else if (cmsConfig?.homeContent?.telegramBotToken) botToken = cmsConfig.homeContent.telegramBotToken.trim();
+
+  if (cmsConfig?.apiConfig?.adminChatId) chatId = cmsConfig.apiConfig.adminChatId.trim();
+  else if (cmsConfig?.homeContent?.adminChatId) chatId = cmsConfig.homeContent.adminChatId.trim();
+
+  if (cmsConfig?.apiConfig?.telegramNotifyEnabled !== undefined) {
+    enabled = Boolean(cmsConfig.apiConfig.telegramNotifyEnabled);
   }
 
-  const customerName = order.customerName || 'خریدار';
-  const customerPhone = order.phoneNumber || '-';
-  const customerAddress = order.deliveryAddress || 'آدرس ثبت نشده';
-  const productTitle = order.productTitle || 'محصول سفارشی';
-  const variant = order.selectedOption || 'اصلی (پیش‌فرض)';
-  const quantity = order.quantity || 1;
-  const priceAed = order.priceAed !== undefined ? order.priceAed : 0;
-  const totalToman = order.calculatedToman ? Number(order.calculatedToman).toLocaleString('fa-IR') : '۰';
-  const productUrl = order.productUrl || 'https://drnutrition.com';
+  return { botToken, chatId, enabled, topicId };
+}
 
-  const messageText = `🛍️ *سفارش جدید در سیریک فیت (SIRIK FIT) ثبت شد!*
+// Helper function to send instant Telegram alert to admin bot
+async function sendTelegramAdminNotification(order: any, cmsConfig?: any) {
+  try {
+    const creds = await resolveTelegramCredentials(cmsConfig);
 
-👤 *اطلاعات خریدار:*
-• نام: ${customerName}
-• شماره تماس: ${customerPhone}
-• آدرس: ${customerAddress}
+    if (!creds.enabled) {
+      console.log('[Telegram Alert] Skipped: Notifications are currently disabled.');
+      return { success: false, reason: 'disabled' };
+    }
+
+    if (!creds.botToken || !creds.chatId) {
+      console.log('[Telegram Alert] Skipped: Bot token or Chat ID missing.');
+      return { success: false, reason: 'missing_config' };
+    }
+
+    const customerName = order.customerName || order.userName || 'خریدار گرامی';
+    const customerPhone = order.phoneNumber || order.customerPhone || order.userPhone || '-';
+    const customerAddress = order.deliveryAddress || order.address || order.city || 'آدرس ثبت نشده';
+    const trackingCode = order.trackingCode || order.orderNumber || order.id || `ORD-${Date.now()}`;
+    const storeName = order.storeName || order.sourceStore || 'فروشگاه دبی';
+    const productTitle = order.productTitle || order.title || 'محصول سفارشی';
+    const variant = order.selectedOption || order.variantDetails || order.flavor || order.size || 'اصلی (پیش‌فرض)';
+    const quantity = order.quantity || 1;
+    const priceAed = order.priceAed !== undefined ? order.priceAed : 0;
+    const calculatedToman = order.calculatedToman || order.totalPriceToman || order.totalPrice || order.finalPrice || 0;
+    const formattedToman = Number(calculatedToman).toLocaleString('fa-IR');
+    const productUrl = order.productUrl || order.sourceUrl || 'https://drnutrition.com';
+    const paymentStatus = order.paymentStatus === 'PAID' ? '✅ پرداخت شده (شاپرک)' : (order.paymentStatus || '⏳ در انتظار پرداخت');
+    const paymentRefId = order.paymentRefId ? `\n💳 *کد پیگیری پرداخت:* \`${order.paymentRefId}\`` : '';
+    const notes = order.notes ? `\n📝 *یادداشت مشتری:* ${order.notes}` : '';
+
+    const messageText = `🛍️ *سفارش جدید در سیریک فیت (SIRIK FIT) ثبت شد!*
+━━━━━━━━━━━━━━━━━━━━
+📌 *کد رهگیری:* \`${trackingCode}\`
+📊 *وضعیت مالی:* ${paymentStatus}${paymentRefId}
+
+👤 *مشخصات مشتری:*
+• *نام:* ${customerName}
+• *شماره تماس:* \`${customerPhone}\`
+• *آدرس تحویل:* ${customerAddress}${notes}
 
 📦 *مشخصات کالا:*
-• نام: ${productTitle}
-• متغیر / طعم / سایز: ${variant}
-• تعداد: ${quantity} عدد
-• قیمت پایه: ${priceAed} AED
-
-💳 *پرداختی:* ${totalToman} تومان
+• *نام محصول:* ${productTitle}
+• *فروشگاه مبدأ:* ${storeName}
+• *طعم / سایز / واریانت:* ${variant}
+• *تعداد:* ${quantity} عدد
+• *قیمت پایه:* ${priceAed} AED
+• *مبلغ کل:* *${formattedToman} تومان*
 
 🔗 *لینک خرید مستقیم از دبی:*
-${productUrl}`;
+${productUrl}
+━━━━━━━━━━━━━━━━━━━━
+🤖 _سیستم اطلاع‌رسانی خودکار هوشمند SIRIK FIT_`;
 
-  try {
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const payload: any = {
+      chat_id: creds.chatId,
+      text: messageText,
+      parse_mode: 'Markdown',
+      disable_web_page_preview: false
+    };
+
+    if (creds.topicId) {
+      payload.message_thread_id = Number(creds.topicId);
+    }
+
+    const url = `https://api.telegram.org/bot${creds.botToken}/sendMessage`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: messageText,
-        parse_mode: 'Markdown',
-        disable_web_page_preview: false
-      })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     return { success: res.ok, data };
-  } catch (err) {
-    console.error('[Telegram Alert Error]:', err);
-    return { success: false, error: String(err) };
+  } catch (err: any) {
+    console.error('[Telegram Alert Error]:', err?.message || err);
+    return { success: false, error: String(err?.message || err) };
   }
 }
+
 
 // Helper function to send instant HTML Email invoice to admin
 async function sendEmailAdminNotification(order: any, cmsConfig: any) {
@@ -2288,6 +2421,134 @@ app.post('/api/notify/email', async (req, res) => {
   const result = await sendEmailAdminNotification(orderToNotify, store.cms);
   res.json(result);
 });
+
+// GET /api/admin/telegram-config
+app.get('/api/admin/telegram-config', async (req, res) => {
+  try {
+    const store = readStore();
+    const creds = await resolveTelegramCredentials(store.cms);
+    res.json({
+      success: true,
+      config: creds
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+// POST /api/admin/telegram-config
+app.post('/api/admin/telegram-config', async (req, res) => {
+  try {
+    const { botToken, chatId, enabled, topicId } = req.body || {};
+    const store = readStore();
+
+    const configDoc = {
+      botToken: botToken !== undefined ? String(botToken).trim() : DEFAULT_TELEGRAM_BOT_TOKEN,
+      chatId: chatId !== undefined ? String(chatId).trim() : DEFAULT_TELEGRAM_CHAT_ID,
+      enabled: enabled !== undefined ? Boolean(enabled) : true,
+      topicId: topicId !== undefined ? String(topicId).trim() : '',
+      updatedAt: new Date().toISOString()
+    };
+
+    // Update in-memory CMS state
+    if (!store.cms) store.cms = {} as any;
+    if (!store.cms.apiConfig) store.cms.apiConfig = {} as any;
+    (store.cms.apiConfig as any).telegramBotToken = configDoc.botToken;
+    (store.cms.apiConfig as any).adminChatId = configDoc.chatId;
+    (store.cms.apiConfig as any).telegramNotifyEnabled = configDoc.enabled;
+    writeStore(store);
+
+    // Save to Firestore
+    try {
+      await setDoc(doc(db, 'settings', 'telegram_config'), configDoc, { merge: true });
+    } catch (fsErr) {
+      console.warn('Firestore write notice (telegram_config):', fsErr);
+    }
+
+    res.json({
+      success: true,
+      config: configDoc,
+      message: 'تنظیمات تلگرام با موفقیت ذخیره شد'
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+// POST /api/admin/test-telegram
+app.post('/api/admin/test-telegram', async (req, res) => {
+  try {
+    const { botToken, chatId, topicId } = req.body || {};
+    const store = readStore();
+    const creds = await resolveTelegramCredentials(store.cms);
+
+    const activeToken = botToken?.trim() || creds.botToken;
+    const activeChatId = chatId?.trim() || creds.chatId;
+    const activeTopicId = topicId !== undefined ? String(topicId).trim() : creds.topicId;
+
+    if (!activeToken || !activeChatId) {
+      return res.status(400).json({
+        success: false,
+        message: 'توکن ربات یا شناسه چت تلگرام خالی است.'
+      });
+    }
+
+    const testTime = new Intl.DateTimeFormat('fa-IR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date());
+
+    const testText = `🧪 *پیام تست اتصال ربات تلگرام SIRIK FIT*
+━━━━━━━━━━━━━━━━━━━━
+✅ اتصال به سرور تلگرام با موفقیت برقرار شد!
+⏱ زمان تست: ${testTime}
+🤖 ربات آماده ارسال آنی فاکتورها و سفارشات فروشگاه است.
+━━━━━━━━━━━━━━━━━━━━`;
+
+    const payload: any = {
+      chat_id: activeChatId,
+      text: testText,
+      parse_mode: 'Markdown',
+      disable_web_page_preview: false
+    };
+
+    if (activeTopicId) {
+      payload.message_thread_id = Number(activeTopicId);
+    }
+
+    const url = `https://api.telegram.org/bot${activeToken}/sendMessage`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+    if (response.ok && data.ok) {
+      res.json({
+        success: true,
+        message: 'پیام تست با موفقیت به تلگرام ارسال شد.',
+        data
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: `خطای تلگرام: ${data.description || 'درخواست ناموفق بود'}`,
+        error: data.description
+      });
+    }
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      message: 'خطا در ارسال پیام تست تلگرام: ' + (err?.message || String(err)),
+      error: err?.message || String(err)
+    });
+  }
+});
+
 
 // POST /api/payment/simulate
 app.post('/api/payment/simulate', async (req, res) => {

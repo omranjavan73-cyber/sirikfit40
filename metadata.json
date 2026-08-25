@@ -1,6 +1,6 @@
 {
   "name": "@sirikfit40 2.1",
-  "description": "Imported from GitHub: omranjavan73-cyber/sirikfit40",
+  "description": "SirikFit - Dubai supplement ordering and calculation platform with live scraper, cart, and store catalog.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

@@ -7,10 +7,15 @@
  * 3. Dynamic Persian product title & caption generator.
  */
 
+import { sanitizeVariantLabel } from './formatters';
+
+export { sanitizeVariantLabel };
+
 // 1. Convert Foreign Units to Persian
 export function formatPersianSize(rawSize: string | null | undefined): string {
   if (!rawSize) return '';
-  const trimmed = rawSize.trim();
+  const trimmed = sanitizeVariantLabel(rawSize);
+  if (!trimmed) return '';
 
   // Convert LB / lbs to KG
   const lbMatch = trimmed.match(/(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?)/i);
@@ -59,13 +64,17 @@ export const FLAVOR_TRANSLATIONS: Record<string, string> = {
   'chocolate supreme': 'شکلات غلیظ ویژه',
   'double rich chocolate': 'دابل چاکلت ویژه',
   'rich chocolate': 'شکلات غلیظ',
+  'chocolate fudge': 'شکلات فاج',
+  'chocolate brownie': 'شکلات براونی',
   'creamy vanilla': 'وانیل خامه‌ای',
   'vanilla': 'وانیل',
   'vanilla ice cream': 'بستنی وانیلی',
   'french vanilla': 'وانیل فرانسوی',
   'strawberry': 'توت فرنگی',
   'strawberry banana': 'توت فرنگی و موز',
+  'strawberry kiwi': 'توت فرنگی و کیوی',
   'banana': 'موز',
+  'banana cream': 'موز خامه‌ای',
   'chocolate peanut butter': 'شکلات کره بادام زمینی',
   'peanut butter': 'کره بادام زمینی',
   'lemonade': 'لیموناد ترش',
@@ -73,6 +82,10 @@ export const FLAVOR_TRANSLATIONS: Record<string, string> = {
   'watermelon': 'هندوانه',
   'unflavored': 'بدون طعم (طبیعی)',
   'unflavoured': 'بدون طعم (طبیعی)',
+  'not flavored': 'بدون طعم (طبیعی)',
+  'not flavoured': 'بدون طعم (طبیعی)',
+  'flavorless': 'بدون طعم (طبیعی)',
+  'no flavor': 'بدون طعم (طبیعی)',
   'natural': 'طبیعی بدون طعم',
   'cookies & cream': 'کوکی و کرم',
   'cookies and cream': 'کوکی و کرم',
@@ -96,6 +109,7 @@ export const FLAVOR_TRANSLATIONS: Record<string, string> = {
   'peach iced tea': 'آیس‌تی هلو',
   'cherry': 'گیلاس',
   'berry': 'توت جنگلی',
+  'berry blast': 'توت جنگلی',
   'mixed berry': 'میکس بری',
   'grape': 'انگور',
   'cotton candy': 'پشمک',
@@ -104,8 +118,22 @@ export const FLAVOR_TRANSLATIONS: Record<string, string> = {
 
 export function translateFlavor(flavor: string | null | undefined): string {
   if (!flavor) return '';
-  const lower = flavor.toLowerCase().trim();
-  return FLAVOR_TRANSLATIONS[lower] || flavor;
+  const cleaned = sanitizeVariantLabel(flavor);
+  if (!cleaned) return '';
+  const lower = cleaned.toLowerCase().trim();
+  if (FLAVOR_TRANSLATIONS[lower]) {
+    return FLAVOR_TRANSLATIONS[lower];
+  }
+  // Check if it has english in parens or farsi
+  for (const [key, val] of Object.entries(FLAVOR_TRANSLATIONS)) {
+    if (lower === key || lower.includes(key)) {
+      if (lower.includes('(') && lower.includes(')')) {
+        return cleaned; // Already bilingual
+      }
+      return `${val} (${key.charAt(0).toUpperCase() + key.slice(1)})`;
+    }
+  }
+  return cleaned;
 }
 
 // 3. Supplement Keywords Dictionary for Translating Titles

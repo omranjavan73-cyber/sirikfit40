@@ -19,7 +19,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import type { FinancialSettings, ProductVariantMatrix, ProductVariantItem } from '../types';
-import { formatToman, formatAed, formatPrice, toPersianDigits, getEffectiveAedRate, deduplicateImageUrls, getStoreBadgeTheme } from '../utils/formatters';
+import { formatToman, formatAed, formatPrice, toPersianDigits, getEffectiveAedRate, deduplicateImageUrls, getStoreBadgeTheme, sanitizeVariantLabel } from '../utils/formatters';
 import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import { getActivePrices } from '../utils/pricingCalculator';
 import {
@@ -35,6 +35,7 @@ import {
   areVariantsMatching
 } from '../utils/variantMatrixEngine';
 import { TouchImageMagnifier } from './TouchImageMagnifier';
+import { MetaTags } from './seo/MetaTags';
 
 export interface ProductDetailModalProduct {
   id?: string;
@@ -149,13 +150,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     if (rawFlavors.length > 0) {
       return rawFlavors.map((f: any) => {
         const name = typeof f === 'string' ? f : (f?.flavor || f?.name || '');
-        return String(name).trim();
+        return sanitizeVariantLabel(name);
       }).filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(f.toLowerCase()));
     }
 
     const flavorGroup = currentProd.variantGroups?.find((g: any) => g.type === 'flavor' || g.id === 'flavors' || (g.name && (g.name.includes('طعم') || g.name.toLowerCase().includes('flavor'))));
     if (flavorGroup && Array.isArray(flavorGroup.options)) {
-      return flavorGroup.options.map((opt: any) => typeof opt === 'string' ? opt : (opt.name || opt.label || '')).filter(Boolean);
+      return flavorGroup.options.map((opt: any) => sanitizeVariantLabel(typeof opt === 'string' ? opt : (opt.name || opt.label || ''))).filter(Boolean);
     }
     return [];
   }, [currentProd, activeVariants]);
@@ -174,13 +175,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     if (rawSizes.length > 0) {
       return rawSizes.map((s: any) => {
         const name = typeof s === 'string' ? s : (s?.size || s?.name || '');
-        return String(name).trim();
+        return sanitizeVariantLabel(name);
       }).filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(s.toLowerCase()));
     }
 
     const sizeGroup = currentProd.variantGroups?.find((g: any) => g.type === 'size' || g.id === 'sizes' || (g.name && (g.name.includes('وزن') || g.name.includes('سایز') || g.name.toLowerCase().includes('size'))));
     if (sizeGroup && Array.isArray(sizeGroup.options)) {
-      return sizeGroup.options.map((opt: any) => typeof opt === 'string' ? opt : (opt.name || opt.label || '')).filter(Boolean);
+      return sizeGroup.options.map((opt: any) => sanitizeVariantLabel(typeof opt === 'string' ? opt : (opt.name || opt.label || ''))).filter(Boolean);
     }
     return [];
   }, [currentProd, activeVariants]);
@@ -606,6 +607,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   return (
     <>
+      <MetaTags product={product} />
       <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn font-['Vazirmatn',sans-serif]">
         <div 
           className="w-full max-w-lg mx-auto bg-white rounded-3xl p-5 border border-gray-200 shadow-2xl flex flex-col gap-4 text-right relative max-h-[92vh] overflow-y-auto"
@@ -751,11 +753,6 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                           }`}
                         >
                           <span>{formattedSize}</span>
-                          {hasDiffPrice && (
-                            <span className={`text-[10px] mr-1 ${isSelected ? 'text-red-100' : 'text-red-600 font-extrabold'}`}>
-                              ({itemPrice} AED)
-                            </span>
-                          )}
                         </button>
                       );
                     })}

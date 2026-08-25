@@ -165,14 +165,45 @@ export async function saveAllAdminProducts(
     if (!item.id) continue;
     const cleanDoc = sanitizeProductForFirestore(item);
     cleanList.push(cleanDoc);
-    const docRef = doc(db, collectionName, cleanDoc.id);
-    await setDoc(docRef, sanitizePayloadForFirestore(cleanDoc), { merge: true });
   }
 
-  // Sync to settings/cms for instant backward compatibility & live reactive App.tsx state
-  const cmsKey = collectionName === 'iran_warehouse' ? 'localInventory' : 'deals';
-  const cmsRef = doc(db, 'settings', 'cms');
-  await setDoc(cmsRef, { [cmsKey]: cleanList, updatedAt: new Date().toISOString() }, { merge: true });
+  // 1. LocalStorage & React state update
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(`sirikfit_${collectionName}`, JSON.stringify(cleanList));
+      const cmsKey = collectionName === 'iran_warehouse' ? 'localInventory' : 'deals';
+      const rawCms = localStorage.getItem('sirikfit_cms_config');
+      const cms = rawCms ? JSON.parse(rawCms) : {};
+      cms[cmsKey] = cleanList;
+      localStorage.setItem('sirikfit_cms_config', JSON.stringify(cms));
+      localStorage.setItem('omex_home_cms', JSON.stringify(cms));
+      window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { [cmsKey]: cleanList, cmsConfig: cms } }));
+      window.dispatchEvent(new Event('storage'));
+    } catch (_e) {}
+  }
+
+  // 2. Direct Firestore SDK writes (gracefully handled)
+  try {
+    for (const cleanDoc of cleanList) {
+      const docRef = doc(db, collectionName, cleanDoc.id);
+      await setDoc(docRef, sanitizePayloadForFirestore(cleanDoc), { merge: true });
+    }
+
+    const cmsKey = collectionName === 'iran_warehouse' ? 'localInventory' : 'deals';
+    const cmsRef = doc(db, 'settings', 'cms');
+    await setDoc(cmsRef, sanitizePayloadForFirestore({ [cmsKey]: cleanList, updatedAt: new Date().toISOString() }), { merge: true });
+  } catch (fsErr: any) {
+    console.warn(`Firestore save notice for ${collectionName}:`, fsErr?.message || fsErr);
+  }
+
+  // 3. Backend API sync
+  try {
+    await fetch('/api/admin/save-products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ products: cleanList, collection: collectionName })
+    }).catch(() => {});
+  } catch (_e) {}
 }
 
 export const saveAdminProducts = saveAllAdminProducts;

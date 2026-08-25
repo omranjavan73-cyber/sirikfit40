@@ -9,6 +9,7 @@ import type {
   VariantGroupsStructure
 } from '../types';
 import { generateBilingualProductTitle } from '../utils/parseLink';
+import { sanitizeVariantLabel } from '../utils/formatters';
 import { GncAdapter } from './GncAdapter';
 import { DrNutritionAdapter } from './DrNutritionAdapter';
 import { GncParser } from './gncParser';
@@ -90,7 +91,8 @@ export class UniversalScraperService {
       raw.variantGroups.forEach((vg: any) => {
         const gType = vg.type || (vg.id === 'sizes' ? 'size' : (vg.id === 'flavors' ? 'flavor' : 'other'));
         const options: VariantOption[] = (vg.options || []).map((opt: any, idx: number) => {
-          const optName = typeof opt === 'string' ? opt : (opt.name || opt.label || '');
+          const rawName = typeof opt === 'string' ? opt : (opt.name || opt.label || '');
+          const optName = sanitizeVariantLabel(rawName);
           const optPrice = typeof opt === 'object' && (opt.price ?? opt.priceAed ?? opt.priceAED) ? Number(opt.price ?? opt.priceAed ?? opt.priceAED) : price;
           const isAvail = typeof opt === 'object' ? (opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut) : true;
           return {
@@ -106,7 +108,7 @@ export class UniversalScraperService {
             image: typeof opt === 'object' ? (opt.imageUrl || opt.image || opt.imageThumbnail) : undefined,
             sku: typeof opt === 'object' ? opt.sku : undefined
           };
-        });
+        }).filter((o: any) => Boolean(o.name));
 
         if (gType === 'flavor') {
           variantGroups.flavors = [...(variantGroups.flavors || []), ...options];
@@ -121,7 +123,8 @@ export class UniversalScraperService {
     // Process flat arrays if groups are empty
     if (!variantGroups.flavors?.length && Array.isArray(raw.flavors)) {
       variantGroups.flavors = raw.flavors.map((f: any, idx: number) => {
-        const name = typeof f === 'string' ? f : (f.name || f.label || '');
+        const rawName = typeof f === 'string' ? f : (f.name || f.label || '');
+        const name = sanitizeVariantLabel(rawName);
         const isAvail = typeof f === 'object' ? (f.inStock !== false && f.available !== false) : true;
         return {
           id: `flv-${idx}`,
@@ -132,12 +135,13 @@ export class UniversalScraperService {
           price,
           priceAed: price
         };
-      });
+      }).filter((o: any) => Boolean(o.name));
     }
 
     if (!variantGroups.sizes?.length && Array.isArray(raw.sizes)) {
       variantGroups.sizes = raw.sizes.map((s: any, idx: number) => {
-        const name = typeof s === 'string' ? s : (s.name || s.label || '');
+        const rawName = typeof s === 'string' ? s : (s.name || s.label || '');
+        const name = sanitizeVariantLabel(rawName);
         const isAvail = typeof s === 'object' ? (s.inStock !== false && s.available !== false) : true;
         return {
           id: `sz-${idx}`,
@@ -148,7 +152,7 @@ export class UniversalScraperService {
           price,
           priceAed: price
         };
-      });
+      }).filter((o: any) => Boolean(o.name));
     }
 
     const allOptions = [
@@ -185,8 +189,11 @@ export class UniversalScraperService {
     // 1. Direct variantMatrix items if provided
     if (raw.variantMatrix && Array.isArray(raw.variantMatrix.items) && raw.variantMatrix.items.length > 0) {
       raw.variantMatrix.items.forEach((item: any, idx: number) => {
-        const itemTitle = item.title || item.name || '';
-        const key = `${item.flavor || ''}__${item.size || ''}__${itemTitle}`.trim().toLowerCase();
+        const rawTitle = item.title || item.name || '';
+        const itemTitle = sanitizeVariantLabel(rawTitle);
+        const cleanFlavor = sanitizeVariantLabel(item.flavor);
+        const cleanSize = sanitizeVariantLabel(item.size);
+        const key = `${cleanFlavor || ''}__${cleanSize || ''}__${itemTitle}`.trim().toLowerCase();
         if (key && !seenKeys.has(key)) {
           seenKeys.add(key);
           const p = item.priceAED !== undefined ? Number(item.priceAED) : (item.priceAed !== undefined ? Number(item.priceAed) : (item.price !== undefined ? Number(item.price) : defaultPriceAed));
@@ -195,8 +202,8 @@ export class UniversalScraperService {
             id: item.id || `matrix-var-${idx}`,
             title: itemTitle || `گزینه ${idx + 1}`,
             name: itemTitle || `گزینه ${idx + 1}`,
-            size: item.size,
-            flavor: item.flavor,
+            size: cleanSize || undefined,
+            flavor: cleanFlavor || undefined,
             priceAED: p,
             priceAed: p,
             originalPriceAED: op,
@@ -213,9 +220,12 @@ export class UniversalScraperService {
     // 2. Raw variants array
     if (Array.isArray(raw.variants) && raw.variants.length > 0) {
       raw.variants.forEach((v: any, idx: number) => {
-        const vName = typeof v === 'string' ? v : (v.title || v.name || v.label || '');
-        const vSize = typeof v === 'object' ? (v.size || v.option1 || v.option2) : undefined;
-        const vFlavor = typeof v === 'object' ? (v.flavor || v.option2 || v.option1) : undefined;
+        const rawName = typeof v === 'string' ? v : (v.title || v.name || v.label || '');
+        const vName = sanitizeVariantLabel(rawName);
+        const rawSize = typeof v === 'object' ? (v.size || v.option1 || v.option2) : undefined;
+        const rawFlavor = typeof v === 'object' ? (v.flavor || v.option2 || v.option1) : undefined;
+        const vSize = sanitizeVariantLabel(rawSize);
+        const vFlavor = sanitizeVariantLabel(rawFlavor);
         const key = (vName || `${vSize || ''}-${vFlavor || ''}`).trim().toLowerCase();
         if (key && !seenKeys.has(key)) {
           seenKeys.add(key);
@@ -226,8 +236,8 @@ export class UniversalScraperService {
             id: v.id || `variant-${idx}`,
             title: vName || `گزینه ${idx + 1}`,
             name: vName || `گزینه ${idx + 1}`,
-            size: vSize,
-            flavor: vFlavor,
+            size: vSize || undefined,
+            flavor: vFlavor || undefined,
             inStock: isAvailable,
             priceAED: p,
             priceAed: p,

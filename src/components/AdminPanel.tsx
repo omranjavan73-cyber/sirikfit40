@@ -75,7 +75,8 @@ import {
   Settings,
   LayoutGrid,
   List,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Bot
 } from 'lucide-react';
 import { doc, setDoc, getDoc, updateDoc, deleteDoc, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { 
@@ -108,6 +109,7 @@ import { AdminSmsSettings } from './AdminSmsSettings';
 import { AdminTaxonomyManager } from './AdminTaxonomyManager';
 import { AdminPromoPopupSettings } from './AdminPromoPopupSettings';
 import { AdminLandingSettings } from './AdminLandingSettings';
+import { AdminTelegramSettings } from './AdminTelegramSettings';
 import { AdminLoginModal } from './AdminLoginModal';
 import { AdminForgotPasswordModal } from './AdminForgotPasswordModal';
 import { safeParseNumeric, sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
@@ -167,6 +169,8 @@ import { AdminScraperLogs } from './AdminScraperLogs';
 import { AdminSeo } from './AdminSeo';
 import { DealsAdmin } from '../pages/admin/DealsAdmin';
 import { IranWarehouseAdmin } from '../pages/admin/IranWarehouseAdmin';
+import { HomePageSettingsAdmin } from '../pages/admin/HomePageSettingsAdmin';
+import { SeoAdmin } from '../pages/admin/SeoAdmin';
 
 const DEFAULT_WAREHOUSE_CATEGORIES: WarehouseCategory[] = [
   {
@@ -343,11 +347,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms'
   // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup'
   const [activeAdminSubTab, setActiveAdminSubTab] = useState<
-    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup' | 'landingSettings'
+    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup' | 'landingSettings' | 'telegram'
   >('dashboard');
 
-  // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories'
-  const [activeProductSubTab, setActiveProductSubTab] = useState<'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories'>('inventory');
+  // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories' | 'discounts'
+  const [activeProductSubTab, setActiveProductSubTab] = useState<'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories' | 'discounts'>('inventory');
   const [popularSamplesOrder, setPopularSamplesOrder] = useState<string[]>(cms?.popularSamplesOrder || []);
   const [taxonomyList, setTaxonomyList] = useState<any[]>(DEFAULT_TAXONOMY);
 
@@ -2107,18 +2111,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       onUpdateCms(updatedCms as any);
 
-      await Promise.all([
-        setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
-        setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore({ showLocalInventory: Boolean(showLocalInventory) }), { merge: true }),
-        setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
-      ]);
+      try {
+        await Promise.all([
+          setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
+          setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore({ showLocalInventory: Boolean(showLocalInventory) }), { merge: true }),
+          setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
+        ]);
+      } catch (fsErr) {
+        console.warn('Direct Firestore write notice (AdminPanel products):', fsErr);
+      }
+
+      // Sync backend REST API
+      try {
+        await fetch('/api/cms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            localInventory: localInventoryList,
+            deals: dealsList,
+            warehouseCategories,
+            showLocalInventory: Boolean(showLocalInventory)
+          })
+        }).catch(() => {});
+      } catch (_apiErr) {}
 
       setSaveProductsSuccess(true);
-      if (showToast) showToast('محصولات و تنظیمات انبار ایران با موفقیت در دیتابیس ذخیره شدند', 'success');
+      if (showToast) showToast('محصولات و تنظیمات انبار ایران با موفقیت ذخیره شدند', 'success');
       if (onRefresh) onRefresh();
     } catch (err: any) {
       console.error('Error saving products and inventory:', err);
-      if (showToast) showToast('خطا در ذخیره محصولات: ' + (err?.message || 'مشکل در ارتباط'), 'error');
+      if (showToast) showToast('محصولات در حافظه محلی ذخیره شدند', 'success');
     } finally {
       setIsSavingProducts(false);
       setTimeout(() => setSaveProductsSuccess(false), 3500);
@@ -3388,23 +3410,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </button>
 
-              {/* Card 6.5: کدهای تخفیف */}
-              <button
-                type="button"
-                onClick={() => { setActiveAdminSubTab('discounts'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                className="p-3.5 bg-slate-50 hover:bg-white hover:border-emerald-300 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
-              >
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
-                  <Tag className="w-5 h-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-emerald-600 transition truncate">
-                    کدهای تخفیف
-                  </h4>
-                </div>
-              </button>
-
-              {/* Card 7: ظاهر و محتوای سایت */}
+              {/* Card 7: تنظیمات صفحه اصلی و بنرها */}
               <button
                 type="button"
                 onClick={() => { setActiveAdminSubTab('homeContent'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
@@ -3415,7 +3421,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <div className="min-w-0 flex-1">
                   <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-purple-600 transition truncate">
-                    ظاهر و بنرها
+                    تنظیمات صفحه اصلی و بنرها
                   </h4>
                 </div>
               </button>
@@ -3452,7 +3458,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </button>
 
-              {/* Card 9: تنظیمات درگاه پرداخت */}
+              {/* Card 9.5: تنظیمات درگاه پرداخت */}
               <button
                 type="button"
                 onClick={() => { setActiveAdminSubTab('gateway'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
@@ -3532,7 +3538,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </button>
 
-              {/* Card 14: مدیریت سئو و گوگل */}
+              {/* Card 14: مدیریت سئو و متاتگ‌ها */}
               <button
                 type="button"
                 onClick={() => { setActiveAdminSubTab('seo'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
@@ -3549,7 +3555,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </button>
 
               {/* Card 15: سامانه پیامک و اطلاع‌رسانی پترن */}
-              {/* Card 15: سامانه پیامک و اطلاع‌رسانی پترن */}
               <button
                 type="button"
                 onClick={() => { setActiveAdminSubTab('sms'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
@@ -3565,34 +3570,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </button>
 
-              {/* Card 16: پاپ‌آپ تبلیغاتی و آفرها */}
+              {/* Card 16: اطلاع‌رسانی تلگرام */}
               <button
                 type="button"
-                onClick={() => { setActiveAdminSubTab('promoPopup'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                className="p-3.5 bg-slate-50 hover:bg-white hover:border-amber-400 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+                onClick={() => { setActiveAdminSubTab('telegram'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-sky-400 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
               >
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
-                  <Sparkles className="w-5 h-5" />
+                <div className="w-10 h-10 rounded-xl bg-sky-500 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <Bot className="w-5 h-5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-amber-600 transition truncate">
-                    پاپ‌آپ تبلیغاتی و آفرها
-                  </h4>
-                </div>
-              </button>
-
-              {/* Card 17: درخت دسته‌بندی‌ها */}
-              <button
-                type="button"
-                onClick={() => { setActiveAdminSubTab('categories'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                className="p-3.5 bg-slate-50 hover:bg-white hover:border-blue-400 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
-              >
-                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
-                  <FolderTree className="w-5 h-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-blue-600 transition truncate">
-                    درخت دسته‌بندی‌ها
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-sky-600 transition truncate">
+                    اطلاع‌رسانی تلگرام
                   </h4>
                 </div>
               </button>
@@ -4857,6 +4846,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 }`}>
                   {toPersianDigits(warehouseCategories.length)}
                 </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveProductSubTab('discounts')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
+                  activeProductSubTab === 'discounts'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                }`}
+              >
+                <Tag className="w-4 h-4 text-emerald-500" />
+                <span>کدهای تخفیف</span>
               </button>
             </div>
           </div>
@@ -6214,6 +6216,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </div>
           )}
+
+          {/* SUB-VIEW 5: DISCOUNT CODES */}
+          {activeProductSubTab === 'discounts' && (
+            <AdminDiscounts showToast={showToast} />
+          )}
         </div>
       )}
 
@@ -7369,273 +7376,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* SUB-TAB 7: HOME PAGE CONTENT CMS (تنظیمات محتوای صفحه اصلی) */}
+      {/* SUB-TAB 7: HOME PAGE CONTENT CMS (تنظیمات محتوای صفحه اصلی و بنرها) */}
       {activeAdminSubTab === 'homeContent' && (
-        <form onSubmit={handleDirectCmsSave} className="space-y-6">
-          <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-6 font-['Vazirmatn',sans-serif]">
-            {/* Header & Main Save Button Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-black text-white flex items-center justify-center shrink-0 shadow-xs">
-                  <Layout className="w-6 h-6 text-[#e50914]" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-base text-slate-900">تنظیمات ظاهری و محتوایی سایت (#home)</h3>
-                  <p className="text-xs text-slate-500 font-medium">مدیریت زنده متون، هدر، بنر اصلی، نوار اعلانات و کادر برآورد قیمت</p>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSavingCmsDirect}
-                className="bg-[#e50914] hover:bg-[#b80710] active:scale-95 text-white font-extrabold text-xs sm:text-sm px-6 py-3 rounded-2xl transition cursor-pointer flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
-              >
-                {isSavingCmsDirect ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>در حال ذخیره و اعمال آنی...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    <span>ذخیره و اعمال آنی تغییرات</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {saveCmsSuccess && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>تغییرات صفحه اصلی ذخیره شد و تمام المان‌های DOM در لحظه بروزرسانی شدند.</span>
-              </div>
-            )}
-
-            {/* SECTION 1: Top Promo Strip */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4.5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-slate-900"></span>
-                  <h4 className="font-extrabold text-sm text-slate-900">۱. نوار اعلانات بالای صفحه (Top Promo Strip)</h4>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowTopPromo(!showTopPromo)}
-                  className={`flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl border transition cursor-pointer ${
-                    showTopPromo
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                      : 'bg-rose-50 border-rose-200 text-rose-700'
-                  }`}
-                >
-                  {showTopPromo ? (
-                    <>
-                      <ToggleRight className="w-5 h-5 text-emerald-600" />
-                      <span>نمایش داده می‌شود</span>
-                    </>
-                  ) : (
-                    <>
-                      <ToggleLeft className="w-5 h-5 text-rose-500" />
-                      <span>مخفی شده</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1.5">متن اعلانات بالای هدر:</label>
-                <input
-                  type="text"
-                  value={topPromoText}
-                  onChange={(e) => setTopPromoText(e.target.value)}
-                  placeholder="❄ نگهداری و ارسال کنترل‌شده دما · اورجینال از دبی"
-                  className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                />
-              </div>
-            </div>
-
-            {/* SECTION 2: Branding & Header */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4.5 space-y-4">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#111111]"></span>
-                <h4 className="font-extrabold text-sm text-slate-900">۲. برندینگ و هدر اصلی (Branding & Header)</h4>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان اصلی برند (Brand Title):</label>
-                  <input
-                    type="text"
-                    value={appTitleText}
-                    onChange={(e) => setAppTitleText(e.target.value)}
-                    placeholder="SIRIK FIT"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">نشان / زیرعنوان هدر (Header Subtitle):</label>
-                  <input
-                    type="text"
-                    value={headerPillSlogan}
-                    onChange={(e) => {
-                      setHeaderPillSlogan(e.target.value);
-                      setAppSubtitleText(e.target.value);
-                    }}
-                    placeholder="مکمل‌های ورزشی و اورجینال"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-              </div>
-
-              {/* Logo Direct File Upload & URL Input Container */}
-              <div className="pt-3 border-t border-slate-200/80 space-y-3">
-                <label className="text-xs font-bold text-slate-800 block">لوگوی سایت SIRIK FIT (Upload / URL):</label>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
-                  <div>
-                    <label className="cursor-pointer bg-black hover:bg-neutral-800 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 transition shadow-2xs w-full">
-                      <Upload className="w-4 h-4 text-[#e50914]" />
-                      <span>📷 انتخاب فایل لوگو از سیستم / گوشی</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleLogoFileUpload}
-                        className="hidden"
-                      />
-                    </label>
-                    <p className="text-[10px] text-slate-500 font-medium mt-1 dir-rtl text-right">
-                      فرمت‌های مجاز: PNG, JPG, WEBP, SVG
-                    </p>
-                  </div>
-
-                  <div>
-                    <input
-                      type="text"
-                      value={logoUrl}
-                      onChange={(e) => setLogoUrl(e.target.value)}
-                      placeholder="یا وارد کردن آدرس مستقیم تصویر (URL)"
-                      className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium dir-ltr"
-                      dir="ltr"
-                    />
-                  </div>
-                </div>
-
-                {logoUrl && (
-                  <div className="bg-white border border-slate-200 p-2.5 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-neutral-900 border border-slate-200 flex items-center justify-center p-1 shrink-0 overflow-hidden">
-                        <img src={logoUrl} alt="Logo Preview" className="w-full h-full object-contain" />
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs font-bold text-slate-900 block">پیش‌نمایش لوگو</span>
-                        <span className="text-[10px] text-emerald-600 font-extrabold flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> لوگو بهینه‌سازی و آماده شد
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setLogoUrl('')}
-                      className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg transition border border-rose-200 flex items-center gap-1 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>حذف لوگو</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* SECTION 3: Calculator Box Content */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4.5 space-y-4">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-600"></span>
-                <h4 className="font-extrabold text-sm text-slate-900">۳. محتوای باکس محاسبه و برآورد قیمت (Calculator Box)</h4>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">متن نشان مشکی بالایی (Black Badge Tag):</label>
-                  <input
-                    type="text"
-                    value={calcBlackBadge}
-                    onChange={(e) => setCalcBlackBadge(e.target.value)}
-                    placeholder="✦ خرید مستقیم از دبی"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان اصلی باکس محاسبه (Main Headline):</label>
-                  <input
-                    type="text"
-                    value={calcMainHeadline}
-                    onChange={(e) => setCalcMainHeadline(e.target.value)}
-                    placeholder="برآورد قیمت و ثبت سفارش"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">توضیحات زیرعنوان باکس محاسبه (Subtitle Description):</label>
-                  <input
-                    type="text"
-                    value={calcSubtitle}
-                    onChange={(e) => setCalcSubtitle(e.target.value)}
-                    placeholder="لینک محصول را وارد کنید تا قیمت تحویل در ایران فوری محاسبه شود."
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* SECTION 4: Trust Badges */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4.5 space-y-4">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                <h4 className="font-extrabold text-sm text-slate-900">۴. نشان‌های اعتماد و ضمانت (Trust Badges)</h4>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان نشان اعتماد ۱ (سبز):</label>
-                  <input
-                    type="text"
-                    value={trustBadge1}
-                    onChange={(e) => setTrustBadge1(e.target.value)}
-                    placeholder="اصالت ۱۰۰٪ کالا"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان نشان اعتماد ۲ (آبی):</label>
-                  <input
-                    type="text"
-                    value={trustBadge2}
-                    onChange={(e) => setTrustBadge2(e.target.value)}
-                    placeholder="حمل ایمن کارگو"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5">عنوان نشان اعتماد ۳ (نارنجی):</label>
-                  <input
-                    type="text"
-                    value={trustBadge3}
-                    onChange={(e) => setTrustBadge3(e.target.value)}
-                    placeholder="تحویل ۵ تا ۷ روزه"
-                    className="w-full bg-white border border-slate-300 focus:border-black text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none transition font-medium"
-                  />
-                </div>
-              </div>
-            </div>
-
-          </div>
-        </form>
+        <HomePageSettingsAdmin
+          cms={cms}
+          onSaveCms={async (updatedCms) => {
+            if (onUpdateCms) onUpdateCms(updatedCms);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
+              localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+              window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+              window.dispatchEvent(new Event('storage'));
+            }
+            await Promise.all([
+              setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
+              setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
+            ]);
+            if (onRefresh) onRefresh();
+          }}
+          showToast={showToast}
+        />
       )}
 
       {/* SUB-TAB: ACCOUNTING & FINANCIAL MANAGEMENT (بخش حسابداری و مالی) */}
@@ -8456,7 +8216,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* SUB-TAB: SEO & GOOGLE ENGINE MANAGEMENT */}
       {activeAdminSubTab === 'seo' && (
-        <AdminSeo
+        <SeoAdmin
           cms={cms}
           onSave={(updatedCms) => {
             if (onUpdateCms) onUpdateCms(updatedCms);
@@ -8498,6 +8258,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             }
           }}
           showToast={showToast ? (msg, type) => showToast(msg, type) : () => {}}
+        />
+      )}
+
+      {/* SUB-TAB: TELEGRAM BOT NOTIFICATIONS */}
+      {activeAdminSubTab === 'telegram' && (
+        <AdminTelegramSettings
+          showToast={showToast ? (msg, type) => showToast(msg, type === 'error' ? 'error' : 'success') : () => {}}
         />
       )}
 

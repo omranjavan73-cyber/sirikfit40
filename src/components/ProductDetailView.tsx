@@ -23,7 +23,7 @@ import {
   Loader2
 } from 'lucide-react';
 import type { FinancialSettings, Order, User, CartItem, CmsConfig, VariantDimension, VariantOption, ProductVariantMatrix, ProductVariantItem } from '../types';
-import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate, isValidIranianMobile, cleanIranianMobile, isValidPostalCode, cleanPostalCode, getStoreBadgeTheme } from '../utils/formatters';
+import { formatToman, formatAed, toPersianDigits, calculateFinalToman, getEffectiveAedRate, isValidIranianMobile, cleanIranianMobile, isValidPostalCode, cleanPostalCode, getStoreBadgeTheme, sanitizeVariantLabel } from '../utils/formatters';
 import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { getActivePrices } from '../utils/pricingCalculator';
@@ -323,7 +323,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         name: 'طعم (Flavor)',
         type: 'flavor',
         options: activeProd.flavors.map((f: any, idx: number) => {
-          const fName = typeof f === 'string' ? f : (f.flavor || f.name || '');
+          const rawName = typeof f === 'string' ? f : (f.flavor || f.name || '');
+          const fName = sanitizeVariantLabel(rawName);
           const fImg = typeof f === 'object' ? (f.imageUrl || f.image) : undefined;
           const fAvail = typeof f === 'object' ? (f.isAvailable !== false && f.inStock !== false) : true;
           return {
@@ -333,7 +334,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             image: fImg,
             inStock: fAvail
           };
-        })
+        }).filter((opt: any) => Boolean(opt.name))
       });
     }
     if (Array.isArray(activeProd.sizes) && activeProd.sizes.length > 0) {
@@ -342,7 +343,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         name: 'وزن / سایز (Size)',
         type: 'size',
         options: activeProd.sizes.map((s: any, idx: number) => {
-          const sName = typeof s === 'string' ? s : (s.size || s.name || '');
+          const rawName = typeof s === 'string' ? s : (s.size || s.name || '');
+          const sName = sanitizeVariantLabel(rawName);
           const sAvail = typeof s === 'object' ? (s.isAvailable !== false && s.inStock !== false) : true;
           const sPrice = typeof s === 'object' && (s.priceAED || s.priceAed) ? (s.priceAED || s.priceAed) : (activeProd.priceAed || 0);
           const sWeight = typeof s === 'object' && s.weightKg ? s.weightKg : (activeProd.weightKg || 0.8);
@@ -353,7 +355,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             weightKg: sWeight,
             inStock: sAvail
           };
-        })
+        }).filter((opt: any) => Boolean(opt.name))
       });
     }
 
@@ -1404,11 +1406,6 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                               >
                                 {isSelected && isAvailable && <Check className="w-3 h-3 text-white" />}
                                 <span>{localizedOpt}</span>
-                                {isAvailable && opt.priceAed && opt.priceAed !== (activeProd?.priceAed || 0) && (
-                                  <span className={`text-[10px] font-bold ${isSelected ? 'text-red-100' : 'text-gray-500'}`}>
-                                    ({opt.priceAed} د.إ)
-                                  </span>
-                                )}
                               </button>
                             );
                           })}

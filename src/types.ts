@@ -612,6 +612,14 @@ export interface CmsConfig {
   landingContent?: LandingContentSettings;
   features?: FeatureToggles;
   promoPopup?: PromoPopupConfig;
+  siteTitle?: string;
+  brandSlogan?: string;
+  heroHeading?: string;
+  heroSubheading?: string;
+  topPromoText?: string;
+  bannerImageUrl?: string;
+  calculatorHeading?: string;
+  updatedAt?: string;
   heroTitle: string;
   heroSubtitle: string;
   heroNotice: string;
@@ -1092,4 +1100,13 @@ export interface PasswordResetOtpState {
   error?: string;
   successMessage?: string;
 }
+
+export interface TelegramConfig {
+  botToken: string;
+  chatId: string;
+  enabled: boolean;
+  topicId?: string;
+  updatedAt?: string;
+}
+
 

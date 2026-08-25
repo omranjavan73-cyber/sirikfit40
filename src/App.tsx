@@ -939,12 +939,15 @@ function MainApp() {
     setSelectedProduct({
       id: deal.id,
       title: deal.title,
+      englishTitle: deal.englishTitle,
       url: deal.url,
       priceAed: deal.priceAed,
       originalPriceAed: deal.originalPriceAed,
       discountPercent: deal.discountPercent,
       weightKg: deal.weightKg || 0.5,
       image: deal.image,
+      images: deal.images || (deal.image ? [deal.image] : []),
+      galleryImages: deal.galleryImages || deal.images || (deal.image ? [deal.image] : []),
       storeName: deal.storeName || deal.brand || 'دبی',
       brand: deal.brand || deal.storeName || 'دبی',
       category: deal.category,
@@ -955,6 +958,10 @@ function MainApp() {
       profitMargin: dealMargin,
       flavors: deal.flavors || [],
       sizes: deal.sizes || [],
+      variants: deal.variants || [],
+      variantMatrix: deal.variantMatrix || undefined,
+      variantGroups: deal.variantGroups || undefined,
+      options: deal.options || [],
       inStock: true
     });
     setActiveTab('detail');
@@ -1354,6 +1361,8 @@ function MainApp() {
                 originalPriceToman: item.originalPriceToman,
                 weightKg: item.weightKg || 0.5,
                 image: item.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
+                images: item.images || (item.image ? [item.image] : []),
+                galleryImages: item.galleryImages || item.images || (item.image ? [item.image] : []),
                 storeName: 'انبار ایران (تحویل فوری)',
                 brand: 'انبار ایران',
                 calculatedTomanOverride: item.priceToman,
@@ -1363,7 +1372,11 @@ function MainApp() {
                 inStock: item.inStock ?? true,
                 isLocalInventory: true,
                 flavors: item.flavors || [],
-                sizes: item.sizes || []
+                sizes: item.sizes || [],
+                variants: item.variants || [],
+                variantMatrix: item.variantMatrix || undefined,
+                variantGroups: item.variantGroups || undefined,
+                options: item.options || []
               });
               setActiveTab('detail');
               window.scrollTo({ top: 0, behavior: 'smooth' });

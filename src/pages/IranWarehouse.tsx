@@ -16,22 +16,23 @@ interface IranWarehousePageProps {
 }
 
 /** Map a LocalInventoryItem to the shape expected by ProductDetailModal */
-function toModalProduct(item: LocalInventoryItem): ProductDetailModalProduct {
+function toModalProduct(item: LocalInventoryItem, aedRate: number = 55000): ProductDetailModalProduct {
+  const calcAed = item.priceAed || (item.priceToman && aedRate > 0 ? Math.round(item.priceToman / aedRate) : 0);
   return {
     id: item.id,
     title: item.title,
     englishTitle: item.englishTitle,
     url: item.url,
-    // priceAed is optional on LocalInventoryItem but required by the modal; default to 0
-    priceAed: item.priceAed ?? 0,
+    priceAed: calcAed > 0 ? calcAed : 0,
     priceToman: item.priceToman,
     originalPriceToman: item.originalPriceToman,
-    calculatedTomanOverride: item.calculatedTomanOverride,
+    calculatedTomanOverride: item.calculatedTomanOverride || item.priceToman,
     isLocalInventory: item.isLocalInventory ?? true,
     isIranWarehouse: item.isIranWarehouse ?? true,
     weightKg: item.weightKg,
     image: item.image,
     images: item.images,
+    galleryImages: item.galleryImages || item.images,
     brand: item.brand,
     category: item.category,
     description: item.description,
@@ -39,6 +40,8 @@ function toModalProduct(item: LocalInventoryItem): ProductDetailModalProduct {
     flavors: item.flavors as string[] | undefined,
     sizes: item.sizes as string[] | undefined,
     variants: item.variants,
+    variantMatrix: item.variantMatrix,
+    variantGroups: item.variantGroups
   };
 }
 
@@ -104,7 +107,7 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
       <ProductDetailModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        product={selectedItem ? toModalProduct(selectedItem) : null}
+        product={selectedItem ? toModalProduct(selectedItem, settings?.aedRate) : null}
         settings={settings}
         onAddToCart={onAddToCart}
       />

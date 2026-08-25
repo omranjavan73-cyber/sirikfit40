@@ -39,6 +39,18 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /system_settings/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /exchange_rates/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /scraper_cache/{document=**} {
+      allow read, write: if true;
+    }
+
     // Orders collection
     match /orders/{orderId} {
       allow read, write: if true;

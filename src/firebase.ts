@@ -18,15 +18,16 @@ import {
 } from 'firebase/firestore';
 import { safeFetchJson } from './utils/apiHelper';
 import { dispatchOrderToGoogleSheets } from './utils/googleSheetsSync';
+import firebaseConfigJson from '../firebase-applet-config.json';
 
-const firebaseConfig = {
-  apiKey: "AIzaSyBAB1TsbUTwgLcHxFAeIMVECS9zqGP7Zk0",
-  authDomain: "sirikfit40.firebaseapp.com",
-  projectId: "sirikfit40",
-  storageBucket: "sirikfit40.firebasestorage.app",
-  messagingSenderId: "532757567852",
-  appId: "1:532757567852:web:01f36071e84c96b4933b49",
-  measurementId: "G-QFR8G0QFNH"
+export const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyARiTsbTwglCwXPaoIMVFCG9zqGPG77X0",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "sirikfit40.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "sirikfit40",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "sirikfit40.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "632765767852",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:632765767852:web:01f36071ea0c94b4933b49",
+  measurementId: "G-QFR8GQOFNK"
 };
 
 // Suppress internal gRPC stream disconnect debug/info messages
@@ -58,6 +59,11 @@ export const isFirestoreGrpcNoise = (arg: any): boolean => {
     str.includes('RPC \'Listen\' stream') ||
     str.includes('Listen\' stream') ||
     str.includes('Listen stream') ||
+    str.includes('client is offline') ||
+    str.includes('Failed to get document because the client is offline') ||
+    str.includes('unavailable') ||
+    str.includes('ERR_BLOCKED_BY_CLIENT') ||
+    str.includes('Backend didn\'t respond') ||
     (str.includes('CANCELLED') && str.includes('stream')) ||
     (str.includes('CANCELLED') && str.includes('Listen')) ||
     (str.includes('Code: 1') && str.includes('CANCELLED'))
@@ -126,13 +132,17 @@ if (typeof window !== 'undefined') {
 // Initialize Firebase App & Firestore with long polling for proxy & Cloud Run resilience
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
+const targetDbId = (firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== '(default)')
+  ? firebaseConfigJson.firestoreDatabaseId
+  : undefined;
+
 let firestoreDb;
 try {
   firestoreDb = initializeFirestore(app, {
     experimentalForceLongPolling: true,
-  });
+  }, targetDbId);
 } catch (_e) {
-  firestoreDb = getFirestore(app);
+  firestoreDb = targetDbId ? getFirestore(app, targetDbId) : getFirestore(app);
 }
 
 export const db = firestoreDb;

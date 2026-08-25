@@ -28,13 +28,53 @@ export interface ScrapedProductData {
 export const parseSporterHtml = (html: string, sourceUrl: string = 'https://www.sporter.com/en-ae/'): ScrapedProductResult => {
   const $ = cheerio.load(html);
 
-  // 1. Title & Brand Extraction
+  // 1. Title & Brand & Image Extraction
   let jsonTitle = '';
   let jsonImage = '';
   let jsonPrice = 0;
   let jsonOldPrice = 0;
   const galleryImages: string[] = [];
 
+  // Parse Next.js __NEXT_DATA__ JSON if present
+  const nextDataScript = $('#__NEXT_DATA__').html();
+  if (nextDataScript) {
+    try {
+      const nextData = JSON.parse(nextDataScript);
+      const pageProps = nextData?.props?.pageProps || {};
+      const product = pageProps.product || pageProps.initialState?.product || pageProps.data?.product || pageProps.initialData?.product;
+
+      if (product) {
+        if (product.name) jsonTitle = product.name;
+        if (product.image?.url || product.small_image?.url || product.thumbnail?.url) {
+          jsonImage = product.image?.url || product.small_image?.url || product.thumbnail?.url;
+        }
+        if (Array.isArray(product.media_gallery)) {
+          product.media_gallery.forEach((m: any) => {
+            if (m.url && !galleryImages.includes(m.url)) galleryImages.push(m.url);
+          });
+        }
+        // Price extraction
+        const priceRange = product.price_range?.minimum_price;
+        if (priceRange) {
+          const finalVal = priceRange.final_price?.value;
+          const regVal = priceRange.regular_price?.value;
+          if (finalVal && finalVal > 0) jsonPrice = Number(finalVal);
+          if (regVal && regVal > jsonPrice) jsonOldPrice = Number(regVal);
+        } else if (product.special_price || product.final_price || product.price) {
+          const sp = Number(product.special_price || product.final_price);
+          const rp = Number(product.price || product.regular_price);
+          if (sp && sp > 0) {
+            jsonPrice = sp;
+            if (rp && rp > sp) jsonOldPrice = rp;
+          } else if (rp && rp > 0) {
+            jsonPrice = rp;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Parse JSON-LD Schema
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html() || '{}');
@@ -52,15 +92,15 @@ export const parseSporterHtml = (html: string, sourceUrl: string = 'https://www.
           if (offer) {
             if (offer.price) {
               const p = parseFloat(String(offer.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-              if (!isNaN(p) && p > 0) jsonPrice = p;
+              if (!isNaN(p) && p > 0 && !jsonPrice) jsonPrice = p;
             }
             if (offer.lowPrice) {
               const lp = parseFloat(String(offer.lowPrice).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-              if (!isNaN(lp) && lp > 0) jsonPrice = lp;
+              if (!isNaN(lp) && lp > 0 && !jsonPrice) jsonPrice = lp;
             }
             if (offer.highPrice) {
               const hp = parseFloat(String(offer.highPrice).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-              if (!isNaN(hp) && hp > 0) jsonOldPrice = hp;
+              if (!isNaN(hp) && hp > 0 && !jsonOldPrice) jsonOldPrice = hp;
             }
           }
         }

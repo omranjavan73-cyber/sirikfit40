@@ -95,6 +95,33 @@ export const CartModal: React.FC<CartModalProps> = ({
   const discountAmountToman = (appliedDiscount && appliedDiscount.isValid) ? appliedDiscount.discountAmountToman : 0;
   const effectiveTotalToman = Math.max(0, cartTotalToman - discountAmountToman);
 
+  // Sync abandoned cart when valid phone is entered and cart has items
+  useEffect(() => {
+    if (phoneNumber && isValidIranianMobile(phoneNumber) && safeCartItems.length > 0) {
+      const cleanPhone = cleanIranianMobile(phoneNumber);
+      const timer = setTimeout(() => {
+        fetch('/api/abandoned-cart/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: cleanPhone,
+            fullName: customerName,
+            items: safeCartItems.map(i => ({
+              title: i.title,
+              priceToman: getItemUnitToman(i),
+              priceAed: i.priceAed || 0,
+              quantity: i.quantity || 1,
+              image: i.image || '',
+              variant: i.selectedSize || i.selectedFlavor || ''
+            })),
+            totalAmountToman: effectiveTotalToman
+          })
+        }).catch(() => {});
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [phoneNumber, customerName, safeCartItems.length, effectiveTotalToman]);
+
   // Dynamic Minimum Order Limit strictly bound to settings (settings/pricing)
   const minLimitEnabled = (settings?.minOrderLimitEnabled !== undefined)
     ? Boolean(settings.minOrderLimitEnabled)
@@ -242,6 +269,14 @@ export const CartModal: React.FC<CartModalProps> = ({
       if (appliedDiscount?.discountCodeObj?.id) {
         incrementDiscountUsage(appliedDiscount.discountCodeObj.id);
       }
+      
+      // Mark abandoned cart as recovered
+      fetch('/api/abandoned-cart/recover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: cleanIranianMobile(phoneNumber) })
+      }).catch(() => {});
+
       if (onClearCart) onClearCart();
 
       // 2. Call backend createPayment and redirect

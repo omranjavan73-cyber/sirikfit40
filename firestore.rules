@@ -64,6 +64,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Abandoned Carts collection
+    match /abandoned_carts/{cartId} {
+      allow read, write: if true;
+    }
+
     // Users collection
     match /users/{userId} {
       allow read, write: if true;

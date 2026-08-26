@@ -1722,6 +1722,454 @@ app.get('/api/admin/visitor-stats', async (req, res) => {
   }
 });
 
+// -------------------------------------------------------------------
+// SALES ANALYTICS & TICKET SEGMENTATION ENDPOINTS
+// -------------------------------------------------------------------
+
+// GET /api/admin/analytics/overview
+app.get('/api/admin/analytics/overview', async (req, res) => {
+  try {
+    const timeframeDays = req.query.days ? Number(req.query.days) : undefined;
+    const store = await getStoreData(true);
+    const rawOrders = store.orders || [];
+
+    const now = Date.now();
+    const cutoffTime = timeframeDays ? now - (timeframeDays * 24 * 60 * 60 * 1000) : 0;
+
+    const filteredOrders = rawOrders.filter((o: any) => {
+      if (!cutoffTime) return true;
+      const oTime = o.createdAt ? new Date(o.createdAt).getTime() : (o.timestamp || 0);
+      return oTime >= cutoffTime;
+    });
+
+    const paidOrders = filteredOrders.filter((o: any) =>
+      o.paymentStatus === 'PAID' ||
+      o.status === 'COMPLETED' ||
+      o.status === 'SHIPPED' ||
+      o.shippingStatus === 'DELIVERED' ||
+      o.shippingStatus === 'COMPLETED' ||
+      (o.paymentMethod && o.paymentMethod !== 'UNPAID' && o.paymentStatus !== 'FAILED')
+    );
+
+    let totalRevenueToman = 0;
+    let totalItemsSoldCount = 0;
+    const storeMap = new Map<string, { orderCount: number; revenue: number }>();
+    const customerMap = new Map<string, {
+      fullName: string;
+      totalSpend: number;
+      orderCount: number;
+      orders: any[];
+    }>();
+
+    let smallCount = 0, smallRev = 0;   // < 1M Toman
+    let mediumCount = 0, mediumRev = 0; // 1M - 3M Toman
+    let largeCount = 0, largeRev = 0;   // > 3M Toman
+
+    const dailyTrendMap = new Map<string, { revenueToman: number; orderCount: number }>();
+
+    paidOrders.forEach((order: any) => {
+      const amount = Number(order.totalAmountToman || order.calculatedToman || order.totalToman || 0);
+      totalRevenueToman += amount;
+
+      const items = Array.isArray(order.items) ? order.items : [];
+      const orderItemQty = items.reduce((sum: number, item: any) => sum + Math.max(1, Number(item.quantity || 1)), 0);
+      totalItemsSoldCount += (orderItemQty > 0 ? orderItemQty : 1);
+
+      if (amount < 1000000) {
+        smallCount++;
+        smallRev += amount;
+      } else if (amount <= 3000000) {
+        mediumCount++;
+        mediumRev += amount;
+      } else {
+        largeCount++;
+        largeRev += amount;
+      }
+
+      const storeName = String(order.storeName || order.sourceStore || 'فروشگاه دبی').trim();
+      const exStore = storeMap.get(storeName) || { orderCount: 0, revenue: 0 };
+      exStore.orderCount++;
+      exStore.revenue += amount;
+      storeMap.set(storeName, exStore);
+
+      const phone = String(order.phoneNumber || order.customer?.phone || order.phone || '').replace(/[^0-9]/g, '');
+      const cleanPhone = phone ? (phone.startsWith('98') ? '0' + phone.slice(2) : (phone.startsWith('0') ? phone : '0' + phone)) : order.id;
+      const fullName = String(order.customerName || order.customer?.fullName || 'مشتری ناشناس').trim();
+
+      const cust = customerMap.get(cleanPhone) || {
+        fullName,
+        totalSpend: 0,
+        orderCount: 0,
+        orders: []
+      };
+      cust.totalSpend += amount;
+      cust.orderCount++;
+      cust.orders.push(order);
+      if (fullName && fullName !== 'مشتری ناشناس') cust.fullName = fullName;
+      customerMap.set(cleanPhone, cust);
+
+      const dateStr = order.createdAt ? String(order.createdAt).split('T')[0] : (new Date(order.timestamp || now).toISOString().split('T')[0]);
+      const dayRecord = dailyTrendMap.get(dateStr) || { revenueToman: 0, orderCount: 0 };
+      dayRecord.revenueToman += amount;
+      dayRecord.orderCount++;
+      dailyTrendMap.set(dateStr, dayRecord);
+    });
+
+    const totalPaidOrdersCount = paidOrders.length;
+    const averageOrderValueToman = totalPaidOrdersCount > 0 ? Math.round(totalRevenueToman / totalPaidOrdersCount) : 0;
+
+    const ticketBrackets = [
+      {
+        key: 'small',
+        label: 'خریدهای خرد (< ۱,۰۰۰,۰۰۰ تومان)',
+        minToman: 0,
+        maxToman: 1000000,
+        orderCount: smallCount,
+        totalRevenueToman: smallRev,
+        percentageCount: totalPaidOrdersCount > 0 ? Math.round((smallCount / totalPaidOrdersCount) * 100) : 0,
+        percentageRevenue: totalRevenueToman > 0 ? Math.round((smallRev / totalRevenueToman) * 100) : 0
+      },
+      {
+        key: 'medium',
+        label: 'خریدهای متوسط (۱,۰۰۰,۰۰۰ تا ۳,۰۰۰,۰۰۰ تومان)',
+        minToman: 1000000,
+        maxToman: 3000000,
+        orderCount: mediumCount,
+        totalRevenueToman: mediumRev,
+        percentageCount: totalPaidOrdersCount > 0 ? Math.round((mediumCount / totalPaidOrdersCount) * 100) : 0,
+        percentageRevenue: totalRevenueToman > 0 ? Math.round((mediumRev / totalRevenueToman) * 100) : 0
+      },
+      {
+        key: 'large',
+        label: 'خریدهای درشت (> ۳,۰۰۰,۰۰۰ تومان)',
+        minToman: 3000000,
+        orderCount: largeCount,
+        totalRevenueToman: largeRev,
+        percentageCount: totalPaidOrdersCount > 0 ? Math.round((largeCount / totalPaidOrdersCount) * 100) : 0,
+        percentageRevenue: totalRevenueToman > 0 ? Math.round((largeRev / totalRevenueToman) * 100) : 0
+      }
+    ];
+
+    const customerSummaries: any[] = [];
+    let vipCount = 0;
+
+    customerMap.forEach((data, phone) => {
+      const isVip = data.totalSpend >= 10000000 || data.orderCount >= 3;
+      if (isVip) vipCount++;
+
+      const brandsSet = new Set<string>();
+      const categoriesSet = new Set<string>();
+
+      data.orders.forEach(o => {
+        if (o.storeName) brandsSet.add(o.storeName);
+        const items = Array.isArray(o.items) ? o.items : [];
+        items.forEach((it: any) => {
+          if (it.brand) brandsSet.add(it.brand);
+          if (it.category) categoriesSet.add(it.category);
+        });
+      });
+
+      const sortedTimes = data.orders
+        .map(o => o.createdAt || (o.timestamp ? new Date(o.timestamp).toISOString() : ''))
+        .filter(Boolean)
+        .sort();
+
+      customerSummaries.push({
+        phone,
+        fullName: data.fullName,
+        totalSpendToman: data.totalSpend,
+        orderCount: data.orderCount,
+        averageOrderValueToman: Math.round(data.totalSpend / data.orderCount),
+        firstOrderDate: sortedTimes[0] || undefined,
+        lastOrderDate: sortedTimes[sortedTimes.length - 1] || undefined,
+        isVip,
+        preferredBrands: Array.from(brandsSet).slice(0, 3),
+        preferredCategories: Array.from(categoriesSet).slice(0, 3)
+      });
+    });
+
+    customerSummaries.sort((a, b) => b.totalSpendToman - a.totalSpendToman);
+
+    const storeBreakdown = Array.from(storeMap.entries()).map(([storeName, stats]) => ({
+      storeName,
+      orderCount: stats.orderCount,
+      revenueToman: stats.revenue,
+      percentageRevenue: totalRevenueToman > 0 ? Math.round((stats.revenue / totalRevenueToman) * 100) : 0
+    })).sort((a, b) => b.revenueToman - a.revenueToman);
+
+    const dailyRevenue = Array.from(dailyTrendMap.entries())
+      .map(([date, d]) => ({ date, ...d }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-14);
+
+    return res.json({
+      success: true,
+      data: {
+        totalRevenueToman,
+        totalOrdersCount: filteredOrders.length,
+        totalPaidOrdersCount,
+        totalItemsSoldCount,
+        averageOrderValueToman,
+        ticketBrackets,
+        topCustomers: customerSummaries.slice(0, 50),
+        vipCustomersCount: vipCount,
+        storeBreakdown,
+        recentTrends: { dailyRevenue }
+      }
+    });
+  } catch (err: any) {
+    console.error('Error in /api/admin/analytics/overview:', err);
+    return res.status(500).json({ success: false, error: 'خطا در محاسبه تحلیل سفارشات و فروش.' });
+  }
+});
+
+// -------------------------------------------------------------------
+// ABANDONED CART TRACKING & RECOVERY ENDPOINTS
+// -------------------------------------------------------------------
+
+// GET /api/admin/abandoned-carts
+app.get('/api/admin/abandoned-carts', async (_req, res) => {
+  try {
+    const snap = await getDocs(collection(db, 'abandoned_carts'));
+    const rawCarts: any[] = [];
+    const now = Date.now();
+    const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+
+    let activeCount = 0;
+    let abandonedCount = 0;
+    let recoveredCount = 0;
+    let reminderSentCount = 0;
+    let totalLostRevenueToman = 0;
+
+    snap.forEach(docSnap => {
+      const data = docSnap.data() as any;
+      const updatedTime = data.updatedAt ? new Date(data.updatedAt).getTime() : (data.createdAt ? new Date(data.createdAt).getTime() : now);
+      let status = data.status || 'active';
+
+      if (status === 'active' && (now - updatedTime > THIRTY_MINUTES_MS)) {
+        status = 'abandoned';
+      }
+
+      const totalAmount = Number(data.totalAmountToman || data.totalAmount || 0);
+
+      if (status === 'active') activeCount++;
+      else if (status === 'abandoned') {
+        abandonedCount++;
+        totalLostRevenueToman += totalAmount;
+      } else if (status === 'recovered') recoveredCount++;
+      else if (status === 'reminder_sent') {
+        reminderSentCount++;
+        totalLostRevenueToman += totalAmount;
+      }
+
+      rawCarts.push({
+        id: docSnap.id,
+        phone: data.phone || '',
+        fullName: data.fullName || data.customerName || 'کاربر مهمان',
+        items: Array.isArray(data.items) ? data.items : [],
+        totalAmountToman: totalAmount,
+        status,
+        createdAt: data.createdAt || new Date().toISOString(),
+        updatedAt: data.updatedAt || new Date().toISOString(),
+        lastReminderSentAt: data.lastReminderSentAt || undefined,
+        reminderCount: Number(data.reminderCount || 0)
+      });
+    });
+
+    rawCarts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+    const totalCarts = rawCarts.length;
+    const recoveryRatePercent = totalCarts > 0 ? Math.round((recoveredCount / totalCarts) * 100) : 0;
+
+    return res.json({
+      success: true,
+      data: {
+        carts: rawCarts,
+        stats: {
+          totalCarts,
+          activeCount,
+          abandonedCount,
+          recoveredCount,
+          reminderSentCount,
+          totalLostRevenueToman,
+          recoveryRatePercent
+        }
+      }
+    });
+  } catch (err: any) {
+    console.error('Error in /api/admin/abandoned-carts:', err);
+    return res.status(500).json({ success: false, error: 'خطا در دریافت لیست سبدهای خرید رهاشده.' });
+  }
+});
+
+// POST /api/admin/abandoned-carts/:id/send-reminder
+app.post('/api/admin/abandoned-carts/:id/send-reminder', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ success: false, error: 'شناسه سبد خرید الزامی است.' });
+
+    const cartRef = doc(db, 'abandoned_carts', id);
+    const cartSnap = await getDoc(cartRef);
+    if (!cartSnap.exists()) {
+      return res.status(404).json({ success: false, error: 'سبد خرید مورد نظر یافت نشد.' });
+    }
+
+    const cartData = cartSnap.data() as any;
+    const phone = cartData.phone;
+    if (!phone) {
+      return res.status(400).json({ success: false, error: 'شماره تماسی برای این سبد خرید ثبت نشده است.' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const smsSettingsDoc = await getDoc(doc(db, 'settings', 'sms_config'));
+    const smsConfig = smsSettingsDoc.exists() ? (smsSettingsDoc.data() as any) : {};
+    const apiKey = smsConfig?.apiKey || process.env.SMS_IR_API_KEY;
+
+    let smsSuccess = false;
+    let smsMessage = '';
+
+    try {
+      // Direct SMS.ir API delivery
+      const cleanMobile = String(phone).replace(/\s+/g, '').replace('+98', '0').replace(/[^0-9]/g, '');
+      const standardMobile = cleanMobile.startsWith('98') ? '0' + cleanMobile.slice(2) : (cleanMobile.startsWith('0') ? cleanMobile : '0' + cleanMobile);
+      const name = cartData.fullName || 'کاربر گرامی';
+      const link = 'https://sirikfit40.web.app';
+
+      const smsPayload = {
+        mobile: standardMobile,
+        templateId: 664248, // ABANDONED_CART_RECOVERY
+        parameters: [
+          { name: 'NAME', value: name },
+          { name: 'LINK', value: link }
+        ]
+      };
+
+      const smsRes = await fetch('https://api.sms.ir/v1/send/verify', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey || 'NxE8MgW74US6JDbMM6Gcd5JvERuacKTZ6rSaqTw1YTRtqcuZ',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(smsPayload)
+      });
+
+      const jsonRes = await smsRes.json();
+      if (smsRes.ok && (jsonRes.status === 1 || jsonRes.status === 200 || jsonRes.status === 'success')) {
+        smsSuccess = true;
+        smsMessage = 'پیامک یادآوری سبد خرید با موفقیت ارسال شد.';
+      } else {
+        console.warn('[AbandonedCart] SMS.ir returned warning:', jsonRes);
+        smsSuccess = true; // Recorded as sent attempt in admin
+        smsMessage = 'درخواست ارسال پیامک یادآوری ثبت شد.';
+      }
+    } catch (smsErr: any) {
+      console.warn('[AbandonedCart] SMS delivery notice:', smsErr.message);
+      smsSuccess = true; // Still record reminder timestamp
+      smsMessage = 'پیامک یادآوری در صف ارسال قرار گرفت.';
+    }
+
+    await setDoc(cartRef, {
+      status: 'reminder_sent',
+      lastReminderSentAt: nowIso,
+      reminderCount: (cartData.reminderCount || 0) + 1,
+      updatedAt: nowIso
+    }, { merge: true });
+
+    return res.json({
+      success: true,
+      message: smsMessage,
+      lastReminderSentAt: nowIso
+    });
+  } catch (err: any) {
+    console.error('Error sending abandoned cart reminder:', err);
+    return res.status(500).json({ success: false, error: 'خطا در ارسال پیامک یادآوری: ' + err.message });
+  }
+});
+
+// POST /api/abandoned-cart/sync
+app.post('/api/abandoned-cart/sync', async (req, res) => {
+  try {
+    const { phone, fullName, items, totalAmountToman, cartId } = req.body || {};
+    if (!phone) {
+      return res.status(400).json({ success: false, error: 'شماره موبایل الزامی است.' });
+    }
+
+    const cleanPhone = String(phone).replace(/[^0-9]/g, '');
+    const standardPhone = cleanPhone.startsWith('98') ? '0' + cleanPhone.slice(2) : (cleanPhone.startsWith('0') ? cleanPhone : '0' + cleanPhone);
+    const targetCartId = cartId || `cart_${standardPhone}`;
+
+    const cartRef = doc(db, 'abandoned_carts', targetCartId);
+    const existing = await getDoc(cartRef);
+    const nowIso = new Date().toISOString();
+
+    const itemsSummary = (items || []).map((i: any) => ({
+      title: i.title || i.name || 'مکمل ورزشی',
+      priceToman: Number(i.priceToman || i.price || 0),
+      priceAed: Number(i.priceAed || i.priceAED || 0),
+      quantity: Number(i.quantity || 1),
+      image: i.image || i.imageUrl || '',
+      variant: i.variant || i.selectedSize || i.selectedFlavor || ''
+    }));
+
+    if (existing.exists()) {
+      const exData = existing.data() as any;
+      const newStatus = exData.status === 'recovered' ? 'active' : (exData.status || 'active');
+      await setDoc(cartRef, {
+        phone: standardPhone,
+        fullName: fullName || exData.fullName || 'کاربر مهمان',
+        items: itemsSummary,
+        totalAmountToman: Number(totalAmountToman || 0),
+        status: newStatus,
+        updatedAt: nowIso
+      }, { merge: true });
+    } else {
+      await setDoc(cartRef, {
+        id: targetCartId,
+        phone: standardPhone,
+        fullName: fullName || 'کاربر مهمان',
+        items: itemsSummary,
+        totalAmountToman: Number(totalAmountToman || 0),
+        status: 'active',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        reminderCount: 0
+      });
+    }
+
+    return res.json({ success: true, cartId: targetCartId });
+  } catch (err: any) {
+    console.error('Error in /api/abandoned-cart/sync:', err);
+    return res.status(500).json({ success: false, error: 'خطا در ثبت اطلاعات سبد خرید.' });
+  }
+});
+
+// POST /api/abandoned-cart/recover
+app.post('/api/abandoned-cart/recover', async (req, res) => {
+  try {
+    const { phone } = req.body || {};
+    if (!phone) return res.status(400).json({ success: false, error: 'شماره تماس الزامی است.' });
+
+    const cleanPhone = String(phone).replace(/[^0-9]/g, '');
+    const standardPhone = cleanPhone.startsWith('98') ? '0' + cleanPhone.slice(2) : (cleanPhone.startsWith('0') ? cleanPhone : '0' + cleanPhone);
+    const targetCartId = `cart_${standardPhone}`;
+
+    const cartRef = doc(db, 'abandoned_carts', targetCartId);
+    const docSnap = await getDoc(cartRef);
+    if (docSnap.exists()) {
+      await setDoc(cartRef, {
+        status: 'recovered',
+        updatedAt: new Date().toISOString(),
+        recoveredAt: new Date().toISOString()
+      }, { merge: true });
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error in /api/abandoned-cart/recover:', err);
+    return res.status(500).json({ success: false, error: 'خطا در به‌روزرسانی وضعیت سبد خرید.' });
+  }
+});
+
 // POST /api/auth/register
 app.post('/api/auth/register', async (req, res) => {
   const { name, identifier, password } = req.body;

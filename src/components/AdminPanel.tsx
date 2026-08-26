@@ -4,6 +4,8 @@ import {
   LogOut,
   LayoutDashboard,
   ShoppingBag,
+  ShoppingCart,
+  Users,
   SlidersHorizontal,
   Image as ImageIcon,
   Plus,
@@ -112,6 +114,9 @@ import { AdminLandingSettings } from './AdminLandingSettings';
 import { AdminTelegramSettings } from './AdminTelegramSettings';
 import { AdminLoginModal } from './AdminLoginModal';
 import { AdminForgotPasswordModal } from './AdminForgotPasswordModal';
+import { AbandonedCartsTab } from './admin/AbandonedCartsTab';
+import { AnalyticsAdmin } from '../pages/admin/AnalyticsAdmin';
+import { CustomersAdmin } from '../pages/admin/CustomersAdmin';
 import { safeParseNumeric, sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
 import { 
   STORE_TAXONOMY, 
@@ -348,7 +353,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms'
   // Active Admin Sub-tab: 'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup'
   const [activeAdminSubTab, setActiveAdminSubTab] = useState<
-    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup' | 'landingSettings' | 'telegram'
+    'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup' | 'landingSettings' | 'telegram' | 'analytics' | 'customers' | 'abandonedCarts'
   >('dashboard');
 
   // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories' | 'discounts' | 'links'
@@ -376,7 +381,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [activeAdminSubTab]);
 
   // Orders State
-  const [ordersActiveTab, setOrdersActiveTab] = useState<'list' | 'settings'>('list');
+  const [ordersActiveTab, setOrdersActiveTab] = useState<'list' | 'abandoned' | 'settings'>('list');
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -3345,6 +3350,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </button>
 
+              {/* Card: تحلیل پیشرفته فروش و AOV */}
+              <button
+                type="button"
+                onClick={() => { setActiveAdminSubTab('analytics'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-indigo-300 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+              >
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-indigo-600 transition truncate">
+                    تحلیل فروش و AOV
+                  </h4>
+                </div>
+              </button>
+
+              {/* Card: سبدهای خرید رهاشده */}
+              <button
+                type="button"
+                onClick={() => { setActiveAdminSubTab('abandonedCarts'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-rose-300 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+              >
+                <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <ShoppingCart className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-rose-600 transition truncate">
+                    سبدهای رهاشده
+                  </h4>
+                </div>
+              </button>
+
+              {/* Card: هوش مشتریان و VIP */}
+              <button
+                type="button"
+                onClick={() => { setActiveAdminSubTab('customers'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="p-3.5 bg-slate-50 hover:bg-white hover:border-purple-300 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
+              >
+                <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-purple-600 transition truncate">
+                    هوش مشتریان (LTV)
+                  </h4>
+                </div>
+              </button>
+
               {/* Card 3: تیکت‌ها و نظرات */}
               <button
                 type="button"
@@ -3846,9 +3899,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* SUB-TAB 2: FULL ORDERS MANAGEMENT (#admin-orders) */}
       {activeAdminSubTab === 'orders' && (() => {
         const totalOrdersCount = orders.length;
-        const totalRevenueToman = (orders || [])
-          .filter(o => o.paymentStatus === 'PAID')
-          .reduce((sum, o) => sum + (o.calculatedToman || 0), 0);
+        const paidOrdersList = (orders || []).filter(o => o.paymentStatus === 'PAID' || o.shippingStatus === 'COMPLETED' || o.shippingStatus === 'DELIVERED');
+        const totalPaidOrdersCount = paidOrdersList.length;
+        const totalRevenueToman = paidOrdersList.reduce((sum, o) => sum + (o.calculatedToman || o.totalAmountToman || 0), 0);
+        const totalItemsSoldCount = paidOrdersList.reduce((sum, o) => {
+          const items = Array.isArray(o.items) ? o.items : [];
+          return sum + items.reduce((iSum: number, i: any) => iSum + Math.max(1, Number(i.quantity || 1)), 0);
+        }, 0);
+        const aovToman = totalPaidOrdersCount > 0 ? Math.round(totalRevenueToman / totalPaidOrdersCount) : 0;
         const pendingOrdersCount = (orders || []).filter(o => o.paymentStatus !== 'PAID' || o.shippingStatus === 'PENDING_BUY' || o.shippingStatus === 'PURCHASED' || o.shippingStatus === 'DUBAI_WAREHOUSE').length;
         const shippedOrdersCount = (orders || []).filter(o => o.shippingStatus === 'SHIPPED_IRAN' || o.shippingStatus === 'SHIPPED').length;
         const completedOrdersCount = (orders || []).filter(o => o.shippingStatus === 'COMPLETED' || o.shippingStatus === 'DELIVERED').length;
@@ -3895,6 +3953,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 <button
                   type="button"
+                  onClick={() => setOrdersActiveTab('abandoned')}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
+                    ordersActiveTab === 'abandoned'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  <span>سبدهای رهاشده</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setOrdersActiveTab('settings')}
                   className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
                     ordersActiveTab === 'settings'
@@ -3933,18 +4004,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                   </div>
 
-                  {/* Pending / In-Progress Card */}
-                  <div className="bg-white border border-amber-200/80 rounded-2xl p-4 shadow-2xs space-y-1 bg-amber-50/20">
-                    <div className="flex items-center justify-between text-amber-700 text-[11px] font-bold">
-                      <span>در انتظار خرید/پرداخت</span>
-                      <Clock className="w-4 h-4 text-amber-500" />
+                  {/* AOV & Items Sold Card */}
+                  <div className="bg-white border border-indigo-200/80 rounded-2xl p-4 shadow-2xs space-y-1 bg-indigo-50/20">
+                    <div className="flex items-center justify-between text-indigo-700 text-[11px] font-bold">
+                      <span>میانگین ارزش سفارش (AOV)</span>
+                      <TrendingUp className="w-4 h-4 text-indigo-500" />
                     </div>
-                    <div className="text-xl font-black text-amber-900">
-                      {toPersianDigits(pendingOrdersCount)}
-                      <span className="text-xs font-bold text-amber-600/70 mr-1">سفارش</span>
+                    <div className="text-xl font-black text-indigo-900">
+                      {formatToman(aovToman)}
                     </div>
-                    <div className="text-[10px] font-bold text-amber-700">
-                      نیازمند پیگیری در دبی
+                    <div className="text-[10px] font-bold text-indigo-700">
+                      {toPersianDigits(totalItemsSoldCount)} قلم کالا فروخته‌شده
                     </div>
                   </div>
 
@@ -4748,6 +4818,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {/* SUB-TAB 3: ABANDONED CARTS RECOVERY */}
+      {ordersActiveTab === 'abandoned' && (
+        <AbandonedCartsTab />
       )}
     </div>
   );
@@ -8291,6 +8366,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         <AdminTelegramSettings
           showToast={showToast ? (msg, type) => showToast(msg, type === 'error' ? 'error' : 'success') : () => {}}
         />
+      )}
+
+      {/* SUB-TAB: ADVANCED SALES ANALYTICS & AOV */}
+      {activeAdminSubTab === 'analytics' && (
+        <AnalyticsAdmin />
+      )}
+
+      {/* SUB-TAB: ABANDONED CARTS & RECOVERY */}
+      {activeAdminSubTab === 'abandonedCarts' && (
+        <AbandonedCartsTab />
+      )}
+
+      {/* SUB-TAB: CUSTOMERS INTELLIGENCE & LTV */}
+      {activeAdminSubTab === 'customers' && (
+        <CustomersAdmin />
       )}
 
       {/* TOP-RIGHT TOAST NOTIFICATION */}

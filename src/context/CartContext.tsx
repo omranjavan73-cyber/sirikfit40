@@ -18,6 +18,8 @@ interface CartContextType {
   removeFromCart: (cartItemId: string) => void;
   updateQuantity: (cartItemId: string, quantity: number) => void;
   clearCart: () => void;
+  syncAbandonedCart: (phone: string, fullName?: string) => Promise<void>;
+  markCartRecovered: (phone: string) => Promise<void>;
   totalToman: number;
   totalAed: number;
   itemCount: number;
@@ -112,6 +114,48 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const totalAed = cart.reduce((sum, i) => sum + (i.priceAed || 0) * (i.quantity || 1), 0);
   const itemCount = cart.reduce((sum, i) => sum + (i.quantity || 1), 0);
 
+  const syncAbandonedCart = async (phone: string, fullName?: string) => {
+    if (!phone || cart.length === 0) return;
+    try {
+      const cleanPhone = phone.replace(/[^0-9]/g, '');
+      const standardPhone = cleanPhone.startsWith('98') ? '0' + cleanPhone.slice(2) : (cleanPhone.startsWith('0') ? cleanPhone : '0' + cleanPhone);
+      
+      const payload = {
+        phone: standardPhone,
+        fullName: fullName || '',
+        items: cart.map(i => ({
+          title: i.title,
+          priceToman: i.priceToman || 0,
+          priceAed: i.priceAed || 0,
+          quantity: i.quantity || 1,
+          image: i.image || '',
+          variant: i.selectedSize || i.selectedFlavor || ''
+        })),
+        totalAmountToman: totalToman
+      };
+
+      await fetch('/api/abandoned-cart/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(() => {});
+    } catch (_e) {}
+  };
+
+  const markCartRecovered = async (phone: string) => {
+    if (!phone) return;
+    try {
+      const cleanPhone = phone.replace(/[^0-9]/g, '');
+      const standardPhone = cleanPhone.startsWith('98') ? '0' + cleanPhone.slice(2) : (cleanPhone.startsWith('0') ? cleanPhone : '0' + cleanPhone);
+
+      await fetch('/api/abandoned-cart/recover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: standardPhone })
+      }).catch(() => {});
+    } catch (_e) {}
+  };
+
   return (
     <CartContext.Provider
       value={{
@@ -120,6 +164,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         removeFromCart,
         updateQuantity,
         clearCart,
+        syncAbandonedCart,
+        markCartRecovered,
         totalToman,
         totalAed,
         itemCount

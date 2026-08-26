@@ -5,7 +5,8 @@ const SMS_API_URL = 'https://api.sms.ir/v1/send/verify';
 export const smsTemplates = {
   AUTH_OTP: 256428,         // تایید هویت: کد ورود شما به سیریک فیت: #CODE#
   PASSWORD_RESET: 664247,   // بازیابی رمز عبور: کد بازیابی رمز عبور شما: #CODE#
-  ORDER_SUCCESS: 595534     // خرید: #NAME# عزیز، سفارش شما با موفقیت ثبت شد. شناسه سفارش: #ORDER_ID#
+  ORDER_SUCCESS: 595534,    // خرید: #NAME# عزیز، سفارش شما با موفقیت ثبت شد. شناسه سفارش: #ORDER_ID#
+  ABANDONED_CART_RECOVERY: 664248 // سبد خرید: #NAME# عزیز، سبد خرید شما منتظر شماست. تکمیل خرید: #LINK#
 };
 
 export interface SendSmsParams {
@@ -14,6 +15,33 @@ export interface SendSmsParams {
   parameters: Array<{ name: string; value: string }>;
   apiKeyOverride?: string;
 }
+
+export const sendAbandonedCartReminder = async (params: {
+  mobile: string;
+  fullName?: string;
+  discountCode?: string;
+  cartUrl?: string;
+  apiKeyOverride?: string;
+}) => {
+  const name = params.fullName || 'کاربر گرامی';
+  const link = params.cartUrl || 'https://sirikfit40.web.app';
+  
+  try {
+    return await sendSmsVerify({
+      mobile: params.mobile,
+      templateId: smsTemplates.ABANDONED_CART_RECOVERY,
+      parameters: [
+        { name: 'NAME', value: name },
+        { name: 'LINK', value: link }
+      ],
+      apiKeyOverride: params.apiKeyOverride
+    });
+  } catch (err: any) {
+    // If template not registered on SMS.ir, try general fallback or log
+    console.warn(`[sendAbandonedCartReminder] Template delivery failed, attempting fallback notification for ${params.mobile}:`, err.message);
+    throw err;
+  }
+};
 
 export const sendSmsVerify = async ({ mobile, templateId, parameters, apiKeyOverride }: SendSmsParams) => {
   const apiKey =

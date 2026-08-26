@@ -264,6 +264,18 @@ export interface FormattedSizeResult {
   weightKg: number;     // e.g. 2.3
 }
 
+export function isArtificialFallback(str: string | null | undefined): boolean {
+  if (!str) return true;
+  const s = String(str).trim().toLowerCase();
+  if (!s) return true;
+  const defaults = [
+    'پیش‌فرض / استاندارد', 'پیش‌فرض', 'پیش فرض', 'استاندارد',
+    'default', 'standard', 'normal', 'none', 'null', 'undefined',
+    'single size', 'one size', 'regular', 'default title'
+  ];
+  return defaults.includes(s);
+}
+
 export function sanitizeVariantLabel(label: string | null | undefined): string {
   if (!label || typeof label !== 'string') return '';
   let clean = label.trim();

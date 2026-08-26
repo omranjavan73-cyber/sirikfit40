@@ -1,12 +1,15 @@
 import axios from 'axios';
-import * as admin from 'firebase-admin';
+import { getApps, initializeApp, getApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
-// Initialize Firebase Admin if not already initialized
-if (!admin.apps.length) {
+function getAdminDb() {
   try {
-    admin.initializeApp();
-  } catch (_e) {
-    // Already initialized or running in environment with default app
+    const apps = getApps();
+    const app = apps.length === 0 ? initializeApp({ projectId: 'sirikfit40' }) : getApp();
+    return getFirestore(app);
+  } catch (err) {
+    console.warn('[Telegram Service] Firebase admin getFirestore failed:', err);
+    return null;
   }
 }
 
@@ -29,19 +32,21 @@ export const DEFAULT_TELEGRAM_CHAT_ID =
  */
 export async function getTelegramConfig(): Promise<TelegramConfig> {
   try {
-    const db = admin.firestore();
-    const docRef = db.collection('settings').doc('telegram_config');
-    const docSnap = await docRef.get();
+    const db = getAdminDb();
+    if (db) {
+      const docRef = db.collection('settings').doc('telegram_config');
+      const docSnap = await docRef.get();
 
-    if (docSnap.exists) {
-      const data = docSnap.data() as Partial<TelegramConfig>;
-      return {
-        botToken: data.botToken?.trim() || DEFAULT_TELEGRAM_BOT_TOKEN,
-        chatId: data.chatId?.trim() || DEFAULT_TELEGRAM_CHAT_ID,
-        enabled: data.enabled !== undefined ? Boolean(data.enabled) : true,
-        topicId: data.topicId?.trim() || undefined,
-        updatedAt: data.updatedAt
-      };
+      if (docSnap.exists) {
+        const data = docSnap.data() as Partial<TelegramConfig>;
+        return {
+          botToken: data.botToken?.trim() || DEFAULT_TELEGRAM_BOT_TOKEN,
+          chatId: data.chatId?.trim() || DEFAULT_TELEGRAM_CHAT_ID,
+          enabled: data.enabled !== undefined ? Boolean(data.enabled) : true,
+          topicId: data.topicId?.trim() || undefined,
+          updatedAt: data.updatedAt
+        };
+      }
     }
   } catch (err) {
     console.warn('[Telegram Service] Notice fetching settings/telegram_config from Firestore:', err);
@@ -68,8 +73,10 @@ export async function saveTelegramConfig(config: Partial<TelegramConfig>): Promi
   };
 
   try {
-    const db = admin.firestore();
-    await db.collection('settings').doc('telegram_config').set(updated, { merge: true });
+    const db = getAdminDb();
+    if (db) {
+      await db.collection('settings').doc('telegram_config').set(updated, { merge: true });
+    }
   } catch (err) {
     console.warn('[Telegram Service] Failed to save telegram_config to Firestore:', err);
   }

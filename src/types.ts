@@ -855,6 +855,8 @@ export interface UniversalProduct {
   variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
   variantMatrix?: ProductVariantMatrix;
+  selectedFlavor?: string | null;
+  selectedSize?: string | null;
   options?: string[];
   flavors?: string[];
   sizes?: string[];
@@ -897,6 +899,8 @@ export interface ScrapedProduct {
   brand?: string;
   category?: string;
   description?: string;
+  selectedFlavor?: string | null;
+  selectedSize?: string | null;
   variantGroups?: ProductVariantGroup[];
   variants?: ProductVariant[];
   variantMatrix?: ProductVariantMatrix;
@@ -919,6 +923,8 @@ export interface ParsedProduct {
   storeName: string;
   category?: string;
   brand?: string;
+  selectedFlavor?: string | null;
+  selectedSize?: string | null;
   options?: string[];
   flavors?: string[];
   sizes?: string[];
@@ -932,8 +938,8 @@ export interface ParsedProduct {
 
 export interface ProductVariant {
   id: string;
-  size?: string;
-  flavor?: string;
+  size?: string | null;
+  flavor?: string | null;
   price: number;            // Active Selling Price AED
   originalPrice?: number;   // Strikethrough Price AED
   inStock: boolean;
@@ -977,6 +983,8 @@ export interface NormalizedProduct {
   description?: string;
   descriptionFa?: string;
   inStock?: boolean;
+  selectedFlavor?: string | null;
+  selectedSize?: string | null;
   sizes: string[];
   flavors: string[];
   variants: ProductVariant[];
@@ -1003,8 +1011,8 @@ export interface CartItem {
   category?: string;
   brand?: string;
   selectedOption?: string;
-  selectedFlavor?: string;
-  selectedSize?: string;
+  selectedFlavor?: string | null;
+  selectedSize?: string | null;
   selectedVariant?: ProductVariant | ProductVariantItem;
   selectedVariants?: Record<string, ProductVariantOption>;
   options?: string[];

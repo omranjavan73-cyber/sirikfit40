@@ -3,7 +3,10 @@ import * as cheerio from 'cheerio';
 import {
   sanitizeImageUrl,
   getStandardScraperHeaders,
-  generateBilingualProductTitle
+  generateBilingualProductTitle,
+  extractPriceNumber,
+  deduplicateStrings,
+  isArtificialFallback
 } from './utils';
 import type { ScrapedProductResult } from './drNutritionAdapter';
 
@@ -28,8 +31,8 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
           const mainImage = sanitizeImageUrl(p.images?.featured_image || (p.images && p.images[0]?.image_url), targetUrl);
           const galleryImages = (p.images || []).map((im: any) => sanitizeImageUrl(im.image_url || im, targetUrl)).filter(Boolean);
 
-          const flavorsSet = new Set<string>();
-          const sizesSet = new Set<string>();
+          const rawFlavors: string[] = [];
+          const rawSizes: string[] = [];
           const variantsList: any[] = [];
 
           if (Array.isArray(p.variants || p.options)) {
@@ -37,8 +40,8 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
             arr.forEach((v: any, idx: number) => {
               const sz = v.size || v.weight || v.option1 || '';
               const flv = v.flavor || v.option2 || '';
-              if (sz) sizesSet.add(String(sz));
-              if (flv) flavorsSet.add(String(flv));
+              if (sz && !isArtificialFallback(sz)) rawSizes.push(String(sz));
+              if (flv && !isArtificialFallback(flv)) rawFlavors.push(String(flv));
               const vPrice = extractPriceNumber(v.price || v.offer_price || priceAED);
               const vOrig = extractPriceNumber(v.regular_price || origPriceAED);
               variantsList.push({
@@ -57,8 +60,16 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
             });
           }
 
-          const flavors = Array.from(flavorsSet);
-          const sizes = Array.from(sizesSet);
+          const flavors = deduplicateStrings(rawFlavors);
+          const sizes = deduplicateStrings(rawSizes);
+          const selectedFlavor = flavors.length > 0 ? flavors[0] : null;
+          const selectedSize = sizes.length > 0 ? sizes[0] : null;
+
+          const validVariants = variantsList.filter(v => {
+            const hasFlavor = v.flavor && !isArtificialFallback(v.flavor);
+            const hasSize = v.size && !isArtificialFallback(v.size);
+            return hasFlavor || hasSize;
+          });
 
           if (title && priceAED > 0) {
             return {
@@ -81,13 +92,15 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
               sourceUrl: targetUrl,
               weightKg: 0.5,
               description: p.description ? p.description.replace(/<[^>]*>/g, ' ').trim() : 'مکمل و اقلام دارویی اورجینال از لایف فارمسی دبی',
+              selectedFlavor,
+              selectedSize,
               flavors: flavors,
               sizes: sizes,
-              variants: variantsList,
+              variants: validVariants,
               variantMatrix: {
                 flavors,
                 sizes,
-                items: variantsList
+                items: validVariants
               }
             };
           }

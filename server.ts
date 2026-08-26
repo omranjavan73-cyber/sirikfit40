@@ -18,6 +18,7 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import firebaseConfigJson from './firebase-applet-config.json';
+import { scraperRouter } from './functions/src/routes/scraper';
 
 // Suppress internal gRPC stream disconnect debug/info messages
 try {
@@ -6846,6 +6847,7 @@ app.post('/api/admin/sync-product-prices', async (req, res) => {
   }
 });
 
+app.use('/api/scraper', scraperRouter);
 app.all('/api/parse-link', handleParseLinkRoute);
 app.all('/api/scrape-product', handleParseLinkRoute);
 

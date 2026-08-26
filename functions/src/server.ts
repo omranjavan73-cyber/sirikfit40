@@ -1,5 +1,6 @@
 import express from 'express';
-import { getTelegramConfig, saveTelegramConfig, testTelegramConnection, sendTelegramOrderNotification } from './notifications/telegramService';
+import { getTelegramConfig, saveTelegramConfig, testTelegramConnection } from './notifications/telegramService';
+import { scraperRouter } from './routes/scraper';
 
 export const telegramRouter = express.Router();
 
@@ -30,3 +31,5 @@ telegramRouter.post('/api/admin/test-telegram', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+export { scraperRouter };

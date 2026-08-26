@@ -1,6 +1,96 @@
+import crypto from 'crypto';
 import * as cheerio from 'cheerio';
 
-// 1. Strict Out-Of-Stock & Disabled Filter
+// 1. Genuine Browser Header Stack Emulation (Modern Chrome Desktop)
+export const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+
+export const getStandardScraperHeaders = (targetUrl?: string) => {
+  let host = '';
+  if (targetUrl) {
+    try {
+      host = new URL(targetUrl).hostname;
+    } catch (_e) {}
+  }
+
+  return {
+    'User-Agent': BROWSER_USER_AGENT,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-AE,en-US;q=0.9,en;q=0.8,ar;q=0.7,fa;q=0.6',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'sec-ch-ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'document',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'same-origin',
+    'sec-fetch-user': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    ...(host ? { 'Host': host } : {})
+  };
+};
+
+// 2. URL Normalization & Sanitization (Strip tracking query params & normalize regional paths)
+export const cleanAndNormalizeUrl = (inputUrl: string): string => {
+  if (!inputUrl || typeof inputUrl !== 'string') return '';
+  const trimmed = inputUrl.trim();
+  const httpIndex = trimmed.search(/https?:\/\//i);
+  let clean = httpIndex !== -1 ? trimmed.slice(httpIndex) : trimmed;
+  const match = clean.match(/^(https?:\/\/[^\s]+)/i);
+  if (match) clean = match[1];
+
+  try {
+    const urlObj = new URL(clean);
+    // Strip common tracking and marketing query parameters
+    const trackingParams = [
+      'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+      'ref', 'ref_', 'fbclid', 'gclid', 'gbraid', 'wbraid', '_ga', '_gl',
+      'affiliate_id', 'aff_id', 'aff_sub', 'clickid', 'zanpid', 'ncid',
+      'msclkid', 'twclid', 'yclid', 'source', 'tag'
+    ];
+    trackingParams.forEach(p => urlObj.searchParams.delete(p));
+
+    let pathname = urlObj.pathname;
+    const hostname = urlObj.hostname.toLowerCase();
+
+    // Sporter UAE normalization
+    if (hostname.includes('sporter.com')) {
+      if (/\/(ar|en)-[a-z]{2}\//i.test(pathname)) {
+        pathname = pathname.replace(/\/(ar|en)-[a-z]{2}\//i, '/en-ae/');
+      } else if (!pathname.startsWith('/en-ae/')) {
+        pathname = '/en-ae' + (pathname.startsWith('/') ? pathname : `/${pathname}`);
+      }
+      urlObj.pathname = pathname;
+    }
+
+    // Dr. Nutrition UAE normalization
+    if (hostname.includes('drnutrition.com')) {
+      if (/\/(ar|en)-[a-z]{2}\//i.test(pathname)) {
+        pathname = pathname.replace(/\/(ar|en)-[a-z]{2}\//i, '/en-ae/');
+      } else if (!pathname.startsWith('/en-ae/')) {
+        pathname = '/en-ae' + (pathname.startsWith('/') ? pathname : `/${pathname}`);
+      }
+      urlObj.pathname = pathname;
+    }
+
+    let normalized = urlObj.toString();
+    if (normalized.endsWith('/') && urlObj.pathname !== '/') {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  } catch (_e) {
+    return clean;
+  }
+};
+
+// 3. SHA-256 URL Hash Utility for Cache Indexing
+export const hashUrl = (urlStr: string): string => {
+  const normalized = cleanAndNormalizeUrl(urlStr).toLowerCase().trim();
+  return crypto.createHash('sha256').update(normalized).digest('hex');
+};
+
+// 4. Strict Out-Of-Stock & Disabled Filter
 export const isOutOfStockElement = (tagHtml: string, rawText?: string): boolean => {
   if (!tagHtml && !rawText) return false;
   const tag = (tagHtml || '').toLowerCase();
@@ -37,7 +127,7 @@ export const isOutOfStockElement = (tagHtml: string, rawText?: string): boolean 
   return false;
 };
 
-// 2. High-Res Image Sanitizer (Strict Logo / Badge / Icon / SVG Filtering)
+// 5. High-Res Image Sanitizer (Strict Logo / Badge / Icon / SVG Filtering)
 export const sanitizeImageUrl = (rawImg: string, cleanUrl: string = ''): string => {
   if (!rawImg || typeof rawImg !== 'string') return '';
   let str = String(rawImg).trim().replace(/&amp;/g, '&').replace(/^["']|["']$/g, '').trim();
@@ -89,7 +179,7 @@ export const sanitizeImageUrl = (rawImg: string, cleanUrl: string = ''): string 
     ) {
       return '';
     }
-    if (!lower.includes('catalog/product') && !lower.includes('/products/') && !lower.includes('media/catalog') && !lower.includes('product-images')) {
+    if (!lower.includes('catalog/product') && !lower.includes('/products/') && !lower.includes('media/catalog') && !lower.includes('product-images') && !lower.includes('images/products')) {
       return '';
     }
   }
@@ -99,11 +189,11 @@ export const sanitizeImageUrl = (rawImg: string, cleanUrl: string = ''): string 
   return str;
 };
 
-// 3. Digit Normalization
+// 6. Digit Normalization
 export const normalizeToEnglishDigits = (str: string): string => {
   if (!str) return '';
   const persianDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
-  const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '۸', '٩'];
+  const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
   let res = String(str);
   for (let i = 0; i < 10; i++) {
     res = res.replace(new RegExp(persianDigits[i], 'g'), String(i));
@@ -112,7 +202,7 @@ export const normalizeToEnglishDigits = (str: string): string => {
   return res;
 };
 
-// 4. Exact Price Extractor (Regex + No Dummy Fallbacks)
+// 7. Exact Price Extractor (Regex + No Dummy Fallbacks)
 export const extractPriceNumber = (textOrVal: any): number => {
   if (textOrVal === undefined || textOrVal === null) return 0;
   if (typeof textOrVal === 'number') {
@@ -136,21 +226,47 @@ export const extractPriceNumber = (textOrVal: any): number => {
   return 0;
 };
 
-// 5. Robust Array Deduplication & Cleaner
+// 8. Robust Array Deduplication & Cleaner
+export const isArtificialFallback = (val: string | null | undefined): boolean => {
+  if (!val || typeof val !== 'string') return true;
+  const lower = val.trim().toLowerCase();
+  if (lower.length < 2) return true;
+  const invalidPlaceholders = new Set([
+    'default',
+    'standard',
+    'normal',
+    'default title',
+    'title',
+    'پیش‌فرض',
+    'پیشفرض',
+    'استاندارد',
+    'پیش‌فرض / استاندارد',
+    'پیشفرض / استاندارد',
+    'بدون طعم',
+    'سایز پیشفرض',
+    'سایز استاندارد',
+    'طعم استاندارد',
+    'طعم پیشفرض',
+    'none',
+    'null',
+    'undefined',
+    'n/a',
+    'na',
+    'na/na'
+  ]);
+  return invalidPlaceholders.has(lower);
+};
+
 export const deduplicateStrings = (items: (string | undefined | null)[]): string[] => {
   if (!Array.isArray(items)) return [];
   const seen = new Set<string>();
   const result: string[] = [];
-  const invalidPlaceholders = new Set([
-    'default', 'standard', 'normal', 'default title', 'پیش‌فرض', 'استاندارد', 'پیش‌فرض / استاندارد', 'none', 'null', 'undefined'
-  ]);
 
   for (const item of items) {
     if (!item || typeof item !== 'string') continue;
     const trimmed = item.trim();
     const lower = trimmed.toLowerCase();
-    if (!trimmed || trimmed.length < 2) continue;
-    if (invalidPlaceholders.has(lower)) continue;
+    if (!trimmed || isArtificialFallback(trimmed)) continue;
     if (!seen.has(lower)) {
       seen.add(lower);
       result.push(trimmed);
@@ -159,35 +275,134 @@ export const deduplicateStrings = (items: (string | undefined | null)[]): string
   return result;
 };
 
-// 6. Standard Browser Headers
-export const getStandardScraperHeaders = (targetUrl?: string) => ({
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/json;q=0.9',
-  'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8,fa;q=0.7',
-  'Accept-Encoding': 'gzip, deflate, br',
-  'Cache-Control': 'no-cache',
-  'Pragma': 'no-cache',
-  'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-  'Sec-Ch-Ua-Mobile': '?0',
-  'Sec-Ch-Ua-Platform': '"Windows"',
-  'Sec-Fetch-Dest': 'document',
-  'Sec-Fetch-Mode': 'navigate',
-  'Sec-Fetch-Site': 'none',
-  'Sec-Fetch-User': '?1',
-  'Upgrade-Insecure-Requests': '1'
-});
+// 9. Standardized Schema.org JSON-LD Extractor (Tier 1)
+export interface ExtractedJsonLdProduct {
+  name?: string;
+  brand?: string;
+  description?: string;
+  image?: string;
+  galleryImages: string[];
+  priceAED: number;
+  originalPriceAED?: number;
+  currency: string;
+  inStock: boolean;
+  sku?: string;
+}
 
-// 7. Embedded JSON Extractor Helper (__NEXT_DATA__, __INITIAL_STATE__, application/ld+json)
-export const extractEmbeddedJsonData = ($: cheerio.CheerioAPI): { nextData?: any; initialState?: any; jsonLd?: any[] } => {
+export const extractJsonLdSchema = ($: cheerio.CheerioAPI, sourceUrl: string = ''): ExtractedJsonLdProduct | null => {
+  const jsonLdItems: any[] = [];
+
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const content = $(el).html();
+      if (!content) return;
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed['@graph'])) {
+        jsonLdItems.push(...parsed['@graph']);
+      } else if (Array.isArray(parsed)) {
+        jsonLdItems.push(...parsed);
+      } else if (parsed && typeof parsed === 'object') {
+        jsonLdItems.push(parsed);
+      }
+    } catch (_err) {}
+  });
+
+  for (const item of jsonLdItems) {
+    if (!item || typeof item !== 'object') continue;
+    const type = item['@type'];
+    const isProduct = type === 'Product' || type === 'IndividualProduct' || (Array.isArray(type) && type.includes('Product')) || Boolean(item.offers);
+
+    if (isProduct) {
+      const name = typeof item.name === 'string' ? item.name.trim() : undefined;
+      let brand: string | undefined;
+      if (typeof item.brand === 'string') brand = item.brand.trim();
+      else if (item.brand && typeof item.brand === 'object' && item.brand.name) brand = String(item.brand.name).trim();
+
+      const description = typeof item.description === 'string' ? item.description.trim() : undefined;
+      const galleryImages: string[] = [];
+
+      let rawImage = item.image;
+      if (Array.isArray(rawImage)) {
+        rawImage.forEach((img: any) => {
+          const u = sanitizeImageUrl(typeof img === 'string' ? img : (img?.url || img?.contentUrl), sourceUrl);
+          if (u && !galleryImages.includes(u)) galleryImages.push(u);
+        });
+      } else if (rawImage) {
+        const u = sanitizeImageUrl(typeof rawImage === 'string' ? rawImage : (rawImage?.url || rawImage?.contentUrl), sourceUrl);
+        if (u && !galleryImages.includes(u)) galleryImages.push(u);
+      }
+
+      let priceAED = 0;
+      let originalPriceAED: number | undefined;
+      let inStock = true;
+      const currency = 'AED';
+
+      const offers = Array.isArray(item.offers) ? item.offers : (item.offers ? [item.offers] : []);
+      for (const offer of offers) {
+        if (!offer || typeof offer !== 'object') continue;
+
+        if (offer.price !== undefined) {
+          const p = extractPriceNumber(offer.price);
+          if (p > 0 && (!priceAED || p < priceAED)) priceAED = p;
+        }
+        if (offer.lowPrice !== undefined) {
+          const lp = extractPriceNumber(offer.lowPrice);
+          if (lp > 0 && (!priceAED || lp < priceAED)) priceAED = lp;
+        }
+        if (offer.highPrice !== undefined) {
+          const hp = extractPriceNumber(offer.highPrice);
+          if (hp > 0 && (!originalPriceAED || hp > originalPriceAED)) originalPriceAED = hp;
+        }
+
+        if (offer.availability) {
+          const availStr = String(offer.availability).toLowerCase();
+          if (availStr.includes('outofstock') || availStr.includes('discontinued') || availStr.includes('soldout')) {
+            inStock = false;
+          } else if (availStr.includes('instock') || availStr.includes('limitedavailability') || availStr.includes('onlineonly')) {
+            inStock = true;
+          }
+        }
+      }
+
+      if (name || priceAED > 0) {
+        return {
+          name,
+          brand,
+          description,
+          image: galleryImages[0] || '',
+          galleryImages,
+          priceAED,
+          originalPriceAED: originalPriceAED && originalPriceAED > priceAED ? originalPriceAED : undefined,
+          currency,
+          inStock,
+          sku: typeof item.sku === 'string' ? item.sku : undefined
+        };
+      }
+    }
+  }
+
+  return null;
+};
+
+// 10. Framework Hydration & Meta State Extractor (Tier 2)
+export const extractEmbeddedJsonData = ($: cheerio.CheerioAPI): {
+  nextData?: any;
+  initialState?: any;
+  magentoInit?: any[];
+  jsonLd: any[];
+} => {
   let nextData: any = null;
   let initialState: any = null;
+  const magentoInit: any[] = [];
   const jsonLd: any[] = [];
 
+  // Parse Next.js __NEXT_DATA__
   try {
     const nextHtml = $('#__NEXT_DATA__').html();
     if (nextHtml) nextData = JSON.parse(nextHtml);
   } catch (_e) {}
 
+  // Parse Window __INITIAL_STATE__
   try {
     $('script').each((_, el) => {
       const txt = $(el).html() || '';
@@ -200,6 +415,17 @@ export const extractEmbeddedJsonData = ($: cheerio.CheerioAPI): { nextData?: any
     });
   } catch (_e) {}
 
+  // Parse Magento text/x-magento-init
+  try {
+    $('script[type="text/x-magento-init"]').each((_, el) => {
+      try {
+        const parsed = JSON.parse($(el).html() || '{}');
+        if (parsed && typeof parsed === 'object') magentoInit.push(parsed);
+      } catch (_err) {}
+    });
+  } catch (_e) {}
+
+  // Parse application/ld+json
   try {
     $('script[type="application/ld+json"]').each((_, el) => {
       try {
@@ -215,10 +441,10 @@ export const extractEmbeddedJsonData = ($: cheerio.CheerioAPI): { nextData?: any
     });
   } catch (_e) {}
 
-  return { nextData, initialState, jsonLd };
+  return { nextData, initialState, magentoInit, jsonLd };
 };
 
-// 8. Persian Title Translator & Dictionary Helper
+// 11. Persian Title Translator & Dictionary Helper
 export const translateTitleToFa = (enTitle: string, brand: string = ''): string => {
   if (!enTitle) return '';
   let fa = enTitle.toLowerCase();
@@ -253,7 +479,7 @@ export const translateTitleToFa = (enTitle: string, brand: string = ''): string 
   return `${fa}${brandPart}`.trim().replace(/\b\w/g, l => l.toUpperCase());
 };
 
-// 9. Bilingual Persian Title Generator
+// 12. Bilingual Persian Title Generator
 export const generateBilingualProductTitle = (englishTitle: string, brand?: string): string => {
   if (!englishTitle) return '';
   const cleanEng = englishTitle.replace(/\s*\|\s*.*$/i, '').trim();
@@ -292,5 +518,7 @@ export const generateBilingualProductTitle = (englishTitle: string, brand?: stri
 
   return `${faPrefix} (${cleanEng})`;
 };
+
+
 
 

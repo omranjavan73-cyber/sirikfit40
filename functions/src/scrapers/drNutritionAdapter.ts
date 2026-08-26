@@ -16,6 +16,8 @@ export interface ExtractedProduct {
   discountPercent?: number;
   imageUrl: string;
   galleryImages: string[];
+  selectedFlavor?: string | null;
+  selectedSize?: string | null;
   sizes: string[];
   flavors: string[];
   inStock: boolean;
@@ -49,6 +51,8 @@ export interface ScrapedProductResult {
   category?: string;
   description?: string;
   descriptionFa?: string;
+  selectedFlavor?: string | null;
+  selectedSize?: string | null;
   flavors?: any[];
   sizes?: any[];
   variantGroups?: any[];

@@ -31,7 +31,7 @@ import { CompactLandingFooter } from './components/CompactLandingFooter';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem, LandingSettings } from './types';
 import { defaultLandingSettings } from './types';
 import { getLandingSettings } from './services/settingsService';
-import { toPersianDigits, getEffectiveAedRate, calculateFinalToman } from './utils/formatters';
+import { toPersianDigits, getEffectiveAedRate, calculateFinalToman, isArtificialFallback } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
 import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
@@ -243,18 +243,20 @@ function MainApp() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const addToCart = (product: any, selectedFlavor?: string, selectedSize?: string) => {
-    const flavorStr = selectedFlavor || product?.selectedFlavor || '';
-    const sizeStr = selectedSize || product?.selectedSize || '';
+  const addToCart = (product: any, selectedFlavor?: string | null, selectedSize?: string | null) => {
+    const rawFlavor = selectedFlavor !== undefined ? selectedFlavor : product?.selectedFlavor;
+    const rawSize = selectedSize !== undefined ? selectedSize : product?.selectedSize;
+    const flavorStr = (rawFlavor && !isArtificialFallback(rawFlavor)) ? rawFlavor : null;
+    const sizeStr = (rawSize && !isArtificialFallback(rawSize)) ? rawSize : null;
     const id = product?.id || product?.url || product?.title || 'item';
-    const cartItemId = `${id}-${flavorStr}-${sizeStr}`;
+    const cartItemId = `${id}-${flavorStr || 'default'}-${sizeStr || 'default'}`;
     const qtyToAdd = (typeof product?.quantity === 'number' && Number.isFinite(product.quantity) && product.quantity > 0)
       ? Math.max(1, Math.floor(product.quantity))
       : 1;
 
     setCartItems((prevCart: any[]) => {
       const existingItemIndex = prevCart.findIndex(
-        (item) => item.cartItemId === cartItemId || (item.id === id && item.selectedFlavor === selectedFlavor && item.selectedSize === selectedSize)
+        (item) => item.cartItemId === cartItemId || (item.id === id && item.selectedFlavor === flavorStr && item.selectedSize === sizeStr)
       );
 
       let updatedCart: any[];
@@ -266,8 +268,8 @@ function MainApp() {
           ...product,
           id: existingItem.id || id,
           cartItemId: existingItem.cartItemId || cartItemId,
-          selectedFlavor: flavorStr || existingItem.selectedFlavor,
-          selectedSize: sizeStr || existingItem.selectedSize,
+          selectedFlavor: flavorStr ?? existingItem.selectedFlavor ?? null,
+          selectedSize: sizeStr ?? existingItem.selectedSize ?? null,
           quantity: (existingItem.quantity || 1) + qtyToAdd
         };
         const otherItems = prevCart.filter((_, idx) => idx !== existingItemIndex);
@@ -278,8 +280,8 @@ function MainApp() {
           id: product.id || id,
           cartItemId,
           product,
-          selectedFlavor: flavorStr || undefined,
-          selectedSize: sizeStr || undefined,
+          selectedFlavor: flavorStr,
+          selectedSize: sizeStr,
           quantity: qtyToAdd
         };
         // Prepend brand-new item to the very top (index 0)

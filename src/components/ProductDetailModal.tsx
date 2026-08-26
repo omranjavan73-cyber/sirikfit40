@@ -19,7 +19,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import type { FinancialSettings, ProductVariantMatrix, ProductVariantItem } from '../types';
-import { formatToman, formatAed, formatPrice, toPersianDigits, getEffectiveAedRate, deduplicateImageUrls, getStoreBadgeTheme, sanitizeVariantLabel } from '../utils/formatters';
+import { formatToman, formatAed, formatPrice, toPersianDigits, getEffectiveAedRate, deduplicateImageUrls, getStoreBadgeTheme, sanitizeVariantLabel, isArtificialFallback } from '../utils/formatters';
 import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import { getActivePrices } from '../utils/pricingCalculator';
 import {
@@ -88,7 +88,7 @@ interface ProductDetailModalProps {
   onClose: () => void;
   product: ProductDetailModalProduct | null;
   settings: FinancialSettings;
-  onAddToCart: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
+  onAddToCart: (product: any, selectedFlavor?: string | null, selectedSize?: string | null) => void;
 }
 
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
@@ -103,8 +103,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [quantity, setQuantity] = useState<number>(1);
   const [isAdded, setIsAdded] = useState<boolean>(false);
 
-  const [selectedFlavor, setSelectedFlavor] = useState<string>('');
-  const [selectedSize, setSelectedSize] = useState<string>('');
+  const [selectedFlavor, setSelectedFlavor] = useState<string | null>(null);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [isVariantLoading, setIsVariantLoading] = useState<boolean>(false);
 
   // Synchronize activeProduct when prop changes
@@ -139,7 +139,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const extractedFlavors = useMemo(() => {
     if (!currentProd) return [];
     if (activeVariants.length > 0) {
-      return getAllFlavors(activeVariants);
+      return getAllFlavors(activeVariants).filter(f => f && !isArtificialFallback(f));
     }
     const rawFlavors = (currentProd.variantMatrix?.flavors && currentProd.variantMatrix.flavors.length > 0)
       ? currentProd.variantMatrix.flavors
@@ -151,12 +151,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       return rawFlavors.map((f: any) => {
         const name = typeof f === 'string' ? f : (f?.flavor || f?.name || '');
         return sanitizeVariantLabel(name);
-      }).filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(f.toLowerCase()));
+      }).filter(f => f && !isArtificialFallback(f));
     }
 
     const flavorGroup = currentProd.variantGroups?.find((g: any) => g.type === 'flavor' || g.id === 'flavors' || (g.name && (g.name.includes('طعم') || g.name.toLowerCase().includes('flavor'))));
     if (flavorGroup && Array.isArray(flavorGroup.options)) {
-      return flavorGroup.options.map((opt: any) => sanitizeVariantLabel(typeof opt === 'string' ? opt : (opt.name || opt.label || ''))).filter(Boolean);
+      return flavorGroup.options.map((opt: any) => sanitizeVariantLabel(typeof opt === 'string' ? opt : (opt.name || opt.label || ''))).filter(f => f && !isArtificialFallback(f));
     }
     return [];
   }, [currentProd, activeVariants]);
@@ -164,7 +164,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const extractedSizes = useMemo(() => {
     if (!currentProd) return [];
     if (activeVariants.length > 0) {
-      return getAllSizes(activeVariants);
+      return getAllSizes(activeVariants).filter(s => s && !isArtificialFallback(s));
     }
     const rawSizes = (currentProd.variantMatrix?.sizes && currentProd.variantMatrix.sizes.length > 0)
       ? currentProd.variantMatrix.sizes
@@ -176,12 +176,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       return rawSizes.map((s: any) => {
         const name = typeof s === 'string' ? s : (s?.size || s?.name || '');
         return sanitizeVariantLabel(name);
-      }).filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal'].includes(s.toLowerCase()));
+      }).filter(s => s && !isArtificialFallback(s));
     }
 
     const sizeGroup = currentProd.variantGroups?.find((g: any) => g.type === 'size' || g.id === 'sizes' || (g.name && (g.name.includes('وزن') || g.name.includes('سایز') || g.name.toLowerCase().includes('size'))));
     if (sizeGroup && Array.isArray(sizeGroup.options)) {
-      return sizeGroup.options.map((opt: any) => sanitizeVariantLabel(typeof opt === 'string' ? opt : (opt.name || opt.label || ''))).filter(Boolean);
+      return sizeGroup.options.map((opt: any) => sanitizeVariantLabel(typeof opt === 'string' ? opt : (opt.name || opt.label || ''))).filter(s => s && !isArtificialFallback(s));
     }
     return [];
   }, [currentProd, activeVariants]);
@@ -190,11 +190,17 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     if (product) {
       if (activeVariants.length > 0) {
         const first = activeVariants[0];
-        setSelectedFlavor(first.flavor || '');
-        setSelectedSize(first.size || first.name || '');
+        setSelectedFlavor(first.flavor && !isArtificialFallback(first.flavor) ? first.flavor : (extractedFlavors.length > 0 ? extractedFlavors[0] : null));
+        setSelectedSize(first.size && !isArtificialFallback(first.size) ? first.size : (first.name && !isArtificialFallback(first.name) ? first.name : (extractedSizes.length > 0 ? extractedSizes[0] : null)));
       } else {
-        setSelectedFlavor(product.selectedFlavor || extractedFlavors[0] || '');
-        setSelectedSize(product.selectedSize || extractedSizes[0] || '');
+        const initialFlavor = product.selectedFlavor && !isArtificialFallback(product.selectedFlavor)
+          ? product.selectedFlavor
+          : (extractedFlavors.length > 0 ? extractedFlavors[0] : null);
+        const initialSize = product.selectedSize && !isArtificialFallback(product.selectedSize)
+          ? product.selectedSize
+          : (extractedSizes.length > 0 ? extractedSizes[0] : null);
+        setSelectedFlavor(initialFlavor);
+        setSelectedSize(initialSize);
       }
       const initialImg = galleryList[0] || product.image || fallbackImg;
       setSelectedImage(initialImg);
@@ -203,13 +209,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       setIsHovered(false);
       setIsLightboxOpen(false);
     }
-  }, [product, activeVariants]);
+  }, [product, activeVariants, extractedFlavors, extractedSizes]);
 
   // Find selected variant details from variantMatrix or currentProd.variants
   const matchedVariant = useMemo(() => {
     if (!currentProd) return null;
     if (activeVariants.length > 0) {
-      return findExactVariant(activeVariants, selectedFlavor, selectedSize);
+      return findExactVariant(activeVariants, selectedFlavor || undefined, selectedSize || undefined);
     }
     if (currentProd.variantMatrix?.items && currentProd.variantMatrix.items.length > 0) {
       if (selectedSize && selectedFlavor) {
@@ -475,11 +481,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       calculatedTomanOverride: unitToman,
       profitMargin: effectiveMargin,
       isLocalInventory: isLocal,
-      selectedFlavor: selectedFlavor || undefined,
-      selectedSize: selectedSize || undefined
+      selectedFlavor: selectedFlavor || null,
+      selectedSize: selectedSize || null
     };
 
-    onAddToCart(itemPayload, selectedFlavor, selectedSize);
+    onAddToCart(itemPayload, selectedFlavor || null, selectedSize || null);
 
     setIsAdded(true);
     setTimeout(() => {

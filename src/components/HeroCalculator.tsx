@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link2, Sparkles, ArrowLeft, Weight, Coins, PackageCheck, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Info, ShieldCheck, ShoppingCart, CheckCircle2, Trash2, X, Layers, Zap, Check } from 'lucide-react';
 import { FinancialSettings, ParsedProduct, CmsConfig, ProductVariantMatrix, ProductVariantItem } from '../types';
-import { formatToman, formatAed, toPersianDigits, extractCleanUrl, getEffectiveAedRate, deduplicateImageUrls } from '../utils/formatters';
+import { formatToman, formatAed, toPersianDigits, extractCleanUrl, getEffectiveAedRate, deduplicateImageUrls, isArtificialFallback } from '../utils/formatters';
 import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { getEffectiveGeminiKeysList, extractProductWithGeminiAI } from '../utils/geminiKey';
@@ -21,7 +21,7 @@ interface HeroCalculatorProps {
     image?: string;
     storeName?: string;
   } | null;
-  onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
+  onAddToCart?: (product: any, selectedFlavor?: string | null, selectedSize?: string | null) => void;
   onProceedToOrder?: (product: {
     title: string;
     url: string;
@@ -231,10 +231,14 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
           setProductVariantGroups([]);
         }
         if (Array.isArray(result.flavors)) {
-          setProductFlavors(result.flavors);
+          setProductFlavors(result.flavors.filter(f => f && !isArtificialFallback(f)));
+        } else {
+          setProductFlavors([]);
         }
         if (Array.isArray(result.sizes)) {
-          setProductSizes(result.sizes);
+          setProductSizes(result.sizes.filter(s => s && !isArtificialFallback(s)));
+        } else {
+          setProductSizes([]);
         }
 
         // Store variant matrix & flat items
@@ -257,8 +261,8 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
           }));
           setProductVariantItems(vItems);
           setProductVariantMatrix({
-            sizes: result.sizes || [],
-            flavors: result.flavors || [],
+            sizes: (result.sizes || []).filter(s => s && !isArtificialFallback(s)),
+            flavors: (result.flavors || []).filter(f => f && !isArtificialFallback(f)),
             items: vItems,
             selectedVariant: vItems[0]
           });
@@ -268,7 +272,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         }
 
         const validExtractedOptions = (result.options || []).filter(
-          (opt) => opt && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(opt.trim().toLowerCase())
+          (opt) => opt && !isArtificialFallback(opt)
         );
         if (validExtractedOptions.length > 0) {
           setProductOptions(validExtractedOptions);
@@ -389,6 +393,26 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
   };
 
   const handleAddToCartClick = () => {
+    let activeFlavor: string | null = null;
+    let activeSize: string | null = null;
+
+    if (selectedOption && !isArtificialFallback(selectedOption)) {
+      if (productFlavors.includes(selectedOption)) {
+        activeFlavor = selectedOption;
+      } else if (productSizes.includes(selectedOption)) {
+        activeSize = selectedOption;
+      }
+    }
+
+    if (productVariantMatrix?.selectedVariant) {
+      const sv = productVariantMatrix.selectedVariant;
+      if (sv.flavor && !isArtificialFallback(sv.flavor)) activeFlavor = sv.flavor;
+      if (sv.size && !isArtificialFallback(sv.size)) activeSize = sv.size;
+    }
+
+    const cleanFlavors = productFlavors.filter(f => f && !isArtificialFallback(f));
+    const cleanSizes = productSizes.filter(s => s && !isArtificialFallback(s));
+
     const productPayload = {
       title: productTitle,
       url: urlInput || 'https://www.drnutrition.com',
@@ -401,22 +425,24 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
       storeName,
       calculatedToman: Math.round(finalToman / quantity),
       quantity: quantity,
-      selectedOption: selectedOption || undefined,
-      options: productOptions,
+      selectedOption: (selectedOption && !isArtificialFallback(selectedOption)) ? selectedOption : null,
+      selectedFlavor: activeFlavor,
+      selectedSize: activeSize,
+      options: productOptions.filter(o => o && !isArtificialFallback(o)),
       variantGroups: productVariantGroups.length > 0 ? productVariantGroups : undefined,
       variants: productVariantItems.length > 0 ? productVariantItems : undefined,
       variantMatrix: productVariantMatrix || undefined,
-      flavors: productFlavors.length > 0 ? productFlavors : undefined,
-      sizes: productSizes.length > 0 ? productSizes : undefined,
+      flavors: cleanFlavors.length > 0 ? cleanFlavors : undefined,
+      sizes: cleanSizes.length > 0 ? cleanSizes : undefined,
       description: productDescription
     };
 
     if (onAddToCart) {
-      onAddToCart(productPayload, selectedOption || undefined, undefined);
+      onAddToCart(productPayload, activeFlavor, activeSize);
       setIsAdded(true);
       setTimeout(() => setIsAdded(false), 1500);
     } else if (onProceedToOrder) {
-      onProceedToOrder(productPayload);
+      onProceedToOrder(productPayload as any);
     }
   };
 
@@ -663,10 +689,10 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
 
                 {/* Extracted Specifications & Badges (Clean Non-Clickable Informative Badges) */}
                 {(() => {
-                  const cleanFlavors = Array.from(new Set((productFlavors || []).filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(f.trim().toLowerCase()))));
-                  const cleanSizes = Array.from(new Set((productSizes || []).filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(s.trim().toLowerCase()))));
+                  const cleanFlavors = Array.from(new Set((productFlavors || []).filter(f => f && !isArtificialFallback(f))));
+                  const cleanSizes = Array.from(new Set((productSizes || []).filter(s => s && !isArtificialFallback(s))));
                   const validOptions = (productOptions || []).filter(
-                    (opt) => opt && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(opt.trim().toLowerCase()) && !cleanFlavors.includes(opt) && !cleanSizes.includes(opt)
+                    (opt) => opt && !isArtificialFallback(opt) && !cleanFlavors.includes(opt) && !cleanSizes.includes(opt)
                   );
 
                   if (cleanFlavors.length === 0 && cleanSizes.length === 0 && validOptions.length === 0) return null;

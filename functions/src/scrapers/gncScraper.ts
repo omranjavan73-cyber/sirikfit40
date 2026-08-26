@@ -1,116 +1,245 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import {
-  sanitizeImageUrl,
+  cleanAndNormalizeUrl,
   getStandardScraperHeaders,
+  extractJsonLdSchema,
+  extractEmbeddedJsonData,
+  sanitizeImageUrl,
   extractPriceNumber,
   deduplicateStrings,
-  extractEmbeddedJsonData
+  generateBilingualProductTitle,
+  isOutOfStockElement,
+  isArtificialFallback
 } from './utils';
 
-export async function scrapeGnc(url: string) {
-  const cleanUrl = url.trim();
-  console.log('[gncScraper] start', cleanUrl);
-  const headers = getStandardScraperHeaders(cleanUrl);
+export interface GncScraperResult {
+  success: boolean;
+  ok?: boolean;
+  titleFa: string;
+  titleEn: string;
+  title: string;
+  brand: string;
+  priceAed: number;
+  priceAED?: number;
+  originalPriceAed?: number;
+  originalPriceAED?: number;
+  discountPercent?: number;
+  image: string;
+  imageUrl: string;
+  galleryImages: string[];
+  inStock: boolean;
+  retailer: 'GNC';
+  store: string;
+  storeName: string;
+  sourceUrl: string;
+  selectedFlavor?: string | null;
+  selectedSize?: string | null;
+  flavors: string[];
+  sizes: string[];
+  variants: any[];
+  weightKg: number;
+  description?: string;
+  error?: string;
+}
 
-  // 1. Tier 1: Shopify JSON API
+/**
+ * Permanent, Multi-Tier GNC Extraction Engine
+ * Tier 1: Shopify .json / .js API endpoint
+ * Tier 2: Standardized JSON-LD Schema
+ * Tier 3: Sanitized High-Res DOM Selectors
+ */
+export async function scrapeGnc(rawUrl: string): Promise<GncScraperResult> {
+  const normalizedUrl = cleanAndNormalizeUrl(rawUrl) || rawUrl.trim();
+  const headers = getStandardScraperHeaders(normalizedUrl);
+
+  let titleEn = '';
+  let brand = 'GNC';
+  let priceAed = 0;
+  let originalPriceAed = 0;
+  let mainImage = '';
+  const galleryImages: string[] = [];
+  const flavorsList: string[] = [];
+  const sizesList: string[] = [];
+  const structuredVariants: any[] = [];
+  let description = '';
+  let inStock = true;
+
+  // -------------------------------------------------------------
+  // TIER 1: Shopify Product JSON API
+  // -------------------------------------------------------------
   try {
-    const jsonUrl = cleanUrl.split('?')[0].replace(/\/$/, '') + '.json';
+    const jsonUrl = normalizedUrl.split('?')[0].replace(/\/$/, '') + '.json';
     const res = await axios.get(jsonUrl, { headers, timeout: 10000 });
     const p = res.data?.product;
     if (p && p.title) {
-      const variants = p.variants || [];
-      const v0 = variants[0] || {};
-      const priceAED = extractPriceNumber(v0.price);
-      const origPriceAED = extractPriceNumber(v0.compare_at_price);
-      const mainImage = sanitizeImageUrl(p.image?.src || (p.images && p.images[0]?.src), cleanUrl);
-      const galleryImages = (p.images || []).map((im: any) => sanitizeImageUrl(im.src || im, cleanUrl)).filter(Boolean);
+      titleEn = p.title;
+      brand = p.vendor || 'GNC';
+      description = p.body_html ? p.body_html.replace(/<[^>]*>/g, ' ').trim() : '';
 
-      const rawFlavors: string[] = [];
-      const rawSizes: string[] = [];
+      const variants = Array.isArray(p.variants) ? p.variants : [];
+      const v0 = variants[0] || {};
+      priceAed = extractPriceNumber(v0.price);
+      originalPriceAed = extractPriceNumber(v0.compare_at_price);
+
+      mainImage = sanitizeImageUrl(p.image?.src || (p.images && p.images[0]?.src), normalizedUrl);
+      if (Array.isArray(p.images)) {
+        p.images.forEach((im: any) => {
+          const u = sanitizeImageUrl(im.src || im, normalizedUrl);
+          if (u && !galleryImages.includes(u)) galleryImages.push(u);
+        });
+      }
+
       (p.options || []).forEach((opt: any) => {
         const optName = String(opt.name || '').toLowerCase();
         if (optName.includes('flavor') || optName.includes('طعم')) {
-          (opt.values || []).forEach((v: string) => rawFlavors.push(String(v)));
+          (opt.values || []).forEach((v: string) => flavorsList.push(String(v)));
         } else if (optName.includes('size') || optName.includes('weight') || optName.includes('سایز') || optName.includes('حجم')) {
-          (opt.values || []).forEach((v: string) => rawSizes.push(String(v)));
+          (opt.values || []).forEach((v: string) => sizesList.push(String(v)));
         }
       });
 
-      const cleanFlavors = deduplicateStrings(rawFlavors);
-      const cleanSizes = deduplicateStrings(rawSizes);
+      variants.forEach((v: any, idx: number) => {
+        const vPrice = extractPriceNumber(v.price) || priceAed;
+        const vOrigPrice = extractPriceNumber(v.compare_at_price);
+        structuredVariants.push({
+          id: `var-${v.id || idx}`,
+          size: v.option1 || v.title,
+          flavor: v.option2 || undefined,
+          price: vPrice,
+          priceAed: vPrice,
+          priceAED: vPrice,
+          originalPriceAed: vOrigPrice > vPrice ? vOrigPrice : undefined,
+          inStock: v.available !== false,
+          image: sanitizeImageUrl(v.featured_image?.src || mainImage, normalizedUrl)
+        });
+      });
 
-      if (priceAED > 0) {
-        return {
-          success: true,
-          title: p.title,
-          brand: p.vendor || 'GNC',
-          store: 'GNC Store',
-          sourceUrl: cleanUrl,
-          imageUrl: mainImage || '',
-          galleryImages,
-          priceAED,
-          originalPriceAED: origPriceAED > priceAED ? origPriceAED : undefined,
-          weightKg: v0.grams ? parseFloat((v0.grams / 1000).toFixed(2)) : 0.8,
-          flavors: cleanFlavors,
-          sizes: cleanSizes,
-          inStock: v0.available !== false
-        };
+      if (v0.available === false) {
+        inStock = variants.some((v: any) => v.available !== false);
       }
     }
   } catch (_shopErr) {}
 
-  // 2. Tier 2: Direct HTML Scraping
-  try {
-    const res = await axios.get(cleanUrl, { headers, timeout: 12000 });
-    const $ = cheerio.load(res.data);
-    const { jsonLd } = extractEmbeddedJsonData($);
+  // -------------------------------------------------------------
+  // TIER 2 & 3: Direct HTML Scraping Fallback (JSON-LD + DOM)
+  // -------------------------------------------------------------
+  if (!priceAed) {
+    try {
+      const res = await axios.get(normalizedUrl, { headers, timeout: 12000 });
+      const html = res.data;
+      if (html && typeof html === 'string') {
+        const $ = cheerio.load(html);
 
-    let title = $('h1.product-single__title, h1.product__title, h1').first().text().trim();
-    if (!title) title = $('meta[property="og:title"]').attr('content') || '';
-    const brand = $('.product-single__vendor, [itemprop="brand"]').first().text().trim() || 'GNC';
+        // JSON-LD
+        const jsonLdData = extractJsonLdSchema($, normalizedUrl);
+        if (jsonLdData) {
+          if (!titleEn && jsonLdData.name) titleEn = jsonLdData.name;
+          if (jsonLdData.brand) brand = jsonLdData.brand;
+          if (jsonLdData.priceAED > 0) priceAed = jsonLdData.priceAED;
+          if (jsonLdData.originalPriceAED && jsonLdData.originalPriceAED > priceAed) originalPriceAed = jsonLdData.originalPriceAED;
+          if (!mainImage && jsonLdData.image) mainImage = jsonLdData.image;
+          if (jsonLdData.galleryImages?.length > 0) {
+            jsonLdData.galleryImages.forEach(img => {
+              if (img && !galleryImages.includes(img)) galleryImages.push(img);
+            });
+          }
+        }
 
-    let priceAED = 0;
-    let originalPriceAED = 0;
-
-    // Check JSON-LD
-    if (jsonLd && jsonLd.length > 0) {
-      for (const item of jsonLd) {
-        if (item && (item['@type'] === 'Product' || item.offers)) {
-          const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
-          if (offer && offer.price) priceAED = extractPriceNumber(offer.price);
+        // DOM Fallback
+        if (!titleEn) {
+          titleEn = $('h1.product-single__title, h1.product__title, h1').first().text().trim() ||
+                    $('meta[property="og:title"]').attr('content') || '';
+        }
+        if (!priceAed) {
+          const priceText = $('.price__regular .price-item--regular, .product__price, [data-product-price], .price').first().text();
+          priceAed = extractPriceNumber(priceText);
+        }
+        if (!mainImage) {
+          const ogImg = $('meta[property="og:image"]').attr('content') ||
+                        $('.product-single__photo img, .product__media img').first().attr('src');
+          mainImage = sanitizeImageUrl(ogImg || '', normalizedUrl);
         }
       }
-    }
+    } catch (_htmlErr) {}
+  }
 
-    if (!priceAED) {
-      const priceText = $('.price__regular .price-item--regular, .product__price, [data-product-price], .price').first().text();
-      priceAED = extractPriceNumber(priceText);
-    }
+  if (mainImage && !galleryImages.includes(mainImage)) {
+    galleryImages.unshift(mainImage);
+  }
 
-    const mainImage = sanitizeImageUrl($('meta[property="og:image"]').attr('content') || $('.product-single__photo img, .product__media img').first().attr('src') || '', cleanUrl);
+  const cleanFlavors = deduplicateStrings(flavorsList);
+  const cleanSizes = deduplicateStrings(sizesList);
+  const titleFa = generateBilingualProductTitle(titleEn, brand);
 
-    if (title && priceAED > 0) {
-      return {
-        success: true,
-        title,
-        brand,
-        store: 'GNC Store',
-        sourceUrl: cleanUrl,
-        imageUrl: mainImage || '',
-        galleryImages: mainImage ? [mainImage] : [],
-        priceAED,
-        originalPriceAED: originalPriceAED > priceAED ? originalPriceAED : undefined,
-        weightKg: 0.8,
-        flavors: [],
-        sizes: [],
-        inStock: !res.data.includes('sold-out') && !res.data.includes('Out of stock')
-      };
-    }
-  } catch (_htmlErr) {}
+  const selectedFlavor: string | null = cleanFlavors.length > 0 ? cleanFlavors[0] : null;
+  const selectedSize: string | null = cleanSizes.length > 0 ? cleanSizes[0] : null;
+
+  // Filter structured variants: if single-SKU default, keep variants empty
+  const validVariants = structuredVariants.filter(v => {
+    const hasFlavor = v.flavor && !isArtificialFallback(v.flavor);
+    const hasSize = v.size && !isArtificialFallback(v.size);
+    return hasFlavor || hasSize;
+  });
+
+  let discountPercent: number | undefined;
+  if (originalPriceAed > priceAed && originalPriceAed > 0) {
+    discountPercent = Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100);
+  }
+
+  if (!priceAed || priceAed <= 0) {
+    return {
+      success: false,
+      ok: false,
+      titleFa,
+      titleEn,
+      title: titleEn,
+      brand,
+      priceAed: 0,
+      image: mainImage,
+      imageUrl: mainImage,
+      galleryImages,
+      inStock: false,
+      retailer: 'GNC',
+      store: 'GNC Store',
+      storeName: 'GNC Store',
+      sourceUrl: normalizedUrl,
+      selectedFlavor,
+      selectedSize,
+      flavors: cleanFlavors,
+      sizes: cleanSizes,
+      variants: validVariants,
+      weightKg: 0.8,
+      error: 'امکان استخراج اطلاعات از فروشگاه GNC مقدور نشد.'
+    };
+  }
 
   return {
-    success: false,
-    error: 'امکان استخراج اطلاعات از فروشگاه GNC مقدور نیست.'
+    success: true,
+    ok: true,
+    titleFa,
+    titleEn,
+    title: titleEn,
+    brand,
+    priceAed,
+    priceAED: priceAed,
+    originalPriceAed: originalPriceAed > priceAed ? originalPriceAed : undefined,
+    originalPriceAED: originalPriceAed > priceAed ? originalPriceAed : undefined,
+    discountPercent,
+    image: mainImage,
+    imageUrl: mainImage,
+    galleryImages,
+    inStock,
+    retailer: 'GNC',
+    store: 'GNC Store',
+    storeName: 'GNC Store',
+    sourceUrl: normalizedUrl,
+    selectedFlavor,
+    selectedSize,
+    flavors: cleanFlavors,
+    sizes: cleanSizes,
+    variants: validVariants,
+    weightKg: 0.8,
+    description
   };
 }

@@ -51,6 +51,14 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /scraped_cache/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /scraped_products_cache/{document=**} {
+      allow read, write: if true;
+    }
+
     // Orders collection
     match /orders/{orderId} {
       allow read, write: if true;

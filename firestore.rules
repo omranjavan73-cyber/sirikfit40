@@ -61,6 +61,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // OTP Codes collection (SMS.ir verification)
+    match /otp_codes/{phoneKey} {
+      allow read, write: if true;
+    }
+
     // Support Tickets collection
     match /tickets/{ticketId} {
       allow read, write: if true;

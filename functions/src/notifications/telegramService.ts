@@ -142,6 +142,44 @@ ${productUrl}
 }
 
 /**
+ * Formats a rich Markdown / HTML message for Telegram link discrepancy / health alerts
+ */
+export interface LinkDiscrepancyAlertPayload {
+  sectionName: string; // 'انبار ایران' | 'پیشنهاد ویژه' | 'کاتالوگ عمومی'
+  titleFa: string;
+  sourceUrl: string;
+  statusDescription: string;
+}
+
+export function formatLinkDiscrepancyTelegramMessage(payload: LinkDiscrepancyAlertPayload): string {
+  const section = payload.sectionName || 'انبار ایران / پیشنهاد ویژه';
+  const title = payload.titleFa || 'محصول بدون عنوان';
+  const status = payload.statusDescription || 'تغییر وضعیت در مبدأ';
+  const url = payload.sourceUrl || '';
+
+  return `⚠️ <b>هشدار تغییر وضعیت لینک در سیریک فیت</b>
+📍 بخش: <b>${section}</b>
+📦 نام محصول: <b>${title}</b>
+🏷️ وضعیت: <code>${status}</code>
+🔗 لینک مبدا: ${url}`;
+}
+
+/**
+ * Sends a Link Discrepancy alert to Telegram (Price drift >5% or Out of Stock)
+ */
+export async function sendTelegramLinkAlert(
+  payload: LinkDiscrepancyAlertPayload
+): Promise<{ success: boolean; data?: any; error?: string; reason?: string }> {
+  try {
+    const text = formatLinkDiscrepancyTelegramMessage(payload);
+    return await sendTelegramMessage(text, { parseMode: 'HTML' });
+  } catch (err: any) {
+    console.error('[Telegram Link Alert Error]:', err?.message || err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
  * Sends a message to Telegram using Axios with robust error handling and non-blocking semantics.
  */
 export async function sendTelegramMessage(

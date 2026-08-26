@@ -171,6 +171,7 @@ import { DealsAdmin } from '../pages/admin/DealsAdmin';
 import { IranWarehouseAdmin } from '../pages/admin/IranWarehouseAdmin';
 import { HomePageSettingsAdmin } from '../pages/admin/HomePageSettingsAdmin';
 import { SeoAdmin } from '../pages/admin/SeoAdmin';
+import { LinkManagementTab } from './admin/LinkManagementTab';
 
 const DEFAULT_WAREHOUSE_CATEGORIES: WarehouseCategory[] = [
   {
@@ -350,8 +351,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     'dashboard' | 'orders' | 'tickets' | 'financial' | 'cms' | 'deals' | 'inventory' | 'products' | 'homeContent' | 'accounting' | 'gateway' | 'pricingRules' | 'backup' | 'security' | 'apiSettings' | 'discounts' | 'faq' | 'inquiries' | 'scraperLogs' | 'seo' | 'sms' | 'categories' | 'promoPopup' | 'landingSettings' | 'telegram'
   >('dashboard');
 
-  // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories' | 'discounts'
-  const [activeProductSubTab, setActiveProductSubTab] = useState<'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories' | 'discounts'>('inventory');
+  // Master Products Sub-Tab: 'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories' | 'discounts' | 'links'
+  const [activeProductSubTab, setActiveProductSubTab] = useState<'inventory' | 'deals' | 'popular' | 'popularSamples' | 'categories' | 'discounts' | 'links'>('inventory');
+  const [linksAlertCount, setLinksAlertCount] = useState<number>(0);
   const [popularSamplesOrder, setPopularSamplesOrder] = useState<string[]>(cms?.popularSamplesOrder || []);
   const [taxonomyList, setTaxonomyList] = useState<any[]>(DEFAULT_TAXONOMY);
 
@@ -4860,6 +4862,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <Tag className="w-4 h-4 text-emerald-500" />
                 <span>کدهای تخفیف</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveProductSubTab('links')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer relative ${
+                  activeProductSubTab === 'links'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                }`}
+              >
+                <Activity className="w-4 h-4 text-red-500" />
+                <span>🔗 پایش و مدیریت لینک‌ها</span>
+                {linksAlertCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black animate-pulse">
+                    {toPersianDigits(linksAlertCount)}
+                  </span>
+                )}
+              </button>
             </div>
           </div>
 
@@ -6220,6 +6240,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {/* SUB-VIEW 5: DISCOUNT CODES */}
           {activeProductSubTab === 'discounts' && (
             <AdminDiscounts showToast={showToast} />
+          )}
+
+          {/* SUB-VIEW 6: LINK MONITORING & SCRAPER MANAGEMENT */}
+          {activeProductSubTab === 'links' && (
+            <LinkManagementTab showToast={showToast} onAlertCountChange={setLinksAlertCount} />
           )}
         </div>
       )}

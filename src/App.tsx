@@ -36,6 +36,7 @@ import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoi
 import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
+import { PricingProvider } from './context/PricingContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { getSafeItem, setSafeItem } from './utils/safeStorage';
 
@@ -1530,7 +1531,9 @@ export default function App() {
   return (
     <ErrorBoundary name="SirikFit Application">
       <SettingsProvider>
-        <MainApp />
+        <PricingProvider>
+          <MainApp />
+        </PricingProvider>
       </SettingsProvider>
     </ErrorBoundary>
   );

@@ -113,6 +113,18 @@
         "isActive": { "type": "boolean" }
       }
     },
+    "otp_codes": {
+      "title": "OTP Codes",
+      "description": "SMS.ir one-time authentication codes",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "mobile": { "type": "string" },
+        "type": { "type": "string" },
+        "expiresAt": { "type": "string" },
+        "used": { "type": "boolean" }
+      }
+    },
     "user_inquiries": {
       "title": "User Inquiries",
       "description": "User questions submitted from FAQ section",
@@ -169,6 +181,10 @@
     "/discount_codes/{codeId}": {
       "schema": "discount_codes",
       "description": "Discount codes"
+    },
+    "/otp_codes/{phoneKey}": {
+      "schema": "otp_codes",
+      "description": "SMS.ir OTP authentication verification codes"
     }
   }
 }

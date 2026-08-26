@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 import { backendScraperService } from '../services/scraperService';
+import { sendTelegramLinkAlert } from '../notifications/telegramService';
 
 const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfigJson) : getApp();
 let db: any;
@@ -49,7 +50,13 @@ export async function runProductPriceSync(): Promise<{ success: boolean; syncedC
     const aedRate = Number(settings?.aedRate || settings?.manualAedRate || 51400);
     const globalMargin = Number(settings?.profitMargin || 20);
 
-    const collectionsToSync = ['iran_warehouse', 'special_deals'];
+    const collectionsToSync = ['iran_warehouse', 'special_deals', 'products'];
+
+    const sectionNameMap: Record<string, string> = {
+      iran_warehouse: 'انبار ایران',
+      special_deals: 'پیشنهاد ویژه',
+      products: 'کاتالوگ عمومی'
+    };
 
     for (const colName of collectionsToSync) {
       console.log(`[SyncEngine] Scanning collection: ${colName}`);
@@ -125,6 +132,26 @@ export async function runProductPriceSync(): Promise<{ success: boolean; syncedC
               await setDoc(doc(db, colName, docId), updatedDoc, { merge: true });
               updatedCount++;
               console.log(`[SyncEngine] Successfully updated ${colName}/${docId} (${item.title}): AED ${oldPriceAed} -> ${freshPriceAed}`);
+
+              // Send Telegram discrepancy alert if out of stock or price drift >= 5%
+              const priceDeltaPercent = oldPriceAed > 0 ? (Math.abs(freshPriceAed - oldPriceAed) / oldPriceAed) * 100 : 0;
+              if (!freshInStock || priceDeltaPercent >= 5) {
+                let statusDescription = '';
+                if (!freshInStock) {
+                  statusDescription = 'ناموجود در فروشگاه مبدا دبی';
+                } else {
+                  statusDescription = `تغییر قیمت از ${oldPriceAed} به ${freshPriceAed} درهم (${priceDeltaPercent.toFixed(1)}٪ اختلاف)`;
+                }
+
+                sendTelegramLinkAlert({
+                  sectionName: sectionNameMap[colName] || colName,
+                  titleFa: item.titleFa || item.title || item.titleEn || 'محصول',
+                  sourceUrl: targetUrl,
+                  statusDescription
+                }).catch(alertErr => {
+                  console.warn('[SyncEngine] Telegram alert send notice:', alertErr?.message || alertErr);
+                });
+              }
             }
           }
         } catch (itemErr: any) {

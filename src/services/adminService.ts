@@ -355,3 +355,149 @@ export async function testTelegramAdminNotification(config?: {
   }
 }
 
+/**
+ * Synchronize a single product's source URL, recalculating landed Toman price and updating Firestore atomically.
+ */
+export async function syncSingleProductLink(params: {
+  collection: string;
+  id: string;
+  url: string;
+  profitMargin?: number;
+}): Promise<{
+  success: boolean;
+  message: string;
+  status?: string;
+  item?: any;
+  diff?: {
+    oldPriceAed: number;
+    newPriceAed: number;
+    priceDeltaAed: number;
+    oldPriceToman: number;
+    newPriceToman: number;
+    priceDeltaToman: number;
+    inStock: boolean;
+  };
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/admin/sync-single-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      message: 'خطا در ارتباط با سرور جهت همگام‌سازی: ' + (err.message || String(err)),
+      error: err.message || String(err)
+    };
+  }
+}
+
+/**
+ * Atomically commit detected price/stock updates across multiple products.
+ */
+export async function batchApplyLinkSync(updates: Array<{
+  collection: string;
+  id: string;
+  priceAed: number;
+  basePriceAed?: number;
+  priceToman: number;
+  inStock: boolean;
+  [key: string]: any;
+}>): Promise<{ success: boolean; updatedCount?: number; message: string; error?: string }> {
+  try {
+    const res = await fetch('/api/admin/sync-batch-links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates })
+    });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      message: 'خطا در اعمال دسته‌جمعی تغییرات: ' + (err.message || String(err)),
+      error: err.message || String(err)
+    };
+  }
+}
+
+/**
+ * Check live product price & stock at source URL without mutating database.
+ */
+export async function checkSingleLinkHealth(url: string): Promise<{
+  success: boolean;
+  scrapedPriceAed?: number;
+  inStock?: boolean;
+  title?: string;
+  image?: string;
+  storeName?: string;
+  checkedAt?: string;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/admin/check-link-health', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'خطا در بررسی سلامت لینک: ' + (err.message || String(err))
+    };
+  }
+}
+
+/**
+ * Send Link Discrepancy Alert to Telegram
+ */
+export async function sendLinkDiscrepancyTelegramAlert(params: {
+  sectionName: string;
+  titleFa: string;
+  sourceUrl: string;
+  statusDescription: string;
+}): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch('/api/admin/send-link-alert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+export async function runFullStoreHealthCheck(): Promise<{
+  success: boolean;
+  syncedCount?: number;
+  updatedCount?: number;
+  errors?: string[];
+  message?: string;
+}> {
+  try {
+    const res = await fetch('/api/admin/sync-product-prices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      syncedCount: 0,
+      updatedCount: 0,
+      errors: [err.message || String(err)],
+      message: 'خطا در اجرای اسکن همگانی'
+    };
+  }
+}
+
+

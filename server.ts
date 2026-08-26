@@ -131,7 +131,7 @@ app.use((req, res, next) => {
     const knownApiPrefixes = [
       '/admin', '/orders', '/settings', '/cms', '/analytics',
       '/currency', '/auth', '/preset-products', '/payment',
-      '/notify', '/parse-link', '/tickets'
+      '/notify', '/parse-link', '/tickets', '/sms'
     ];
     if (knownApiPrefixes.some(p => req.url.startsWith(p))) {
       req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
@@ -313,7 +313,7 @@ interface StoreData {
     name: string;
     phoneNumber: string;
     email?: string;
-    passwordHash: string;
+    passwordHash?: string;
     createdAt: string;
   }>;
   orders: Array<{
@@ -1790,6 +1790,636 @@ app.post('/api/auth/login', async (req, res) => {
   return res.json({ success: true, user: userPayload });
 });
 
+// ==========================================
+// SMS.IR & OTP AUTHENTICATION SERVICES
+// ==========================================
+
+const DEFAULT_SMS_API_KEY = 'NxE8MgW74US6JDbMM6Gcd5JvERuacKTZ6rSaqTw1YTRtqcuZ';
+const DEFAULT_OTP_TEMPLATE_ID = '256428';
+const DEFAULT_RESET_PASSWORD_TEMPLATE_ID = '664247';
+const DEFAULT_ORDER_SUCCESS_TEMPLATE_ID = '595534';
+
+// In-memory OTP storage cache fallback: key: mobile, value: { code, expiresAt, requestedAt, name }
+const inMemoryOtpStore = new Map<string, { code: string; expiresAt: number; requestedAt: number; name?: string }>();
+
+// Helper to normalize Iranian mobile numbers to 09XXXXXXXXX
+function normalizeIranMobile(mobile: string | undefined | null): string {
+  if (!mobile) return '';
+  let clean = String(mobile).replace(/\s+/g, '').replace(/[^0-9]/g, '');
+  if (clean.startsWith('0098')) clean = '0' + clean.substring(4);
+  else if (clean.startsWith('98') && clean.length === 12) clean = '0' + clean.substring(2);
+  else if (!clean.startsWith('0') && clean.length === 10) clean = '0' + clean;
+  return clean;
+}
+
+// Helper to retrieve active SMS config from Firestore settings/sms or fallback
+async function getActiveSmsConfig(): Promise<{
+  apiKey: string;
+  adminMobile: string;
+  otpTemplateId: string;
+  resetPasswordTemplateId: string;
+  orderSuccessTemplateId: string;
+  enabled: boolean;
+}> {
+  try {
+    const docRef = doc(db, 'settings', 'sms');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return {
+        apiKey: (data.apiKey && data.apiKey.trim()) || process.env.SMS_API_KEY || DEFAULT_SMS_API_KEY,
+        adminMobile: data.adminMobile || '',
+        otpTemplateId: String(data.otpTemplateId || data.otpPattern || DEFAULT_OTP_TEMPLATE_ID),
+        resetPasswordTemplateId: String(data.resetPasswordTemplateId || data.resetPasswordPattern || DEFAULT_RESET_PASSWORD_TEMPLATE_ID),
+        orderSuccessTemplateId: String(data.orderSuccessTemplateId || data.orderSuccessCustomerPattern || DEFAULT_ORDER_SUCCESS_TEMPLATE_ID),
+        enabled: data.enabled !== undefined ? Boolean(data.enabled) : true
+      };
+    }
+  } catch (_e) {}
+
+  return {
+    apiKey: process.env.SMS_API_KEY || DEFAULT_SMS_API_KEY,
+    adminMobile: '',
+    otpTemplateId: DEFAULT_OTP_TEMPLATE_ID,
+    resetPasswordTemplateId: DEFAULT_RESET_PASSWORD_TEMPLATE_ID,
+    orderSuccessTemplateId: DEFAULT_ORDER_SUCCESS_TEMPLATE_ID,
+    enabled: true
+  };
+}
+
+// Helper to send Fast-Send Verify SMS via SMS.ir API v1
+async function sendSmsIrFastSend(params: {
+  mobile: string;
+  templateId: string | number;
+  parameters: Array<{ name: string; value: string }>;
+  customApiKey?: string;
+}): Promise<{ success: boolean; status?: number; data?: any; error?: string }> {
+  const { mobile, templateId, parameters, customApiKey } = params;
+  const config = await getActiveSmsConfig();
+  const apiKey = customApiKey || config.apiKey;
+
+  if (!apiKey || apiKey === 'YOUR_SMS_API_KEY') {
+    return { success: false, error: 'کلید وب‌سرویس پیامک (API Key) تعریف نشده است.' };
+  }
+
+  const endpoint = 'https://api.sms.ir/v1/send/verify';
+  const payload = {
+    mobile: mobile,
+    templateId: Number(templateId),
+    parameters: parameters.map(p => ({
+      name: String(p.name).toUpperCase(),
+      value: String(p.value)
+    }))
+  };
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/plain, application/json',
+        'x-api-key': apiKey
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    const responseData = await response.json().catch(() => ({}));
+    if (response.ok && (responseData.status === 1 || responseData.status === 200 || responseData.data || responseData.message?.includes('موفق'))) {
+      return { success: true, status: response.status, data: responseData };
+    }
+
+    // Even if status code is non-200, check if it was accepted
+    if (responseData.status === 1) {
+      return { success: true, status: response.status, data: responseData };
+    }
+
+    const errMsg = responseData.message || responseData.error || `خطای درگاه پیامک (کد ${response.status})`;
+    console.warn('[SMS.ir Error]:', errMsg, responseData);
+    return { success: false, status: response.status, error: errMsg, data: responseData };
+  } catch (err: any) {
+    console.error('[SMS.ir Fetch Exception]:', err?.message || err);
+    return { success: false, error: err?.message || 'خطای اتصال به سرور sms.ir' };
+  }
+}
+
+// POST /api/auth/send-otp
+app.post('/api/auth/send-otp', async (req, res) => {
+  try {
+    const rawMobile = req.body.mobile || req.body.phone || req.body.phoneNumber;
+    const name = req.body.fullName || req.body.name || '';
+    const mobile = normalizeIranMobile(rawMobile);
+
+    if (!mobile || !/^09\d{9}$/.test(mobile)) {
+      return res.status(400).json({
+        success: false,
+        ok: false,
+        error: 'شماره موبایل نامعتبر است. لطفاً شماره ۱۱ رقمی معتبر ایران را وارد نمایید (مثال: 09123456789).'
+      });
+    }
+
+    // Rate Limiting: 60s cooldown per mobile
+    const existingOtp = inMemoryOtpStore.get(mobile);
+    const now = Date.now();
+    if (existingOtp && now - existingOtp.requestedAt < 60000 && existingOtp.expiresAt > now) {
+      const remainingSeconds = Math.ceil((60000 - (now - existingOtp.requestedAt)) / 1000);
+      return res.status(429).json({
+        success: false,
+        ok: false,
+        error: `لطفاً ${remainingSeconds} ثانیه دیگر جهت درخواست مجدد کد تایید صبر کنید.`,
+        remainingSeconds
+      });
+    }
+
+    // Generate random secure 6-digit numeric code
+    const generatedCode = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresInSeconds = 120;
+    const expiresAt = now + expiresInSeconds * 1000;
+
+    // Cache in memory
+    inMemoryOtpStore.set(mobile, {
+      code: generatedCode,
+      expiresAt,
+      requestedAt: now,
+      name
+    });
+
+    // Store in Firestore `otp_codes` collection
+    try {
+      await setDoc(doc(db, 'otp_codes', mobile), {
+        code: generatedCode,
+        mobile,
+        name: name || null,
+        type: 'LOGIN_OTP',
+        expiresAt: new Date(expiresAt).toISOString(),
+        createdAt: new Date().toISOString(),
+        used: false
+      }, { merge: true });
+    } catch (fsErr) {
+      console.warn('[Firestore OTP Notice]:', fsErr);
+    }
+
+    const config = await getActiveSmsConfig();
+    const smsResult = await sendSmsIrFastSend({
+      mobile,
+      templateId: config.otpTemplateId,
+      parameters: [{ name: 'CODE', value: generatedCode }]
+    });
+
+    if (smsResult.success) {
+      return res.json({
+        success: true,
+        ok: true,
+        message: 'کد تایید ۶ رقمی با موفقیت پیامک شد.',
+        expiresIn: expiresInSeconds
+      });
+    }
+
+    // If SMS API failed but we have a code generated, return friendly warning or detail
+    console.warn(`[OTP Send Notice] SMS send failed for ${mobile}:`, smsResult.error);
+    return res.status(500).json({
+      success: false,
+      ok: false,
+      error: smsResult.error || 'خطا در ارسال پیامک کد تایید از طرف سامانه پیامکی.'
+    });
+  } catch (err: any) {
+    console.error('Error in /api/auth/send-otp:', err);
+    return res.status(500).json({
+      success: false,
+      ok: false,
+      error: 'خطای سیستمی در ارسال کد تایید: ' + (err?.message || String(err))
+    });
+  }
+});
+
+// POST /api/auth/verify-otp
+app.post('/api/auth/verify-otp', async (req, res) => {
+  try {
+    const rawMobile = req.body.mobile || req.body.phone || req.body.phoneNumber;
+    const submittedCode = String(req.body.code || req.body.otp || '').trim().replace(/[^0-9]/g, '');
+    const fullName = req.body.fullName || req.body.name;
+    const email = req.body.email;
+    const mobile = normalizeIranMobile(rawMobile);
+
+    if (!mobile || !/^09\d{9}$/.test(mobile)) {
+      return res.status(400).json({
+        success: false,
+        ok: false,
+        error: 'شماره موبایل وارد شده نامعتبر است.'
+      });
+    }
+
+    if (!submittedCode || submittedCode.length < 5) {
+      return res.status(400).json({
+        success: false,
+        ok: false,
+        error: 'لطفاً کد تایید ۶ رقمی را وارد کنید.'
+      });
+    }
+
+    let isCodeValid = false;
+    const now = Date.now();
+
+    // 1. Check in-memory store
+    const cachedOtp = inMemoryOtpStore.get(mobile);
+    if (cachedOtp && cachedOtp.code === submittedCode && cachedOtp.expiresAt > now) {
+      isCodeValid = true;
+      inMemoryOtpStore.delete(mobile);
+    }
+
+    // 2. Check Firestore `otp_codes` collection
+    if (!isCodeValid) {
+      try {
+        const otpDocRef = doc(db, 'otp_codes', mobile);
+        const otpSnap = await getDoc(otpDocRef);
+        if (otpSnap.exists()) {
+          const otpData = otpSnap.data();
+          const docExpiresAt = new Date(otpData.expiresAt).getTime();
+          if (String(otpData.code).trim() === submittedCode && docExpiresAt > now && !otpData.used) {
+            isCodeValid = true;
+            // Mark as used
+            await setDoc(otpDocRef, { used: true, verifiedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+          }
+        }
+      } catch (fsErr) {
+        console.warn('[Firestore OTP Verify Notice]:', fsErr);
+      }
+    }
+
+    if (!isCodeValid) {
+      return res.status(400).json({
+        success: false,
+        ok: false,
+        error: 'کد تایید وارد شده نامعتبر، منقضی شده یا اشتباه است.'
+      });
+    }
+
+    // Load or create User record
+    const store = readStore();
+    let user = store.users.find(u => u.phoneNumber === mobile);
+
+    if (!user) {
+      const userName = fullName?.trim() || cachedOtp?.name?.trim() || 'کاربر گرامی';
+      user = {
+        id: 'usr-' + Date.now(),
+        name: userName,
+        phoneNumber: mobile,
+        email: email ? String(email).trim().toLowerCase() : undefined,
+        createdAt: new Date().toISOString()
+      };
+      await persistUser(user);
+    } else {
+      // Update existing user's name or email if provided
+      let shouldUpdate = false;
+      if (fullName && fullName.trim() && user.name === 'کاربر گرامی') {
+        user.name = fullName.trim();
+        shouldUpdate = true;
+      }
+      if (email && !user.email) {
+        user.email = String(email).trim().toLowerCase();
+        shouldUpdate = true;
+      }
+      if (shouldUpdate) {
+        await persistUser(user);
+      }
+    }
+
+    // Generate session token
+    const token = 'omex_auth_token_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+    const { passwordHash, ...userPayload } = user;
+
+    return res.json({
+      success: true,
+      ok: true,
+      message: 'ورود با موفقیت انجام شد.',
+      user: userPayload,
+      token
+    });
+  } catch (err: any) {
+    console.error('Error in /api/auth/verify-otp:', err);
+    return res.status(500).json({
+      success: false,
+      ok: false,
+      error: 'خطا در تایید کد پیامکی: ' + (err?.message || String(err))
+    });
+  }
+});
+
+// POST /api/auth/forgot-password-otp
+app.post('/api/auth/forgot-password-otp', async (req, res) => {
+  try {
+    const rawMobile = req.body.mobile || req.body.phone || req.body.phoneNumber;
+    const mobile = normalizeIranMobile(rawMobile);
+
+    if (!mobile || !/^09\d{9}$/.test(mobile)) {
+      return res.status(400).json({
+        success: false,
+        ok: false,
+        error: 'شماره موبایل نامعتبر است.'
+      });
+    }
+
+    const generatedCode = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresInSeconds = 120;
+    const now = Date.now();
+    const expiresAt = now + expiresInSeconds * 1000;
+
+    inMemoryOtpStore.set(`reset_${mobile}`, {
+      code: generatedCode,
+      expiresAt,
+      requestedAt: now
+    });
+
+    try {
+      await setDoc(doc(db, 'otp_codes', `reset_${mobile}`), {
+        code: generatedCode,
+        mobile,
+        type: 'RESET_PASSWORD',
+        expiresAt: new Date(expiresAt).toISOString(),
+        createdAt: new Date().toISOString(),
+        used: false
+      }, { merge: true });
+    } catch (_e) {}
+
+    const config = await getActiveSmsConfig();
+    const smsResult = await sendSmsIrFastSend({
+      mobile,
+      templateId: config.resetPasswordTemplateId,
+      parameters: [{ name: 'CODE', value: generatedCode }]
+    });
+
+    if (smsResult.success) {
+      return res.json({
+        success: true,
+        ok: true,
+        message: 'کد تایید بازیابی رمز عبور با پیامک ارسال شد.',
+        expiresIn: expiresInSeconds
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      ok: false,
+      error: smsResult.error || 'خطا در ارسال پیامک بازیابی رمز عبور.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      ok: false,
+      error: 'خطا در ارسال کد بازیابی: ' + (err?.message || String(err))
+    });
+  }
+});
+
+// POST /api/auth/reset-password
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const rawMobile = req.body.mobile || req.body.phone || req.body.phoneNumber;
+    const submittedCode = String(req.body.code || req.body.otp || '').trim().replace(/[^0-9]/g, '');
+    const newPassword = req.body.newPassword || req.body.password;
+    const mobile = normalizeIranMobile(rawMobile);
+
+    if (!mobile || !submittedCode || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        ok: false,
+        error: 'شماره موبایل، کد تایید و رمز عبور جدید الزامی هستند.'
+      });
+    }
+
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({
+        success: false,
+        ok: false,
+        error: 'رمز عبور باید حداقل ۶ کاراکتر باشد.'
+      });
+    }
+
+    let isValid = false;
+    const now = Date.now();
+    const cached = inMemoryOtpStore.get(`reset_${mobile}`) || inMemoryOtpStore.get(mobile);
+    if (cached && cached.code === submittedCode && cached.expiresAt > now) {
+      isValid = true;
+      inMemoryOtpStore.delete(`reset_${mobile}`);
+    }
+
+    if (!isValid) {
+      try {
+        const otpSnap = await getDoc(doc(db, 'otp_codes', `reset_${mobile}`));
+        if (otpSnap.exists()) {
+          const data = otpSnap.data();
+          if (String(data.code).trim() === submittedCode && new Date(data.expiresAt).getTime() > now && !data.used) {
+            isValid = true;
+            await setDoc(doc(db, 'otp_codes', `reset_${mobile}`), { used: true }, { merge: true });
+          }
+        }
+      } catch (_e) {}
+    }
+
+    if (!isValid) {
+      return res.status(400).json({
+        success: false,
+        ok: false,
+        error: 'کد تایید وارد شده نامعتبر یا منقضی شده است.'
+      });
+    }
+
+    const store = readStore();
+    const userIndex = store.users.findIndex(u => u.phoneNumber === mobile);
+    if (userIndex !== -1) {
+      store.users[userIndex].passwordHash = String(newPassword);
+      await persistUser(store.users[userIndex]);
+      return res.json({
+        success: true,
+        ok: true,
+        message: 'رمز عبور با موفقیت به‌روزرسانی شد.'
+      });
+    } else {
+      // Create user with new password
+      const newUser = {
+        id: 'usr-' + Date.now(),
+        name: 'کاربر گرامی',
+        phoneNumber: mobile,
+        passwordHash: String(newPassword),
+        createdAt: new Date().toISOString()
+      };
+      await persistUser(newUser);
+      return res.json({
+        success: true,
+        ok: true,
+        message: 'رمز عبور با موفقیت ذخیره شد.'
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      ok: false,
+      error: 'خطا در تغییر رمز عبور: ' + (err?.message || String(err))
+    });
+  }
+});
+
+// POST /api/sms/send-order-sms
+app.post('/api/sms/send-order-sms', async (req, res) => {
+  try {
+    const rawMobile = req.body.mobile || req.body.phone || req.body.phoneNumber;
+    const mobile = normalizeIranMobile(rawMobile);
+    const customerName = req.body.name || req.body.customerName || 'مشتری گرامی';
+    const orderId = req.body.orderId || req.body.trackingCode || `ORD-${Date.now()}`;
+
+    if (!mobile || !/^09\d{9}$/.test(mobile)) {
+      return res.status(400).json({
+        success: false,
+        ok: false,
+        error: 'شماره موبایل معتبر نیست.'
+      });
+    }
+
+    const config = await getActiveSmsConfig();
+    const smsResult = await sendSmsIrFastSend({
+      mobile,
+      templateId: config.orderSuccessTemplateId,
+      parameters: [
+        { name: 'NAME', value: customerName },
+        { name: 'ORDER_ID', value: String(orderId) }
+      ]
+    });
+
+    if (smsResult.success) {
+      return res.json({
+        success: true,
+        ok: true,
+        message: 'پیامک تایید سفارش با موفقیت ارسال شد.'
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      ok: false,
+      error: smsResult.error || 'خطا در ارسال پیامک تایید سفارش.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      ok: false,
+      error: 'خطا در ارسال پیامک سفارش: ' + (err?.message || String(err))
+    });
+  }
+});
+
+// GET /api/admin/sms-config
+app.get('/api/admin/sms-config', async (req, res) => {
+  try {
+    const config = await getActiveSmsConfig();
+    res.json({ success: true, config });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+// POST /api/admin/sms-config
+app.post('/api/admin/sms-config', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const updatedConfig = {
+      apiKey: body.apiKey ? String(body.apiKey).trim() : DEFAULT_SMS_API_KEY,
+      adminMobile: body.adminMobile ? String(body.adminMobile).trim() : '',
+      otpTemplateId: String(body.otpTemplateId || body.otpPattern || DEFAULT_OTP_TEMPLATE_ID),
+      resetPasswordTemplateId: String(body.resetPasswordTemplateId || body.resetPasswordPattern || DEFAULT_RESET_PASSWORD_TEMPLATE_ID),
+      orderSuccessTemplateId: String(body.orderSuccessTemplateId || body.orderSuccessCustomerPattern || DEFAULT_ORDER_SUCCESS_TEMPLATE_ID),
+      enabled: body.enabled !== undefined ? Boolean(body.enabled) : true,
+      provider: 'smsir',
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      await setDoc(doc(db, 'settings', 'sms'), updatedConfig, { merge: true });
+    } catch (fsErr) {
+      console.warn('Firestore SMS config save notice:', fsErr);
+    }
+
+    res.json({
+      success: true,
+      config: updatedConfig,
+      message: 'تنظیمات سامانه پیامک sms.ir با موفقیت ذخیره شد.'
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+// POST /api/sms/test or /api/admin/test-sms
+const handleSmsTestRoute = async (req: express.Request, res: express.Response) => {
+  try {
+    const rawMobile = req.body.mobile || req.body.phone || req.body.phoneNumber || req.body.testMobile;
+    const mobile = normalizeIranMobile(rawMobile);
+    const testType = req.body.type || 'otp';
+    const configBody = req.body.config || {};
+
+    if (!mobile || !/^09\d{9}$/.test(mobile)) {
+      return res.status(400).json({
+        success: false,
+        ok: false,
+        error: 'لطفاً شماره موبایل معتبر ۱۱ رقمی وارد نمایید (مثال: 09123456789).'
+      });
+    }
+
+    const activeConfig = await getActiveSmsConfig();
+    const apiKey = configBody.apiKey || activeConfig.apiKey;
+    let templateId = activeConfig.otpTemplateId;
+    let parameters: Array<{ name: string; value: string }> = [{ name: 'CODE', value: '123456' }];
+
+    if (testType === 'reset_password') {
+      templateId = configBody.resetPasswordTemplateId || configBody.resetPasswordPattern || activeConfig.resetPasswordTemplateId;
+      parameters = [{ name: 'CODE', value: '123456' }];
+    } else if (testType === 'order') {
+      templateId = configBody.orderSuccessTemplateId || configBody.orderSuccessCustomerPattern || activeConfig.orderSuccessTemplateId;
+      parameters = [
+        { name: 'NAME', value: 'کاربر گرامی' },
+        { name: 'ORDER_ID', value: 'OMX-TEST-101' }
+      ];
+    } else {
+      templateId = configBody.otpTemplateId || configBody.otpPattern || activeConfig.otpTemplateId;
+    }
+
+    const result = await sendSmsIrFastSend({
+      mobile,
+      templateId,
+      parameters,
+      customApiKey: apiKey
+    });
+
+    if (result.success) {
+      return res.json({
+        success: true,
+        ok: true,
+        message: `پیامک آزمایشی قالب (${testType}) با موفقیت به شماره ${mobile} ارسال گردید.`,
+        data: result.data
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      ok: false,
+      error: result.error || 'خطا در ارسال پیامک آزمایشی از سامانه sms.ir.',
+      data: result.data
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      ok: false,
+      error: 'خطا در پردازش پیامک آزمایشی: ' + (err?.message || String(err))
+    });
+  }
+};
+
+app.post('/api/sms/test', handleSmsTestRoute);
+app.post('/api/admin/test-sms', handleSmsTestRoute);
+
+
 // POST /api/admin/login
 app.post('/api/admin/login', (req, res) => {
   const { password } = req.body;
@@ -2277,6 +2907,55 @@ ${productUrl}
   }
 }
 
+// Helper function to send link health and price discrepancy alerts to Telegram
+async function sendTelegramLinkAlert(params: {
+  sectionName: string;
+  titleFa: string;
+  sourceUrl: string;
+  statusDescription: string;
+}, cmsConfig?: any) {
+  try {
+    const creds = await resolveTelegramCredentials(cmsConfig);
+    if (!creds.enabled || !creds.botToken || !creds.chatId) {
+      return { success: false, reason: 'unconfigured_or_disabled' };
+    }
+
+    const section = params.sectionName || 'انبار ایران / پیشنهاد ویژه';
+    const title = params.titleFa || 'محصول بدون عنوان';
+    const status = params.statusDescription || 'تغییر قیمت یا موجودی در فروشگاه مبدأ';
+    const url = params.sourceUrl || '';
+
+    const messageHtml = `⚠️ <b>هشدار تغییر وضعیت لینک در سیریک فیت</b>
+📍 بخش: <b>${section}</b>
+📦 نام محصول: <b>${title}</b>
+🏷️ وضعیت: <code>${status}</code>
+🔗 لینک مبدا: ${url}`;
+
+    const payload: any = {
+      chat_id: creds.chatId,
+      text: messageHtml,
+      parse_mode: 'HTML',
+      disable_web_page_preview: false
+    };
+
+    if (creds.topicId) {
+      payload.message_thread_id = Number(creds.topicId);
+    }
+
+    const apiEndpoint = `https://api.telegram.org/bot${creds.botToken}/sendMessage`;
+    const res = await fetch(apiEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    return { success: res.ok, data };
+  } catch (err: any) {
+    console.warn('[Telegram Link Alert Error]:', err?.message || err);
+    return { success: false, error: String(err?.message || err) };
+  }
+}
+
 
 // Helper function to send instant HTML Email invoice to admin
 async function sendEmailAdminNotification(order: any, cmsConfig: any) {
@@ -2573,10 +3252,27 @@ app.post('/api/payment/simulate', async (req, res) => {
 
     await persistOrder(store.orders[orderIndex]);
 
-    // Trigger instant Telegram, Email Admin Alerts and Google Sheets Sync in background
+    // Trigger instant Telegram, Email Admin Alerts, Customer Order SMS and Google Sheets Sync in background
     sendTelegramAdminNotification(store.orders[orderIndex], store.cms);
     sendEmailAdminNotification(store.orders[orderIndex], store.cms);
     sendGoogleSheetWebhook(formatOrderSheetPayload(store.orders[orderIndex])).catch(() => {});
+    
+    // Trigger Customer Order SMS Notification
+    const customerPhone = normalizeIranMobile(store.orders[orderIndex].phoneNumber || (store.orders[orderIndex] as any).customerPhone);
+    if (customerPhone && /^09\d{9}$/.test(customerPhone)) {
+      getActiveSmsConfig().then(cfg => {
+        if (cfg.enabled) {
+          sendSmsIrFastSend({
+            mobile: customerPhone,
+            templateId: cfg.orderSuccessTemplateId,
+            parameters: [
+              { name: 'NAME', value: store.orders[orderIndex].customerName || 'کاربر گرامی' },
+              { name: 'ORDER_ID', value: store.orders[orderIndex].trackingCode || store.orders[orderIndex].id }
+            ]
+          }).catch(e => console.warn('[Order SMS Dispatch Notice]:', e));
+        }
+      }).catch(() => {});
+    }
 
     return res.json({
       success: true,
@@ -5786,7 +6482,7 @@ export async function runProductPriceSync(): Promise<{ success: boolean; syncedC
     const aedRate = Number(store.settings?.aedRate || store.settings?.manualAedRate || 51400);
     const globalMargin = Number(store.settings?.profitMargin || 20);
 
-    const collectionsToSync = ['iran_warehouse', 'special_deals'];
+    const collectionsToSync = ['products', 'iran_warehouse', 'special_deals'];
 
     for (const colName of collectionsToSync) {
       const snap = await getDocs(collection(db, colName));
@@ -5821,7 +6517,6 @@ export async function runProductPriceSync(): Promise<{ success: boolean; syncedC
           } else {
             freshRes = await genericAdapter(cleanUrl, store.cms);
           }
-
 
           if (freshRes && freshRes.ok && freshRes.price && freshRes.price > 0) {
             const freshPriceAed = Number(freshRes.price);
@@ -5869,6 +6564,29 @@ export async function runProductPriceSync(): Promise<{ success: boolean; syncedC
               await setDoc(doc(db, colName, docId), updatedDoc, { merge: true });
               updatedCount++;
               console.log(`[SyncEngine] Synced ${colName}/${docId} (${item.title}): AED ${oldPriceAed} -> ${freshPriceAed}`);
+
+              // Trigger Telegram alert if price delta >= 5% or out of stock
+              const priceDeltaPercent = oldPriceAed > 0 ? (Math.abs(freshPriceAed - oldPriceAed) / oldPriceAed) * 100 : 0;
+              if (!freshInStock || priceDeltaPercent >= 5) {
+                const sectionNameMap: Record<string, string> = {
+                  iran_warehouse: 'انبار ایران',
+                  special_deals: 'پیشنهاد ویژه',
+                  products: 'کاتالوگ عمومی'
+                };
+                let statusDescription = '';
+                if (!freshInStock) {
+                  statusDescription = 'ناموجود در فروشگاه مبدا دبی';
+                } else {
+                  statusDescription = `تغییر قیمت از ${oldPriceAed} به ${freshPriceAed} درهم (${priceDeltaPercent.toFixed(1)}٪ اختلاف)`;
+                }
+
+                sendTelegramLinkAlert({
+                  sectionName: sectionNameMap[colName] || colName,
+                  titleFa: item.titleFa || item.title || item.titleEn || 'محصول',
+                  sourceUrl: targetUrl,
+                  statusDescription
+                }, store.cms).catch(e => console.warn('[SyncEngine] Telegram alert notice:', e));
+              }
             }
           }
         } catch (itemErr: any) {
@@ -5886,6 +6604,238 @@ export async function runProductPriceSync(): Promise<{ success: boolean; syncedC
     return { success: false, syncedCount, updatedCount, errors: [globalErr?.message || String(globalErr)] };
   }
 }
+
+// POST /api/admin/sync-single-link: Scrape and atomically synchronize a single product
+app.post('/api/admin/sync-single-link', async (req, res) => {
+  try {
+    const { collection: colName = 'products', id: docId, url, profitMargin } = req.body || {};
+
+    if (!docId || !url) {
+      return res.status(400).json({ success: false, message: 'شناسه محصول یا لینک الزامی است' });
+    }
+
+    const cleanUrl = extractCleanUrl(url);
+    if (!cleanUrl || !cleanUrl.startsWith('http')) {
+      return res.status(400).json({ success: false, message: 'لینک وارد شده نامعتبر است' });
+    }
+
+    const store = await getStoreData(true);
+    const aedRate = Number(store.settings?.aedRate || store.settings?.manualAedRate || 51400);
+    const globalMargin = Number(store.settings?.profitMargin || 20);
+
+    const domain = new URL(cleanUrl).hostname.toLowerCase();
+    let freshRes: ParseAdapterResult | null = null;
+    if (domain.includes('gnc')) {
+      freshRes = await gncAdapter(cleanUrl, store.cms);
+    } else if (domain.includes('lifepharmacy') || domain.includes('drpharmacy')) {
+      freshRes = await lifePharmacyAdapter(cleanUrl, store.cms);
+    } else if (domain.includes('drnutrition')) {
+      freshRes = await drNutritionAdapter(cleanUrl, store.cms);
+    } else {
+      freshRes = await genericAdapter(cleanUrl, store.cms);
+    }
+
+    if (!freshRes || !freshRes.ok || !freshRes.price || freshRes.price <= 0) {
+      return res.status(422).json({
+        success: false,
+        status: 'error',
+        message: freshRes?.message || 'خطا در خواندن اطلاعات جدید از سایت مبدأ. ساختار صفحه ممکن است تغییر کرده باشد.'
+      });
+    }
+
+    const freshPriceAed = Number(freshRes.price);
+    const freshInStock = freshRes.inStock !== false;
+
+    // Get current document if exists
+    let existingItem: any = {};
+    try {
+      const docSnap = await getDoc(doc(db, colName, docId));
+      if (docSnap.exists()) {
+        existingItem = docSnap.data();
+      }
+    } catch (_fsErr) {}
+
+    const itemMargin = Number(profitMargin ?? existingItem?.profitMargin ?? globalMargin);
+    const freshPriceToman = calculateLandedTomanPrice(freshPriceAed, itemMargin, aedRate);
+
+    const oldPriceAed = Number(existingItem?.priceAed || existingItem?.basePriceAed || 0);
+    const oldPriceToman = Number(existingItem?.priceToman || 0);
+
+    let updatedVariants = existingItem?.variants;
+    if (Array.isArray(updatedVariants) && updatedVariants.length > 0) {
+      updatedVariants = updatedVariants.map((v: any) => ({
+        ...v,
+        priceAed: freshPriceAed,
+        priceAED: freshPriceAed,
+        priceToman: calculateLandedTomanPrice(freshPriceAed, itemMargin, aedRate),
+        inStock: freshInStock
+      }));
+    }
+
+    const updatedDoc = {
+      ...existingItem,
+      priceAed: freshPriceAed,
+      basePriceAed: freshPriceAed,
+      priceAED: freshPriceAed,
+      priceToman: freshPriceToman,
+      inStock: freshInStock,
+      variants: updatedVariants,
+      lastSyncedAt: new Date().toISOString(),
+      syncStatus: 'synced'
+    };
+
+    await setDoc(doc(db, colName, docId), updatedDoc, { merge: true });
+
+    // Check discrepancy and send Telegram alert if price drift >= 5% or out of stock
+    const priceDeltaPercent = oldPriceAed > 0 ? (Math.abs(freshPriceAed - oldPriceAed) / oldPriceAed) * 100 : 0;
+    if (!freshInStock || priceDeltaPercent >= 5) {
+      const sectionNameMap: Record<string, string> = {
+        iran_warehouse: 'انبار ایران',
+        special_deals: 'پیشنهاد ویژه',
+        products: 'کاتالوگ عمومی'
+      };
+      let statusDescription = '';
+      if (!freshInStock) {
+        statusDescription = 'ناموجود در فروشگاه مبدا دبی';
+      } else {
+        statusDescription = `تغییر قیمت از ${oldPriceAed} به ${freshPriceAed} درهم (${priceDeltaPercent.toFixed(1)}٪ اختلاف)`;
+      }
+
+      sendTelegramLinkAlert({
+        sectionName: sectionNameMap[colName] || colName,
+        titleFa: existingItem.titleFa || existingItem.title || existingItem.titleEn || 'محصول',
+        sourceUrl: cleanUrl,
+        statusDescription
+      }, store.cms).catch(e => console.warn('[Telegram Alert Notice]:', e));
+    }
+
+    return res.json({
+      success: true,
+      status: 'synced',
+      message: 'محصول با موفقیت از فروشگاه مبدأ به‌روزرسانی شد.',
+      item: updatedDoc,
+      diff: {
+        oldPriceAed,
+        newPriceAed: freshPriceAed,
+        priceDeltaAed: freshPriceAed - oldPriceAed,
+        oldPriceToman,
+        newPriceToman: freshPriceToman,
+        priceDeltaToman: freshPriceToman - oldPriceToman,
+        inStock: freshInStock
+      }
+    });
+  } catch (err: any) {
+    console.error('Error in /api/admin/sync-single-link:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Internal server error' });
+  }
+});
+
+// POST /api/admin/check-link-health: Checks a URL live without persisting
+app.post('/api/admin/check-link-health', async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (!url) return res.status(400).json({ success: false, message: 'آدرس لینک الزامی است' });
+
+    const cleanUrl = extractCleanUrl(url);
+    if (!cleanUrl || !cleanUrl.startsWith('http')) {
+      return res.status(400).json({ success: false, message: 'آدرس لینک نامعتبر است' });
+    }
+
+    const store = await getStoreData(true);
+    const domain = new URL(cleanUrl).hostname.toLowerCase();
+    let freshRes: ParseAdapterResult | null = null;
+
+    if (domain.includes('gnc')) {
+      freshRes = await gncAdapter(cleanUrl, store.cms);
+    } else if (domain.includes('lifepharmacy') || domain.includes('drpharmacy')) {
+      freshRes = await lifePharmacyAdapter(cleanUrl, store.cms);
+    } else if (domain.includes('drnutrition')) {
+      freshRes = await drNutritionAdapter(cleanUrl, store.cms);
+    } else {
+      freshRes = await genericAdapter(cleanUrl, store.cms);
+    }
+
+    if (freshRes && freshRes.ok && freshRes.price && freshRes.price > 0) {
+      return res.json({
+        success: true,
+        scrapedPriceAed: Number(freshRes.price),
+        inStock: freshRes.inStock !== false,
+        title: freshRes.title,
+        image: freshRes.image,
+        storeName: freshRes.storeName,
+        checkedAt: new Date().toISOString()
+      });
+    } else {
+      return res.json({
+        success: false,
+        error: freshRes?.message || 'عدم امکان استخراج اطلاعات از این لینک',
+        checkedAt: new Date().toISOString()
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Server error' });
+  }
+});
+
+// POST /api/admin/sync-batch-links: Atomically commit detected price/stock changes in bulk
+app.post('/api/admin/sync-batch-links', async (req, res) => {
+  try {
+    const { updates = [] } = req.body || {};
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ success: false, message: 'هیچ آیتمی برای به‌روزرسانی ارسال نشده است' });
+    }
+
+    let updatedCount = 0;
+    for (const update of updates) {
+      if (!update.id) continue;
+      const colName = update.collection || 'products';
+      const docRef = doc(db, colName, update.id);
+      
+      const payload: any = {
+        lastSyncedAt: new Date().toISOString()
+      };
+      if (update.priceAed !== undefined) payload.priceAed = Number(update.priceAed);
+      if (update.basePriceAed !== undefined) payload.basePriceAed = Number(update.basePriceAed);
+      if (update.priceAED !== undefined) payload.priceAED = Number(update.priceAed);
+      if (update.priceToman !== undefined) payload.priceToman = Number(update.priceToman);
+      if (update.inStock !== undefined) payload.inStock = Boolean(update.inStock);
+
+      await setDoc(docRef, payload, { merge: true });
+      updatedCount++;
+    }
+
+    return res.json({
+      success: true,
+      updatedCount,
+      message: `تعداد ${updatedCount} محصول با موفقیت به‌روزرسانی شد.`
+    });
+  } catch (err: any) {
+    console.error('Error in /api/admin/sync-batch-links:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Batch update failed' });
+  }
+});
+
+// POST /api/admin/send-link-alert: Send custom Telegram link discrepancy alert
+app.post('/api/admin/send-link-alert', async (req, res) => {
+  try {
+    const { sectionName, titleFa, sourceUrl, statusDescription } = req.body || {};
+    if (!titleFa || !sourceUrl) {
+      return res.status(400).json({ success: false, error: 'عنوان محصول و لینک مبدا الزامی است' });
+    }
+
+    const store = await getStoreData(true);
+    const result = await sendTelegramLinkAlert({
+      sectionName: sectionName || 'انبار ایران / پیشنهاد ویژه',
+      titleFa: titleFa || 'محصول',
+      sourceUrl: sourceUrl || '',
+      statusDescription: statusDescription || 'تغییر قیمت یا موجودی در فروشگاه مبدأ'
+    }, store.cms);
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
 
 app.post('/api/admin/sync-product-prices', async (req, res) => {
   try {

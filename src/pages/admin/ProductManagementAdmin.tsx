@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Link as LinkIcon,
   Plus,
@@ -12,28 +12,92 @@ import {
   Sparkles,
   DollarSign,
   Package,
+  PackageCheck,
+  Flame,
   Scale,
-  Tag
+  Tag,
+  Activity,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
-import type { NormalizedProduct, ProductVariant } from '../../types';
+import type { NormalizedProduct, ProductVariant, LocalInventoryItem, FeaturedDeal } from '../../types';
 import { extractAttributesFromText } from '../../utils/attributeParser';
 import { toPersianDigits, formatToman, parseAndConvertSize } from '../../utils/formatters';
-import { saveSingleProductWithVariants } from '../../services/adminService';
+import { saveSingleProductWithVariants, saveIranWarehouseItems, saveSpecialDeals } from '../../services/adminService';
 import { VariantMatrixTable, STANDARD_SIZES_PRESET } from '../../components/admin/VariantMatrixTable';
 import { AdminDiscounts } from '../../components/AdminDiscounts';
+import { LinkManagementTab } from '../../components/admin/LinkManagementTab';
+import { IranWarehouseAdmin } from './IranWarehouseAdmin';
+import { DealsAdmin } from './DealsAdmin';
+import { AdminTaxonomyManager } from '../../components/AdminTaxonomyManager';
+import { collection, onSnapshot, doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 
 interface ProductManagementAdminProps {
   initialProduct?: Partial<NormalizedProduct>;
   onSaveProduct?: (product: NormalizedProduct) => Promise<void>;
   showToast?: (msg: string, type: 'success' | 'error') => void;
+  inventory?: LocalInventoryItem[];
+  deals?: FeaturedDeal[];
 }
 
 export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
   initialProduct,
   onSaveProduct,
-  showToast
+  showToast,
+  inventory: propInventory,
+  deals: propDeals
 }) => {
-  const [activeAdminSubTab, setActiveAdminSubTab] = useState<'editor' | 'discounts'>('editor');
+  const [activeAdminSubTab, setActiveAdminSubTab] = useState<
+    'inventory' | 'deals' | 'popularSamples' | 'categories' | 'discounts' | 'links' | 'editor'
+  >('links');
+  const [linksAlertCount, setLinksAlertCount] = useState<number>(0);
+  const [inventoryList, setInventoryList] = useState<LocalInventoryItem[]>(propInventory || []);
+  const [dealsList, setDealsList] = useState<FeaturedDeal[]>(propDeals || []);
+  const [popularSamplesOrder, setPopularSamplesOrder] = useState<string[]>([]);
+  const [isSavingPopular, setIsSavingPopular] = useState<boolean>(false);
+
+  // Firestore listeners for inventory & deals if not passed as props
+  useEffect(() => {
+    if (propInventory && propInventory.length > 0) {
+      setInventoryList(propInventory);
+      return;
+    }
+    const unsubInv = onSnapshot(collection(db, 'iran_warehouse'), (snap) => {
+      const items: LocalInventoryItem[] = [];
+      snap.forEach((d) => items.push({ id: d.id, ...d.data() } as LocalInventoryItem));
+      setInventoryList(items);
+    }, (err) => console.warn('Could not listen to iran_warehouse:', err));
+
+    return () => unsubInv();
+  }, [propInventory]);
+
+  useEffect(() => {
+    if (propDeals && propDeals.length > 0) {
+      setDealsList(propDeals);
+      return;
+    }
+    const unsubDeals = onSnapshot(collection(db, 'special_deals'), (snap) => {
+      const items: FeaturedDeal[] = [];
+      snap.forEach((d) => items.push({ id: d.id, ...d.data() } as FeaturedDeal));
+      setDealsList(items);
+    }, (err) => console.warn('Could not listen to special_deals:', err));
+
+    return () => unsubDeals();
+  }, [propDeals]);
+
+  // Load CMS popular samples order
+  useEffect(() => {
+    getDoc(doc(db, 'settings', 'cms')).then((snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data?.popularSamplesOrder)) {
+          setPopularSamplesOrder(data.popularSamplesOrder);
+        }
+      }
+    }).catch((e) => console.warn('Could not load popularSamplesOrder:', e));
+  }, []);
+
   const [mainUrl, setMainUrl] = useState<string>(initialProduct?.sourceUrl || initialProduct?.url || '');
   const [auxUrl, setAuxUrl] = useState<string>('');
   const [isScrapingMain, setIsScrapingMain] = useState<boolean>(false);
@@ -310,40 +374,227 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex items-center gap-2 border-t border-slate-100 pt-3">
+        <div className="flex items-center gap-2 border-t border-slate-100 pt-3 flex-wrap">
           <button
             type="button"
-            onClick={() => setActiveAdminSubTab('editor')}
-            className={`px-4 py-2 rounded-2xl text-xs font-black transition cursor-pointer flex items-center gap-2 ${
-              activeAdminSubTab === 'editor'
+            onClick={() => setActiveAdminSubTab('inventory')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
+              activeAdminSubTab === 'inventory'
                 ? 'bg-slate-900 text-white shadow-xs'
                 : 'bg-slate-50 hover:bg-slate-100 text-slate-700'
             }`}
           >
-            <Layers className="w-4 h-4" />
-            <span>استخراج و ویرایش محصول با لینک</span>
+            <PackageCheck className="w-4 h-4" />
+            <span>انبار ایران</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+              activeAdminSubTab === 'inventory' ? 'bg-amber-500 text-slate-950' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {toPersianDigits(inventoryList.length)}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveAdminSubTab('deals')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
+              activeAdminSubTab === 'deals'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-700'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>پیشنهادهای ویژه</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+              activeAdminSubTab === 'deals' ? 'bg-amber-500 text-slate-950' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {toPersianDigits(dealsList.length)}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveAdminSubTab('popularSamples')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
+              activeAdminSubTab === 'popularSamples'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-700'
+            }`}
+          >
+            <Flame className="w-4 h-4 text-rose-500" />
+            <span>ترتیب پرطرفدارها</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+              activeAdminSubTab === 'popularSamples' ? 'bg-rose-500 text-white' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {toPersianDigits(dealsList.length + inventoryList.length)}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveAdminSubTab('categories')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
+              activeAdminSubTab === 'categories'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-700'
+            }`}
+          >
+            <Layers className="w-4 h-4 text-indigo-500" />
+            <span>دسته‌بندی محصولات</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveAdminSubTab('discounts')}
-            className={`px-4 py-2 rounded-2xl text-xs font-black transition cursor-pointer flex items-center gap-2 ${
+            className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
               activeAdminSubTab === 'discounts'
                 ? 'bg-slate-900 text-white shadow-xs'
                 : 'bg-slate-50 hover:bg-slate-100 text-slate-700'
             }`}
           >
-            <Tag className="w-4 h-4 text-amber-500" />
-            <span>کدهای تخفیف و کوپن‌ها</span>
+            <Tag className="w-4 h-4 text-emerald-500" />
+            <span>کدهای تخفیف</span>
+          </button>
+
+          {/* DEDICATED 6TH TAB: 🔗 پایش و مدیریت لینک‌ها */}
+          <button
+            type="button"
+            onClick={() => setActiveAdminSubTab('links')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer relative ${
+              activeAdminSubTab === 'links'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-700'
+            }`}
+          >
+            <Activity className="w-4 h-4 text-red-500" />
+            <span>🔗 پایش و مدیریت لینک‌ها</span>
+            {linksAlertCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black animate-pulse">
+                {toPersianDigits(linksAlertCount)}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveAdminSubTab('editor')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 cursor-pointer ${
+              activeAdminSubTab === 'editor'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-700'
+            }`}
+          >
+            <LinkIcon className="w-4 h-4 text-blue-500" />
+            <span>استخراج تکی با لینک</span>
           </button>
         </div>
       </div>
 
-      {/* DISCOUNTS TAB */}
+      {/* 1. INVENTORY TAB */}
+      {activeAdminSubTab === 'inventory' && (
+        <IranWarehouseAdmin
+          items={inventoryList}
+          onSaveItems={async (updated) => {
+            setInventoryList(updated);
+            await saveIranWarehouseItems(updated);
+            if (showToast) showToast('انبار ایران با موفقیت ذخیره شد', 'success');
+          }}
+          showToast={showToast}
+        />
+      )}
+
+      {/* 2. DEALS TAB */}
+      {activeAdminSubTab === 'deals' && (
+        <DealsAdmin
+          deals={dealsList}
+          onSaveDeals={async (updated) => {
+            setDealsList(updated);
+            await saveSpecialDeals(updated);
+            if (showToast) showToast('پیشنهادهای ویژه با موفقیت ذخیره شد', 'success');
+          }}
+          showToast={showToast}
+        />
+      )}
+
+      {/* 3. POPULAR SAMPLES TAB */}
+      {activeAdminSubTab === 'popularSamples' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-black">
+                <Flame className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900">ترتیب نمایش محصولات پرطرفدار</h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">مشخص کردن ترتیب اولویت در صفحه اصلی</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                setIsSavingPopular(true);
+                try {
+                  await setDoc(doc(db, 'settings', 'cms'), { popularSamplesOrder }, { merge: true });
+                  if (showToast) showToast('ترتیب پرطرفدارها با موفقیت ذخیره شد', 'success');
+                } catch (e: any) {
+                  if (showToast) showToast(`خطا در ذخیره ترتیب: ${e.message}`, 'error');
+                } finally {
+                  setIsSavingPopular(false);
+                }
+              }}
+              disabled={isSavingPopular}
+              className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-black rounded-xl transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {isSavingPopular ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 text-emerald-400" />}
+              <span>ذخیره ترتیب</span>
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {[...dealsList, ...inventoryList].map((prod: any, idx) => (
+              <div
+                key={prod.id || idx}
+                className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-2xl"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 text-xs font-black flex items-center justify-center">
+                    {toPersianDigits(idx + 1)}
+                  </span>
+                  <img
+                    src={prod.image || prod.imageUrl || 'https://placehold.co/50x50'}
+                    alt={prod.title || prod.titleFa}
+                    className="w-10 h-10 object-contain rounded-lg bg-white border border-slate-200"
+                  />
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900">{prod.titleFa || prod.title}</h4>
+                    <p className="text-[11px] text-slate-500 dir-ltr text-right font-medium">{prod.title || prod.brand}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black text-emerald-700">
+                    {prod.priceAed ? `${toPersianDigits(prod.priceAed)} AED` : ''}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 4. CATEGORIES TAB */}
+      {activeAdminSubTab === 'categories' && (
+        <AdminTaxonomyManager showToast={showToast} />
+      )}
+
+      {/* 5. DISCOUNTS TAB */}
       {activeAdminSubTab === 'discounts' && (
         <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
           <AdminDiscounts showToast={showToast} />
         </div>
+      )}
+
+      {/* 6. DEDICATED LINK MANAGEMENT TAB */}
+      {activeAdminSubTab === 'links' && (
+        <LinkManagementTab showToast={showToast} onAlertCountChange={setLinksAlertCount} />
       )}
 
       {/* PRODUCT EDITOR TAB */}

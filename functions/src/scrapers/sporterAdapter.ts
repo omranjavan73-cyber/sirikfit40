@@ -112,9 +112,9 @@ export const parseSporterHtml = (html: string, sourceUrl: string = 'https://www.
   const brand = $('.product-brand, .brand-name, [itemprop="brand"]').first().text().trim() || 'Sporter UAE';
   const mainImg = sanitizeImageUrl(jsonImage || $('meta[property="og:image"]').attr('content') || $('.gallery-placeholder img, [itemprop="image"], .fotorama__img, .product-image-photo').first().attr('src') || '', sourceUrl) || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=800';
 
-  // 2. BULLETPROOF 4-TIER PRICE EXTRACTION
-  let priceAed = 0;
-  let originalPriceAed = 0;
+  // 2. BULLETPROOF PRICE EXTRACTION WITH STRIKETHROUGH ELIMINATION
+  const activePrices: number[] = [];
+  const oldPrices: number[] = [];
 
   // Tier 1: Parse Magento priceConfig JSON
   $('script[type="text/x-magento-init"]').each((_, el) => {
@@ -124,49 +124,64 @@ export const parseSporterHtml = (html: string, sourceUrl: string = 'https://www.
                     || json['#product_addtocart_form']?.priceBox?.priceConfig?.prices
                     || json['*']?.priceBox?.priceConfig?.prices;
       if (priceBox) {
-        if (priceBox.finalPrice?.amount) {
-          const val = parseFloat(String(priceBox.finalPrice.amount));
-          if (!isNaN(val) && val > 0) priceAed = val;
-        }
-        if (priceBox.oldPrice?.amount) {
-          const val = parseFloat(String(priceBox.oldPrice.amount));
-          if (!isNaN(val) && val > 0) originalPriceAed = val;
-        }
+        const finalP = parseFloat(String(priceBox.finalPrice?.amount || ''));
+        const oldP = parseFloat(String(priceBox.oldPrice?.amount || ''));
+        const baseP = parseFloat(String(priceBox.basePrice?.amount || ''));
+        if (!isNaN(finalP) && finalP > 0) activePrices.push(finalP);
+        if (!isNaN(oldP) && oldP > 0) oldPrices.push(oldP);
+        if (!isNaN(baseP) && baseP > 0 && isNaN(finalP)) activePrices.push(baseP);
       }
     } catch (_) {}
   });
 
-  // Tier 2: Check Magento / Sporter Specific Price Selectors & Attributes
-  if (!priceAed) {
-    const specialPriceElem = $('[data-price-type="finalPrice"] .price, .special-price .price, .product-info-price .special-price');
-    const oldPriceElem = $('[data-price-type="oldPrice"] .price, .old-price .price, .product-info-price .old-price, del .price, s .price, .line-through .price');
-    const regularPriceElem = $('[data-price-type="basePrice"] .price, .price-box .price, .product-info-price .price');
-
-    if (specialPriceElem.length > 0) {
-      const rawSpecial = specialPriceElem.first().text().replace(/[^\d.]/g, '');
-      priceAed = parseFloat(rawSpecial) || 0;
-      if (oldPriceElem.length > 0) {
-        const rawOld = oldPriceElem.first().text().replace(/[^\d.]/g, '');
-        originalPriceAed = parseFloat(rawOld) || 0;
-      }
-    } else if (regularPriceElem.length > 0) {
-      const rawRegular = regularPriceElem.first().text().replace(/[^\d.]/g, '');
-      priceAed = parseFloat(rawRegular) || 0;
+  // Tier 2: Active Sale Price Selectors (Strict Strikethrough Elimination)
+  $('[data-price-type="finalPrice"] .price, [data-price-type="finalPrice"], .special-price .price, .special-price, .product-info-price .special-price .price').each((_, el) => {
+    const isStruck = $(el).is('del, s, strike, .old-price, [data-price-type="oldPrice"]') || $(el).closest('del, s, strike, .old-price, [data-price-type="oldPrice"]').length > 0;
+    if (!isStruck) {
+      const p = parseFloat($(el).text().replace(/[^\d.]/g, ''));
+      if (!isNaN(p) && p > 0) activePrices.push(p);
     }
-  }
+  });
 
-  // Tier 3: Fallback to JSON-LD Schema
-  if (!priceAed && jsonPrice > 0) {
-    priceAed = jsonPrice;
-    if (!originalPriceAed && jsonOldPrice > jsonPrice) originalPriceAed = jsonOldPrice;
-  }
+  // Tier 2b: Old / Strikethrough Selectors
+  $('[data-price-type="oldPrice"] .price, [data-price-type="oldPrice"], .old-price .price, .old-price, del .price, del, s .price, s, strike, .line-through').each((_, el) => {
+    const p = parseFloat($(el).text().replace(/[^\d.]/g, ''));
+    if (!isNaN(p) && p > 0) oldPrices.push(p);
+  });
+
+  // Tier 2c: Regular non-struck selectors
+  $('.price-box .price, .product-info-price .price, [itemprop="price"]').each((_, el) => {
+    const isStruck = $(el).is('del, s, strike, .old-price, [data-price-type="oldPrice"]') || $(el).closest('del, s, strike, .old-price, [data-price-type="oldPrice"]').length > 0;
+    if (!isStruck) {
+      const p = parseFloat($(el).text().replace(/[^\d.]/g, ''));
+      if (!isNaN(p) && p > 0) activePrices.push(p);
+    }
+  });
+
+  // Tier 3: JSON-LD & NextData candidates
+  if (jsonPrice > 0) activePrices.push(jsonPrice);
+  if (jsonOldPrice > 0) oldPrices.push(jsonOldPrice);
 
   // Tier 4: OpenGraph & Meta price tags
-  if (!priceAed) {
-    const metaPrice = $('meta[property="product:price:amount"]').attr('content') || $('meta[name="twitter:data1"]').attr('content');
-    if (metaPrice) {
-      priceAed = parseFloat(metaPrice.replace(/[^\d.]/g, '')) || 0;
-    }
+  const metaPrice = parseFloat(String($('meta[property="product:price:amount"]').attr('content') || $('meta[name="twitter:data1"]').attr('content') || '').replace(/[^\d.]/g, ''));
+  if (!isNaN(metaPrice) && metaPrice > 0) activePrices.push(metaPrice);
+
+  // Mathematical Invariant
+  const validActive = activePrices.filter(p => p > 0);
+  const validOld = oldPrices.filter(p => p > 0);
+
+  let priceAed = 0;
+  let originalPriceAed = 0;
+
+  if (validActive.length > 0 && validOld.length > 0) {
+    const minActive = Math.min(...validActive);
+    const maxOld = Math.max(...validOld);
+    priceAed = Math.min(minActive, maxOld);
+    originalPriceAed = Math.max(minActive, maxOld) > priceAed ? Math.max(minActive, maxOld) : 0;
+  } else if (validActive.length > 0) {
+    priceAed = Math.min(...validActive);
+  } else if (validOld.length > 0) {
+    priceAed = Math.min(...validOld);
   }
 
   // Compute Discount Percent if both prices exist

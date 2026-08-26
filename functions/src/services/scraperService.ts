@@ -4,7 +4,7 @@ import { scrapeSporter } from '../scrapers/sporterScraper';
 import { scrapeDrNutrition } from '../scrapers/drNutritionScraper';
 import { scrapeGnc } from '../scrapers/gncScraper';
 import { lifePharmacyAdapter } from '../scrapers/lifePharmacyAdapter';
-import { cleanAndNormalizeUrl, hashUrl } from '../scrapers/utils';
+import { cleanAndNormalizeUrl, hashUrl, USER_AGENT_ROTATION_POOL, getRandomUserAgent } from '../scrapers/utils';
 
 // Lazy Firebase Admin initialization
 function getAdminDb() {
@@ -133,22 +133,23 @@ export class BackendScraperService {
       }
     }
 
-    // 2. LIVE MULTI-TIER EXTRACTION
+    // 2. LIVE MULTI-TIER EXTRACTION WITH 2-STAGE RESILIENT AUTO-RETRY
     const retailer = this.detectRetailer(normalizedUrl);
     console.log(`[BackendScraperService] Scraping live ${retailer} for ${normalizedUrl} (forceRefresh=${forceRefresh})`);
 
     let extracted: any = null;
-    try {
+
+    const runExtraction = async (ua: string, timeoutMs: number) => {
       if (retailer === 'Sporter') {
-        extracted = await scrapeSporter(normalizedUrl);
+        return await scrapeSporter(normalizedUrl, { userAgent: ua, timeoutMs });
       } else if (retailer === 'DrNutrition') {
-        extracted = await scrapeDrNutrition(normalizedUrl);
+        return await scrapeDrNutrition(normalizedUrl, { userAgent: ua, timeoutMs });
       } else if (retailer === 'GNC') {
-        extracted = await scrapeGnc(normalizedUrl);
+        return await scrapeGnc(normalizedUrl);
       } else if (retailer === 'LifePharmacy') {
         const lifeRes = await lifePharmacyAdapter(normalizedUrl);
         if (lifeRes && lifeRes.ok) {
-          extracted = {
+          return {
             success: true,
             titleFa: lifeRes.titleFa || lifeRes.title,
             titleEn: lifeRes.title,
@@ -167,8 +168,27 @@ export class BackendScraperService {
           };
         }
       }
+      return null;
+    };
+
+    const primaryUa = USER_AGENT_ROTATION_POOL[0];
+    try {
+      extracted = await runExtraction(primaryUa, 6000);
+      if (!extracted || !extracted.success || !extracted.priceAed || extracted.priceAed <= 0) {
+        console.warn(`[BackendScraperService] Attempt 1 returned empty/failure for ${normalizedUrl}. Waiting 1000ms for auto-retry...`);
+        await new Promise(r => setTimeout(r, 1000));
+        const retryUa = getRandomUserAgent(primaryUa);
+        extracted = await runExtraction(retryUa, 10000);
+      }
     } catch (scrapeErr: any) {
-      console.error(`[BackendScraperService] Extraction failed for ${normalizedUrl}:`, scrapeErr?.message || scrapeErr);
+      console.warn(`[BackendScraperService] Attempt 1 error for ${normalizedUrl} (${scrapeErr?.message || scrapeErr}). Waiting 1000ms for auto-retry...`);
+      try {
+        await new Promise(r => setTimeout(r, 1000));
+        const retryUa = getRandomUserAgent(primaryUa);
+        extracted = await runExtraction(retryUa, 10000);
+      } catch (retryErr: any) {
+        console.error(`[BackendScraperService] Auto-retry attempt 2 also failed for ${normalizedUrl}:`, retryErr?.message || retryErr);
+      }
     }
 
     if (!extracted || !extracted.success || !extracted.priceAed || extracted.priceAed <= 0) {

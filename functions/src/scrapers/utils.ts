@@ -2,9 +2,39 @@ import crypto from 'crypto';
 import * as cheerio from 'cheerio';
 
 // 1. Genuine Browser Header Stack Emulation (Modern Chrome Desktop)
-export const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+export const USER_AGENT_ROTATION_POOL = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0'
+];
 
-export const getStandardScraperHeaders = (targetUrl?: string) => {
+export const BROWSER_USER_AGENT = USER_AGENT_ROTATION_POOL[0];
+
+export const getRandomUserAgent = (exclude?: string): string => {
+  const filtered = exclude ? USER_AGENT_ROTATION_POOL.filter(u => u !== exclude) : USER_AGENT_ROTATION_POOL;
+  return filtered[Math.floor(Math.random() * filtered.length)] || USER_AGENT_ROTATION_POOL[0];
+};
+
+export const extractDrNutritionHandle = (url: string): string | null => {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const clean = url.trim().split('?')[0].split('#')[0].replace(/\.json$/i, '').replace(/\.html$/i, '');
+    const match = clean.match(/\/(?:products|product)\/([^/?#]+)/i);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+    const parts = clean.split('/').filter(Boolean);
+    const last = parts[parts.length - 1];
+    if (last && !['en-ae', 'ar-ae', 'products', 'product', 'drnutrition.com', 'www.drnutrition.com'].includes(last.toLowerCase())) {
+      return last.trim();
+    }
+  } catch (_e) {}
+  return null;
+};
+
+export const getStandardScraperHeaders = (targetUrl?: string, customUserAgent?: string) => {
   let host = '';
   if (targetUrl) {
     try {
@@ -12,9 +42,11 @@ export const getStandardScraperHeaders = (targetUrl?: string) => {
     } catch (_e) {}
   }
 
+  const ua = customUserAgent || BROWSER_USER_AGENT;
+
   return {
-    'User-Agent': BROWSER_USER_AGENT,
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'User-Agent': ua,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8,application/json;q=0.9',
     'Accept-Language': 'en-AE,en-US;q=0.9,en;q=0.8,ar;q=0.7,fa;q=0.6',
     'Accept-Encoding': 'gzip, deflate, br',
     'Cache-Control': 'no-cache',

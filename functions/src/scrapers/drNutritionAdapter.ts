@@ -4,7 +4,11 @@ import {
   isOutOfStockElement,
   sanitizeImageUrl,
   getStandardScraperHeaders,
-  generateBilingualProductTitle
+  generateBilingualProductTitle,
+  extractDrNutritionHandle,
+  extractPriceNumber,
+  isArtificialFallback,
+  deduplicateStrings
 } from './utils';
 
 export interface ExtractedProduct {
@@ -277,9 +281,10 @@ export const extractRobustProductData = (html: string, sourceUrl: string): Extra
   };
 };
 
-export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<ScrapedProductResult | null> {
+export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, options?: { timeoutMs?: number; userAgent?: string }): Promise<ScrapedProductResult | null> {
   const storeName = "Dr. Nutrition";
-  const headers = getStandardScraperHeaders(targetUrl);
+  const headers = getStandardScraperHeaders(targetUrl, options?.userAgent);
+  const timeout = options?.timeoutMs || 15000;
 
   // Normalize URL to /en-ae/
   let drUrl = targetUrl.replace(/https?:\/\/(www\.)?drnutrition\.com/i, 'https://www.drnutrition.com');
@@ -290,11 +295,166 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Pr
     enAeUrl = drUrl.replace('drnutrition.com/', 'drnutrition.com/en-ae/');
   }
 
+  // TIER 1: DIRECT PRODUCT JSON ENDPOINT (/products/[handle].json)
+  const handle = extractDrNutritionHandle(targetUrl);
+  if (handle) {
+    const jsonCandidates = [
+      `https://www.drnutrition.com/en-ae/products/${handle}.json`,
+      `https://www.drnutrition.com/products/${handle}.json`,
+      `https://www.drnutrition.com/en-ae/product/${handle}.json`
+    ];
+
+    for (const jsonUrl of jsonCandidates) {
+      try {
+        const jsonRes = await axios.get(jsonUrl, {
+          headers: {
+            ...headers,
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-AE,en;q=0.9'
+          },
+          timeout: Math.min(timeout, 8000),
+          validateStatus: (s) => s < 400
+        });
+
+        if (jsonRes.data && (jsonRes.data.product || jsonRes.data.title)) {
+          const product = jsonRes.data.product || jsonRes.data;
+          const titleEn = String(product.title || product.name || '').trim();
+          const brand = String(product.vendor || product.brand || 'Dr. Nutrition').trim();
+          const rawVariants = Array.isArray(product.variants) ? product.variants : [];
+          const v0 = rawVariants[0] || {};
+
+          let rawPrice = v0.price ?? product.price;
+          let rawComparePrice = v0.compare_at_price ?? product.compare_at_price;
+
+          let priceAed = extractPriceNumber(rawPrice);
+          if (priceAed > 1000 || (!String(rawPrice).includes('.') && priceAed >= 1000)) priceAed = priceAed / 100;
+
+          let originalPriceAed = rawComparePrice ? extractPriceNumber(rawComparePrice) : 0;
+          if (originalPriceAed > 1000 || (!String(rawComparePrice).includes('.') && originalPriceAed >= 1000)) originalPriceAed = originalPriceAed / 100;
+
+          // Mathematical Invariant
+          if (priceAed > 0 && originalPriceAed > 0) {
+            const minP = Math.min(priceAed, originalPriceAed);
+            const maxP = Math.max(priceAed, originalPriceAed);
+            priceAed = minP;
+            originalPriceAed = maxP > minP ? maxP : 0;
+          }
+
+          if (titleEn && priceAed > 0) {
+            const galleryImages: string[] = [];
+            if (Array.isArray(product.images)) {
+              product.images.forEach((img: any) => {
+                const src = typeof img === 'string' ? img : (img?.src || img?.url);
+                if (src) {
+                  const s = sanitizeImageUrl(src, targetUrl);
+                  if (s && !galleryImages.includes(s)) galleryImages.push(s);
+                }
+              });
+            }
+
+            let rawImg = product.image?.src || product.image || (galleryImages.length > 0 ? galleryImages[0] : '');
+            if (typeof rawImg === 'object' && rawImg?.src) rawImg = rawImg.src;
+            const mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), targetUrl);
+            if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+
+            const flavorsList: string[] = [];
+            const sizesList: string[] = [];
+            const structuredVariants: any[] = [];
+
+            if (Array.isArray(product.options)) {
+              product.options.forEach((opt: any) => {
+                const optName = String(opt.name || '').toLowerCase();
+                const values = Array.isArray(opt.values) ? opt.values : [];
+                values.forEach((val: any) => {
+                  const valStr = String(val || '').trim();
+                  if (valStr && !isArtificialFallback(valStr)) {
+                    if (optName.includes('flavor') || optName.includes('طعم')) flavorsList.push(valStr);
+                    else if (optName.includes('size') || optName.includes('weight') || optName.includes('حجم')) sizesList.push(valStr);
+                  }
+                });
+              });
+            }
+
+            if (rawVariants.length > 0) {
+              rawVariants.forEach((v: any, vIdx: number) => {
+                let vPrice = priceAed;
+                if (v.price) {
+                  let vp = extractPriceNumber(v.price);
+                  if (vp > 1000 || (!String(v.price).includes('.') && vp >= 1000)) vp = vp / 100;
+                  if (vp > 0) vPrice = vp;
+                }
+                const vTitle = String(v.title || v.option1 || '').trim();
+                const vImg = v.featured_image?.src ? sanitizeImageUrl(v.featured_image.src, targetUrl) : undefined;
+
+                if (vTitle && !isArtificialFallback(vTitle)) {
+                  const isSize = vTitle.toLowerCase().includes('kg') || vTitle.toLowerCase().includes('g') || vTitle.toLowerCase().includes('lb') || vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('عددی');
+                  if (isSize) {
+                    if (!sizesList.includes(vTitle)) sizesList.push(vTitle);
+                  } else {
+                    if (!flavorsList.includes(vTitle)) flavorsList.push(vTitle);
+                  }
+                  structuredVariants.push({
+                    id: String(v.id || `var-${vIdx}`),
+                    title: vTitle,
+                    price: vPrice,
+                    priceAed: vPrice,
+                    priceAED: vPrice,
+                    image: vImg,
+                    inStock: v.available !== false
+                  });
+                }
+              });
+            }
+
+            const cleanFlavors = deduplicateStrings(flavorsList);
+            const cleanSizes = deduplicateStrings(sizesList);
+            const titleFa = generateBilingualProductTitle(titleEn, brand);
+            const finalOriginalPrice = originalPriceAed > priceAed ? originalPriceAed : undefined;
+            const discountPercent = finalOriginalPrice ? Math.round(((finalOriginalPrice - priceAed) / finalOriginalPrice) * 100) : undefined;
+
+            return {
+              ok: true,
+              success: true,
+              title: titleEn,
+              titleFa,
+              brand,
+              storeName,
+              sourceUrl: targetUrl,
+              priceAed,
+              priceAED: priceAed,
+              price: priceAed,
+              originalPriceAed: finalOriginalPrice,
+              originalPriceAED: finalOriginalPrice,
+              originalPrice: finalOriginalPrice,
+              discountPercent,
+              currency: 'AED',
+              mainImage: mainImg,
+              image: mainImg,
+              imageUrl: mainImg,
+              galleryImages,
+              images: galleryImages,
+              weightKg: 0.8,
+              flavors: cleanFlavors,
+              sizes: cleanSizes,
+              variants: structuredVariants,
+              variantMatrix: {
+                flavors: cleanFlavors,
+                sizes: cleanSizes,
+                items: structuredVariants
+              },
+              description: product.body_html ? String(product.body_html).replace(/<[^>]*>/g, ' ').trim() : undefined
+            };
+          }
+        }
+      } catch (_jsonErr) {}
+    }
+  }
+
   const urlCandidates = Array.from(new Set([enAeUrl, drUrl, targetUrl]));
 
   for (const url of urlCandidates) {
     try {
-      const response = await axios.get(url, { headers, timeout: 15000 });
+      const response = await axios.get(url, { headers, timeout });
       if (response.data && typeof response.data === 'string') {
         const robust = extractRobustProductData(response.data, url);
         if (robust && robust.titleEn && robust.priceAed > 0) {

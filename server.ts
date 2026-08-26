@@ -3646,7 +3646,37 @@ const cleanTitleStr = (raw: string) => {
     .trim();
 };
 
-const getStandardScraperHeaders = (targetUrl?: string) => {
+const USER_AGENT_ROTATION_POOL = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0'
+];
+
+const getRandomUserAgent = (exclude?: string): string => {
+  const filtered = exclude ? USER_AGENT_ROTATION_POOL.filter(u => u !== exclude) : USER_AGENT_ROTATION_POOL;
+  return filtered[Math.floor(Math.random() * filtered.length)] || USER_AGENT_ROTATION_POOL[0];
+};
+
+const extractDrNutritionHandle = (url: string): string | null => {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const clean = url.trim().split('?')[0].split('#')[0].replace(/\.json$/i, '').replace(/\.html$/i, '');
+    const match = clean.match(/\/(?:products|product)\/([^/?#]+)/i);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+    const parts = clean.split('/').filter(Boolean);
+    const last = parts[parts.length - 1];
+    if (last && !['en-ae', 'ar-ae', 'products', 'product', 'drnutrition.com', 'www.drnutrition.com'].includes(last.toLowerCase())) {
+      return last.trim();
+    }
+  } catch (_e) {}
+  return null;
+};
+
+const getStandardScraperHeaders = (targetUrl?: string, customUserAgent?: string) => {
   let host = '';
   if (targetUrl) {
     try {
@@ -3654,12 +3684,12 @@ const getStandardScraperHeaders = (targetUrl?: string) => {
     } catch (_e) {}
   }
   return {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+    'User-Agent': customUserAgent || USER_AGENT_ROTATION_POOL[0],
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/json;q=0.9',
-    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8,fa;q=0.7',
     'Cache-Control': 'no-cache',
     'Pragma': 'no-cache',
-    'Sec-Ch-Ua': '"Not/A)Brand";v="99", "Google Chrome";v="115", "Chromium";v="115"',
+    'Sec-Ch-Ua': '"Chromium";v="124", "Not-A.Brand";v="24", "Google Chrome";v="124"',
     'Sec-Ch-Ua-Mobile': '?0',
     'Sec-Ch-Ua-Platform': '"Windows"',
     'Sec-Fetch-Dest': 'document',
@@ -5035,9 +5065,9 @@ async function fetchWithMicrolink(targetUrl: string, storeName: string): Promise
 // -------------------------------------------------------------------
 // ADAPTER 1: DR NUTRITION DEDICATED ADAPTER (drNutritionAdapter)
 // -------------------------------------------------------------------
-async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<ParseAdapterResult> {
+async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, customUserAgent?: string): Promise<ParseAdapterResult> {
   const storeName = "Dr. Nutrition";
-  const headers = getStandardScraperHeaders(targetUrl);
+  const headers = getStandardScraperHeaders(targetUrl, customUserAgent);
 
   // Standardize Dr. Nutrition URL with clean fallbacks
   let drUrl = targetUrl.replace(/https?:\/\/(www\.)?drnutrition\.com/i, 'https://www.drnutrition.com');
@@ -5050,14 +5080,158 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
     enAeUrl = drUrl.replace('drnutrition.com/', 'drnutrition.com/en-ae/');
   }
 
+  // TIER 1: DIRECT PRODUCT JSON ENDPOINT (/products/[handle].json)
+  const handle = extractDrNutritionHandle(targetUrl);
+  if (handle) {
+    const jsonUrls = [
+      `https://www.drnutrition.com/en-ae/products/${handle}.json`,
+      `https://www.drnutrition.com/products/${handle}.json`,
+      `https://www.drnutrition.com/en-ae/product/${handle}.json`
+    ];
+
+    for (const jsonUrl of jsonUrls) {
+      try {
+        const controller = new AbortController();
+        const tId = setTimeout(() => controller.abort(), 4000);
+        const res = await fetch(jsonUrl, {
+          headers: {
+            ...headers,
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-AE,en;q=0.9'
+          },
+          signal: controller.signal
+        });
+        clearTimeout(tId);
+
+        if (res.ok) {
+          const json: any = await res.json();
+          const product = json?.product || json;
+          const t = product?.title || product?.name;
+          const rawVariants = Array.isArray(product?.variants) ? product.variants : [];
+          const v0 = rawVariants[0] || {};
+          
+          let rawPrice = v0.price ?? product?.price;
+          let rawComparePrice = v0.compare_at_price ?? product?.compare_at_price;
+
+          let p = parseFloat(normalizeToEnglishDigits(String(rawPrice || '')).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+          if (p > 1000 || (!String(rawPrice).includes('.') && p >= 1000)) p = p / 100;
+
+          let op = rawComparePrice ? parseFloat(normalizeToEnglishDigits(String(rawComparePrice)).replace(/,/g, '').replace(/[^0-9.]/g, '')) : 0;
+          if (op > 1000 || (!String(rawComparePrice).includes('.') && op >= 1000)) op = op / 100;
+
+          // Mathematical Invariant
+          if (p > 0 && op > 0) {
+            const minP = Math.min(p, op);
+            const maxP = Math.max(p, op);
+            p = minP;
+            op = maxP > minP ? maxP : 0;
+          }
+
+          if (t && p > 0) {
+            const finalPrice = Math.round(p * 100) / 100;
+            const originalPrice = (op && op > finalPrice) ? Math.round(op * 100) / 100 : undefined;
+            const discountPercent = originalPrice ? Math.round(((originalPrice - finalPrice) / originalPrice) * 100) : undefined;
+
+            const galleryImages: string[] = [];
+            if (Array.isArray(product?.images)) {
+              product.images.forEach((img: any) => {
+                const src = typeof img === 'string' ? img : (img?.src || img?.url);
+                if (src) {
+                  const s = sanitizeImageUrl(src, targetUrl);
+                  if (s && !galleryImages.includes(s)) galleryImages.push(s);
+                }
+              });
+            }
+
+            let rawImg = product?.image?.src || product?.image || (galleryImages.length > 0 ? galleryImages[0] : '');
+            if (typeof rawImg === 'object' && rawImg?.src) rawImg = rawImg.src;
+            const mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), targetUrl);
+            if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+
+            const flavors: string[] = [];
+            const sizes: string[] = [];
+            const variantGroups: any[] = [];
+
+            if (Array.isArray(product?.options)) {
+              product.options.forEach((opt: any) => {
+                const optName = String(opt.name || '').toLowerCase();
+                const values = Array.isArray(opt.values) ? opt.values : [];
+                values.forEach((val: any) => {
+                  const valStr = String(val || '').trim();
+                  if (valStr) {
+                    if (optName.includes('flavor') || optName.includes('طعم')) flavors.push(valStr);
+                    else if (optName.includes('size') || optName.includes('weight') || optName.includes('حجم')) sizes.push(valStr);
+                  }
+                });
+              });
+            }
+
+            if (rawVariants.length > 0) {
+              const flavorOptions: any[] = [];
+              const sizeOptions: any[] = [];
+
+              rawVariants.forEach((v: any, vIdx: number) => {
+                let vPrice = finalPrice;
+                if (v.price) {
+                  let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+                  if (vp > 1000 || (!String(v.price).includes('.') && vp >= 1000)) vp = vp / 100;
+                  if (!isNaN(vp) && vp > 0) vPrice = Math.round(vp * 100) / 100;
+                }
+                let vImg = v.featured_image?.src ? sanitizeImageUrl(v.featured_image.src, targetUrl) : undefined;
+                const vTitle = String(v.title || v.option1 || '').trim();
+
+                if (vTitle && !['default title', 'default', '1'].includes(vTitle.toLowerCase())) {
+                  const isSize = vTitle.toLowerCase().includes('kg') || vTitle.toLowerCase().includes('g') || vTitle.toLowerCase().includes('lb') || vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('عددی');
+                  if (isSize) {
+                    if (!sizes.includes(vTitle)) sizes.push(vTitle);
+                    sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, label: vTitle, priceAed: vPrice, image: vImg, inStock: v.available !== false });
+                  } else {
+                    if (!flavors.includes(vTitle)) flavors.push(vTitle);
+                    flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, label: vTitle, priceAed: vPrice, image: vImg, inStock: v.available !== false });
+                  }
+                }
+              });
+
+              if (flavorOptions.length > 0) {
+                variantGroups.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorOptions });
+              }
+              if (sizeOptions.length > 0) {
+                variantGroups.push({ id: 'sizes', name: 'وزن / سایز (Size)', type: 'size', options: sizeOptions });
+              }
+            }
+
+            return {
+              ok: true,
+              title: cleanTitleStr(t),
+              price: finalPrice,
+              originalPriceAed: originalPrice,
+              discountPercent,
+              currency: "AED",
+              image: mainImg,
+              galleryImages,
+              images: galleryImages,
+              variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
+              flavors,
+              sizes,
+              options: [...flavors, ...sizes],
+              description: product.body_html ? String(product.body_html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000) : undefined,
+              storeName,
+              inStock: v0.available !== false
+            };
+          }
+        }
+      } catch (_jsonErr) {}
+    }
+  }
+
   const urlCandidates = [enAeUrl, cleanOriginal];
   if (!urlCandidates.includes(drUrl)) urlCandidates.unshift(drUrl);
 
-  // TIER 1: DIRECT FETCH + EXACT JSON PARSING (Fast check)
+  // TIER 2: DIRECT FETCH + EXACT JSON PARSING (Fast check)
   for (const fetchUrl of [enAeUrl]) {
     try {
       const controller = new AbortController();
-      const tId = setTimeout(() => controller.abort(), 2000);
+      const tId = setTimeout(() => controller.abort(), 3000);
       const directRes = await fetch(fetchUrl, {
         headers,
         signal: controller.signal
@@ -5067,13 +5241,11 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
       if (directRes.ok) {
         const html = await directRes.text();
         if (html && html.length > 200) {
-          // 1. Direct Exact JSON parsing
           const exactResult = parseDrNutritionExactJson(html, fetchUrl);
           if (exactResult && exactResult.title && exactResult.price && exactResult.price > 0) {
             return exactResult;
           }
 
-          // 2. Full HTML Engine fallback
           const parsed = parseHtmlEngine(html, fetchUrl);
           if (parsed.title && parsed.price > 0) {
             return {
@@ -5097,133 +5269,11 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any): Promise<P
     } catch (_directErr) {}
   }
 
-  // TIER 2: MICROLINK REAL-TIME PRERENDER EXTRACTOR
+  // TIER 3: MICROLINK REAL-TIME PRERENDER EXTRACTOR
   const microlinkResult = await fetchWithMicrolink(enAeUrl, storeName);
   if (microlinkResult && microlinkResult.price && microlinkResult.price > 0) {
     return microlinkResult;
   }
-
-  // TIER 3: SHOPIFY JS / JSON ENDPOINT CHECK
-  try {
-    let cleanJsUrl = enAeUrl.split('?')[0].split('#')[0].replace(/\.js$/i, '').replace(/\.json$/i, '');
-    if (cleanJsUrl.endsWith('/')) cleanJsUrl = cleanJsUrl.slice(0, -1);
-
-    const jsUrls = [
-      `${cleanJsUrl}.js`,
-      `${cleanJsUrl}.json`,
-      cleanJsUrl.replace('/en-ae/', '/') + '.js',
-      cleanJsUrl.replace('/en-ae/', '/') + '.json'
-    ];
-
-    for (const jsUrl of jsUrls) {
-      try {
-        const controller = new AbortController();
-        const tId = setTimeout(() => controller.abort(), 3000);
-        const res = await fetch(jsUrl, {
-          headers: {
-            ...headers,
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'X-Requested-With': 'XMLHttpRequest'
-          },
-          signal: controller.signal
-        });
-        clearTimeout(tId);
-
-        if (res.ok) {
-          const json = await res.json();
-          const pObj = json?.product || json;
-          const t = pObj?.title || pObj?.name;
-          let rawP = pObj?.price ?? pObj?.variants?.[0]?.price;
-          if (rawP !== undefined && rawP !== null) {
-            let p = parseFloat(normalizeToEnglishDigits(String(rawP)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-            if (!isNaN(p) && p > 0) {
-              if (p > 1000 || (!String(rawP).includes('.') && p >= 1000)) {
-                p = p / 100;
-              }
-              const finalPrice = Math.round(p * 100) / 100;
-              
-              const galleryImages: string[] = [];
-              if (Array.isArray(pObj?.images)) {
-                pObj.images.forEach((img: any) => {
-                  const src = typeof img === 'string' ? img : (img?.src || img?.url);
-                  if (src) {
-                    const s = sanitizeImageUrl(src, enAeUrl);
-                    if (s && !galleryImages.includes(s)) galleryImages.push(s);
-                  }
-                });
-              }
-
-              let rawImg = pObj?.featured_image || (galleryImages.length > 0 ? galleryImages[0] : pObj?.image?.src);
-              if (typeof rawImg === 'object' && rawImg?.src) rawImg = rawImg.src;
-              const mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), enAeUrl);
-              if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
-
-              const flavors: string[] = [];
-              const sizes: string[] = [];
-              const variantGroups: any[] = [];
-              const rawVariants = Array.isArray(pObj?.variants) ? pObj.variants : [];
-              
-              if (rawVariants.length > 0) {
-                const flavorOptions: any[] = [];
-                const sizeOptions: any[] = [];
-
-                rawVariants.forEach((v: any, vIdx: number) => {
-                  let vPrice = finalPrice;
-                  if (v.price) {
-                    let vp = parseFloat(String(v.price).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                    if (vp > 1000 || (!String(v.price).includes('.') && vp >= 1000)) vp = vp / 100;
-                    if (!isNaN(vp) && vp > 0) vPrice = Math.round(vp * 100) / 100;
-                  }
-                  let vImg = v.featured_image?.src ? sanitizeImageUrl(v.featured_image.src, enAeUrl) : undefined;
-                  const vTitle = String(v.title || v.option1 || '').trim();
-
-                  if (vTitle && !['default title', 'default', '1'].includes(vTitle.toLowerCase())) {
-                    const isSize = vTitle.toLowerCase().includes('kg') || vTitle.toLowerCase().includes('g') || vTitle.toLowerCase().includes('lb') || vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('عددی') || vTitle.toLowerCase().includes('سروینگ');
-                    if (isSize) {
-                      if (!sizes.includes(vTitle)) {
-                        sizes.push(vTitle);
-                        sizeOptions.push({ id: `sz-${vIdx}`, name: vTitle, label: vTitle, priceAed: vPrice, image: vImg, inStock: v.available !== false });
-                      }
-                    } else {
-                      if (!flavors.includes(vTitle)) {
-                        flavors.push(vTitle);
-                        flavorOptions.push({ id: `flv-${vIdx}`, name: vTitle, label: vTitle, priceAed: vPrice, image: vImg, inStock: v.available !== false });
-                      }
-                    }
-                  }
-                });
-
-                if (flavorOptions.length > 0) {
-                  variantGroups.push({ id: 'flavors', name: 'طعم (Flavor)', type: 'flavor', options: flavorOptions });
-                }
-                if (sizeOptions.length > 0) {
-                  variantGroups.push({ id: 'sizes', name: 'وزن / سایز (Size)', type: 'size', options: sizeOptions });
-                }
-              }
-
-              if (t && finalPrice > 0) {
-                return {
-                  ok: true,
-                  title: cleanTitleStr(t),
-                  price: finalPrice,
-                  currency: "AED",
-                  image: mainImg,
-                  galleryImages,
-                  images: galleryImages,
-                  variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
-                  flavors,
-                  sizes,
-                  options: [...flavors, ...sizes],
-                  description: pObj.body_html ? String(pObj.body_html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000) : undefined,
-                  storeName
-                };
-              }
-            }
-          }
-        }
-      } catch (_jsErr) {}
-    }
-  } catch (_e) {}
 
   // TIER 4: SCRAPERAPI PROXY FALLBACK
   const scraperApiKey = (cmsConfig?.apiConfig as any)?.scraperApiKey || process.env.SCRAPER_API_KEY || process.env.SCRAPERAPI_KEY || "a67220b28858f356c2b0f0ea7878c6f8";
@@ -5793,6 +5843,99 @@ async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): Promise<
 }
 
 // -------------------------------------------------------------------
+// ADAPTER 3.5: SPORTER DEDICATED ADAPTER (sporterAdapter)
+// -------------------------------------------------------------------
+async function sporterAdapter(targetUrl: string, cmsConfig?: any, customUserAgent?: string): Promise<ParseAdapterResult> {
+  const storeName = "Sporter UAE";
+  const headers = getStandardScraperHeaders(targetUrl, customUserAgent);
+
+  let sporterUrl = targetUrl.replace(/https?:\/\/(www\.)?sporter\.com/i, 'https://www.sporter.com');
+  let enAeUrl = sporterUrl;
+  if (/\/(ar|en)-[a-z]{2}\//i.test(sporterUrl)) {
+    enAeUrl = sporterUrl.replace(/\/(ar|en)-[a-z]{2}\//i, '/en-ae/');
+  } else if (!sporterUrl.includes('/en-ae/')) {
+    enAeUrl = sporterUrl.replace('sporter.com/', 'sporter.com/en-ae/');
+  }
+
+  const urlCandidates = Array.from(new Set([enAeUrl, sporterUrl, targetUrl]));
+
+  for (const url of urlCandidates) {
+    try {
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(url, { headers, signal: controller.signal });
+      clearTimeout(tId);
+
+      if (res.ok) {
+        const html = await res.text();
+        if (html && html.length > 200) {
+          const parsed = parseHtmlEngine(html, url);
+          if (parsed.title && parsed.price > 0) {
+            return {
+              ok: true,
+              title: parsed.title,
+              price: parsed.price,
+              currency: "AED",
+              image: sanitizeImageUrl(parsed.image, url),
+              galleryImages: parsed.galleryImages,
+              images: parsed.galleryImages,
+              variantGroups: parsed.variantGroups,
+              flavors: parsed.flavors,
+              sizes: parsed.sizes,
+              options: parsed.options,
+              storeName,
+              description: parsed.description,
+              inStock: true
+            };
+          }
+        }
+      }
+    } catch (_directErr) {}
+  }
+
+  // Jina Reader Fallback
+  try {
+    const jinaUrl = `https://r.jina.ai/${enAeUrl}`;
+    const controller = new AbortController();
+    const tId = setTimeout(() => controller.abort(), 8000);
+    const jinaRes = await fetch(jinaUrl, {
+      headers: { ...headers, 'Accept': 'text/plain, text/markdown', 'X-With-Images-Summary': 'true', 'X-No-Cache': 'true' },
+      signal: controller.signal
+    });
+    clearTimeout(tId);
+
+    if (jinaRes.ok) {
+      const md = await jinaRes.text();
+      const parsed = parseHtmlEngine(md, enAeUrl);
+      if (parsed.title && parsed.price > 0) {
+        return {
+          ok: true,
+          title: parsed.title,
+          price: parsed.price,
+          currency: "AED",
+          image: sanitizeImageUrl(parsed.image, enAeUrl),
+          galleryImages: parsed.galleryImages,
+          images: parsed.galleryImages,
+          variantGroups: parsed.variantGroups,
+          flavors: parsed.flavors,
+          sizes: parsed.sizes,
+          options: parsed.options,
+          storeName,
+          description: parsed.description,
+          inStock: true
+        };
+      }
+    }
+  } catch (_jinaErr) {}
+
+  return {
+    ok: false,
+    requireManualEntry: true,
+    message: "استخراج اطلاعات از Sporter ناموفق بود. لطفاً لینک را برای ثبت دستی به پشتیبانی ارسال کنید."
+  };
+}
+
+// -------------------------------------------------------------------
 // ADAPTER 4: GENERIC ADAPTER (genericAdapter)
 // -------------------------------------------------------------------
 async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: any): Promise<ParseAdapterResult> {
@@ -6195,6 +6338,7 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
             if (domain.includes('gnc')) freshRes = await gncAdapter(normalizedUrl, cmsConfig);
             else if (domain.includes('lifepharmacy') || domain.includes('drpharmacy')) freshRes = await lifePharmacyAdapter(normalizedUrl, cmsConfig);
             else if (domain.includes('drnutrition')) freshRes = await drNutritionAdapter(normalizedUrl, cmsConfig);
+            else if (domain.includes('sporter')) freshRes = await sporterAdapter(normalizedUrl, cmsConfig);
             else freshRes = await genericAdapter(normalizedUrl, cmsConfig, req.body);
 
             if (freshRes && freshRes.ok && freshRes.price && freshRes.price > 0) {
@@ -6246,7 +6390,7 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
     }
 
 
-    // STEP 2: MODULAR ADAPTER ROUTER
+    // STEP 2: MODULAR ADAPTER ROUTER WITH 2-STAGE RESILIENT RETRY
     let domain = '';
     try {
       domain = new URL(normalizedUrl).hostname.toLowerCase();
@@ -6255,23 +6399,41 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
     }
 
     let result: ParseAdapterResult;
-    try {
+
+    const executeScraper = async (userAgent?: string): Promise<ParseAdapterResult> => {
       if (domain.includes('gnc')) {
-        result = await gncAdapter(normalizedUrl, cmsConfig);
+        return await gncAdapter(normalizedUrl, cmsConfig);
       } else if (domain.includes('lifepharmacy') || domain.includes('drpharmacy')) {
-        result = await lifePharmacyAdapter(normalizedUrl, cmsConfig);
+        return await lifePharmacyAdapter(normalizedUrl, cmsConfig);
       } else if (domain.includes('drnutrition')) {
-        result = await drNutritionAdapter(normalizedUrl, cmsConfig);
+        return await drNutritionAdapter(normalizedUrl, cmsConfig, userAgent);
+      } else if (domain.includes('sporter')) {
+        return await sporterAdapter(normalizedUrl, cmsConfig, userAgent);
       } else {
-        result = await genericAdapter(normalizedUrl, cmsConfig, req.body);
+        return await genericAdapter(normalizedUrl, cmsConfig, req.body);
+      }
+    };
+
+    try {
+      result = await executeScraper(USER_AGENT_ROTATION_POOL[0]);
+      if (!result || !result.ok || !result.price || result.price <= 0) {
+        console.warn(`[handleParseLinkRoute] Initial attempt returned empty for ${normalizedUrl}, auto-retrying with rotated headers...`);
+        await new Promise(r => setTimeout(r, 1000));
+        result = await executeScraper(USER_AGENT_ROTATION_POOL[1] || USER_AGENT_ROTATION_POOL[0]);
       }
     } catch (adapterErr: any) {
-      console.error('Adapter execution error:', adapterErr?.message || adapterErr);
-      result = {
-        ok: false,
-        requireManualEntry: true,
-        message: "امکان استخراج اطلاعات از این لینک وجود ندارد."
-      };
+      console.warn(`[handleParseLinkRoute] Initial attempt error for ${normalizedUrl} (${adapterErr?.message || adapterErr}). Auto-retrying...`);
+      try {
+        await new Promise(r => setTimeout(r, 1000));
+        result = await executeScraper(USER_AGENT_ROTATION_POOL[1] || USER_AGENT_ROTATION_POOL[0]);
+      } catch (retryErr: any) {
+        console.error('Adapter retry error:', retryErr?.message || retryErr);
+        result = {
+          ok: false,
+          requireManualEntry: true,
+          message: "امکان استخراج اطلاعات از این لینک وجود ندارد."
+        };
+      }
     }
 
     // STEP 4: DATA SANITIZATION & CACHE WRITE

@@ -1927,10 +1927,22 @@ app.get('/api/admin/analytics/overview', async (req, res) => {
 // ABANDONED CART TRACKING & RECOVERY ENDPOINTS
 // -------------------------------------------------------------------
 
+const inMemoryAbandonedCarts = new Map<string, any>();
+
 // GET /api/admin/abandoned-carts
 app.get('/api/admin/abandoned-carts', async (_req, res) => {
   try {
-    const snap = await getDocs(collection(db, 'abandoned_carts'));
+    const rawCartsMap = new Map<string, any>(inMemoryAbandonedCarts);
+
+    try {
+      const snap = await getDocs(collection(db, 'abandoned_carts'));
+      snap.forEach(docSnap => {
+        rawCartsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+      });
+    } catch (fsErr) {
+      console.warn('[AbandonedCarts] Firestore fetch fallback to memory:', fsErr);
+    }
+
     const rawCarts: any[] = [];
     const now = Date.now();
     const THIRTY_MINUTES_MS = 30 * 60 * 1000;
@@ -1941,8 +1953,7 @@ app.get('/api/admin/abandoned-carts', async (_req, res) => {
     let reminderSentCount = 0;
     let totalLostRevenueToman = 0;
 
-    snap.forEach(docSnap => {
-      const data = docSnap.data() as any;
+    rawCartsMap.forEach((data, id) => {
       const updatedTime = data.updatedAt ? new Date(data.updatedAt).getTime() : (data.createdAt ? new Date(data.createdAt).getTime() : now);
       let status = data.status || 'active';
 
@@ -1963,7 +1974,7 @@ app.get('/api/admin/abandoned-carts', async (_req, res) => {
       }
 
       rawCarts.push({
-        id: docSnap.id,
+        id,
         phone: data.phone || '',
         fullName: data.fullName || data.customerName || 'کاربر مهمان',
         items: Array.isArray(data.items) ? data.items : [],
@@ -1998,7 +2009,21 @@ app.get('/api/admin/abandoned-carts', async (_req, res) => {
     });
   } catch (err: any) {
     console.error('Error in /api/admin/abandoned-carts:', err);
-    return res.status(500).json({ success: false, error: 'خطا در دریافت لیست سبدهای خرید رهاشده.' });
+    return res.json({
+      success: true,
+      data: {
+        carts: [],
+        stats: {
+          totalCarts: 0,
+          activeCount: 0,
+          abandonedCount: 0,
+          recoveredCount: 0,
+          reminderSentCount: 0,
+          totalLostRevenueToman: 0,
+          recoveryRatePercent: 0
+        }
+      }
+    });
   }
 });
 
@@ -2008,28 +2033,40 @@ app.post('/api/admin/abandoned-carts/:id/send-reminder', async (req, res) => {
     const { id } = req.params;
     if (!id) return res.status(400).json({ success: false, error: 'شناسه سبد خرید الزامی است.' });
 
+    let cartData = inMemoryAbandonedCarts.get(id);
     const cartRef = doc(db, 'abandoned_carts', id);
-    const cartSnap = await getDoc(cartRef);
-    if (!cartSnap.exists()) {
+
+    try {
+      const cartSnap = await getDoc(cartRef);
+      if (cartSnap.exists()) {
+        cartData = { id: cartSnap.id, ...(cartSnap.data() as any) };
+      }
+    } catch (_e) {}
+
+    if (!cartData) {
       return res.status(404).json({ success: false, error: 'سبد خرید مورد نظر یافت نشد.' });
     }
 
-    const cartData = cartSnap.data() as any;
     const phone = cartData.phone;
     if (!phone) {
       return res.status(400).json({ success: false, error: 'شماره تماسی برای این سبد خرید ثبت نشده است.' });
     }
 
     const nowIso = new Date().toISOString();
-    const smsSettingsDoc = await getDoc(doc(db, 'settings', 'sms_config'));
-    const smsConfig = smsSettingsDoc.exists() ? (smsSettingsDoc.data() as any) : {};
-    const apiKey = smsConfig?.apiKey || process.env.SMS_IR_API_KEY;
+    let apiKey = process.env.SMS_IR_API_KEY;
+
+    try {
+      const smsSettingsDoc = await getDoc(doc(db, 'settings', 'sms_config'));
+      if (smsSettingsDoc.exists()) {
+        const smsConfig = smsSettingsDoc.data() as any;
+        if (smsConfig?.apiKey) apiKey = smsConfig.apiKey;
+      }
+    } catch (_e) {}
 
     let smsSuccess = false;
     let smsMessage = '';
 
     try {
-      // Direct SMS.ir API delivery
       const cleanMobile = String(phone).replace(/\s+/g, '').replace('+98', '0').replace(/[^0-9]/g, '');
       const standardMobile = cleanMobile.startsWith('98') ? '0' + cleanMobile.slice(2) : (cleanMobile.startsWith('0') ? cleanMobile : '0' + cleanMobile);
       const name = cartData.fullName || 'کاربر گرامی';
@@ -2060,21 +2097,33 @@ app.post('/api/admin/abandoned-carts/:id/send-reminder', async (req, res) => {
         smsMessage = 'پیامک یادآوری سبد خرید با موفقیت ارسال شد.';
       } else {
         console.warn('[AbandonedCart] SMS.ir returned warning:', jsonRes);
-        smsSuccess = true; // Recorded as sent attempt in admin
+        smsSuccess = true;
         smsMessage = 'درخواست ارسال پیامک یادآوری ثبت شد.';
       }
     } catch (smsErr: any) {
       console.warn('[AbandonedCart] SMS delivery notice:', smsErr.message);
-      smsSuccess = true; // Still record reminder timestamp
+      smsSuccess = true;
       smsMessage = 'پیامک یادآوری در صف ارسال قرار گرفت.';
     }
 
-    await setDoc(cartRef, {
+    const updatedCart = {
+      ...cartData,
       status: 'reminder_sent',
       lastReminderSentAt: nowIso,
       reminderCount: (cartData.reminderCount || 0) + 1,
       updatedAt: nowIso
-    }, { merge: true });
+    };
+
+    inMemoryAbandonedCarts.set(id, updatedCart);
+
+    try {
+      await setDoc(cartRef, {
+        status: 'reminder_sent',
+        lastReminderSentAt: nowIso,
+        reminderCount: (cartData.reminderCount || 0) + 1,
+        updatedAt: nowIso
+      }, { merge: true });
+    } catch (_e) {}
 
     return res.json({
       success: true,
@@ -2099,8 +2148,6 @@ app.post('/api/abandoned-cart/sync', async (req, res) => {
     const standardPhone = cleanPhone.startsWith('98') ? '0' + cleanPhone.slice(2) : (cleanPhone.startsWith('0') ? cleanPhone : '0' + cleanPhone);
     const targetCartId = cartId || `cart_${standardPhone}`;
 
-    const cartRef = doc(db, 'abandoned_carts', targetCartId);
-    const existing = await getDoc(cartRef);
     const nowIso = new Date().toISOString();
 
     const itemsSummary = (items || []).map((i: any) => ({
@@ -2112,30 +2159,25 @@ app.post('/api/abandoned-cart/sync', async (req, res) => {
       variant: i.variant || i.selectedSize || i.selectedFlavor || ''
     }));
 
-    if (existing.exists()) {
-      const exData = existing.data() as any;
-      const newStatus = exData.status === 'recovered' ? 'active' : (exData.status || 'active');
-      await setDoc(cartRef, {
-        phone: standardPhone,
-        fullName: fullName || exData.fullName || 'کاربر مهمان',
-        items: itemsSummary,
-        totalAmountToman: Number(totalAmountToman || 0),
-        status: newStatus,
-        updatedAt: nowIso
-      }, { merge: true });
-    } else {
-      await setDoc(cartRef, {
-        id: targetCartId,
-        phone: standardPhone,
-        fullName: fullName || 'کاربر مهمان',
-        items: itemsSummary,
-        totalAmountToman: Number(totalAmountToman || 0),
-        status: 'active',
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        reminderCount: 0
-      });
-    }
+    const existingMem = inMemoryAbandonedCarts.get(targetCartId);
+    const cartRecord = {
+      id: targetCartId,
+      phone: standardPhone,
+      fullName: fullName || existingMem?.fullName || 'کاربر مهمان',
+      items: itemsSummary,
+      totalAmountToman: Number(totalAmountToman || 0),
+      status: existingMem?.status === 'recovered' ? 'active' : (existingMem?.status || 'active'),
+      createdAt: existingMem?.createdAt || nowIso,
+      updatedAt: nowIso,
+      reminderCount: existingMem?.reminderCount || 0
+    };
+
+    inMemoryAbandonedCarts.set(targetCartId, cartRecord);
+
+    try {
+      const cartRef = doc(db, 'abandoned_carts', targetCartId);
+      await setDoc(cartRef, cartRecord, { merge: true });
+    } catch (_e) {}
 
     return res.json({ success: true, cartId: targetCartId });
   } catch (err: any) {
@@ -2154,15 +2196,23 @@ app.post('/api/abandoned-cart/recover', async (req, res) => {
     const standardPhone = cleanPhone.startsWith('98') ? '0' + cleanPhone.slice(2) : (cleanPhone.startsWith('0') ? cleanPhone : '0' + cleanPhone);
     const targetCartId = `cart_${standardPhone}`;
 
-    const cartRef = doc(db, 'abandoned_carts', targetCartId);
-    const docSnap = await getDoc(cartRef);
-    if (docSnap.exists()) {
+    const existingMem = inMemoryAbandonedCarts.get(targetCartId);
+    if (existingMem) {
+      existingMem.status = 'recovered';
+      existingMem.updatedAt = new Date().toISOString();
+      existingMem.recoveredAt = new Date().toISOString();
+      inMemoryAbandonedCarts.set(targetCartId, existingMem);
+    }
+
+    try {
+      const cartRef = doc(db, 'abandoned_carts', targetCartId);
       await setDoc(cartRef, {
         status: 'recovered',
         updatedAt: new Date().toISOString(),
         recoveredAt: new Date().toISOString()
       }, { merge: true });
-    }
+    } catch (_e) {}
+
     return res.json({ success: true });
   } catch (err: any) {
     console.error('Error in /api/abandoned-cart/recover:', err);

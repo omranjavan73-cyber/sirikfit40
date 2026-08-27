@@ -176,10 +176,23 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 };
 
+const defaultCartContext: CartContextType = {
+  cart: [],
+  addToCart: () => {},
+  removeFromCart: () => {},
+  updateQuantity: () => {},
+  clearCart: () => {},
+  syncAbandonedCart: async () => {},
+  markCartRecovered: async () => {},
+  totalToman: 0,
+  totalAed: 0,
+  itemCount: 0
+};
+
 export const useCart = () => {
   const context = useContext(CartContext);
   if (!context) {
-    throw new Error('useCart must be used within a CartProvider');
+    return defaultCartContext;
   }
   return context;
 };

@@ -56,25 +56,31 @@ export const FloatingSupportWidget: React.FC = () => {
       {/* 1. Sleek Half-Drawer / Popup Card */}
       <SupportPopup isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
 
-      {/* 2. Floating Support Trigger Badge (Rounded Squircle Card with Pulsing Emerald Ring) */}
+      {/* 2. Floating Support Trigger Badge (Rounded Squircle Card with Isolated Pulsing Emerald Ring) */}
       <div className="fixed bottom-24 left-4 sm:bottom-6 sm:left-6 md:bottom-8 md:left-8 z-50 font-['Vazirmatn',sans-serif]">
-        <button
-          id="floating-support-trigger"
-          type="button"
-          onClick={toggleDrawer}
-          aria-label="پشتیبانی و مشاوره آنلاین سیریک فیت"
-          title="پشتیبانی و مشاوره خرید سیریک فیت"
-          className="relative w-14 h-14 rounded-2xl bg-white dark:bg-zinc-900 border border-emerald-500 ring-2 ring-emerald-400/80 shadow-[0_0_15px_rgba(16,185,129,0.35)] animate-pulse flex items-center justify-center cursor-pointer transition-transform active:scale-95 group"
-        >
-          {/* Center Avatar Icon: Customer Support Agent with Headset */}
-          {isDrawerOpen ? (
-            <X className="w-6 h-6 text-slate-900 dark:text-white transition-transform duration-200 rotate-90 scale-105" />
-          ) : (
-            <div className="text-slate-900 dark:text-white transition-transform duration-200 group-hover:scale-105 flex items-center justify-center">
-              <CustomerAgentHeadsetSvg className="w-7 h-7 sm:w-8 sm:h-8" />
-            </div>
-          )}
-        </button>
+        <div className="relative">
+          {/* Isolated Outer Glow Ring: Pulsing border animation */}
+          <span className="absolute -inset-1 rounded-[18px] border-2 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)] animate-pulse pointer-events-none" />
+
+          {/* Solid Opaque Squircle Button Container */}
+          <button
+            id="floating-support-trigger"
+            type="button"
+            onClick={toggleDrawer}
+            aria-label="پشتیبانی و مشاوره آنلاین سیریک فیت"
+            title="پشتیبانی و مشاوره خرید سیریک فیت"
+            className="relative w-14 h-14 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer transition-transform active:scale-95 z-50 group"
+          >
+            {/* Center Avatar Icon: Customer Support Agent with Headset */}
+            {isDrawerOpen ? (
+              <X className="w-6 h-6 text-slate-900 dark:text-white transition-transform duration-200 rotate-90 scale-105" />
+            ) : (
+              <div className="text-slate-900 dark:text-white transition-transform duration-200 group-hover:scale-105 flex items-center justify-center">
+                <CustomerAgentHeadsetSvg className="w-7 h-7 sm:w-8 sm:h-8" />
+              </div>
+            )}
+          </button>
+        </div>
       </div>
     </>
   );

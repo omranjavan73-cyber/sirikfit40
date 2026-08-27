@@ -39,6 +39,7 @@ import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/
 import { SettingsProvider, useSettings } from './context/SettingsContext';
 import { PricingProvider } from './context/PricingContext';
 import { SupportProvider } from './context/SupportContext';
+import { CartProvider } from './context/CartContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { getSafeItem, setSafeItem } from './utils/safeStorage';
 
@@ -1560,7 +1561,9 @@ export default function App() {
       <SettingsProvider>
         <PricingProvider>
           <SupportProvider>
-            <MainApp />
+            <CartProvider>
+              <MainApp />
+            </CartProvider>
           </SupportProvider>
         </PricingProvider>
       </SettingsProvider>

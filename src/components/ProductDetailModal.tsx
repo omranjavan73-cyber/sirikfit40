@@ -211,11 +211,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     }
   }, [product, activeVariants, extractedFlavors, extractedSizes]);
 
-  // Find selected variant details from variantMatrix or currentProd.variants
+  // Find selected variant details from activeVariants, variantMatrix or currentProd.variants
   const matchedVariant = useMemo(() => {
     if (!currentProd) return null;
-    if (activeVariants.length > 0) {
-      return findExactVariant(activeVariants, selectedFlavor || undefined, selectedSize || undefined);
+    if (activeVariants && activeVariants.length > 0) {
+      const exact = findExactVariant(activeVariants, selectedFlavor || undefined, selectedSize || undefined);
+      if (exact) return exact;
+      const flavorOnly = activeVariants.find(v => selectedFlavor && v.flavor === selectedFlavor);
+      if (flavorOnly) return flavorOnly;
     }
     if (currentProd.variantMatrix?.items && currentProd.variantMatrix.items.length > 0) {
       if (selectedSize && selectedFlavor) {
@@ -241,10 +244,17 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
     return currentProd.variants?.find(v => 
       (selectedSize && selectedFlavor && v.size === selectedSize && v.flavor === selectedFlavor) ||
-      (selectedSize && v.size === selectedSize) || 
-      (selectedFlavor && v.flavor === selectedFlavor)
+      (selectedFlavor && v.flavor === selectedFlavor) ||
+      (selectedSize && v.size === selectedSize)
     );
   }, [currentProd, activeVariants, selectedSize, selectedFlavor]);
+
+  const activeDisplayImage = useMemo(() => {
+    const variantImg = matchedVariant?.image?.trim() || matchedVariant?.imageThumbnail?.trim();
+    if (variantImg) return variantImg;
+    if (selectedImage && selectedImage.trim() !== '') return selectedImage;
+    return currentProd?.image || galleryList[0] || fallbackImg;
+  }, [matchedVariant, selectedImage, currentProd?.image, galleryList, fallbackImg]);
 
   // Synchronize variant-specific image immediately upon variant selection
   useEffect(() => {
@@ -253,13 +263,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       if (variantImg !== selectedImage) {
         setSelectedImage(variantImg);
       }
-    } else {
-      const defaultImg = currentProd?.image || galleryList[0] || fallbackImg;
-      if (defaultImg && !galleryList.includes(selectedImage) && selectedImage !== defaultImg) {
-        setSelectedImage(defaultImg);
-      }
     }
-  }, [matchedVariant?.image, matchedVariant?.imageThumbnail, selectedFlavor, selectedSize, currentProd?.image]);
+  }, [matchedVariant?.image, matchedVariant?.imageThumbnail, selectedFlavor, selectedSize]);
 
   const localizedCaption = useMemo(() => {
     if (!currentProd) return '';
@@ -659,7 +664,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               })()}
 
               <TouchImageMagnifier
-                src={selectedImage || fallbackImg}
+                src={activeDisplayImage || fallbackImg}
                 alt={product.title}
                 fallbackSrc={fallbackImg}
                 zoomScale={2.4}
@@ -871,7 +876,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400"/>
                 <span>تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال</span>
               </span>
-              <span className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-800/40 rounded-full px-2.5 py-0.5 text-xs font-medium inline-flex items-center gap-1">
+              <span className="bg-emerald-100 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-400/80 dark:border-emerald-600 font-black px-2.5 py-0.5 rounded-full text-xs inline-flex items-center gap-1 shadow-xs">
                 پلمپ اورجینال ✅
               </span>
             </div>

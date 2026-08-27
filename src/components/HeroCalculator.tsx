@@ -770,7 +770,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                     <span className="text-xs font-black text-slate-900 dark:text-slate-100">
                       ✓ تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال
                     </span>
-                    <span className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-800/40 rounded-full px-2.5 py-0.5 text-xs font-medium inline-flex items-center gap-1">
+                    <span className="bg-emerald-100 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-400/80 dark:border-emerald-600 font-black px-2.5 py-0.5 rounded-full text-xs inline-flex items-center gap-1 shadow-xs">
                       پلمپ اورجینال ✅
                     </span>
                   </div>

@@ -69,8 +69,11 @@ export const FloatingSupportWidget: React.FC = () => {
             onClick={toggleDrawer}
             aria-label="پشتیبانی و مشاوره آنلاین سیریک فیت"
             title="پشتیبانی و مشاوره خرید سیریک فیت"
-            className="relative w-14 h-14 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer transition-transform active:scale-95 z-50 group"
+            className="relative w-12 h-12 sm:w-13 sm:h-13 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer transition-transform active:scale-95 z-50 group"
           >
+            {/* Active Green Pulse Beacon */}
+            <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-emerald-500 ring-2 ring-white dark:ring-zinc-900 rounded-full" />
+
             {/* Center Avatar Icon: Customer Support Agent with Headset */}
             {isDrawerOpen ? (
               <X className="w-6 h-6 text-slate-900 dark:text-white transition-transform duration-200 rotate-90 scale-105" />

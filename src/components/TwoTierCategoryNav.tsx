@@ -56,7 +56,7 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
   const activeMainConfig = taxonomy.find(c => c.id === selectedMainCat || c.slug === selectedMainCat) || taxonomy[0] || DEFAULT_TAXONOMY[0];
 
   return (
-    <div className="space-y-3 font-['Vazirmatn',sans-serif] text-right">
+    <div className="space-y-1.5 font-['Vazirmatn',sans-serif] text-right">
       {/* 1. Streamlined Top Action Row (Full-width Search Bar + Compact Cart Icon Button) */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
@@ -66,7 +66,7 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={searchPlaceholder}
-              className="w-full bg-transparent py-3 pr-10 pl-4 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none text-right dir-rtl font-medium"
+              className="w-full bg-transparent py-2.5 pr-10 pl-4 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none text-right dir-rtl font-medium"
             />
             <Search className="w-4 h-4 text-slate-400 absolute right-3.5 shrink-0 pointer-events-none" />
             {searchQuery && (
@@ -118,7 +118,7 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
                   onSelectMainCat(cat.id);
                   onSelectSubCat('all'); // Reset subcategory to all on main category change
                 }}
-                className={`whitespace-nowrap px-3.5 py-2 text-xs sm:text-sm font-black transition-all duration-200 cursor-pointer rounded-xl flex-1 text-center relative ${
+                className={`whitespace-nowrap px-3.5 py-1.5 text-xs sm:text-sm font-black transition-all duration-200 cursor-pointer rounded-xl flex-1 text-center relative ${
                   isActive
                     ? 'bg-slate-900 text-white shadow-sm ring-1 ring-slate-800 dark:bg-zinc-900 dark:ring-zinc-700'
                     : 'bg-transparent text-slate-700 hover:bg-slate-200 dark:text-zinc-300 dark:hover:bg-zinc-700'
@@ -135,7 +135,7 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
       </div>
 
       {/* 3. Tier 2: Sub-Category / Filter Pills (Brand Red / Clean Light Gray) */}
-      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar scrollbar-none py-1 px-0.5 dir-rtl">
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scrollbar-none py-0.5 px-0.5 dir-rtl">
         {activeMainConfig.subCategories.map((sub) => {
           const isSubActive = selectedSubCat === sub.id || selectedSubCat === sub.slug;
 

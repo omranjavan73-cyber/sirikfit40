@@ -1545,25 +1545,15 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 </div>
 
                 {/* Authenticity Guarantee Card */}
-                <div className="bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/40 rounded-2xl py-3 px-4 flex items-center justify-between text-xs font-bold text-slate-900 dark:text-slate-100 shadow-2xs">
+                <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/60 rounded-2xl p-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span>تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال</span>
+                    <span className="text-xs sm:text-sm font-bold text-emerald-900 dark:text-emerald-200">تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال</span>
                   </div>
-                  <span className="bg-emerald-100 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-400/80 dark:border-emerald-600 font-black px-2.5 py-0.5 rounded-full text-xs inline-flex items-center gap-1 shadow-xs">
+                  <span className="bg-emerald-600 text-white font-bold text-xs px-2.5 py-1 rounded-full flex items-center gap-1 shadow-sm">
                     پلمپ اورجینال ✅
                   </span>
                 </div>
-
-                {/* Detailed Clean Description if available */}
-                {cleanDescription && cleanDescription.length > 20 && (
-                  <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-2 text-right">
-                    <span className="text-xs font-black text-gray-950 block">توضیحات تکمیلی کالا:</span>
-                    <p className="text-xs text-gray-700 leading-relaxed font-medium whitespace-pre-line">
-                      {cleanDescription}
-                    </p>
-                  </div>
-                )}
               </div>
 
               {/* EMBEDDED PRODUCT VIDEOS (ویدیوهای معرفی کالا) */}

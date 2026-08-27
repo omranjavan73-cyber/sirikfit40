@@ -766,11 +766,12 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                   </div>
 
                   {/* Authenticity Badge */}
-                  <div className="bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/40 p-3 rounded-2xl flex items-center justify-between">
-                    <span className="text-xs font-black text-slate-900 dark:text-slate-100">
-                      ✓ تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال
+                  <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/60 rounded-2xl p-3 flex items-center justify-between">
+                    <span className="text-xs sm:text-sm font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0"/>
+                      <span>تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال</span>
                     </span>
-                    <span className="bg-emerald-100 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-400/80 dark:border-emerald-600 font-black px-2.5 py-0.5 rounded-full text-xs inline-flex items-center gap-1 shadow-xs">
+                    <span className="bg-emerald-600 text-white font-bold text-xs px-2.5 py-1 rounded-full flex items-center gap-1 shadow-sm">
                       پلمپ اورجینال ✅
                     </span>
                   </div>

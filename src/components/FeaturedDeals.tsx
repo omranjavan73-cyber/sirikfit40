@@ -21,6 +21,7 @@ interface FeaturedDealsProps {
   onSelectDeal: (deal: FeaturedDeal) => void;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  onOpenCart?: () => void;
 }
 
 const DEFAULT_DEALS: FeaturedDeal[] = [
@@ -127,7 +128,8 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   settings,
   onSelectDeal,
   onAddToCart,
-  showToast
+  showToast,
+  onOpenCart
 }) => {
   const [selectedMainCat, setSelectedMainCat] = useState<string>('sports_nutrition');
   const [selectedSubCat, setSelectedSubCat] = useState<string>('all');
@@ -185,6 +187,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
         onSearchChange={setSearchQuery}
         searchPlaceholder="... جستجوی مکمل، برند یا ویتامین در آفرهای دبی"
         totalCount={filteredDeals.length}
+        onOpenCart={onOpenCart}
       />
 
       {/* 2. Product Catalog List/Grid Section */}

@@ -989,12 +989,20 @@ function MainApp() {
       }
     };
 
+    const handleOpenCartDirectEvent = () => {
+      setSelectedProduct(null);
+      setActiveTab('detail');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
     window.addEventListener('openProductDetail', handleOpenProductDetailEvent as EventListener);
     window.addEventListener('addToCartDirect', handleAddToCartDirectEvent as EventListener);
+    window.addEventListener('openCartDirect', handleOpenCartDirectEvent as EventListener);
 
     return () => {
       window.removeEventListener('openProductDetail', handleOpenProductDetailEvent as EventListener);
       window.removeEventListener('addToCartDirect', handleAddToCartDirectEvent as EventListener);
+      window.removeEventListener('openCartDirect', handleOpenCartDirectEvent as EventListener);
     };
   }, [settings, cmsConfig]);
 
@@ -1072,33 +1080,35 @@ function MainApp() {
         </div>
       )}
 
-      {/* Top Header */}
-      <Header
-        settings={settings}
-        cms={cmsConfig}
-        currentUser={currentUser}
-        cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)}
-        onRefreshSettings={handleRefreshAllData}
-        isLoadingSettings={isLoadingSettings}
-        onOpenAuthModal={() => setIsAuthModalOpen(true)}
-        onLogout={handleLogout}
-        onOpenCart={() => {
-          setSelectedProduct(null);
-          setActiveTab('detail');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
-        onOpenAccountTab={() => {
-          setActiveTab('account');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
-        onOpenAdmin={() => {
-          setActiveTab('admin');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
-        isCartActive={activeTab === 'detail'}
-        isAccountActive={activeTab === 'account'}
-        isAdminActive={activeTab === 'admin'}
-      />
+      {/* Top Header (Omitted on listing tabs for compact search-and-cart header experience) */}
+      {activeTab !== 'deals' && activeTab !== 'inventory' && (
+        <Header
+          settings={settings}
+          cms={cmsConfig}
+          currentUser={currentUser}
+          cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)}
+          onRefreshSettings={handleRefreshAllData}
+          isLoadingSettings={isLoadingSettings}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          onLogout={handleLogout}
+          onOpenCart={() => {
+            setSelectedProduct(null);
+            setActiveTab('detail');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          onOpenAccountTab={() => {
+            setActiveTab('account');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          onOpenAdmin={() => {
+            setActiveTab('admin');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          isCartActive={activeTab === 'detail'}
+          isAccountActive={activeTab === 'account'}
+          isAdminActive={activeTab === 'admin'}
+        />
+      )}
 
       {/* Main Container */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 pt-3 pb-8">
@@ -1353,6 +1363,11 @@ function MainApp() {
             categories={cmsConfig?.warehouseCategories}
             settings={settings}
             onAddToCart={addToCart}
+            onOpenCart={() => {
+              setSelectedProduct(null);
+              setActiveTab('detail');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
             onSelectLocalProduct={(item) => {
               const effectiveRate = getEffectiveAedRate(settings, cmsConfig) || 1;
               const calcAed = Math.round((item.priceToman || 0) / effectiveRate);
@@ -1398,6 +1413,11 @@ function MainApp() {
               settings={settings}
               onSelectDeal={handleSelectDeal}
               onAddToCart={addToCart}
+              onOpenCart={() => {
+                setSelectedProduct(null);
+                setActiveTab('detail');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
             />
           </div>
         )}

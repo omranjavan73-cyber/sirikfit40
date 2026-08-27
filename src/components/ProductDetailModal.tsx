@@ -866,12 +866,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             </div>
 
             {/* Authenticity Guarantee Card */}
-            <div className="bg-gray-50 border border-gray-200 p-3 rounded-2xl flex items-center justify-between">
-              <span className="text-xs font-black text-gray-900 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600"/>
+            <div className="bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/40 p-3 rounded-2xl flex items-center justify-between">
+              <span className="text-xs font-black text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400"/>
                 <span>تضمین ۱۰۰٪ اصالت کالا و ارسال مستقیم و اورجینال</span>
               </span>
-              <span className="text-[11px] font-extrabold text-red-600 bg-red-50 px-2.5 py-0.5 rounded-full border border-red-200">
+              <span className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-800/40 rounded-full px-2.5 py-0.5 text-xs font-medium inline-flex items-center gap-1">
                 پلمپ اورجینال ✅
               </span>
             </div>

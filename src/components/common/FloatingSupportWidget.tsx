@@ -56,7 +56,7 @@ export const FloatingSupportWidget: React.FC = () => {
       {/* 1. Sleek Half-Drawer / Popup Card */}
       <SupportPopup isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
 
-      {/* 2. Floating Support Trigger Badge (Rounded Squircle Card) */}
+      {/* 2. Floating Support Trigger Badge (Rounded Squircle Card with Pulsing Emerald Ring) */}
       <div className="fixed bottom-24 left-4 sm:bottom-6 sm:left-6 md:bottom-8 md:left-8 z-50 font-['Vazirmatn',sans-serif]">
         <button
           id="floating-support-trigger"
@@ -64,14 +64,8 @@ export const FloatingSupportWidget: React.FC = () => {
           onClick={toggleDrawer}
           aria-label="پشتیبانی و مشاوره آنلاین سیریک فیت"
           title="پشتیبانی و مشاوره خرید سیریک فیت"
-          className="relative w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200/90 dark:border-zinc-700 shadow-xl hover:shadow-2xl flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer ring-2 ring-red-500/20 group"
+          className="relative w-14 h-14 rounded-2xl bg-white dark:bg-zinc-900 border border-emerald-500 ring-2 ring-emerald-400/80 shadow-[0_0_15px_rgba(16,185,129,0.35)] animate-pulse flex items-center justify-center cursor-pointer transition-transform active:scale-95 group"
         >
-          {/* Status Dot: Active Green Pulse Beacon */}
-          <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-zinc-900 absolute -top-1 -right-1 flex items-center justify-center">
-            <span className="w-full h-full rounded-full bg-emerald-400 animate-ping opacity-75 absolute" />
-            <span className="w-2 h-2 rounded-full bg-emerald-500 relative" />
-          </span>
-
           {/* Center Avatar Icon: Customer Support Agent with Headset */}
           {isDrawerOpen ? (
             <X className="w-6 h-6 text-slate-900 dark:text-white transition-transform duration-200 rotate-90 scale-105" />

@@ -13,6 +13,7 @@ interface IranWarehousePageProps {
   onSelectLocalProduct?: (item: LocalInventoryItem) => void;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  onOpenCart?: () => void;
 }
 
 /** Map a LocalInventoryItem to the shape expected by ProductDetailModal */
@@ -51,7 +52,8 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
   settings = { aedRate: 51400, cargoRatePerKg: 35, profitMargin: 20 },
   onSelectLocalProduct,
   onAddToCart,
-  showToast
+  showToast,
+  onOpenCart
 }) => {
   const [itemsList, setItemsList] = useState<LocalInventoryItem[]>(initialItems || []);
   const [selectedItem, setSelectedItem] = useState<LocalInventoryItem | null>(null);
@@ -104,6 +106,7 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
         onSelectLocalProduct={handleSelect}
         onAddToCart={onAddToCart}
         showToast={showToast}
+        onOpenCart={onOpenCart}
       />
       <ProductDetailModal
         isOpen={isModalOpen}

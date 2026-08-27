@@ -14,6 +14,7 @@ interface SpecialDealsPageProps {
   onSelectDeal?: (deal: FeaturedDeal) => void;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  onOpenCart?: () => void;
 }
 
 function toModalDeal(deal: FeaturedDeal, settings: FinancialSettings): ProductDetailModalProduct {
@@ -59,11 +60,12 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
   settings = { aedRate: 51400, cargoRatePerKg: 35, profitMargin: 20 },
   onSelectDeal,
   onAddToCart,
-  showToast
+  showToast,
+  onOpenCart
 }) => {
   const [dealsList, setDealsList] = useState<FeaturedDeal[]>(initialDeals || []);
-const [selectedDeal, setSelectedDeal] = useState<FeaturedDeal | null>(null);
-const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedDeal, setSelectedDeal] = useState<FeaturedDeal | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     if (initialDeals && initialDeals.length > 0) {
@@ -112,6 +114,7 @@ const [isModalOpen, setIsModalOpen] = useState(false);
         onSelectDeal={handleSelect}
         onAddToCart={onAddToCart}
         showToast={showToast}
+        onOpenCart={onOpenCart}
       />
       <ProductDetailModal
         isOpen={isModalOpen}

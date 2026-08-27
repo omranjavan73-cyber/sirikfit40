@@ -20,6 +20,7 @@ interface InventoryPageProps {
   settings?: FinancialSettings;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  onOpenCart?: () => void;
 }
 
 export const InventoryPage: React.FC<InventoryPageProps> = ({
@@ -27,7 +28,8 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
   onSelectLocalProduct,
   settings,
   onAddToCart,
-  showToast
+  showToast,
+  onOpenCart
 }) => {
   const [selectedMainCat, setSelectedMainCat] = useState<string>('sports_nutrition');
   const [selectedSubCat, setSelectedSubCat] = useState<string>('all');
@@ -74,6 +76,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
         onSearchChange={setSearchQuery}
         searchPlaceholder="... جستجوی مکمل، برند یا ویتامین در انبار ایران"
         totalCount={filteredItems.length}
+        onOpenCart={onOpenCart}
       />
 
       {/* 2. Products List/Grid Section */}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X, ShoppingCart } from 'lucide-react';
 import { TaxonomyCategory, DEFAULT_TAXONOMY, fetchTaxonomyFromFirestore } from '../utils/taxonomyHelper';
+import { useCart } from '../context/CartContext';
 
 interface TwoTierCategoryNavProps {
   selectedMainCat: string;
@@ -12,6 +13,8 @@ interface TwoTierCategoryNavProps {
   searchPlaceholder?: string;
   totalCount?: number;
   customTaxonomy?: TaxonomyCategory[];
+  onOpenCart?: () => void;
+  cartCount?: number;
 }
 
 export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
@@ -23,9 +26,13 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
   onSearchChange,
   searchPlaceholder = '... جستجوی مکمل، برند یا ویتامین در آفرهای دبی',
   totalCount,
-  customTaxonomy
+  customTaxonomy,
+  onOpenCart,
+  cartCount
 }) => {
   const [taxonomy, setTaxonomy] = useState<TaxonomyCategory[]>(customTaxonomy || DEFAULT_TAXONOMY);
+  const cartContext = useCart();
+  const effectiveCartCount = cartCount !== undefined ? cartCount : (cartContext?.itemCount || 0);
 
   useEffect(() => {
     if (customTaxonomy && customTaxonomy.length > 0) {
@@ -50,27 +57,51 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
 
   return (
     <div className="space-y-3 font-['Vazirmatn',sans-serif] text-right">
-      {/* 1. Search Header (Clean Rounded Input) */}
-      <div className="relative">
-        <div className="relative flex items-center bg-white border border-slate-200/90 focus-within:border-blue-700 rounded-2xl shadow-2xs transition">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={searchPlaceholder}
-            className="w-full bg-transparent py-3 pr-10 pl-4 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none text-right dir-rtl font-medium"
-          />
-          <Search className="w-4 h-4 text-slate-400 absolute right-3.5 shrink-0 pointer-events-none" />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => onSearchChange('')}
-              className="absolute left-3 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
+      {/* 1. Streamlined Top Action Row (Full-width Search Bar + Compact Cart Icon Button) */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <div className="relative flex items-center bg-white dark:bg-zinc-900 border border-slate-200/90 dark:border-zinc-700 focus-within:border-slate-800 rounded-2xl shadow-2xs transition">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder={searchPlaceholder}
+              className="w-full bg-transparent py-3 pr-10 pl-4 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none text-right dir-rtl font-medium"
+            />
+            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 shrink-0 pointer-events-none" />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => onSearchChange('')}
+                className="absolute left-3 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Compact Cart Icon Button with Dynamic Red Item Badge */}
+        <button
+          type="button"
+          onClick={() => {
+            if (onOpenCart) {
+              onOpenCart();
+            } else {
+              window.dispatchEvent(new CustomEvent('openCartDirect'));
+            }
+          }}
+          className="relative w-11 h-11 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-800 dark:text-white shadow-2xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0 active:scale-95"
+          title="مشاهده سبد خرید"
+          aria-label="مشاهده سبد خرید"
+        >
+          <ShoppingCart className="w-5 h-5" />
+          {effectiveCartCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-xs">
+              {effectiveCartCount > 99 ? '99+' : effectiveCartCount}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* 2. Tier 1: Slate Black Main Category Navigation Bar */}

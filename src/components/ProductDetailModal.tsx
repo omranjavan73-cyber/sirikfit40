@@ -248,10 +248,18 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   // Synchronize variant-specific image immediately upon variant selection
   useEffect(() => {
-    if (matchedVariant?.image && matchedVariant.image !== selectedImage) {
-      setSelectedImage(matchedVariant.image);
+    const variantImg = matchedVariant?.image?.trim() || matchedVariant?.imageThumbnail?.trim();
+    if (variantImg) {
+      if (variantImg !== selectedImage) {
+        setSelectedImage(variantImg);
+      }
+    } else {
+      const defaultImg = currentProd?.image || galleryList[0] || fallbackImg;
+      if (defaultImg && !galleryList.includes(selectedImage) && selectedImage !== defaultImg) {
+        setSelectedImage(defaultImg);
+      }
     }
-  }, [matchedVariant?.image]);
+  }, [matchedVariant?.image, matchedVariant?.imageThumbnail, selectedFlavor, selectedSize, currentProd?.image]);
 
   const localizedCaption = useMemo(() => {
     if (!currentProd) return '';

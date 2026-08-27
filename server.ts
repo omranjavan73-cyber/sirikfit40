@@ -4018,8 +4018,10 @@ async function saveScrapedProductToCache(
 
 
 const sanitizeImageUrl = (rawImg: string, cleanUrl: string = '') => {
-  if (!rawImg) return '';
+  if (!rawImg || typeof rawImg !== 'string') return '';
   let str = String(rawImg).trim().replace(/&amp;/g, '&').replace(/^["']|["']$/g, '').trim();
+
+  // 1. Normalize protocol and relative paths
   if (str.startsWith('//')) {
     str = 'https:' + str;
   } else if (str.startsWith('/')) {
@@ -4027,13 +4029,28 @@ const sanitizeImageUrl = (rawImg: string, cleanUrl: string = '') => {
       const u = new URL(cleanUrl || 'https://drnutrition.com');
       str = `${u.protocol}//${u.host}${str}`;
     } catch (_e) {
-      str = 'https://drnutrition.com' + str;
+      str = 'https://www.drnutrition.com' + str;
     }
   } else if (str.startsWith('http://')) {
     str = str.replace('http://', 'https://');
   }
+
   str = str.split('"')[0].split("'")[0].split('\\')[0].trim();
-  // Upgrade Shopify/E-Commerce thumbnail images to high-res master/1024x1024
+
+  // 2. Validate URL syntax & remove thumbnail downscaling query params
+  try {
+    const parsedUrl = new URL(str);
+    if (parsedUrl.hostname.includes('drnutrition.com') || parsedUrl.hostname.includes('cdn.shopify.com')) {
+      parsedUrl.searchParams.delete('width');
+      parsedUrl.searchParams.delete('height');
+      parsedUrl.searchParams.delete('crop');
+    }
+    str = parsedUrl.toString();
+  } catch (_urlErr) {
+    return '';
+  }
+
+  // 3. Upgrade Shopify/E-Commerce thumbnail images to high-res master/1024x1024
   str = str.replace(/_(?:small|compact|thumb|medium|100x100|150x150|200x200|240x240|300x300)\.(jpe?g|png|webp|avif)/gi, '_1024x1024.$1');
   return str;
 };

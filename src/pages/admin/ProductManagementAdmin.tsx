@@ -729,6 +729,7 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           variants={product.variants || []}
           availableSizes={product.sizes || []}
           availableFlavors={product.flavors || []}
+          mainProductImage={mainImage || (galleryImages[0] || '')}
           aedRate={51400}
           onUpdateVariant={handleUpdateVariant}
           onDeleteVariant={handleDeleteVariant}

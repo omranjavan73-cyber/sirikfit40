@@ -136,9 +136,9 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
               });
             }
 
-            let rawImg = product.image?.src || product.image || (galleryImages.length > 0 ? galleryImages[0] : '');
+            let rawImg = product.image?.src || product.image || (Array.isArray(product.images) && product.images[0] ? (typeof product.images[0] === 'string' ? product.images[0] : product.images[0].src) : '') || (galleryImages.length > 0 ? galleryImages[0] : '');
             if (typeof rawImg === 'object' && rawImg?.src) rawImg = rawImg.src;
-            const mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), normalizedUrl);
+            const mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), normalizedUrl) || (galleryImages.length > 0 ? galleryImages[0] : '');
             if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
 
             const flavorsList: string[] = [];
@@ -433,7 +433,7 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
   const selectedFlavor: string | null = cleanFlavors.length > 0 
     ? ((activeFlavor && cleanFlavors.includes(activeFlavor)) ? activeFlavor : cleanFlavors[0])
     : null;
-  const selectedSize: string | null = cleanSizes.length > 0
+  const selectedSize: string | null = cleanSizes.length > 0 
     ? ((activeSize && cleanSizes.includes(activeSize)) ? activeSize : cleanSizes[0])
     : null;
 
@@ -468,6 +468,8 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
     discountPercent = Math.round(((finalOriginalPriceAed - finalPriceAed) / finalOriginalPriceAed) * 100);
   }
 
+  const finalMainImage = mainImage || (galleryImages.length > 0 ? galleryImages[0] : '');
+
   if (!finalPriceAed || finalPriceAed <= 0) {
     return {
       success: false,
@@ -477,8 +479,8 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
       title: titleEn,
       brand,
       priceAed: 0,
-      image: mainImage,
-      imageUrl: mainImage,
+      image: finalMainImage,
+      imageUrl: finalMainImage,
       galleryImages,
       inStock: false,
       retailer: 'DrNutrition',
@@ -507,8 +509,8 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
     originalPriceAed: finalOriginalPriceAed,
     originalPriceAED: finalOriginalPriceAed,
     discountPercent,
-    image: mainImage,
-    imageUrl: mainImage,
+    image: finalMainImage,
+    imageUrl: finalMainImage,
     galleryImages,
     inStock,
     retailer: 'DrNutrition',
@@ -524,3 +526,5 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
     description
   };
 }
+
+export default scrapeDrNutrition;

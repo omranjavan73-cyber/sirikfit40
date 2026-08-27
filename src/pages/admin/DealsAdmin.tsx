@@ -1004,11 +1004,31 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                       return (
                         <div key={v.id}
                           className="grid grid-cols-12 gap-1.5 items-center bg-white border border-slate-200 p-2 rounded-xl text-xs">
-                          <div className="col-span-1 flex items-center justify-center">
-                            {v.image ? <img src={v.image} alt="" className="w-8 h-8 object-contain rounded-lg border border-slate-200 p-0.5" />
-                              : <div className="w-8 h-8 bg-slate-100 rounded-lg text-[9px] text-slate-400 flex items-center justify-center">تصویر</div>}
+                          {/* Thumb & Optional Variant Image */}
+                          <div className="col-span-3 flex items-center gap-1.5">
+                            {v.image || deal.image ? (
+                              <img
+                                src={v.image || deal.image}
+                                alt=""
+                                className="w-8 h-8 object-contain rounded-lg border border-slate-200 p-0.5 shrink-0 bg-white shadow-2xs"
+                                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                              />
+                            ) : (
+                              <div className="w-8 h-8 bg-slate-100 rounded-lg text-[9px] text-slate-400 flex items-center justify-center shrink-0">تصویر</div>
+                            )}
+                            <input
+                              type="text"
+                              value={v.image || ''}
+                              onChange={e => updateVariant(deal.id, v.id, 'image', e.target.value.trim() || undefined)}
+                              placeholder="لینک عکس اختصاصی..."
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono focus:bg-white focus:outline-none dir-ltr"
+                              dir="ltr"
+                              title="لینک تصویر اختصاصی واریانت (اختیاری)"
+                            />
                           </div>
-                          <div className="col-span-3">
+
+                          {/* Flavor */}
+                          <div className="col-span-2">
                             {isCustFlavor
                               ? <input type="text" value={v.flavor || ''}
                                   onChange={e => updateVariant(deal.id, v.id, 'flavor', e.target.value)}
@@ -1023,7 +1043,9 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                                   <option value="__custom__">+ طعم سفارشی...</option>
                                 </select>}
                           </div>
-                          <div className="col-span-3">
+
+                          {/* Size Dropdown */}
+                          <div className="col-span-2">
                             {isCustSize
                               ? <div className="flex items-center gap-1">
                                   <input type="text" value={v.size || ''}

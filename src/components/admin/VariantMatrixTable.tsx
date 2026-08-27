@@ -30,6 +30,7 @@ interface VariantMatrixTableProps {
   variants: ProductVariant[];
   availableSizes?: string[];
   availableFlavors?: string[];
+  mainProductImage?: string;
   aedRate?: number;
   profitMargin?: number;
   cargoRatePerKg?: number;
@@ -43,6 +44,7 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
   variants,
   availableSizes = [],
   availableFlavors = [],
+  mainProductImage = '',
   aedRate = 51400,
   profitMargin = 20,
   cargoRatePerKg = 35,
@@ -122,9 +124,9 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
           <table className="w-full text-right text-xs">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-slate-600 font-extrabold">
-                <th className="py-2.5 px-3">تصویر</th>
-                <th className="py-2.5 px-3 min-w-[170px]">سایز / حجم (انتخاب سریع)</th>
-                <th className="py-2.5 px-3 min-w-[150px]">طعم / مدل</th>
+                <th className="py-2.5 px-3 min-w-[200px]">تصویر واریانت (اختیاری)</th>
+                <th className="py-2.5 px-3 min-w-[160px]">سایز / حجم (انتخاب سریع)</th>
+                <th className="py-2.5 px-3 min-w-[140px]">طعم / مدل</th>
                 <th className="py-2.5 px-3 min-w-[100px]">قیمت خرید (AED)</th>
                 <th className="py-2.5 px-3 min-w-[120px]">قیمت فروش (تومان)</th>
                 <th className="py-2.5 px-3 text-center min-w-[90px]">موجودی</th>
@@ -137,22 +139,37 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
                 const isCustomSize = customMode[varId]?.customSize || (v.size && !sizeOptions.includes(v.size));
                 const isCustomFlavor = customMode[varId]?.customFlavor || (v.flavor && flavorOptions.length > 0 && !flavorOptions.includes(v.flavor));
                 const currentPriceAed = v.price !== undefined ? v.price : (v.priceAed !== undefined ? v.priceAed : 0);
+                const displayThumb = v.image?.trim() || mainProductImage?.trim();
 
                 return (
                   <tr key={varId} className="hover:bg-slate-50/80 transition-colors">
-                    {/* Thumbnail */}
+                    {/* Variant Image & 36x36 Preview */}
                     <td className="py-2 px-3">
-                      {v.image ? (
-                        <img
-                          src={v.image}
-                          alt={v.flavor || v.size || ''}
-                          className="w-8 h-8 object-contain rounded-lg border border-slate-200 bg-white p-0.5"
+                      <div className="flex items-center gap-2">
+                        {displayThumb ? (
+                          <img
+                            src={displayThumb}
+                            alt={v.flavor || v.size || ''}
+                            className="w-9 h-9 object-contain rounded-xl border border-slate-200 bg-white p-0.5 shrink-0 shadow-2xs"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                            <ImageIcon className="w-4 h-4" />
+                          </div>
+                        )}
+                        <input
+                          type="text"
+                          value={v.image || ''}
+                          onChange={(e) => onUpdateVariant(idx, 'image', e.target.value.trim() || undefined)}
+                          placeholder="لینک تصویر اختصاصی..."
+                          className="w-full bg-slate-50 focus:bg-white border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-800 focus:outline-none focus:border-slate-900 dir-ltr"
+                          dir="ltr"
+                          title="لینک تصویر اختصاصی واریانت (اختیاری)"
                         />
-                      ) : (
-                        <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400">
-                          <ImageIcon className="w-3.5 h-3.5" />
-                        </div>
-                      )}
+                      </div>
                     </td>
 
                     {/* Size Selector: Dropdown + Custom mode */}

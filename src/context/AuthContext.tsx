@@ -1,6 +1,15 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { User } from '../types';
 import { getAdminPasswordFromFirestore } from '../firebase';
+import {
+  loginAdminApi,
+  logoutAdminSession,
+  requestAdminPasswordOtp,
+  resetAdminPasswordWithOtp,
+  changeAdminPasswordApi,
+  getStoredUser,
+  setStoredUser
+} from '../services/authService';
 
 interface AuthContextType {
   isAdminAuthenticated: boolean;
@@ -32,17 +41,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   });
 
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('omex_current_user');
-      if (stored) {
-        try {
-          return JSON.parse(stored);
-        } catch (_e) {}
-      }
-    }
-    return null;
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(() => getStoredUser());
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -57,115 +56,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [isAdminAuthenticated, adminToken]);
 
   const loginAdmin = async (password: string): Promise<{ success: boolean; error?: string }> => {
-    try {
-      const res = await fetch('/api/admin/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: password.trim() })
-      });
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        const token = data.token || 'omex_admin_session_' + Date.now();
-        setIsAdminAuthenticated(true);
-        setAdminToken(token);
-        return { success: true };
-      }
-
-      // Offline / Direct fallback check
-      const firestorePass = await getAdminPasswordFromFirestore();
-      if (firestorePass && password.trim() === firestorePass) {
-        const token = 'omex_admin_session_' + Date.now();
-        setIsAdminAuthenticated(true);
-        setAdminToken(token);
-        return { success: true };
-      }
-
-      return { success: false, error: data.error || 'کلمه عبور وارد شده نادرست است.' };
-    } catch (_err) {
-      const firestorePass = await getAdminPasswordFromFirestore();
-      if (firestorePass && password.trim() === firestorePass) {
-        const token = 'omex_admin_session_' + Date.now();
-        setIsAdminAuthenticated(true);
-        setAdminToken(token);
-        return { success: true };
-      }
-      return { success: false, error: 'خطای سرور در تایید کلمه عبور.' };
+    const res = await loginAdminApi(password);
+    if (res.success) {
+      setIsAdminAuthenticated(true);
+      if (res.token) setAdminToken(res.token);
+      return { success: true };
     }
+
+    // Offline / Direct fallback check
+    try {
+      const firestorePass = await getAdminPasswordFromFirestore();
+      if (firestorePass && password.trim() === firestorePass) {
+        const token = 'omex_admin_session_' + Date.now();
+        setIsAdminAuthenticated(true);
+        setAdminToken(token);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('omex_admin_auth', 'true');
+          localStorage.setItem('omex_admin_token', token);
+        }
+        return { success: true };
+      }
+    } catch (_e) {}
+
+    return { success: false, error: res.error || 'کلمه عبور وارد شده نادرست است.' };
   };
 
   const logoutAdmin = () => {
     setIsAdminAuthenticated(false);
     setAdminToken(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('omex_admin_auth');
-      localStorage.removeItem('omex_admin_token');
-    }
+    logoutAdminSession();
   };
 
   const requestPasswordOtp = async (email: string) => {
-    try {
-      const res = await fetch('/api/admin/request-password-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        return { success: true, message: data.message };
-      }
-      return { success: false, error: data.error || 'خطا در ارسال کد تایید.' };
-    } catch (_err) {
-      return { success: false, error: 'خطای اتصال به سرور جهت ارسال کد تایید.' };
-    }
+    return await requestAdminPasswordOtp(email);
   };
 
   const resetPasswordOtp = async (otpCode: string, newPassword: string) => {
-    try {
-      const res = await fetch('/api/admin/reset-password-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ otpCode: otpCode.trim(), newPassword: newPassword.trim() })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        return { success: true, message: data.message };
-      }
-      return { success: false, error: data.error || 'کد تایید نامعتبر یا منقضی شده است.' };
-    } catch (_err) {
-      return { success: false, error: 'خطای اتصال به سرور جهت بازنشانی کلمه عبور.' };
-    }
+    return await resetAdminPasswordWithOtp(otpCode, newPassword);
   };
 
   const changeAdminPassword = async (currentPassword: string, newPassword: string) => {
-    try {
-      const res = await fetch('/api/admin/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        return { success: true };
-      }
-      return { success: false, error: data.error || 'کلمه عبور فعلی نادرست است.' };
-    } catch (_err) {
-      return { success: false, error: 'خطای اتصال به سرور.' };
-    }
+    return await changeAdminPasswordApi(currentPassword, newPassword);
   };
 
   const loginCustomer = (user: User) => {
     setCurrentUser(user);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('omex_current_user', JSON.stringify(user));
-    }
+    setStoredUser(user);
   };
 
   const logoutCustomer = () => {
     setCurrentUser(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('omex_current_user');
-    }
+    setStoredUser(null);
   };
 
   return (

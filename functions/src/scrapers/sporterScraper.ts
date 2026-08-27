@@ -65,6 +65,22 @@ export const SPORTER_DEFAULT_HEADERS = {
 };
 
 /**
+ * Extract canonical product slug from Sporter URL
+ */
+export function extractSporterSlug(url: string): string {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+    const pathname = parsed.pathname.replace(/^\/+|\/+$/g, '');
+    const parts = pathname.split('/');
+    // Handles /en-ae/slug, /ar-ae/slug, /en-sa/slug, or simply /slug
+    const lastPart = parts[parts.length - 1] || '';
+    return lastPart.replace(/\.html?$/i, '').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Strict Strikethrough & Crossed-Out Price Detector
  * Identifies del, s, strike, old-price, was-price, and strikethrough classes to prevent capturing non-active prices.
  */
@@ -106,11 +122,10 @@ function cleanText(txt: any): string {
 }
 
 /**
- * Anti-Fragile Sporter Multi-Tier Scraper Engine
- * - Tier 1: Next.js Hydration Block (<script id="__NEXT_DATA__" type="application/json">)
- * - Tier 2: OpenGraph & Meta Data (<meta property="og:*">, <meta property="product:price:amount">)
- * - Tier 3: Structured JSON-LD (<script type="application/ld+json">)
- * - Tier 4: Fallback Regex & DOM Sanitization with Strikethrough Price Exclusion
+ * Anti-Blocking Sporter 3-Tier Sequential Scraper Engine
+ * - Tier 1: Next.js Data JSON Endpoint & Hydration Payload (<script id="__NEXT_DATA__">)
+ * - Tier 2: Schema.org & OpenGraph Metadata (<script type="application/ld+json">, meta tags)
+ * - Tier 3: Sanitized DOM Parsing with Strikethrough Price Exclusion & Variant Accuracy
  */
 export async function scrapeSporter(rawUrl: string, options?: SporterScraperOptions): Promise<SporterScraperResult> {
   const normalizedUrl = cleanAndNormalizeUrl(rawUrl) || rawUrl.trim();
@@ -119,6 +134,7 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
     ...(options?.userAgent ? { 'User-Agent': options.userAgent } : {})
   };
   const timeout = options?.timeoutMs || 15000;
+  const slug = extractSporterSlug(normalizedUrl);
 
   // Build candidate URL variations (ensure /en-ae/ locale for accurate AED pricing)
   let enAeUrl = normalizedUrl;
@@ -130,6 +146,9 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
   const candidateUrls = Array.from(new Set([enAeUrl, normalizedUrl]));
 
   let html = '';
+  let nextBuildId: string | null = null;
+  let nextJsonData: any = null;
+
   for (const fetchUrl of candidateUrls) {
     try {
       const res = await axios.get(fetchUrl, {
@@ -140,6 +159,11 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
       });
       if (res.data && typeof res.data === 'string' && res.data.length > 300) {
         html = res.data;
+        // Extract buildId if present
+        const buildIdMatch = html.match(/"buildId"\s*:\s*"([^"]+)"/) || html.match(/\/_next\/static\/([a-zA-Z0-9_-]+)\/_buildManifest\.js/);
+        if (buildIdMatch && buildIdMatch[1]) {
+          nextBuildId = buildIdMatch[1];
+        }
         break;
       }
     } catch (err: any) {
@@ -147,7 +171,7 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
     }
   }
 
-  // 1-Retry with alternative desktop header if response is blocked or empty
+  // Fallback 1: Desktop macOS header retry if response was blocked or short
   if (!html || html.length < 300 || html.includes('Attention Required! | Cloudflare') || html.includes('cf-browser-verification')) {
     try {
       const retryHeaders = {
@@ -163,11 +187,15 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
       });
       if (retryRes.data && typeof retryRes.data === 'string' && retryRes.data.length > 300) {
         html = retryRes.data;
+        const buildIdMatch = html.match(/"buildId"\s*:\s*"([^"]+)"/) || html.match(/\/_next\/static\/([a-zA-Z0-9_-]+)\/_buildManifest\.js/);
+        if (buildIdMatch && buildIdMatch[1]) {
+          nextBuildId = buildIdMatch[1];
+        }
       }
     } catch (_retryErr) {}
   }
 
-  // Fallback: If still blocked or empty response, fetch via Jina Reader proxy
+  // Fallback 2: Jina proxy if still blocked
   if (!html || html.length < 300 || html.includes('Attention Required! | Cloudflare') || html.includes('cf-browser-verification')) {
     try {
       console.log(`[sporterScraper] Attempting Jina Reader proxy for ${enAeUrl}`);
@@ -186,34 +214,30 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
     } catch (_jinaErr) {}
   }
 
-  if (!html || html.length < 100) {
-    return {
-      success: false,
-      ok: false,
-      titleFa: '',
-      titleEn: '',
-      title: '',
-      brand: 'Sporter UAE',
-      priceAed: 0,
-      image: '',
-      imageUrl: '',
-      galleryImages: [],
-      inStock: false,
-      retailer: 'Sporter',
-      store: 'Sporter UAE',
-      storeName: 'Sporter UAE',
-      sourceUrl: normalizedUrl,
-      selectedFlavor: null,
-      selectedSize: null,
-      flavors: [],
-      sizes: [],
-      variants: [],
-      weightKg: 1.0,
-      error: 'امکان اتصال به وبسایت اسپورتر فراهم نشد.'
-    };
+  // -------------------------------------------------------------------------
+  // TIER 1: Next.js Data JSON Endpoint / Hydration Payload
+  // -------------------------------------------------------------------------
+  // Attempt fetching Next.js data endpoint if buildId is known
+  if (nextBuildId && slug) {
+    try {
+      const nextDataEndpoint = `https://sporter.com/_next/data/${nextBuildId}/en-ae/${slug}.json`;
+      const jsonRes = await axios.get(nextDataEndpoint, {
+        headers: {
+          'User-Agent': SPORTER_DEFAULT_HEADERS['User-Agent'],
+          'Accept': 'application/json',
+          'Accept-Language': 'en-AE,en;q=0.9',
+          'Referer': 'https://sporter.com/'
+        },
+        timeout: 8000,
+        validateStatus: (status) => status === 200
+      });
+      if (jsonRes.data && typeof jsonRes.data === 'object') {
+        nextJsonData = jsonRes.data;
+      }
+    } catch (_ndErr) {}
   }
 
-  const $ = cheerio.load(html);
+  const $ = cheerio.load(html || '');
 
   let titleEn = '';
   let brand = 'Sporter UAE';
@@ -230,14 +254,18 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
   let activeSize: string | null = null;
   const variants: any[] = [];
 
-  // =========================================================================
-  // TIER 1: Next.js Hydration Block (<script id="__NEXT_DATA__" type="application/json">)
-  // =========================================================================
+  // Parse Next.js hydration payload from data endpoint or <script id="__NEXT_DATA__">
   try {
-    const nextScript = $('#__NEXT_DATA__').html();
-    if (nextScript) {
-      const nextData = JSON.parse(nextScript);
-      const pp = nextData?.props?.pageProps || {};
+    let nextData = nextJsonData;
+    if (!nextData) {
+      const nextScript = $('#__NEXT_DATA__').html();
+      if (nextScript) {
+        nextData = JSON.parse(nextScript);
+      }
+    }
+
+    if (nextData) {
+      const pp = nextData?.pageProps || nextData?.props?.pageProps || {};
       const productObj =
         pp.product ||
         pp.initialState?.product ||
@@ -267,7 +295,6 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
         }
 
         // Active Discounted Price vs Regular Price
-        // Check price_range.minimum_price (standard Next.js / GraphQL eCommerce structure)
         const priceRange = productObj.price_range?.minimum_price;
         if (priceRange) {
           const finalVal = extractPriceNumber(priceRange.final_price?.value ?? priceRange.final_price);
@@ -276,7 +303,7 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
           if (regVal > 0 && regVal > (finalVal || 0)) regularPriceAed = regVal;
         }
 
-        // Direct pricing fields if price_range was not populated
+        // Direct pricing fields fallback
         if (!activeSalePriceAed) {
           const sp = extractPriceNumber(productObj.finalPrice ?? productObj.salePrice ?? productObj.special_price ?? productObj.final_price ?? productObj.specialPrice);
           const rp = extractPriceNumber(productObj.price ?? productObj.regular_price ?? productObj.regularPrice ?? productObj.oldPrice);
@@ -352,9 +379,9 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
     console.warn('[sporterScraper] Tier 1 Next.js parsing notice:', _nextErr);
   }
 
-  // =========================================================================
-  // TIER 2: OpenGraph & Meta Data Extraction
-  // =========================================================================
+  // -------------------------------------------------------------------------
+  // TIER 2: Schema.org & OpenGraph Extraction
+  // -------------------------------------------------------------------------
   if (!titleEn) {
     const ogTitle = $('meta[property="og:title"]').attr('content') ||
                     $('meta[name="twitter:title"]').attr('content');
@@ -387,9 +414,7 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
     }
   }
 
-  // =========================================================================
-  // TIER 3: Structured JSON-LD (<script type="application/ld+json">)
-  // =========================================================================
+  // Structured JSON-LD (<script type="application/ld+json">)
   const jsonLdItems: any[] = [];
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
@@ -448,9 +473,9 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
     }
   }
 
-  // =========================================================================
-  // TIER 4: DOM Selectors & Fallback Regex with Strict Strikethrough Omission
-  // =========================================================================
+  // -------------------------------------------------------------------------
+  // TIER 3: Sanitized DOM Parsing & Discount Invariant (Strict Strikethrough Omission)
+  // -------------------------------------------------------------------------
   if (!titleEn) {
     titleEn = $('h1.page-title, [data-ui-id="page-title-wrapper"], h1.product-name, h1').first().text().trim() ||
               $('title').text().replace(/\s*\|\s*Sporter.*$/i, '').trim();
@@ -640,4 +665,3 @@ export async function scrapeSporter(rawUrl: string, options?: SporterScraperOpti
 }
 
 export default scrapeSporter;
-

@@ -8343,12 +8343,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* SUB-TAB: ABANDONED CARTS & RECOVERY */}
       {activeAdminSubTab === 'abandonedCarts' && (
-        <AbandonedCartsTab />
+        <CustomersAdmin initialTab="abandonedCarts" />
       )}
 
       {/* SUB-TAB: CUSTOMERS INTELLIGENCE & LTV */}
       {activeAdminSubTab === 'customers' && (
-        <CustomersAdmin />
+        <CustomersAdmin initialTab="ltv" />
       )}
 
       {/* TOP-RIGHT TOAST NOTIFICATION */}

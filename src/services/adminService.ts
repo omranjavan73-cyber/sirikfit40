@@ -58,12 +58,28 @@ export async function saveIranWarehouseItems(
 
   try {
     const promises: Promise<any>[] = [];
+    const currentIds = new Set(cleanList.map(item => item.id));
+
+    // A. Query existing documents in collection to delete orphaned / removed docs
+    try {
+      const { getDocs, collection } = await import('firebase/firestore');
+      const existingSnap = await getDocs(collection(db, 'iran_warehouse'));
+      existingSnap.forEach((docSnap) => {
+        if (!currentIds.has(docSnap.id)) {
+          promises.push(deleteDoc(docSnap.ref));
+        }
+      });
+    } catch (queryErr) {
+      console.warn('Could not query existing iran_warehouse docs for cleanup:', queryErr);
+    }
+
+    // B. Write or update active documents
     for (const docItem of cleanList) {
       const docRef = doc(db, 'iran_warehouse', docItem.id);
       promises.push(setDoc(docRef, sanitizePayloadForFirestore(docItem), { merge: true }));
     }
 
-    // Also update settings/cms for backward compatibility
+    // C. Also update settings/cms for backward compatibility
     promises.push(
       setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore({ localInventory: cleanList, updatedAt: new Date().toISOString() }), { merge: true })
     );
@@ -142,11 +158,28 @@ export async function saveSpecialDeals(
   // 3. Firestore SDK Persistence
   try {
     const promises: Promise<any>[] = [];
+    const currentIds = new Set(cleanList.map(item => item.id));
+
+    // A. Query existing documents in collection to delete orphaned / removed docs
+    try {
+      const { getDocs, collection } = await import('firebase/firestore');
+      const existingSnap = await getDocs(collection(db, 'special_deals'));
+      existingSnap.forEach((docSnap) => {
+        if (!currentIds.has(docSnap.id)) {
+          promises.push(deleteDoc(docSnap.ref));
+        }
+      });
+    } catch (queryErr) {
+      console.warn('Could not query existing special_deals docs for cleanup:', queryErr);
+    }
+
+    // B. Write or update active documents
     for (const docItem of cleanList) {
       const docRef = doc(db, 'special_deals', docItem.id);
       promises.push(setDoc(docRef, sanitizePayloadForFirestore(docItem), { merge: true }));
     }
 
+    // C. Also update settings/cms for backward compatibility
     promises.push(
       setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore({ deals: cleanList, updatedAt: new Date().toISOString() }), { merge: true })
     );

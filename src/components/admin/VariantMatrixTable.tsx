@@ -120,8 +120,8 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
             <tbody className="divide-y divide-slate-100">
               {variants.map((v, idx) => {
                 const varId = v.id || `var-${idx}`;
-                const isCustomSize = customMode[varId]?.customSize || (v.size && !sizeOptions.includes(v.size));
-                const isCustomFlavor = customMode[varId]?.customFlavor || (v.flavor && !flavorOptions.includes(v.flavor));
+                const isCustomSize = Boolean(customMode[varId]?.customSize);
+                const isCustomFlavor = Boolean(customMode[varId]?.customFlavor);
                 const currentPriceAed = v.price !== undefined ? v.price : (v.priceAed !== undefined ? v.priceAed : 0);
                 const displayThumb = v.image?.trim() || mainProductImage?.trim();
 
@@ -158,7 +158,11 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
                         <input
                           type="text"
                           value={v.image || ''}
-                          onChange={(e) => onUpdateVariant(idx, 'image', e.target.value.trim() || undefined)}
+                          onChange={(e) => {
+                            const val = e.target.value.trim() || undefined;
+                            onUpdateVariant(idx, 'image', val);
+                            onUpdateVariant(idx, 'imageUrl' as any, val);
+                          }}
                           placeholder="لینک تصویر اختصاصی..."
                           className="w-full bg-slate-50 focus:bg-white border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-800 focus:outline-none focus:border-slate-900 dir-ltr"
                           dir="ltr"
@@ -169,7 +173,7 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
 
                     {/* Flavor Selector with Intelligent Bilingual Autocomplete */}
                     <td className="py-2 px-3">
-                      {isCustomFlavor || flavorOptions.length === 0 ? (
+                      {isCustomFlavor ? (
                         <div className="flex items-center gap-1">
                           <FlavorAutocompleteInput
                             value={v.flavor || ''}
@@ -177,15 +181,13 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
                             placeholder="نام طعم (فارسی / انگلیسی)..."
                             inputClassName="w-full bg-white border border-amber-400 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
                           />
-                          {flavorOptions.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setCustomMode(prev => ({ ...prev, [varId]: { ...prev[varId], customFlavor: false } }))}
-                              className="text-[10px] text-blue-600 hover:underline shrink-0 font-bold px-1"
-                            >
-                              لیست
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setCustomMode(prev => ({ ...prev, [varId]: { ...prev[varId], customFlavor: false } }))}
+                            className="text-[10px] text-blue-600 hover:underline shrink-0 font-bold px-1 cursor-pointer"
+                          >
+                            لیست
+                          </button>
                         </div>
                       ) : (
                         <select
@@ -205,6 +207,9 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
                               <option key={`std-${f}`} value={f}>{f}</option>
                             ))}
                           </optgroup>
+                          {v.flavor && !flavorOptions.includes(v.flavor) && !availableFlavors.includes(v.flavor) && (
+                            <option value={v.flavor}>{v.flavor}</option>
+                          )}
                           <option value="__custom__">➕ تایپ طعم سفارشی (با جستجو)...</option>
                         </select>
                       )}
@@ -228,7 +233,7 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
                           <button
                             type="button"
                             onClick={() => setCustomMode(prev => ({ ...prev, [varId]: { ...prev[varId], customSize: false } }))}
-                            className="text-[10px] text-blue-600 hover:underline shrink-0 font-bold px-1"
+                            className="text-[10px] text-blue-600 hover:underline shrink-0 font-bold px-1 cursor-pointer"
                           >
                             لیست
                           </button>
@@ -238,6 +243,7 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
                           value={v.size || (sizeOptions[0] || '')}
                           onChange={(e) => handleSizeChange(idx, varId, e.target.value)}
                           className="w-full bg-slate-50 hover:bg-white border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-900 focus:outline-none transition cursor-pointer"
+                          dir="ltr"
                         >
                           {availableSizes.length > 0 && (
                             <optgroup label="✨ سایزهای فعال این محصول">
@@ -251,6 +257,9 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
                               <option key={`std-${s}`} value={s}>{s}</option>
                             ))}
                           </optgroup>
+                          {v.size && !sizeOptions.includes(v.size) && !availableSizes.includes(v.size) && (
+                            <option value={v.size}>{v.size}</option>
+                          )}
                           <option value="__custom__">➕ تایپ سایز سفارشی...</option>
                         </select>
                       )}

@@ -583,15 +583,6 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
 
   // ── Delete item ────────────────────────────────────────────────────────
   const handleDelete = async (itemId: string) => {
-    const targetItem = items.find(i => i.id === itemId);
-    // Instant discard for newly scraped drafts or unsaved items
-    if (targetItem && (!targetItem.isActive || itemId.startsWith('item-') || itemId.startsWith('scraped-') || itemId.startsWith('draft-'))) {
-      const updated = items.filter(i => i.id !== itemId);
-      setItems(updated);
-      if (showToast) showToast('پیش‌نویس با موفقیت حذف شد', 'info');
-      return;
-    }
-
     if (!confirm('آیا از حذف این محصول مطمئن هستید؟')) return;
     const updated = items.filter(i => i.id !== itemId);
     setItems(updated);
@@ -1067,9 +1058,13 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
 
                     {(item.variants || []).map(v => {
                       const modeKey = `${item.id}_${v.id}`;
-                      const isCustFlavor = customRowMode[modeKey]?.customFlavor || (v.flavor && !flavorsPool.includes(v.flavor));
-                      const availableRowSizes = Array.from(new Set([...sizesPool.filter(Boolean), ...STANDARD_SIZE_OPTIONS, ...(v.size ? [v.size] : [])]));
-                      const isCustSize = customRowMode[modeKey]?.customSize || (v.size && !availableRowSizes.includes(v.size));
+                      const isCustFlavor = Boolean(customRowMode[modeKey]?.customFlavor);
+                      const availableRowSizes = Array.from(new Set([
+                        ...STANDARD_SIZE_OPTIONS,
+                        ...sizesPool.filter(Boolean),
+                        ...(v.size ? [v.size] : [])
+                      ]));
+                      const isCustSize = Boolean(customRowMode[modeKey]?.customSize);
 
                       return (
                         <div key={v.id}
@@ -1108,7 +1103,11 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                             <input
                               type="text"
                               value={v.image || ''}
-                              onChange={e => updateVariant(item.id, v.id, 'image', e.target.value.trim() || undefined)}
+                              onChange={e => {
+                                const val = e.target.value.trim() || undefined;
+                                updateVariant(item.id, v.id, 'image', val);
+                                updateVariant(item.id, v.id, 'imageUrl', val);
+                              }}
                               placeholder="لینک عکس اختصاصی..."
                               className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono focus:bg-white focus:outline-none dir-ltr"
                               dir="ltr"
@@ -1149,12 +1148,15 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
                                   <button type="button" onClick={() => setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customSize: false } }))} className="text-[10px] text-blue-600 font-bold">لیست</button>
                                 </div>
-                              : <select value={v.size || (availableRowSizes[0] || '')}
+                              : <select
+                                  value={v.size || (availableRowSizes[0] || '')}
                                   onChange={e => {
                                     if (e.target.value === '__custom__') setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customSize: true } }));
                                     else updateVariant(item.id, v.id, 'size', e.target.value);
                                   }}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none cursor-pointer">
+                                  className="w-full bg-slate-50 hover:bg-white border border-slate-200 focus:border-blue-500 rounded-lg px-2 py-1.5 font-bold focus:outline-none cursor-pointer text-xs"
+                                  dir="ltr"
+                                >
                                   {sizesPool.length > 0 && (
                                     <optgroup label="✨ سایزهای فعال">
                                       {sizesPool.map(opt => <option key={`pool-${opt}`} value={opt}>{opt}</option>)}
@@ -1163,6 +1165,9 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                                   <optgroup label="📋 تمامی سایزهای استاندارد">
                                     {STANDARD_SIZE_OPTIONS.filter(opt => !sizesPool.includes(opt)).map(opt => <option key={`std-${opt}`} value={opt}>{opt}</option>)}
                                   </optgroup>
+                                  {v.size && !STANDARD_SIZE_OPTIONS.includes(v.size) && !sizesPool.includes(v.size) && (
+                                    <option value={v.size}>{v.size}</option>
+                                  )}
                                   <option value="__custom__">+ سایر (تایپ دستی)...</option>
                                 </select>
                             }

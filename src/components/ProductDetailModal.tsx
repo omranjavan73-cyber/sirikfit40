@@ -312,7 +312,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   }, [currentProd, selectedSize, selectedFlavor]);
 
   const currentHeroImage = useMemo(() => {
-    return activeVariant?.image?.trim() || activeVariant?.imageThumbnail?.trim() || activeVariant?.imageUrl?.trim() || selectedImage || currentProd?.image || fallbackImg;
+    const varImg = activeVariant?.image?.trim() || activeVariant?.imageThumbnail?.trim() || activeVariant?.imageUrl?.trim();
+    return varImg || selectedImage || currentProd?.image || fallbackImg;
   }, [activeVariant, selectedImage, currentProd?.image, fallbackImg]);
 
   // Synchronize variant-specific image immediately upon variant selection
@@ -322,8 +323,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       if (variantImg !== selectedImage) {
         setSelectedImage(variantImg);
       }
+    } else if (currentProd?.image && selectedImage && !galleryList.includes(selectedImage)) {
+      setSelectedImage(currentProd.image);
     }
-  }, [activeVariant?.image, activeVariant?.imageThumbnail, activeVariant?.imageUrl, selectedFlavor, selectedSize]);
+  }, [activeVariant, selectedFlavor, selectedSize, currentProd?.image]);
 
   const localizedCaption = useMemo(() => {
     if (!currentProd) return '';
@@ -399,6 +402,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     const varImg = matchingVar?.image?.trim() || matchingVar?.imageThumbnail?.trim() || matchingVar?.imageUrl?.trim();
     if (varImg) {
       setSelectedImage(varImg);
+    } else if (currentProd?.image) {
+      setSelectedImage(currentProd.image);
     }
 
     // Look for target variant item with a distinct url

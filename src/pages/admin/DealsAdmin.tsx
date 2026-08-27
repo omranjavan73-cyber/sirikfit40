@@ -531,15 +531,6 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   };
 
   const handleDelete = async (dealId: string) => {
-    const targetDeal = deals.find(d => d.id === dealId);
-    // Instant discard for newly scraped drafts or unsaved items
-    if (targetDeal && (!targetDeal.isActive || dealId.startsWith('deal-') || dealId.startsWith('scraped-') || dealId.startsWith('draft-'))) {
-      const updated = deals.filter(d => d.id !== dealId);
-      setDeals(updated);
-      if (showToast) showToast('پیش‌نویس با موفقیت حذف شد', 'info');
-      return;
-    }
-
     if (!confirm('آیا از حذف این محصول مطمئن هستید؟')) return;
     const updated = deals.filter(d => d.id !== dealId);
     setDeals(updated);
@@ -986,8 +977,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                         <Plus className="w-3.5 h-3.5" /><span>+ افزودن سطر</span>
                       </button>
                     </div>
-
-                    {/* Aux scraper */}
+                      {/* Aux scraper */}
                     <div className="flex gap-2 bg-slate-50 border border-slate-200 p-2 rounded-xl">
                       <input type="url"
                         value={auxLinks[deal.id] || ''}
@@ -1010,8 +1000,13 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
 
                     {(deal.variants || []).map(v => {
                       const modeKey = `${deal.id}_${v.id}`;
-                      const isCustFlavor = customRowMode[modeKey]?.customFlavor || (v.flavor && !flavorsPool.includes(v.flavor));
-                      const isCustSize = customRowMode[modeKey]?.customSize || (v.size && !STANDARD_SIZE_OPTIONS.includes(v.size || ''));
+                      const isCustFlavor = Boolean(customRowMode[modeKey]?.customFlavor);
+                      const availableRowSizes = Array.from(new Set([
+                        ...STANDARD_SIZE_OPTIONS,
+                        ...sizesPool.filter(Boolean),
+                        ...(v.size ? [v.size] : [])
+                      ]));
+                      const isCustSize = Boolean(customRowMode[modeKey]?.customSize);
 
                       return (
                         <div key={v.id}
@@ -1021,7 +1016,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                             <button
                               type="button"
                               onClick={() => setEditingVariantImage({
-                                itemId: deal.id,
+                                dealId: deal.id,
                                 variantId: v.id,
                                 variantTitle: `${deal.title || ''} - ${v.flavor || ''} ${v.size || ''}`.trim(),
                                 currentUrl: v.image,
@@ -1050,7 +1045,11 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                             <input
                               type="text"
                               value={v.image || ''}
-                              onChange={e => updateVariant(deal.id, v.id, 'image', e.target.value.trim() || undefined)}
+                              onChange={e => {
+                                const val = e.target.value.trim() || undefined;
+                                updateVariant(deal.id, v.id, 'image', val);
+                                updateVariant(deal.id, v.id, 'imageUrl', val);
+                              }}
                               placeholder="لینک عکس اختصاصی..."
                               className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono focus:bg-white focus:outline-none dir-ltr"
                               dir="ltr"
@@ -1090,12 +1089,15 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
                                   <button type="button" onClick={() => setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customSize: false } }))} className="text-[10px] text-amber-600 font-bold">لیست</button>
                                 </div>
-                              : <select value={v.size || (Array.from(new Set([...sizesPool.filter(Boolean), ...STANDARD_SIZE_OPTIONS, ...(v.size ? [v.size] : [])]))[0] || '')}
+                              : <select
+                                  value={v.size || (availableRowSizes[0] || '')}
                                   onChange={e => {
                                     if (e.target.value === '__custom__') setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customSize: true } }));
                                     else updateVariant(deal.id, v.id, 'size', e.target.value);
                                   }}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none cursor-pointer">
+                                  className="w-full bg-slate-50 hover:bg-white border border-slate-200 focus:border-amber-500 rounded-lg px-2 py-1.5 font-bold focus:outline-none cursor-pointer text-xs"
+                                  dir="ltr"
+                                >
                                   {sizesPool.length > 0 && (
                                     <optgroup label="✨ سایزهای فعال">
                                       {sizesPool.map(opt => <option key={`pool-${opt}`} value={opt}>{opt}</option>)}
@@ -1104,6 +1106,9 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                                   <optgroup label="📋 تمامی سایزهای استاندارد">
                                     {STANDARD_SIZE_OPTIONS.filter(opt => !sizesPool.includes(opt)).map(opt => <option key={`std-${opt}`} value={opt}>{opt}</option>)}
                                   </optgroup>
+                                  {v.size && !STANDARD_SIZE_OPTIONS.includes(v.size) && !sizesPool.includes(v.size) && (
+                                    <option value={v.size}>{v.size}</option>
+                                  )}
                                   <option value="__custom__">+ سایر (تایپ دستی)...</option>
                                 </select>}
                           </div>

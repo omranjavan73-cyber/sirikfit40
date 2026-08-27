@@ -85,6 +85,8 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
       baseShippingAed: 20
     }));
 
+    const varImg = String(v.image || v.imageUrl || '').trim();
+
     return {
       id: String(v.id || Math.random().toString(36).substring(2, 8)),
       flavor: String(v.flavor || '').trim(),
@@ -94,7 +96,8 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
       priceAED: vAed,
       priceToman: vToman,
       weightKg: parseWeightKg(v.size, Number(v.weightKg) || baseWeight),
-      image: String(v.image || img || ''),
+      image: varImg || String(prod.imageUrl || prod.image || ''),
+      imageUrl: varImg || String(prod.imageUrl || prod.image || ''),
       inStock: v.inStock !== false,
       ...(v.url ? { url: String(v.url) } : {})
     };
@@ -184,8 +187,23 @@ export async function saveAllAdminProducts(
     } catch (_e) {}
   }
 
-  // 2. Direct Firestore SDK writes (gracefully handled)
+  // 2. Direct Firestore SDK writes (atomic cleanup & save)
   try {
+    const currentIds = new Set(cleanList.map(item => item.id));
+
+    // A. Query existing documents in collection to delete orphaned / removed docs
+    try {
+      const existingSnap = await getDocs(collection(db, collectionName));
+      for (const docSnap of existingSnap.docs) {
+        if (!currentIds.has(docSnap.id)) {
+          await deleteDoc(docSnap.ref);
+        }
+      }
+    } catch (queryErr) {
+      console.warn(`Could not query existing ${collectionName} docs for cleanup:`, queryErr);
+    }
+
+    // B. Write or update active documents
     for (const cleanDoc of cleanList) {
       const docRef = doc(db, collectionName, cleanDoc.id);
       await setDoc(docRef, sanitizePayloadForFirestore(cleanDoc), { merge: true });

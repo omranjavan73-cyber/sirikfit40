@@ -68,17 +68,13 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
-    if (initialDeals && initialDeals.length > 0) {
-      setDealsList(initialDeals);
-    }
+    setDealsList(initialDeals || []);
   }, [initialDeals]);
 
   useEffect(() => {
     // Initial fetch fallback
     fetchSpecialDealsFromFirestore().then((items) => {
-      if (items && items.length > 0) {
-        setDealsList(items);
-      }
+      setDealsList(items || []);
     }).catch(() => {});
 
     // Real-time Firestore snapshot listener

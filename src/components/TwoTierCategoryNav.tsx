@@ -56,7 +56,7 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
   const activeMainConfig = taxonomy.find(c => c.id === selectedMainCat || c.slug === selectedMainCat) || taxonomy[0] || DEFAULT_TAXONOMY[0];
 
   return (
-    <div className="space-y-1.5 font-['Vazirmatn',sans-serif] text-right">
+    <div className="flex flex-col gap-1.5 pt-2 pb-1 font-['Vazirmatn',sans-serif] text-right">
       {/* 1. Streamlined Top Action Row (Full-width Search Bar + Compact Cart Icon Button) */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">

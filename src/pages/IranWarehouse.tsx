@@ -60,17 +60,13 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
-    if (initialItems && initialItems.length > 0) {
-      setItemsList(initialItems);
-    }
+    setItemsList(initialItems || []);
   }, [initialItems]);
 
   useEffect(() => {
     // Initial fetch fallback
     fetchIranWarehouseFromFirestore().then((items) => {
-      if (items && items.length > 0) {
-        setItemsList(items);
-      }
+      setItemsList(items || []);
     }).catch(() => {});
 
     // Real-time Firestore snapshot listener

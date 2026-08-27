@@ -77,7 +77,7 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
   const subCats = customSubCategories || activeMainConfig?.subCategories || [];
 
   return (
-    <div className={`space-y-1.5 font-['Vazirmatn',sans-serif] text-right ${className}`} dir="rtl">
+    <div className={`flex flex-col gap-1.5 pt-2 pb-1 font-['Vazirmatn',sans-serif] text-right ${className}`} dir="rtl">
       {/* 1. Optional Search Header */}
       {showSearch && onSearchChange && (
         <div className="relative">

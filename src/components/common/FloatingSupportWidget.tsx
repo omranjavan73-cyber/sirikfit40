@@ -56,23 +56,20 @@ export const FloatingSupportWidget: React.FC = () => {
       {/* 1. Sleek Half-Drawer / Popup Card */}
       <SupportPopup isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
 
-      {/* 2. Floating Support Trigger Badge (Rounded Squircle Card with Isolated External Pulsing Halo) */}
+      {/* 2. Floating Support Trigger Badge (Rounded Squircle Card with Isolated External Pulsing Ring) */}
       <div className="fixed bottom-24 left-4 sm:bottom-6 sm:left-6 md:bottom-8 md:left-8 z-50 font-['Vazirmatn',sans-serif]">
         <div className="relative">
-          {/* External Expanding Ping Halo Layer */}
-          <div className="absolute -inset-1 rounded-2xl ring-2 ring-emerald-500 animate-ping opacity-40 pointer-events-none" />
+          {/* Dedicated External Background Ring for Animation */}
+          <div className="absolute inset-0 rounded-2xl ring-2 ring-emerald-500 animate-ping opacity-75 pointer-events-none" />
 
-          {/* External Pulsing Emerald Glow Ring */}
-          <div className="absolute -inset-1 rounded-2xl border-2 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)] animate-pulse pointer-events-none" />
-
-          {/* 100% Solid Opaque Squircle Button Container (No Opacity Animation) */}
+          {/* 100% Solid Opaque Squircle Button Container (Static & Always Opacity-100) */}
           <button
             id="floating-support-trigger"
             type="button"
             onClick={toggleDrawer}
             aria-label="پشتیبانی و مشاوره آنلاین سیریک فیت"
             title="پشتیبانی و مشاوره خرید سیریک فیت"
-            className="relative w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer transition-transform active:scale-95 z-50 group"
+            className="relative w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer transition-transform active:scale-95 z-50 group opacity-100"
           >
             {/* Center Avatar Icon: Customer Support Agent with Headset */}
             {isDrawerOpen ? (

@@ -269,8 +269,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     }
   }, [product, extractedFlavors, extractedSizes]);
 
-  // Find selected variant details from activeVariants, variantMatrix or currentProd.variants
-  const matchedVariant = useMemo(() => {
+  const activeVariant = useMemo(() => {
     if (!currentProd) return null;
 
     // 1. Try finding in currentProd.variants with both flavor & size
@@ -312,22 +311,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     return null;
   }, [currentProd, selectedSize, selectedFlavor]);
 
-  const activeDisplayImage = useMemo(() => {
-    const variantImg = matchedVariant?.image?.trim() || matchedVariant?.imageThumbnail?.trim() || matchedVariant?.imageUrl?.trim();
-    if (variantImg) return variantImg;
-    if (selectedImage && selectedImage.trim() !== '') return selectedImage;
-    return currentProd?.image || galleryList[0] || fallbackImg;
-  }, [matchedVariant, selectedImage, currentProd?.image, galleryList, fallbackImg]);
+  const currentHeroImage = useMemo(() => {
+    return activeVariant?.image?.trim() || activeVariant?.imageThumbnail?.trim() || activeVariant?.imageUrl?.trim() || selectedImage || currentProd?.image || fallbackImg;
+  }, [activeVariant, selectedImage, currentProd?.image, fallbackImg]);
 
   // Synchronize variant-specific image immediately upon variant selection
   useEffect(() => {
-    const variantImg = matchedVariant?.image?.trim() || matchedVariant?.imageThumbnail?.trim() || matchedVariant?.imageUrl?.trim();
+    const variantImg = activeVariant?.image?.trim() || activeVariant?.imageThumbnail?.trim() || activeVariant?.imageUrl?.trim();
     if (variantImg) {
       if (variantImg !== selectedImage) {
         setSelectedImage(variantImg);
       }
     }
-  }, [matchedVariant?.image, matchedVariant?.imageThumbnail, matchedVariant?.imageUrl, selectedFlavor, selectedSize]);
+  }, [activeVariant?.image, activeVariant?.imageThumbnail, activeVariant?.imageUrl, selectedFlavor, selectedSize]);
 
   const localizedCaption = useMemo(() => {
     if (!currentProd) return '';
@@ -690,7 +686,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               })()}
 
               <TouchImageMagnifier
-                src={activeDisplayImage || fallbackImg}
+                src={currentHeroImage || fallbackImg}
                 alt={product.title}
                 fallbackSrc={fallbackImg}
                 zoomScale={2.4}

@@ -76,7 +76,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   };
 
   return (
-    <div className="space-y-4 font-['Vazirmatn',sans-serif] animate-fade-in pb-24 text-right">
+    <div className="space-y-2 font-['Vazirmatn',sans-serif] animate-fade-in pb-24 text-right">
       {/* 1. Two-Tier Category Navigation & Clean Search Header */}
       <TwoTierCategoryNav
         selectedMainCat={selectedMainCat}
@@ -92,9 +92,9 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
 
       {/* 2. Product Catalog List/Grid Section */}
       {filteredDeals.length === 0 ? (
-        <div className="bg-white border border-slate-200/90 rounded-3xl p-12 text-center space-y-4 my-6 shadow-2xs">
-          <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-            <ShoppingBag className="w-8 h-8" />
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-8 text-center space-y-3 my-3 shadow-2xs">
+          <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+            <ShoppingBag className="w-6 h-6" />
           </div>
           <div className="space-y-1">
             <h3 className="font-extrabold text-sm text-slate-800">پیشنهادی با فیلترهای انتخابی یافت نشد</h3>
@@ -107,13 +107,13 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
               setSearchQuery('');
               setFilterState(DEFAULT_FILTER_STATE);
             }}
-            className="bg-slate-900 hover:bg-black text-white text-xs font-black px-6 py-2.5 rounded-2xl transition cursor-pointer"
+            className="bg-slate-900 hover:bg-black text-white text-xs font-black px-5 py-2 rounded-xl transition cursor-pointer"
           >
             مشاهده همه پیشنهادها
           </button>
         </div>
       ) : (
-        <div className={viewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3' : 'space-y-3'}>
+        <div className={viewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3 pt-1' : 'space-y-2.5 pt-1'}>
           {filteredDeals.map((deal) => {
             const calculatedToman = getComputedToman(deal);
             const enrichedDeal = {

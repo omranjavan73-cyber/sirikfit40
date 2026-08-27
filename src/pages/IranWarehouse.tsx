@@ -97,7 +97,7 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
   };
 
   return (
-    <div className="container mx-auto px-4 py-6" dir="rtl">
+    <div className="container mx-auto px-2 sm:px-4 py-2" dir="rtl">
       <InventoryPage
         items={itemsList}
         settings={settings}

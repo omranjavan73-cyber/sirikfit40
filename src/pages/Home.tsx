@@ -30,11 +30,11 @@ export const Home: React.FC<HomePageProps> = ({
   const [localInventory, setLocalInventory] = useState<LocalInventoryItem[]>(initialLocal);
 
   useEffect(() => {
-    if (initialDeals.length > 0) setDeals(initialDeals);
+    setDeals(initialDeals || []);
   }, [initialDeals]);
 
   useEffect(() => {
-    if (initialLocal.length > 0) setLocalInventory(initialLocal);
+    setLocalInventory(initialLocal || []);
   }, [initialLocal]);
 
   useEffect(() => {

@@ -1265,26 +1265,7 @@ async function createBackupSnapshot(type: 'MANUAL' | 'AUTOMATIC' | 'EMAIL_BACKUP
   return backupRecord;
 }
 
-// Background Scheduled Backup Timer (checks every 30 minutes with graceful error handling)
-setInterval(async () => {
-  try {
-    const sched = await getBackupSchedule();
-    if (sched && sched.enabled) {
-      const intervalMs = (Number(sched.intervalHours) || 24) * 3600 * 1000;
-      const lastRun = sched.lastRunTimestamp ? new Date(sched.lastRunTimestamp).getTime() : 0;
-      if (Date.now() - lastRun >= intervalMs) {
-        console.log('[Auto-Backup] Executing scheduled backup...');
-        await createBackupSnapshot('AUTOMATIC', 'سیستم پشتیبان‌گیر خودکار (Cron)');
-        await saveBackupSchedule({
-          lastRunTimestamp: new Date().toISOString(),
-          nextRunTimestamp: new Date(Date.now() + intervalMs).toISOString()
-        });
-      }
-    }
-  } catch (_err) {
-    // Gracefully catch any unexpected background timer issue
-  }
-}, 30 * 60 * 1000);
+
 
 // Security & Admin Password APIs
 app.get('/api/admin/security', async (req, res) => {

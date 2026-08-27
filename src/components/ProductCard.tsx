@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, Check } from 'lucide-react';
-import { formatPrice, formatAedValue } from '../utils/formatters';
+import { formatPrice, formatAedValue, getStoreBadgeTheme } from '../utils/formatters';
 
 export interface ProductCardProps {
   product: any;
@@ -22,13 +22,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const [isAdded, setIsAdded] = useState(false);
 
   const title = product.title || product.name || 'مکمل ورزشی اورجینال';
-  const storeName = product.brand || product.storeName || 'دبی';
+  const storeName = product.storeName || product.brand || 'دبی';
   const imageUrl = product.imageUrl || product.image || product.productImage;
   const priceToman = product.priceToman || product.calculatedToman || product.totalToman || 0;
   const priceAed = product.priceAED || product.priceAed || 0;
   const discountPercent = product.discountPercent || (product.originalPriceAed && priceAed ? Math.round(((product.originalPriceAed - priceAed) / product.originalPriceAed) * 100) : 0);
 
   const effectiveBadge = badgeText || (discountPercent > 0 ? `${discountPercent}٪ تخفیف` : product.badge || undefined);
+  const storeTheme = getStoreBadgeTheme(storeName);
 
   const handleCardClick = () => {
     if (onSelect) {
@@ -61,17 +62,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     >
       {/* Product Image Section */}
       <div className="relative w-full aspect-square bg-gray-50 rounded-xl p-2 flex items-center justify-center overflow-hidden mb-2">
-        {/* Deal Badge (Top Right) */}
+        {/* Dynamic Floating Brand Badge (Top Right) */}
+        <div className={`absolute top-2.5 right-2.5 z-10 ${storeTheme.bg} text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs max-w-[120px] truncate backdrop-blur-xs`}>
+          <span className={`inline-block w-1.5 h-1.5 rounded-full ${storeTheme.dot} animate-pulse ml-0.5 shrink-0`} />
+          <span className="truncate">{storeTheme.name}</span>
+        </div>
+
+        {/* Deal / Discount Badge (Top Left) */}
         {effectiveBadge && (
-          <span className="absolute top-2 right-2 z-10 bg-amber-500 text-white text-[9px] font-black px-2 py-0.5 rounded-md shadow-xs">
+          <span className="absolute top-2.5 left-2.5 z-10 bg-red-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs">
             {effectiveBadge}
           </span>
         )}
-
-        {/* Store Tag (Bottom Left - Never overlaps with top badge) */}
-        <span className="absolute bottom-2 left-2 z-10 bg-black/80 backdrop-blur-xs text-white text-[9px] font-bold px-2 py-0.5 rounded-md shadow-xs max-w-[110px] truncate">
-          {storeName}
-        </span>
 
         <img
           src={imageUrl}

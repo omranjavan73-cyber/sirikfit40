@@ -13,9 +13,11 @@ import {
   CheckCircle2,
   RefreshCw,
   ExternalLink,
-  ShieldCheck
+  ShieldCheck,
+  ShoppingCart
 } from 'lucide-react';
 import { formatToman, toPersianDigits } from '../../utils/formatters';
+import { AbandonedCartsTab } from '../../components/admin/AbandonedCartsTab';
 
 export interface CustomerLtvSummary {
   phone: string;
@@ -30,7 +32,8 @@ export interface CustomerLtvSummary {
   preferredCategories: string[];
 }
 
-export const CustomersAdmin: React.FC = () => {
+export const CustomersAdmin: React.FC<{ initialTab?: 'ltv' | 'abandonedCarts' }> = ({ initialTab = 'ltv' }) => {
+  const [activeTab, setActiveTab] = useState<'ltv' | 'abandonedCarts'>(initialTab);
   const [customers, setCustomers] = useState<CustomerLtvSummary[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -52,8 +55,10 @@ export const CustomersAdmin: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchCustomers();
-  }, []);
+    if (activeTab === 'ltv') {
+      fetchCustomers();
+    }
+  }, [activeTab]);
 
   const totalUniqueCustomers = customers.length;
   const vipCustomersCount = customers.filter(c => c.isVip).length;
@@ -81,8 +86,8 @@ export const CustomersAdmin: React.FC = () => {
 
   return (
     <div className="space-y-6 font-['Vazirmatn',sans-serif]">
-      {/* Header */}
-      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-2xs">
+      {/* Sub-tab Switcher Header */}
+      <div className="bg-white border border-slate-200/90 rounded-3xl p-4 sm:p-5 shadow-2xs">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-600 border border-purple-100 flex items-center justify-center shrink-0">
@@ -90,28 +95,61 @@ export const CustomersAdmin: React.FC = () => {
             </div>
             <div>
               <h2 className="font-extrabold text-base sm:text-lg text-slate-900">
-                هوش مشتریان و ارزش چرخه عمر (Customer LTV)
+                مدیریت جامع مشتریان
               </h2>
               <p className="text-xs text-slate-500 font-medium mt-0.5">
-                شناسایی خریداران وفادار VIP، تحلیل سابقه سفارشات و علایق مصرفی مکمل‌ها
+                هوش مشتریان، تحلیل ارزش چرخه عمر (LTV) و بازیابی سبدهای خرید رهاشده
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={fetchCustomers}
-            disabled={isLoading}
-            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-black flex items-center gap-2 transition cursor-pointer"
-          >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>به‌روزرسانی اطلاعات</span>
-          </button>
+          <div className="flex items-center bg-slate-100 p-1 rounded-2xl w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={() => setActiveTab('ltv')}
+              className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
+                activeTab === 'ltv'
+                  ? 'bg-white text-purple-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>هوش مشتریان (LTV)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('abandonedCarts')}
+              className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
+                activeTab === 'abandonedCarts'
+                  ? 'bg-white text-rose-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              <span>سبدهای رهاشده</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {activeTab === 'abandonedCarts' ? (
+        <AbandonedCartsTab />
+      ) : (
+        <>
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={fetchCustomers}
+              disabled={isLoading}
+              className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 rounded-xl text-xs font-black flex items-center gap-2 transition cursor-pointer shadow-2xs"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>به‌روزرسانی اطلاعات LTV</span>
+            </button>
+          </div>
+
+          {/* KPI Cards Grid */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Total Customers */}
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs space-y-1">
           <div className="flex items-center justify-between text-slate-500 text-xs font-bold">
@@ -304,6 +342,8 @@ export const CustomersAdmin: React.FC = () => {
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 };

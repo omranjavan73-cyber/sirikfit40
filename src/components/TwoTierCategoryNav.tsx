@@ -73,9 +73,9 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
         </div>
       </div>
 
-      {/* 2. Tier 1: Royal Blue Main Category Bar (نوار آبی اصلی) */}
-      <div className="sticky top-0 z-30 bg-[#1e40af] rounded-2xl p-1.5 shadow-md overflow-hidden">
-        <div className="flex items-center justify-between gap-1 overflow-x-auto no-scrollbar scrollbar-none py-1 px-1 dir-rtl">
+      {/* 2. Tier 1: Slate Black Main Category Navigation Bar */}
+      <div className="bg-slate-100 dark:bg-zinc-800/90 rounded-2xl p-1 shadow-xs border border-slate-200/80 overflow-hidden">
+        <div className="flex items-center justify-between gap-1 overflow-x-auto no-scrollbar scrollbar-none py-0.5 px-0.5 dir-rtl">
           {taxonomy.map((cat) => {
             const isActive = selectedMainCat === cat.id || selectedMainCat === cat.slug;
 
@@ -89,13 +89,13 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
                 }}
                 className={`whitespace-nowrap px-3.5 py-2 text-xs sm:text-sm font-black transition-all duration-200 cursor-pointer rounded-xl flex-1 text-center relative ${
                   isActive
-                    ? 'text-white'
-                    : 'text-white/70 hover:text-white hover:bg-white/10'
+                    ? 'bg-slate-900 text-white shadow-sm ring-1 ring-slate-800 dark:bg-zinc-900 dark:ring-zinc-700'
+                    : 'bg-transparent text-slate-700 hover:bg-slate-200 dark:text-zinc-300 dark:hover:bg-zinc-700'
                 }`}
               >
                 <span>{cat.name}</span>
                 {isActive && (
-                  <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-amber-400 rounded-full" />
+                  <span className="absolute bottom-1 left-3 right-3 h-0.5 bg-red-500 rounded-full" />
                 )}
               </button>
             );
@@ -103,7 +103,7 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
         </div>
       </div>
 
-      {/* 3. Tier 2: Sub-Category Pills (قرص‌های زیرمجموعه) */}
+      {/* 3. Tier 2: Sub-Category / Filter Pills (Brand Red / Clean Light Gray) */}
       <div className="flex items-center gap-2 overflow-x-auto no-scrollbar scrollbar-none py-1 px-0.5 dir-rtl">
         {activeMainConfig.subCategories.map((sub) => {
           const isSubActive = selectedSubCat === sub.id || selectedSubCat === sub.slug;
@@ -115,8 +115,8 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
               onClick={() => onSelectSubCat(sub.id)}
               className={`whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-black transition-all duration-200 cursor-pointer shrink-0 border ${
                 isSubActive
-                  ? 'bg-[#1e40af] text-white border-[#1e40af] shadow-xs'
-                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                  ? 'bg-red-600 text-white border-red-600 shadow-sm ring-1 ring-red-500'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80 dark:bg-zinc-800 dark:text-zinc-300'
               }`}
             >
               {sub.name}

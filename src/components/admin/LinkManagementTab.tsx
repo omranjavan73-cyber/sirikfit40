@@ -29,6 +29,7 @@ import {
 import { db } from '../../firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { toPersianDigits, formatToman } from '../../utils/formatters';
+import { getLinkFreshnessInfo, getLinkAgeInDays } from '../../utils/dateUtils';
 import { usePricing } from '../../context/PricingContext';
 import { useSettings } from '../../context/SettingsContext';
 import {
@@ -53,6 +54,9 @@ export interface MonitoredLinkItem {
   profitMargin?: number;
   inStock: boolean;
   lastSyncedAt?: string;
+  lastCheckedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
   syncStatus?: 'synced' | 'price_changed' | 'out_of_stock' | 'error' | 'pending' | 'checking';
   livePriceAed?: number;
   livePriceToman?: number;
@@ -87,6 +91,7 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'synced' | 'price_changed' | 'out_of_stock' | 'error'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [retailerFilter, setRetailerFilter] = useState<string>('all');
+  const [sortByOldest, setSortByOldest] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sendingAlertId, setSendingAlertId] = useState<string | null>(null);
   const [isBatchSyncingSelected, setIsBatchSyncingSelected] = useState<boolean>(false);
@@ -603,7 +608,7 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
   }, [items]);
 
   const filteredItems = useMemo(() => {
-    return items.filter(item => {
+    const list = items.filter(item => {
       if (categoryFilter !== 'all' && item.collection !== categoryFilter) return false;
       if (statusFilter !== 'all') {
         if (statusFilter === 'synced' && item.syncStatus !== 'synced') return false;
@@ -622,7 +627,17 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
       }
       return true;
     });
-  }, [items, categoryFilter, statusFilter, retailerFilter, searchQuery]);
+
+    if (sortByOldest) {
+      return [...list].sort((a, b) => {
+        const ageA = getLinkAgeInDays(a.lastCheckedAt || a.lastSyncedAt || (a as any).createdAt || (a as any).updatedAt);
+        const ageB = getLinkAgeInDays(b.lastCheckedAt || b.lastSyncedAt || (b as any).createdAt || (b as any).updatedAt);
+        return ageB - ageA; // Oldest first
+      });
+    }
+
+    return list;
+  }, [items, categoryFilter, statusFilter, retailerFilter, searchQuery, sortByOldest]);
 
   const isAllSelected = filteredItems.length > 0 && selectedIds.size === filteredItems.length;
   const isPartiallySelected = selectedIds.size > 0 && selectedIds.size < filteredItems.length;
@@ -860,6 +875,20 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
               <PackageCheck className="w-3.5 h-3.5" />
               <span>کاتالوگ ({toPersianDigits(metrics.productsCount)})</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setSortByOldest(prev => !prev)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                sortByOldest
+                  ? 'bg-rose-700 text-white shadow-xs ring-2 ring-rose-300'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+              }`}
+              title="مرتب‌سازی بر اساس قدیمی‌ترین لینک‌ها (نیاز به پایش مجدد)"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>مرتب‌سازی بر اساس قدیمی‌ترین لینک‌ها</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-2 flex-1 max-w-md">
@@ -940,11 +969,11 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
         </div>
       ) : (
         <div className="bg-white border border-slate-200/90 rounded-2xl shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="max-h-[720px] overflow-y-auto overflow-x-auto relative">
             <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50/90 border-b border-slate-200 text-slate-600 font-black">
+              <thead className="sticky top-0 bg-white/95 backdrop-blur z-20 shadow-xs border-b border-slate-200 text-slate-700 font-black">
                 <tr>
-                  <th className="py-3.5 px-3 w-10 text-center">
+                  <th className="py-2.5 px-3 w-10 text-center">
                     <button
                       type="button"
                       onClick={handleToggleSelectAll}
@@ -960,12 +989,13 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                       )}
                     </button>
                   </th>
-                  <th className="py-3.5 px-4">مشخصات محصول</th>
-                  <th className="py-3.5 px-4">فروشگاه و لینک مبدأ</th>
-                  <th className="py-3.5 px-4">قیمت محاسبه‌شده</th>
-                  <th className="py-3.5 px-4">استعلام زنده مبدأ</th>
-                  <th className="py-3.5 px-4">وضعیت سلامت</th>
-                  <th className="py-3.5 px-4 text-center">عملیات</th>
+                  <th className="py-2.5 px-3">مشخصات محصول</th>
+                  <th className="py-2.5 px-3">فروشگاه و لینک مبدأ</th>
+                  <th className="py-2.5 px-3 text-center">روز</th>
+                  <th className="py-2.5 px-3">قیمت محاسبه‌شده</th>
+                  <th className="py-2.5 px-3">استعلام زنده مبدأ</th>
+                  <th className="py-2.5 px-3">وضعیت سلامت</th>
+                  <th className="py-2.5 px-3 text-center">عملیات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -980,7 +1010,7 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                       key={item.id}
                       className={`transition-colors ${isSelected ? 'bg-blue-50/40' : 'hover:bg-slate-50/60'}`}
                     >
-                      <td className="py-3.5 px-3 text-center">
+                      <td className="py-2.5 px-3 text-center">
                         <button
                           type="button"
                           onClick={() => handleToggleSelectRow(item.id)}
@@ -995,43 +1025,43 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                       </td>
 
                       {/* Product details */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-11 h-11 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
                             {item.image ? (
                               <img
                                 src={item.image}
                                 alt={item.title}
-                                className="w-full h-full object-contain p-1"
+                                className="w-full h-full object-contain p-0.5"
                                 loading="lazy"
                                 referrerPolicy="no-referrer"
                               />
                             ) : (
-                              <Building2 className="w-5 h-5 text-slate-300" />
+                              <Building2 className="w-4 h-4 text-slate-300" />
                             )}
                           </div>
-                          <div className="space-y-1 max-w-xs">
-                            <span className="font-black text-slate-900 line-clamp-1">
+                          <div className="space-y-0.5 max-w-xs">
+                            <span className="font-black text-slate-900 line-clamp-1 text-xs">
                               {item.title}
                             </span>
                             <div className="flex items-center gap-1.5">
                               {item.collection === 'iran_warehouse' && (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-black px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+                                <span className="inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200/80">
                                   انبار ایران
                                 </span>
                               )}
                               {item.collection === 'special_deals' && (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200/80">
+                                <span className="inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200/80">
                                   پیشنهاد ویژه
                                 </span>
                               )}
                               {item.collection === 'products' && (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-black px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200/80">
+                                <span className="inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200/80">
                                   کاتالوگ
                                 </span>
                               )}
                               {item.brand && (
-                                <span className="text-[10px] text-slate-400 font-medium">
+                                <span className="text-[10px] text-slate-400 font-medium truncate max-w-[100px]">
                                   {item.brand}
                                 </span>
                               )}
@@ -1041,9 +1071,9 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                       </td>
 
                       {/* Store & URL */}
-                      <td className="py-3.5 px-4">
-                        <div className="space-y-1">
-                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-800 text-[11px] font-black">
+                      <td className="py-2.5 px-3">
+                        <div className="space-y-0.5">
+                          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 text-[10px] font-black">
                             <span>{item.retailerName}</span>
                           </div>
                           <div className="flex items-center gap-1 text-[11px]">
@@ -1051,7 +1081,7 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                               href={item.sourceUrl}
                               target="_blank"
                               rel="noreferrer noopener"
-                              className="text-blue-600 hover:text-blue-700 hover:underline max-w-[180px] truncate dir-ltr inline-block font-mono text-[10px]"
+                              className="text-blue-600 hover:text-blue-700 hover:underline max-w-[140px] truncate dir-ltr inline-block font-mono text-[10px]"
                               title={item.sourceUrl}
                             >
                               {item.sourceUrl}
@@ -1059,7 +1089,7 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                             <button
                               type="button"
                               onClick={() => handleCopyLink(item.id, item.sourceUrl)}
-                              className="p-1 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                              className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition cursor-pointer"
                               title="کپی لینک"
                             >
                               {copiedId === item.id ? (
@@ -1072,35 +1102,52 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                               href={item.sourceUrl}
                               target="_blank"
                               rel="noreferrer noopener"
-                              className="p-1 text-slate-400 hover:text-slate-600 transition"
+                              className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition"
                               title="مشاهده در تب جدید"
                             >
                               <ExternalLink className="w-3 h-3" />
                             </a>
                           </div>
-                          <div className="text-[10px] text-slate-400">
-                            آخرین بررسی: {formatRelativeTime(item.lastSyncedAt)}
-                          </div>
                         </div>
                       </td>
 
+                      {/* Numeric Link Age Pill */}
+                      <td className="py-2.5 px-3 text-center">
+                        {(() => {
+                          const timestamp = item.lastCheckedAt || item.lastSyncedAt || (item as any).createdAt || (item as any).updatedAt;
+                          const freshness = getLinkFreshnessInfo(timestamp);
+
+                          return (
+                            <div
+                              className="inline-flex flex-col items-center gap-0.5"
+                              title={`سن لینک: ${freshness.label} - آخرین بررسی: ${formatRelativeTime(timestamp)}`}
+                            >
+                              <span className={`inline-flex items-center justify-center min-w-[28px] ${freshness.numericBadgeClass}`}>
+                                {freshness.numericBadge}
+                              </span>
+                              <span className="text-[9px] text-slate-400 font-medium">روز</span>
+                            </div>
+                          );
+                        })()}
+                      </td>
+
                       {/* Current Dynamic Landed Price */}
-                      <td className="py-3.5 px-4">
-                        <div className="space-y-1">
-                          <div className="font-black text-slate-900 font-mono">
+                      <td className="py-2.5 px-3">
+                        <div className="space-y-0.5">
+                          <div className="font-black text-slate-900 font-mono text-xs">
                             {toPersianDigits(item.priceAed.toFixed(2))} AED
                           </div>
-                          <div className="text-[11px] font-bold text-slate-700">
+                          <div className="text-[10px] font-bold text-slate-600">
                             {formatToman(item.priceToman)}
                           </div>
                           <div>
                             {item.inStock ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600">
+                              <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-600">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                 موجود
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600">
+                              <span className="inline-flex items-center gap-1 text-[9px] font-bold text-rose-600">
                                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                                 ناموجود
                               </span>
@@ -1110,14 +1157,14 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                       </td>
 
                       {/* Live Scraped Price */}
-                      <td className="py-3.5 px-4">
+                      <td className="py-2.5 px-3">
                         {item.livePriceAed !== undefined ? (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1.5 font-black text-slate-900 font-mono">
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1 font-black text-slate-900 font-mono text-xs">
                               <span>{toPersianDigits(item.livePriceAed.toFixed(2))} AED</span>
                               {item.priceDeltaAed !== undefined && Math.abs(item.priceDeltaAed) > 0.01 && (
                                 <span
-                                  className={`text-[10px] px-1 rounded font-bold ${
+                                  className={`text-[9px] px-1 rounded font-bold ${
                                     item.priceDeltaAed > 0
                                       ? 'bg-rose-100 text-rose-700'
                                       : 'bg-emerald-100 text-emerald-700'
@@ -1129,68 +1176,68 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                               )}
                             </div>
                             {item.livePriceToman !== undefined && (
-                              <div className="text-[11px] font-bold text-slate-600">
+                              <div className="text-[10px] font-bold text-slate-600">
                                 {formatToman(item.livePriceToman)}
                               </div>
                             )}
                             <div>
                               {item.liveInStock !== false ? (
-                                <span className="text-[10px] font-bold text-emerald-600">🟢 موجود در مبدأ</span>
+                                <span className="text-[9px] font-bold text-emerald-600">🟢 موجود در مبدأ</span>
                               ) : (
-                                <span className="text-[10px] font-bold text-rose-600">🔴 ناموجود در مبدأ</span>
+                                <span className="text-[9px] font-bold text-rose-600">🔴 ناموجود در مبدأ</span>
                               )}
                             </div>
                           </div>
                         ) : (
-                          <span className="text-[11px] text-slate-400 font-medium">در انتظار استعلام</span>
+                          <span className="text-[10px] text-slate-400 font-medium">در انتظار استعلام</span>
                         )}
                       </td>
 
                       {/* Sync Status Badge */}
-                      <td className="py-3.5 px-4">
+                      <td className="py-2.5 px-3">
                         {item.syncStatus === 'synced' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-black">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-black">
+                            <CheckCircle2 className="w-3 h-3" />
                             <span>همگام و منطبق</span>
                           </span>
                         )}
 
                         {item.syncStatus === 'price_changed' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-black">
-                            <AlertTriangle className="w-3.5 h-3.5" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-black">
+                            <AlertTriangle className="w-3 h-3" />
                             <span>تغییر قیمت</span>
                           </span>
                         )}
 
                         {item.syncStatus === 'out_of_stock' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-black">
-                            <XCircle className="w-3.5 h-3.5" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-black">
+                            <XCircle className="w-3 h-3" />
                             <span>ناموجود در دبی</span>
                           </span>
                         )}
 
                         {item.syncStatus === 'error' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200 text-[11px] font-black">
-                            <ShieldCheck className="w-3.5 h-3.5" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-50 text-red-700 border border-red-200 text-[10px] font-black">
+                            <ShieldCheck className="w-3 h-3" />
                             <span>خطای استخراج</span>
                           </span>
                         )}
 
                         {(!item.syncStatus || item.syncStatus === 'pending') && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[9px] font-bold">
                             بررسی نشده
                           </span>
                         )}
                       </td>
 
                       {/* Actions */}
-                      <td className="py-3.5 px-4 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
+                      <td className="py-2.5 px-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
                           <button
                             type="button"
                             onClick={() => handleCheckHealth(item)}
                             disabled={isChecking || isSyncing}
-                            className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer disabled:opacity-50"
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer disabled:opacity-50"
                             title="استعلام زنده"
                           >
                             <Search className={`w-3.5 h-3.5 ${isChecking ? 'animate-spin' : ''}`} />
@@ -1200,7 +1247,7 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                             type="button"
                             onClick={() => handleSingleSync(item)}
                             disabled={isChecking || isSyncing}
-                            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-black text-white font-black text-[11px] transition shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            className="px-2 py-1 rounded-lg bg-slate-900 hover:bg-black text-white font-black text-[10px] transition shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
                             title="همگام‌سازی مستقیم در دیتابیس"
                           >
                             {isSyncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3 text-emerald-400" />}
@@ -1211,7 +1258,7 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                             type="button"
                             onClick={() => handleSendItemAlert(item)}
                             disabled={isSendingAlert}
-                            className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200/80 transition cursor-pointer disabled:opacity-50"
+                            className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200/80 transition cursor-pointer disabled:opacity-50"
                             title="ارسال هشدار تلگرام"
                           >
                             {isSendingAlert ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}

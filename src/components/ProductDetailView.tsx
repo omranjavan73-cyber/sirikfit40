@@ -1177,6 +1177,17 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   onClick={() => openLightbox()}
                   className="relative w-full h-[380px] sm:h-[440px] md:h-[460px] bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden flex items-center justify-center p-4 shadow-sm cursor-zoom-in group"
                 >
+                  {/* Floating Official Store Badge (Top Right) */}
+                  {(() => {
+                    const storeTheme = getStoreBadgeTheme(product?.brand || (product as any)?.storeName);
+                    return (
+                      <div className={`absolute top-3 right-3 z-10 ${storeTheme.bg} rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm shadow-sm pointer-events-none`}>
+                        <span className={`inline-block w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse ml-1.5 shrink-0`} />
+                        <span>{storeTheme.name}</span>
+                      </div>
+                    );
+                  })()}
+
                   {activeImage ? (
                     <img
                       src={activeImage}
@@ -1250,19 +1261,6 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   </div>
                 )}
               </div>
-
-              {/* Primary Store / Brand Badge */}
-              {(() => {
-                const storeTheme = getStoreBadgeTheme(product?.brand || (product as any)?.storeName);
-                return (
-                  <div className="flex items-center gap-2 pt-2">
-                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border shadow-2xs ${storeTheme.bg}`}>
-                      <span className={`w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse`} />
-                      <span>{storeTheme.name}</span>
-                    </span>
-                  </div>
-                );
-              })()}
 
               {/* Product Title */}
               <div className="space-y-1 text-right" dir="rtl">

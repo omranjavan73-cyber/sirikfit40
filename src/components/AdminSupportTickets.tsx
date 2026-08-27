@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import type { SupportTicket, TicketMessage } from '../types';
 import { AdminReviews } from './AdminReviews';
+import { SupportAdmin } from '../pages/admin/SupportAdmin';
+import { Headphones } from 'lucide-react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
 
@@ -35,8 +37,8 @@ interface AdminSupportTicketsProps {
 }
 
 export const AdminSupportTickets: React.FC<AdminSupportTicketsProps> = ({ showToast }) => {
-  // Main Tab: 'tickets' | 'reviews'
-  const [activeTab, setActiveTab] = useState<'tickets' | 'reviews'>('tickets');
+  // Main Tab: 'tickets' | 'reviews' | 'channels'
+  const [activeTab, setActiveTab] = useState<'tickets' | 'reviews' | 'channels'>('tickets');
 
   // --- TICKETS STATE ---
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
@@ -284,6 +286,19 @@ export const AdminSupportTickets: React.FC<AdminSupportTicketsProps> = ({ showTo
           >
             <MessageSquare className="w-4 h-4 text-sky-400" />
             <span>نظرات و پیشنهادات خریداران</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('channels')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-black text-xs md:text-sm transition cursor-pointer ${
+              activeTab === 'channels'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+            }`}
+          >
+            <Headphones className="w-4 h-4 text-red-500" />
+            <span>تنظیمات درگاههای پشتیبانی و تماس</span>
           </button>
         </div>
 
@@ -574,6 +589,11 @@ export const AdminSupportTickets: React.FC<AdminSupportTicketsProps> = ({ showTo
       {/* TAB 2: REVIEWS & SUGGESTIONS */}
       {activeTab === 'reviews' && (
         <AdminReviews showToast={showToast} />
+      )}
+
+      {/* TAB 3: SUPPORT CHANNELS & FLOATING WIDGET CONFIG */}
+      {activeTab === 'channels' && (
+        <SupportAdmin showToast={showToast} />
       )}
     </div>
   );

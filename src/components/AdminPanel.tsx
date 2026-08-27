@@ -3366,23 +3366,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </button>
 
-              {/* Card: سبدهای خرید رهاشده */}
-              <button
-                type="button"
-                onClick={() => { setActiveAdminSubTab('abandonedCarts'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                className="p-3.5 bg-slate-50 hover:bg-white hover:border-rose-300 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
-              >
-                <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
-                  <ShoppingCart className="w-5 h-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-rose-600 transition truncate">
-                    سبدهای رهاشده
-                  </h4>
-                </div>
-              </button>
-
-              {/* Card: هوش مشتریان و VIP */}
+              {/* Card: مشتریان */}
               <button
                 type="button"
                 onClick={() => { setActiveAdminSubTab('customers'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
@@ -3393,7 +3377,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <div className="min-w-0 flex-1">
                   <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-purple-600 transition truncate">
-                    هوش مشتریان (LTV)
+                    مشتریان
                   </h4>
                 </div>
               </button>
@@ -3410,22 +3394,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div className="min-w-0 flex-1">
                   <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-emerald-600 transition truncate">
                     تیکت‌ها و نظرات
-                  </h4>
-                </div>
-              </button>
-
-              {/* Card 3.5: سوالات متداول و پرسش‌ها */}
-              <button
-                type="button"
-                onClick={() => { setActiveAdminSubTab('faq'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                className="p-3.5 bg-slate-50 hover:bg-white hover:border-teal-300 border border-slate-200/90 rounded-2xl text-right transition group cursor-pointer flex items-center gap-3 shadow-2xs hover:shadow-sm"
-              >
-                <div className="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs group-hover:scale-105 transition">
-                  <HelpCircle className="w-5 h-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-teal-600 transition truncate">
-                    سوالات متداول (FAQ)
                   </h4>
                 </div>
               </button>

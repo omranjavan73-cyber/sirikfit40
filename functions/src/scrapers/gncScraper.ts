@@ -93,26 +93,62 @@ export async function scrapeGnc(rawUrl: string): Promise<GncScraperResult> {
       (p.options || []).forEach((opt: any) => {
         const optName = String(opt.name || '').toLowerCase();
         if (optName.includes('flavor') || optName.includes('طعم')) {
-          (opt.values || []).forEach((v: string) => flavorsList.push(String(v)));
+          (opt.values || []).forEach((v: any) => {
+            const vStr = String(v || '').trim();
+            if (vStr && !isArtificialFallback(vStr)) flavorsList.push(vStr);
+          });
         } else if (optName.includes('size') || optName.includes('weight') || optName.includes('سایز') || optName.includes('حجم')) {
-          (opt.values || []).forEach((v: string) => sizesList.push(String(v)));
+          (opt.values || []).forEach((v: any) => {
+            const vStr = String(v || '').trim();
+            if (vStr && !isArtificialFallback(vStr)) sizesList.push(vStr);
+          });
         }
       });
 
       variants.forEach((v: any, idx: number) => {
         const vPrice = extractPriceNumber(v.price) || priceAed;
         const vOrigPrice = extractPriceNumber(v.compare_at_price);
-        structuredVariants.push({
-          id: `var-${v.id || idx}`,
-          size: v.option1 || v.title,
-          flavor: v.option2 || undefined,
-          price: vPrice,
-          priceAed: vPrice,
-          priceAED: vPrice,
-          originalPriceAed: vOrigPrice > vPrice ? vOrigPrice : undefined,
-          inStock: v.available !== false,
-          image: sanitizeImageUrl(v.featured_image?.src || mainImage, normalizedUrl)
-        });
+        const opt1 = String(v.option1 || '').trim();
+        const opt2 = String(v.option2 || '').trim();
+        const vTitle = String(v.title || '').trim();
+
+        const isOpt1Size = opt1.toLowerCase().includes('kg') || opt1.toLowerCase().includes('g') || opt1.toLowerCase().includes('lb') || opt1.toLowerCase().includes('serving') || opt1.toLowerCase().includes('عددی') || opt1.toLowerCase().includes('capsule') || opt1.toLowerCase().includes('tablet');
+        
+        let sizeVal: string | undefined = undefined;
+        let flavorVal: string | undefined = undefined;
+
+        if (opt1 && !isArtificialFallback(opt1)) {
+          if (isOpt1Size) sizeVal = opt1;
+          else flavorVal = opt1;
+        }
+
+        if (opt2 && !isArtificialFallback(opt2)) {
+          if (!sizeVal && (opt2.toLowerCase().includes('kg') || opt2.toLowerCase().includes('lb') || opt2.toLowerCase().includes('serving'))) {
+            sizeVal = opt2;
+          } else if (!flavorVal) {
+            flavorVal = opt2;
+          }
+        }
+
+        if (!sizeVal && !flavorVal && vTitle && !isArtificialFallback(vTitle)) {
+          if (isOpt1Size) sizeVal = vTitle;
+          else flavorVal = vTitle;
+        }
+
+        if (sizeVal || flavorVal) {
+          structuredVariants.push({
+            id: `var-${v.id || idx}`,
+            size: sizeVal,
+            flavor: flavorVal,
+            title: vTitle && !isArtificialFallback(vTitle) ? vTitle : (flavorVal || sizeVal),
+            price: vPrice,
+            priceAed: vPrice,
+            priceAED: vPrice,
+            originalPriceAed: vOrigPrice > vPrice ? vOrigPrice : undefined,
+            inStock: v.available !== false,
+            image: sanitizeImageUrl(v.featured_image?.src || mainImage, normalizedUrl)
+          });
+        }
       });
 
       if (v0.available === false) {
@@ -160,6 +196,24 @@ export async function scrapeGnc(rawUrl: string): Promise<GncScraperResult> {
                         $('.product-single__photo img, .product__media img').first().attr('src');
           mainImage = sanitizeImageUrl(ogImg || '', normalizedUrl);
         }
+
+        // Swatch & Variant Option DOM Extraction (Strictly exclude out-of-stock / disabled / line-through)
+        $('.variant-wrapper, .swatch, .product-form__input, [data-option-index], fieldset.js-product-form__input').each((_, wrap) => {
+          const optLabel = $(wrap).find('legend, label, .form__label').first().text().toLowerCase();
+          $(wrap).find('input[type="radio"], option, .swatch-element, button[data-value]').each((__, optEl) => {
+            const $opt = $(optEl);
+            const val = $opt.attr('data-value') || $opt.val() || $opt.text().trim();
+            const valStr = String(val || '').trim();
+            const isOutOfStock = $opt.hasClass('disabled') || $opt.hasClass('soldout') || $opt.hasClass('out-of-stock') || $opt.is(':disabled') || $opt.attr('disabled') !== undefined || isOutOfStockElement($opt.toString(), valStr);
+            if (valStr && !isOutOfStock && !isArtificialFallback(valStr)) {
+              if (optLabel.includes('flavor') || optLabel.includes('طعم')) {
+                if (!flavorsList.includes(valStr)) flavorsList.push(valStr);
+              } else if (optLabel.includes('size') || optLabel.includes('weight') || optLabel.includes('حجم')) {
+                if (!sizesList.includes(valStr)) sizesList.push(valStr);
+              }
+            }
+          });
+        });
       }
     } catch (_htmlErr) {}
   }

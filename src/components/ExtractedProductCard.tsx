@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ShoppingCart, CheckCircle2, Weight, Coins, Sparkles, AlertCircle, ArrowLeft, ShieldCheck, RefreshCw, ChevronDown } from 'lucide-react';
 import { ImageMagnifier } from './ImageMagnifier';
-import { formatAed, formatToman, toPersianDigits, deduplicateImageUrls, getStoreBadgeTheme } from '../utils/formatters';
+import { formatAed, formatToman, toPersianDigits, deduplicateImageUrls, getStoreBadgeTheme, isArtificialFallback } from '../utils/formatters';
 import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import type { FinancialSettings, CmsConfig, ProductVariantMatrix, ProductVariantItem } from '../types';
 
@@ -129,8 +129,8 @@ export const ExtractedProductCard: React.FC<ExtractedProductCardProps> = ({
             {(() => {
               const storeTheme = getStoreBadgeTheme(brandName || storeName);
               return (
-                <div className={`absolute top-3 right-3 z-20 ${storeTheme.bg} text-[11px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm pointer-events-none`}>
-                  <span className={`w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse`} />
+                <div className={`absolute top-3 right-3 z-20 ${storeTheme.bg} rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm shadow-sm pointer-events-none`}>
+                  <span className={`inline-block w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse ml-1.5 shrink-0`} />
                   <span>{storeTheme.name}</span>
                 </div>
               );
@@ -247,48 +247,49 @@ export const ExtractedProductCard: React.FC<ExtractedProductCardProps> = ({
             </div>
           </div>
 
-          {/* Extracted Specifications & Badges (Clean Non-Clickable Informative Badges) */}
+          {/* Extracted Specifications & Badges (Conditional Rendering) */}
           {(() => {
-            const cleanFlavors = Array.from(new Set((flavors || []).filter(f => f && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(f.trim().toLowerCase()))));
-            const cleanSizes = Array.from(new Set((sizes || []).filter(s => s && !['پیش‌فرض / استاندارد', 'پیش‌فرض', 'استاندارد', 'default', 'standard', 'normal', 'default title'].includes(s.trim().toLowerCase()))));
-            const otherOptions = (validOptions || []).filter(o => !cleanFlavors.includes(o) && !cleanSizes.includes(o));
+            const cleanFlavors = Array.from(new Set((flavors || []).filter(f => f && !isArtificialFallback(f))));
+            const cleanSizes = Array.from(new Set((sizes || []).filter(s => s && !isArtificialFallback(s))));
+            
+            const activeFlavor = selectedOption && cleanFlavors.includes(selectedOption)
+              ? selectedOption
+              : (cleanFlavors.length > 0 ? cleanFlavors[0] : null);
+            const activeSize = selectedOption && cleanSizes.includes(selectedOption)
+              ? selectedOption
+              : (cleanSizes.length > 0 ? cleanSizes[0] : null);
 
-            if (cleanFlavors.length === 0 && cleanSizes.length === 0 && otherOptions.length === 0) return null;
+            const hasValidFlavor = Boolean(activeFlavor && activeFlavor.trim() && !isArtificialFallback(activeFlavor));
+            const hasValidSize = Boolean(activeSize && activeSize.trim() && !isArtificialFallback(activeSize));
+
+            // If both selectedFlavor and selectedSize are null/empty, completely hide the container
+            if (!hasValidFlavor && !hasValidSize) return null;
 
             return (
-              <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-200 space-y-2">
+              <div id="card-extracted-specs-container" className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-200 space-y-2">
                 <span className="text-xs font-black text-gray-950 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-red-600 inline-block"></span>
-                  <span>مشخصات استخراج‌شده کالا (Flavor & Size):</span>
+                  <span>مشخصات استخراج‌شده کالا:</span>
                 </span>
                 <div className="flex flex-wrap gap-2 pt-0.5">
-                  {cleanFlavors.map((flv) => (
+                  {hasValidFlavor && (
                     <span
-                      key={`flv-${flv}`}
+                      id="card-selected-flavor-badge"
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-bold shadow-2xs"
                     >
-                      <span className="text-gray-500 font-medium text-[11px]">طعم:</span>
-                      <span className="text-gray-950 font-black">{translateFlavor(flv)}</span>
+                      <span className="text-gray-500 font-medium text-[11px]">🎯 طعم انتخابی:</span>
+                      <span className="text-gray-950 font-black">{translateFlavor(activeFlavor!)}</span>
                     </span>
-                  ))}
-                  {cleanSizes.map((sz) => (
+                  )}
+                  {hasValidSize && (
                     <span
-                      key={`sz-${sz}`}
+                      id="card-selected-size-badge"
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-bold shadow-2xs"
                     >
-                      <span className="text-gray-500 font-medium text-[11px]">سایز / وزن:</span>
-                      <span className="text-gray-950 font-black">{formatPersianSize(sz)}</span>
+                      <span className="text-gray-500 font-medium text-[11px]">⚖️ سایز / وزن:</span>
+                      <span className="text-gray-950 font-black">{formatPersianSize(activeSize!)}</span>
                     </span>
-                  ))}
-                  {cleanFlavors.length === 0 && cleanSizes.length === 0 && otherOptions.map((opt) => (
-                    <span
-                      key={`opt-${opt}`}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-bold shadow-2xs"
-                    >
-                      <span className="text-gray-500 font-medium text-[11px]">گزینه:</span>
-                      <span className="text-gray-950 font-black">{translateFlavor(opt) !== opt ? translateFlavor(opt) : formatPersianSize(opt)}</span>
-                    </span>
-                  ))}
+                  )}
                 </div>
               </div>
             );

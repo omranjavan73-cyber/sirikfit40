@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link2, Sparkles, ArrowLeft, Weight, Coins, PackageCheck, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Info, ShieldCheck, ShoppingCart, CheckCircle2, Trash2, X, Layers, Zap, Check } from 'lucide-react';
 import { FinancialSettings, ParsedProduct, CmsConfig, ProductVariantMatrix, ProductVariantItem } from '../types';
-import { formatToman, formatAed, toPersianDigits, extractCleanUrl, getEffectiveAedRate, deduplicateImageUrls, isArtificialFallback } from '../utils/formatters';
+import { formatToman, formatAed, toPersianDigits, extractCleanUrl, getEffectiveAedRate, deduplicateImageUrls, getStoreBadgeTheme, isArtificialFallback } from '../utils/formatters';
 import { formatPersianSize, translateFlavor, generatePersianProductCaption } from '../utils/supplementLocalization';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { getEffectiveGeminiKeysList, extractProductWithGeminiAI } from '../utils/geminiKey';
@@ -523,8 +523,8 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
             </>
           ) : (
             <>
-              <ArrowLeft className="w-4 h-4" />
-              <span>استخراج و محاسبه</span>
+              <ArrowLeft className="w-5 h-5 mr-2" />
+              <span>برآورد قیمت</span>
             </>
           )}
         </button>
@@ -563,10 +563,15 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                 {/* Main Magnifier Container with Floating Store Badges */}
                 <div className="w-full relative rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 shadow-sm flex justify-center">
                   {/* Floating Store Badge (Top Right) */}
-                  <div className="absolute top-3 right-3 z-20 bg-black/80 text-white text-[11px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm pointer-events-none">
-                    <span className="w-2 h-2 rounded-full bg-red-500" />
-                    <span>{brandName || storeName || 'خرید مستقیم از دبی'}</span>
-                  </div>
+                  {(() => {
+                    const storeTheme = getStoreBadgeTheme(brandName || storeName);
+                    return (
+                      <div className={`absolute top-3 right-3 z-20 ${storeTheme.bg} rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm shadow-sm pointer-events-none`}>
+                        <span className={`inline-block w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse ml-1.5 shrink-0`} />
+                        <span>{storeTheme.name}</span>
+                      </div>
+                    );
+                  })()}
 
                   {/* Delivery Origin Tag (Top Left) */}
                   <div className="absolute top-3 left-3 z-20 bg-gray-100 text-gray-800 text-[10px] font-bold px-2.5 py-1 rounded-full border border-gray-200 pointer-events-none">
@@ -687,50 +692,50 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                   </div>
                 </div>
 
-                {/* Extracted Specifications & Badges (Clean Non-Clickable Informative Badges) */}
+                {/* Extracted Specifications & Badges (Conditional Rendering) */}
                 {(() => {
                   const cleanFlavors = Array.from(new Set((productFlavors || []).filter(f => f && !isArtificialFallback(f))));
                   const cleanSizes = Array.from(new Set((productSizes || []).filter(s => s && !isArtificialFallback(s))));
-                  const validOptions = (productOptions || []).filter(
-                    (opt) => opt && !isArtificialFallback(opt) && !cleanFlavors.includes(opt) && !cleanSizes.includes(opt)
-                  );
+                  
+                  // Compute active isolated variant values
+                  const activeFlavor = selectedOption && cleanFlavors.includes(selectedOption)
+                    ? selectedOption
+                    : (cleanFlavors.length > 0 ? cleanFlavors[0] : null);
+                  const activeSize = selectedOption && cleanSizes.includes(selectedOption)
+                    ? selectedOption
+                    : (cleanSizes.length > 0 ? cleanSizes[0] : null);
 
-                  if (cleanFlavors.length === 0 && cleanSizes.length === 0 && validOptions.length === 0) return null;
+                  const hasValidFlavor = Boolean(activeFlavor && activeFlavor.trim() && !isArtificialFallback(activeFlavor));
+                  const hasValidSize = Boolean(activeSize && activeSize.trim() && !isArtificialFallback(activeSize));
+
+                  // If both selectedFlavor and selectedSize are null/empty, completely hide the container
+                  if (!hasValidFlavor && !hasValidSize) return null;
 
                   return (
-                    <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-200 space-y-2">
+                    <div id="hero-extracted-specs-container" className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-200 space-y-2">
                       <span className="text-xs font-black text-gray-950 flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-red-600 inline-block"></span>
-                        <span>مشخصات استخراج‌شده کالا (Flavor & Size):</span>
+                        <span>مشخصات استخراج‌شده کالا:</span>
                       </span>
                       <div className="flex flex-wrap gap-2 pt-0.5">
-                        {cleanFlavors.map((flv) => (
+                        {hasValidFlavor && (
                           <span
-                            key={`flv-${flv}`}
+                            id="hero-selected-flavor-badge"
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-bold shadow-2xs"
                           >
-                            <span className="text-gray-500 font-medium text-[11px]">طعم:</span>
-                            <span className="text-gray-950 font-black">{translateFlavor(flv)}</span>
+                            <span className="text-gray-500 font-medium text-[11px]">🎯 طعم انتخابی:</span>
+                            <span className="text-gray-950 font-black">{translateFlavor(activeFlavor!)}</span>
                           </span>
-                        ))}
-                        {cleanSizes.map((sz) => (
+                        )}
+                        {hasValidSize && (
                           <span
-                            key={`sz-${sz}`}
+                            id="hero-selected-size-badge"
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-bold shadow-2xs"
                           >
-                            <span className="text-gray-500 font-medium text-[11px]">سایز / وزن:</span>
-                            <span className="text-gray-950 font-black">{formatPersianSize(sz)}</span>
+                            <span className="text-gray-500 font-medium text-[11px]">⚖️ سایز / وزن:</span>
+                            <span className="text-gray-950 font-black">{formatPersianSize(activeSize!)}</span>
                           </span>
-                        ))}
-                        {cleanFlavors.length === 0 && cleanSizes.length === 0 && validOptions.map((opt) => (
-                          <span
-                            key={`opt-${opt}`}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-bold shadow-2xs"
-                          >
-                            <span className="text-gray-500 font-medium text-[11px]">گزینه:</span>
-                            <span className="text-gray-950 font-black">{translateFlavor(opt) !== opt ? translateFlavor(opt) : formatPersianSize(opt)}</span>
-                          </span>
-                        ))}
+                        )}
                       </div>
                     </div>
                   );

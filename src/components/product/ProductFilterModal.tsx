@@ -303,14 +303,14 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-700">
+            <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-xs">
               <SlidersHorizontal className="w-4 h-4" />
             </div>
             <div>
               <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
                 <span>فیلترهای پیشرفته محصولات</span>
                 {activeCount > 0 && (
-                  <span className="bg-blue-600 text-white text-[11px] font-black px-2 py-0.5 rounded-full">
+                  <span className="bg-red-600 text-white text-[11px] font-black px-2 py-0.5 rounded-full">
                     {toPersianDigits(activeCount)} فعال
                   </span>
                 )}
@@ -344,7 +344,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
           {/* 1. نوع مکمل (دسته‌بندی) */}
           <div className="space-y-2.5">
             <label className="text-xs font-black text-slate-800 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-indigo-600" />
+              <Layers className="w-4 h-4 text-slate-800" />
               <span>۱. نوع مکمل (دسته‌بندی):</span>
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -357,7 +357,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
                     onClick={() => setDraftFilters(prev => ({ ...prev, category: cat.id }))}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
                       isSelected
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
                         : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
                     }`}
                   >
@@ -371,7 +371,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
           {/* 2. فروشگاه مبدا دبی */}
           <div className="space-y-2.5">
             <label className="text-xs font-black text-slate-800 flex items-center gap-2">
-              <Store className="w-4 h-4 text-blue-600" />
+              <Store className="w-4 h-4 text-red-600" />
               <span>۲. فروشگاه مبدا دبی:</span>
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -384,12 +384,12 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
                     onClick={() => setDraftFilters(prev => ({ ...prev, store: st.id }))}
                     className={`p-2.5 rounded-xl border text-xs font-bold text-right transition cursor-pointer flex items-center justify-between ${
                       isSelected
-                        ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-2xs'
+                        ? 'bg-red-50 border-red-500 text-red-900 shadow-2xs'
                         : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
                     }`}
                   >
                     <span className="truncate">{st.label}</span>
-                    {isSelected && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0 mr-1" />}
+                    {isSelected && <Check className="w-3.5 h-3.5 text-red-600 shrink-0 mr-1" />}
                   </button>
                 );
               })}
@@ -412,7 +412,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
                     onClick={() => setDraftFilters(prev => ({ ...prev, brand: br.id }))}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
                       isSelected
-                        ? 'bg-amber-500 text-slate-950 font-black border-amber-500 shadow-2xs'
+                        ? 'bg-slate-900 text-white font-black border-slate-900 shadow-2xs'
                         : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
                     }`}
                   >
@@ -426,7 +426,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
           {/* 4. مرتب‌سازی نتایج */}
           <div className="space-y-2.5">
             <label className="text-xs font-black text-slate-800 flex items-center gap-2">
-              <ArrowUpDown className="w-4 h-4 text-purple-600" />
+              <ArrowUpDown className="w-4 h-4 text-slate-700" />
               <span>۴. مرتب‌سازی نتایج:</span>
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -439,12 +439,12 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
                     onClick={() => setDraftFilters(prev => ({ ...prev, sortBy: s.id as any }))}
                     className={`p-2.5 rounded-xl border text-xs font-bold text-right transition cursor-pointer flex items-center justify-between ${
                       isSelected
-                        ? 'bg-purple-50 border-purple-500 text-purple-900 shadow-2xs'
+                        ? 'bg-slate-900 border-slate-900 text-white shadow-2xs'
                         : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
                     }`}
                   >
                     <span className="truncate">{s.label}</span>
-                    {isSelected && <Check className="w-3.5 h-3.5 text-purple-600 shrink-0 mr-1" />}
+                    {isSelected && <Check className="w-3.5 h-3.5 text-white shrink-0 mr-1" />}
                   </button>
                 );
               })}
@@ -455,7 +455,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
           <div className="space-y-4 pt-2 border-t border-slate-100">
             <div className="flex items-center justify-between">
               <label className="text-xs font-black text-slate-800 flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-emerald-600" />
+                <DollarSign className="w-4 h-4 text-red-600" />
                 <span>۵. محدوده قیمت (تومان):</span>
               </label>
               <div className="text-[11px] font-bold text-slate-500">
@@ -467,7 +467,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
             <div className="relative pt-3 pb-2 px-1">
               <div className="relative h-2 w-full bg-slate-200 rounded-full">
                 <div
-                  className="absolute top-0 bottom-0 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-75"
+                  className="absolute top-0 bottom-0 bg-red-600 rounded-full transition-all duration-75"
                   style={{
                     right: `${minPercent}%`,
                     left: `${100 - maxPercent}%`
@@ -483,7 +483,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
                 step={SLIDER_STEP}
                 value={sliderMin}
                 onChange={handleMinSliderChange}
-                className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto cursor-pointer h-2 z-20 accent-emerald-600"
+                className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto cursor-pointer h-2 z-20 accent-red-600"
                 style={{
                   WebkitAppearance: 'none',
                   background: 'transparent'
@@ -498,7 +498,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
                 step={SLIDER_STEP}
                 value={sliderMax}
                 onChange={handleMaxSliderChange}
-                className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto cursor-pointer h-2 z-20 accent-teal-600"
+                className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-auto cursor-pointer h-2 z-20 accent-red-600"
                 style={{
                   WebkitAppearance: 'none',
                   background: 'transparent'
@@ -518,7 +518,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
                     value={sliderMin > 0 ? sliderMin.toLocaleString('en-US') : '۰'}
                     onChange={handleMinInputChange}
                     placeholder="۰"
-                    className="w-full text-left pl-3 pr-8 py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-emerald-500 rounded-xl text-xs font-black text-slate-800 transition outline-none"
+                    className="w-full text-left pl-3 pr-8 py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-red-500 rounded-xl text-xs font-black text-slate-800 transition outline-none"
                   />
                   <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">
                     تومان
@@ -536,7 +536,7 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
                     value={sliderMax < maxPriceLimit ? sliderMax.toLocaleString('en-US') : maxPriceLimit.toLocaleString('en-US')}
                     onChange={handleMaxInputChange}
                     placeholder={maxPriceLimit.toLocaleString('en-US')}
-                    className="w-full text-left pl-3 pr-8 py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-teal-500 rounded-xl text-xs font-black text-slate-800 transition outline-none"
+                    className="w-full text-left pl-3 pr-8 py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-red-500 rounded-xl text-xs font-black text-slate-800 transition outline-none"
                   />
                   <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">
                     تومان
@@ -552,12 +552,12 @@ export const ProductFilterModal: React.FC<ProductFilterModalProps> = ({
           <button
             type="button"
             onClick={handleApply}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white text-xs sm:text-sm font-black py-3 rounded-2xl transition cursor-pointer shadow-md flex items-center justify-center gap-2"
+            className="flex-1 bg-red-600 hover:bg-red-700 active:scale-98 text-white text-xs sm:text-sm font-black py-3 rounded-2xl transition cursor-pointer shadow-md flex items-center justify-center gap-2"
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>اعمال فیلترها</span>
             {totalResultsCount !== undefined && (
-              <span className="bg-blue-500/80 px-2 py-0.5 rounded-lg text-xs">
+              <span className="bg-red-700/80 px-2 py-0.5 rounded-lg text-xs">
                 ({toPersianDigits(totalResultsCount)} محصول)
               </span>
             )}

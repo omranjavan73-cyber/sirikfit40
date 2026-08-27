@@ -83,7 +83,7 @@ export interface ProductDetailModalProduct {
   }[];
 }
 
-interface ProductDetailModalProps {
+export interface ProductDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   product: ProductDetailModalProduct | null;
@@ -643,8 +643,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               {(() => {
                 const storeTheme = getStoreBadgeTheme(product.storeName || product.brand);
                 return (
-                  <div className={`absolute top-3 right-3 z-10 ${storeTheme.bg} text-[11px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm`}>
-                    <span className={`w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse`} />
+                  <div className={`absolute top-3 right-3 z-10 ${storeTheme.bg} rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm shadow-sm`}>
+                    <span className={`inline-block w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse ml-1.5 shrink-0`} />
                     <span>{storeTheme.name}</span>
                   </div>
                 );

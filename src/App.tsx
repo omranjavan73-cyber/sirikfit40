@@ -28,6 +28,7 @@ import { TermsSection } from './components/TermsSection';
 import { TermsModal } from './components/TermsModal';
 import { Footer } from './components/Footer';
 import { CompactLandingFooter } from './components/CompactLandingFooter';
+import { FloatingSupportWidget } from './components/common/FloatingSupportWidget';
 import type { FinancialSettings, Order, TabType, CmsConfig, User, FeaturedDeal, CartItem, LandingSettings } from './types';
 import { defaultLandingSettings } from './types';
 import { getLandingSettings } from './services/settingsService';
@@ -37,6 +38,7 @@ import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
 import { PricingProvider } from './context/PricingContext';
+import { SupportProvider } from './context/SupportContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { getSafeItem, setSafeItem } from './utils/safeStorage';
 
@@ -1525,6 +1527,9 @@ function MainApp() {
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
+
+      {/* Persistent Floating Quick-Support Widget (WhatsApp & Telegram Support Bot) */}
+      <FloatingSupportWidget />
     </div>
   );
 }
@@ -1534,9 +1539,12 @@ export default function App() {
     <ErrorBoundary name="SirikFit Application">
       <SettingsProvider>
         <PricingProvider>
-          <MainApp />
+          <SupportProvider>
+            <MainApp />
+          </SupportProvider>
         </PricingProvider>
       </SettingsProvider>
     </ErrorBoundary>
   );
 }
+

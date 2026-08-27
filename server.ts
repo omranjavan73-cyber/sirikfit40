@@ -84,30 +84,11 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
 });
 
-// Lazy Firestore initialization — deferred until first use to avoid
-// blocking the Firebase CLI's 10 s analysis-phase timeout.
-let _firestoreDbInstance: ReturnType<typeof getFirestore> | null = null;
-function getDb(): ReturnType<typeof getFirestore> {
-  if (!_firestoreDbInstance) {
-    const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfigJson) : getApp();
-    try {
-      _firestoreDbInstance = initializeFirestore(firebaseApp, {
-        experimentalForceLongPolling: true,
-      }, (firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== '(default)') ? firebaseConfigJson.firestoreDatabaseId : undefined);
-    } catch (_e) {
-      _firestoreDbInstance = (firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== '(default)')
-        ? getFirestore(firebaseApp, firebaseConfigJson.firestoreDatabaseId)
-        : getFirestore(firebaseApp);
-    }
-  }
-  return _firestoreDbInstance;
-}
-// Convenience alias used throughout the file — resolves lazily on first call
-const db = new Proxy({} as ReturnType<typeof getFirestore>, {
-  get(_target, prop) {
-    return (getDb() as any)[prop];
-  }
-});
+// Firestore initialization
+const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfigJson) : getApp();
+const db: ReturnType<typeof getFirestore> = (firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== '(default)')
+  ? getFirestore(firebaseApp, firebaseConfigJson.firestoreDatabaseId)
+  : getFirestore(firebaseApp);
 
 const app = express();
 const PORT = 3000;

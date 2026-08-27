@@ -350,39 +350,70 @@ export function parseAndConvertSize(inputSize: string): FormattedSizeResult {
   };
 }
 
-export function getStoreBadgeTheme(storeNameOrBrand: string = '') {
-  const s = (storeNameOrBrand || '').toLowerCase();
+export interface StoreBadgeTheme {
+  bg: string;
+  dot: string;
+  name: string;
+}
+
+export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeTheme {
+  const s = (storeNameOrBrand || '').toLowerCase().trim();
+
+  // 1. GNC / GNC Store / GNC MENA
   if (s.includes('gnc')) {
     return {
-      bg: 'bg-red-600 text-white',
+      bg: 'bg-red-600 text-white ring-1 ring-red-400 shadow-sm',
       dot: 'bg-white',
       name: 'GNC Store'
     };
   }
-  if (s.includes('dr nutrition') || s.includes('drnutrition') || s.includes('dnp')) {
+
+  // 2. Sporter
+  if (s.includes('sporter')) {
     return {
-      bg: 'bg-purple-700 text-white',
-      dot: 'bg-emerald-400',
+      bg: 'bg-amber-400 text-slate-950 font-bold ring-1 ring-amber-300 shadow-sm',
+      dot: 'bg-slate-950',
+      name: 'Sporter'
+    };
+  }
+
+  // 3. Dr. Nutrition / DrNutrition
+  if (s.includes('dr nutrition') || s.includes('drnutrition') || s.includes('dnp') || s.includes('dr.')) {
+    return {
+      bg: 'bg-blue-600 text-white ring-1 ring-blue-400 shadow-sm',
+      dot: 'bg-white',
       name: 'Dr. Nutrition'
     };
   }
-  if (s.includes('sporter')) {
+
+  // 4. Life Pharmacy
+  if (s.includes('life pharmacy') || s.includes('lifepharmacy') || s.includes('life')) {
     return {
-      bg: 'bg-amber-400 text-gray-950 font-black',
-      dot: 'bg-gray-950',
-      name: 'Sporter UAE'
-    };
-  }
-  if (s.includes('life pharmacy') || s.includes('lifepharmacy')) {
-    return {
-      bg: 'bg-blue-700 text-white',
-      dot: 'bg-pink-400',
+      bg: 'bg-teal-600 text-white ring-1 ring-teal-400 shadow-sm',
+      dot: 'bg-white',
       name: 'Life Pharmacy'
     };
   }
+
+  // 5. Iran Warehouse / انبار ایران
+  if (
+    s.includes('انبار ایران') ||
+    s.includes('iranwarehouse') ||
+    s.includes('iran warehouse') ||
+    s.includes('تحویل فوری') ||
+    s.includes('موجودی ایران') ||
+    s.includes('انبار')
+  ) {
+    return {
+      bg: 'bg-emerald-600 text-white ring-1 ring-emerald-400 shadow-sm',
+      dot: 'bg-white',
+      name: 'انبار ایران'
+    };
+  }
+
   return {
-    bg: 'bg-black text-white',
-    dot: 'bg-red-500',
+    bg: 'bg-slate-900 text-white ring-1 ring-slate-700 shadow-sm',
+    dot: 'bg-white',
     name: storeNameOrBrand || 'خرید مستقیم از دبی'
   };
 }

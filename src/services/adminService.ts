@@ -500,4 +500,90 @@ export async function runFullStoreHealthCheck(): Promise<{
   }
 }
 
+/**
+ * Fetch Support & Contact Channels Config from Firestore (settings/support_config)
+ */
+export async function fetchSupportConfigFromFirestore(): Promise<import('../types/support').SupportConfig> {
+  const { DEFAULT_SUPPORT_CONFIG } = await import('../types/support');
+  
+  if (typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem('sirikfit_support_config');
+      if (cached) {
+        return { ...DEFAULT_SUPPORT_CONFIG, ...JSON.parse(cached) };
+      }
+    } catch (_e) {}
+  }
+
+  try {
+    if (db) {
+      const docRef = doc(db, 'settings', 'support_config');
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data() as import('../types/support').SupportConfig;
+        const merged = { ...DEFAULT_SUPPORT_CONFIG, ...data };
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('sirikfit_support_config', JSON.stringify(merged));
+          } catch (_e) {}
+        }
+        return merged;
+      }
+    }
+  } catch (err) {
+    console.warn('Firestore fetch notice (Support Config):', err);
+  }
+
+  return DEFAULT_SUPPORT_CONFIG;
+}
+
+/**
+ * Save Support & Contact Channels Config to Firestore (settings/support_config)
+ */
+export async function saveSupportConfigToFirestore(
+  config: Partial<import('../types/support').SupportConfig>
+): Promise<{ success: boolean; message: string; data?: import('../types/support').SupportConfig }> {
+  const { DEFAULT_SUPPORT_CONFIG } = await import('../types/support');
+  const cleanPayload = {
+    ...DEFAULT_SUPPORT_CONFIG,
+    ...config,
+    updatedAt: new Date().toISOString()
+  };
+
+  // 1. Immediate local cache and event dispatch
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('sirikfit_support_config', JSON.stringify(cleanPayload));
+      window.dispatchEvent(new CustomEvent('supportConfigUpdated', { detail: cleanPayload }));
+      window.dispatchEvent(new Event('storage'));
+    } catch (_e) {}
+  }
+
+  // 2. Firestore document update: settings/support_config
+  try {
+    if (db) {
+      const docRef = doc(db, 'settings', 'support_config');
+      await setDoc(docRef, sanitizePayloadForFirestore(cleanPayload), { merge: true });
+    }
+  } catch (err: any) {
+    console.warn('Firestore write notice (Support Config):', err?.message || err);
+  }
+
+  // 3. Optional server API update for dual backup
+  try {
+    await fetch('/api/settings/support_config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cleanPayload)
+    }).catch(() => {});
+  } catch (_e) {}
+
+  return {
+    success: true,
+    message: 'تنظیمات درگاه‌های پشتیبانی و تماس با موفقیت ذخیره شد.',
+    data: cleanPayload
+  };
+}
+
+
 

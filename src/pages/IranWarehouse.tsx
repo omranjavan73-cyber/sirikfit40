@@ -75,13 +75,11 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
 
     // Real-time Firestore snapshot listener
     const unsub = onSnapshot(collection(db, 'iran_warehouse'), (snap) => {
-      if (!snap.empty) {
-        const loaded: LocalInventoryItem[] = [];
-        snap.forEach((docSnap) => {
-          loaded.push({ id: docSnap.id, ...docSnap.data() } as LocalInventoryItem);
-        });
-        setItemsList(loaded);
-      }
+      const loaded: LocalInventoryItem[] = [];
+      snap.forEach((docSnap) => {
+        loaded.push({ id: docSnap.id, ...docSnap.data() } as LocalInventoryItem);
+      });
+      setItemsList(loaded);
     }, (err) => {
       console.warn('Iran Warehouse onSnapshot notice:', err);
     });

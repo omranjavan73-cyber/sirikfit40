@@ -75,12 +75,6 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
   const primaryTitle = titleFa || titleEn || 'محصول بدون عنوان';
   const img = String(prod.imageUrl || prod.image || '');
 
-  const rawFlavors = Array.isArray(prod.allowedFlavors) ? prod.allowedFlavors : (Array.isArray(prod.flavors) ? prod.flavors : []);
-  const cleanFlavors = rawFlavors.filter((f: any) => typeof f === 'string' && f.trim().length > 0);
-
-  const rawSizes = Array.isArray(prod.allowedSizes) ? prod.allowedSizes : (Array.isArray(prod.sizes) ? prod.sizes : []);
-  const cleanSizes = rawSizes.filter((s: any) => typeof s === 'string' && s.trim().length > 0);
-
   const rawVariants = Array.isArray(prod.variants) ? prod.variants : [];
   const cleanVariants = rawVariants.map((v: any) => {
     const vAed = Number(v.priceAed || v.price || v.priceAED || baseAed || 0);
@@ -93,8 +87,8 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
 
     return {
       id: String(v.id || Math.random().toString(36).substring(2, 8)),
-      flavor: String(v.flavor || ''),
-      size: String(v.size || ''),
+      flavor: String(v.flavor || '').trim(),
+      size: String(v.size || '').trim(),
       priceAed: vAed,
       price: vAed,
       priceAED: vAed,
@@ -105,6 +99,14 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
       ...(v.url ? { url: String(v.url) } : {})
     };
   });
+
+  const rawFlavors = Array.isArray(prod.allowedFlavors) ? prod.allowedFlavors : (Array.isArray(prod.flavors) ? prod.flavors : []);
+  const variantFlavors = cleanVariants.map(v => v.flavor).filter(Boolean);
+  const cleanFlavors = Array.from(new Set([...rawFlavors.filter((f: any) => typeof f === 'string' && f.trim().length > 0), ...variantFlavors]));
+
+  const rawSizes = Array.isArray(prod.allowedSizes) ? prod.allowedSizes : (Array.isArray(prod.sizes) ? prod.sizes : []);
+  const variantSizes = cleanVariants.map(v => v.size).filter(Boolean);
+  const cleanSizes = Array.from(new Set([...rawSizes.filter((s: any) => typeof s === 'string' && s.trim().length > 0), ...variantSizes]));
 
   return {
     id: String(prod.id || Date.now()),

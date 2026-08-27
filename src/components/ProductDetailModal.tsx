@@ -135,73 +135,131 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     return getActiveVariants(currentProd?.variants);
   }, [currentProd?.variants]);
 
-  // Derive flavors and sizes from currentProd.variants (Single Source of Truth) or variantMatrix or fallback
+  // Comprehensive extraction of all distinct flavors from all variant data sources
   const extractedFlavors = useMemo(() => {
     if (!currentProd) return [];
-    if (activeVariants.length > 0) {
-      return getAllFlavors(activeVariants).filter(f => f && !isArtificialFallback(f));
-    }
-    const rawFlavors = (currentProd.variantMatrix?.flavors && currentProd.variantMatrix.flavors.length > 0)
-      ? currentProd.variantMatrix.flavors
-      : (Array.isArray(currentProd.flavors) && currentProd.flavors.length > 0)
-        ? currentProd.flavors
-        : [];
-    
-    if (rawFlavors.length > 0) {
-      return rawFlavors.map((f: any) => {
-        const name = typeof f === 'string' ? f : (f?.flavor || f?.name || '');
-        return sanitizeVariantLabel(name);
-      }).filter(f => f && !isArtificialFallback(f));
+    const allFlavorsSet = new Set<string>();
+
+    // 1. From variants array
+    if (Array.isArray(currentProd.variants)) {
+      currentProd.variants.forEach((v: any) => {
+        const flv = v.flavor || v.flavorName || v.flv || '';
+        if (flv && typeof flv === 'string' && flv.trim() !== '' && !isArtificialFallback(flv)) {
+          allFlavorsSet.add(sanitizeVariantLabel(flv.trim()));
+        }
+      });
     }
 
+    // 2. From variantMatrix items
+    if (Array.isArray(currentProd.variantMatrix?.items)) {
+      currentProd.variantMatrix.items.forEach((item: any) => {
+        const flv = item.flavor || item.flavorName || '';
+        if (flv && typeof flv === 'string' && flv.trim() !== '' && !isArtificialFallback(flv)) {
+          allFlavorsSet.add(sanitizeVariantLabel(flv.trim()));
+        }
+      });
+    }
+
+    // 3. From flavors & allowedFlavors
+    const listSources = [
+      currentProd.flavors,
+      currentProd.allowedFlavors,
+      currentProd.variantMatrix?.flavors
+    ];
+    listSources.forEach(src => {
+      if (Array.isArray(src)) {
+        src.forEach((f: any) => {
+          const name = typeof f === 'string' ? f : (f?.flavor || f?.name || '');
+          if (name && name.trim() !== '' && !isArtificialFallback(name)) {
+            allFlavorsSet.add(sanitizeVariantLabel(name.trim()));
+          }
+        });
+      }
+    });
+
+    // 4. From variantGroups
     const flavorGroup = currentProd.variantGroups?.find((g: any) => g.type === 'flavor' || g.id === 'flavors' || (g.name && (g.name.includes('طعم') || g.name.toLowerCase().includes('flavor'))));
     if (flavorGroup && Array.isArray(flavorGroup.options)) {
-      return flavorGroup.options.map((opt: any) => sanitizeVariantLabel(typeof opt === 'string' ? opt : (opt.name || opt.label || ''))).filter(f => f && !isArtificialFallback(f));
+      flavorGroup.options.forEach((opt: any) => {
+        const name = typeof opt === 'string' ? opt : (opt.name || opt.label || '');
+        if (name && name.trim() !== '' && !isArtificialFallback(name)) {
+          allFlavorsSet.add(sanitizeVariantLabel(name.trim()));
+        }
+      });
     }
-    return [];
+
+    return Array.from(allFlavorsSet).filter(f => f && !isArtificialFallback(f));
   }, [currentProd, activeVariants]);
 
+  // Comprehensive extraction of all distinct sizes from all variant data sources
   const extractedSizes = useMemo(() => {
     if (!currentProd) return [];
-    if (activeVariants.length > 0) {
-      return getAllSizes(activeVariants).filter(s => s && !isArtificialFallback(s));
-    }
-    const rawSizes = (currentProd.variantMatrix?.sizes && currentProd.variantMatrix.sizes.length > 0)
-      ? currentProd.variantMatrix.sizes
-      : (Array.isArray(currentProd.sizes) && currentProd.sizes.length > 0)
-        ? currentProd.sizes
-        : [];
+    const allSizesSet = new Set<string>();
 
-    if (rawSizes.length > 0) {
-      return rawSizes.map((s: any) => {
-        const name = typeof s === 'string' ? s : (s?.size || s?.name || '');
-        return sanitizeVariantLabel(name);
-      }).filter(s => s && !isArtificialFallback(s));
+    // 1. From variants array
+    if (Array.isArray(currentProd.variants)) {
+      currentProd.variants.forEach((v: any) => {
+        const sz = v.size || v.sizeName || v.name || '';
+        if (sz && typeof sz === 'string' && sz.trim() !== '' && !isArtificialFallback(sz)) {
+          allSizesSet.add(sanitizeVariantLabel(sz.trim()));
+        }
+      });
     }
 
+    // 2. From variantMatrix items
+    if (Array.isArray(currentProd.variantMatrix?.items)) {
+      currentProd.variantMatrix.items.forEach((item: any) => {
+        const sz = item.size || item.sizeName || '';
+        if (sz && typeof sz === 'string' && sz.trim() !== '' && !isArtificialFallback(sz)) {
+          allSizesSet.add(sanitizeVariantLabel(sz.trim()));
+        }
+      });
+    }
+
+    // 3. From sizes & allowedSizes
+    const listSources = [
+      currentProd.sizes,
+      currentProd.allowedSizes,
+      currentProd.variantMatrix?.sizes
+    ];
+    listSources.forEach(src => {
+      if (Array.isArray(src)) {
+        src.forEach((s: any) => {
+          const name = typeof s === 'string' ? s : (s?.size || s?.name || '');
+          if (name && name.trim() !== '' && !isArtificialFallback(name)) {
+            allSizesSet.add(sanitizeVariantLabel(name.trim()));
+          }
+        });
+      }
+    });
+
+    // 4. From variantGroups
     const sizeGroup = currentProd.variantGroups?.find((g: any) => g.type === 'size' || g.id === 'sizes' || (g.name && (g.name.includes('وزن') || g.name.includes('سایز') || g.name.toLowerCase().includes('size'))));
     if (sizeGroup && Array.isArray(sizeGroup.options)) {
-      return sizeGroup.options.map((opt: any) => sanitizeVariantLabel(typeof opt === 'string' ? opt : (opt.name || opt.label || ''))).filter(s => s && !isArtificialFallback(s));
+      sizeGroup.options.forEach((opt: any) => {
+        const name = typeof opt === 'string' ? opt : (opt.name || opt.label || '');
+        if (name && name.trim() !== '' && !isArtificialFallback(name)) {
+          allSizesSet.add(sanitizeVariantLabel(name.trim()));
+        }
+      });
     }
-    return [];
+
+    return Array.from(allSizesSet).filter(s => s && !isArtificialFallback(s));
   }, [currentProd, activeVariants]);
 
   useEffect(() => {
     if (product) {
-      if (activeVariants.length > 0) {
-        const first = activeVariants[0];
-        setSelectedFlavor(first.flavor && !isArtificialFallback(first.flavor) ? first.flavor : (extractedFlavors.length > 0 ? extractedFlavors[0] : null));
-        setSelectedSize(first.size && !isArtificialFallback(first.size) ? first.size : (first.name && !isArtificialFallback(first.name) ? first.name : (extractedSizes.length > 0 ? extractedSizes[0] : null)));
-      } else {
-        const initialFlavor = product.selectedFlavor && !isArtificialFallback(product.selectedFlavor)
-          ? product.selectedFlavor
-          : (extractedFlavors.length > 0 ? extractedFlavors[0] : null);
-        const initialSize = product.selectedSize && !isArtificialFallback(product.selectedSize)
-          ? product.selectedSize
-          : (extractedSizes.length > 0 ? extractedSizes[0] : null);
-        setSelectedFlavor(initialFlavor);
-        setSelectedSize(initialSize);
-      }
+      const initialFlavor = (product.selectedFlavor && !isArtificialFallback(product.selectedFlavor))
+        ? product.selectedFlavor
+        : (extractedFlavors.length > 0 ? extractedFlavors[0] : (product.variants?.[0]?.flavor || null));
+
+      const initialSize = (product.selectedSize && !isArtificialFallback(product.selectedSize))
+        ? product.selectedSize
+        : (extractedSizes.length > 0 ? extractedSizes[0] : (product.variants?.[0]?.size || null));
+
+      setSelectedFlavor(initialFlavor);
+      setSelectedSize(initialSize);
+
       const initialImg = galleryList[0] || product.image || fallbackImg;
       setSelectedImage(initialImg);
       setQuantity(1);
@@ -209,48 +267,53 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       setIsHovered(false);
       setIsLightboxOpen(false);
     }
-  }, [product, activeVariants, extractedFlavors, extractedSizes]);
+  }, [product, extractedFlavors, extractedSizes]);
 
   // Find selected variant details from activeVariants, variantMatrix or currentProd.variants
   const matchedVariant = useMemo(() => {
     if (!currentProd) return null;
-    if (activeVariants && activeVariants.length > 0) {
-      const exact = findExactVariant(activeVariants, selectedFlavor || undefined, selectedSize || undefined);
-      if (exact) return exact;
-      const flavorOnly = activeVariants.find(v => selectedFlavor && v.flavor === selectedFlavor);
-      if (flavorOnly) return flavorOnly;
-    }
-    if (currentProd.variantMatrix?.items && currentProd.variantMatrix.items.length > 0) {
-      if (selectedSize && selectedFlavor) {
-        const exact = currentProd.variantMatrix.items.find(
-          v => (v.size === selectedSize || v.title?.toLowerCase().includes(selectedSize.toLowerCase())) &&
-               (v.flavor === selectedFlavor || v.title?.toLowerCase().includes(selectedFlavor.toLowerCase()))
+
+    // 1. Try finding in currentProd.variants with both flavor & size
+    if (Array.isArray(currentProd.variants) && currentProd.variants.length > 0) {
+      if (selectedFlavor && selectedSize) {
+        const exact = currentProd.variants.find((v: any) =>
+          areVariantsMatching(v.flavor, selectedFlavor) && areVariantsMatching(v.size || v.name, selectedSize)
         );
         if (exact) return exact;
       }
-      if (selectedSize) {
-        const sizeMatch = currentProd.variantMatrix.items.find(
-          v => v.size === selectedSize || v.title === selectedSize || v.title?.toLowerCase().includes(selectedSize.toLowerCase())
-        );
-        if (sizeMatch) return sizeMatch;
-      }
       if (selectedFlavor) {
-        const flavorMatch = currentProd.variantMatrix.items.find(
-          v => v.flavor === selectedFlavor || v.title === selectedFlavor || v.title?.toLowerCase().includes(selectedFlavor.toLowerCase())
-        );
+        const flavorMatch = currentProd.variants.find((v: any) => areVariantsMatching(v.flavor, selectedFlavor));
         if (flavorMatch) return flavorMatch;
+      }
+      if (selectedSize) {
+        const sizeMatch = currentProd.variants.find((v: any) => areVariantsMatching(v.size || v.name, selectedSize));
+        if (sizeMatch) return sizeMatch;
       }
     }
 
-    return currentProd.variants?.find(v => 
-      (selectedSize && selectedFlavor && v.size === selectedSize && v.flavor === selectedFlavor) ||
-      (selectedFlavor && v.flavor === selectedFlavor) ||
-      (selectedSize && v.size === selectedSize)
-    );
-  }, [currentProd, activeVariants, selectedSize, selectedFlavor]);
+    // 2. Try finding in variantMatrix.items
+    if (Array.isArray(currentProd.variantMatrix?.items) && currentProd.variantMatrix.items.length > 0) {
+      if (selectedFlavor && selectedSize) {
+        const exact = currentProd.variantMatrix.items.find((v: any) =>
+          areVariantsMatching(v.flavor, selectedFlavor) && areVariantsMatching(v.size, selectedSize)
+        );
+        if (exact) return exact;
+      }
+      if (selectedFlavor) {
+        const flavorMatch = currentProd.variantMatrix.items.find((v: any) => areVariantsMatching(v.flavor, selectedFlavor));
+        if (flavorMatch) return flavorMatch;
+      }
+      if (selectedSize) {
+        const sizeMatch = currentProd.variantMatrix.items.find((v: any) => areVariantsMatching(v.size, selectedSize));
+        if (sizeMatch) return sizeMatch;
+      }
+    }
+
+    return null;
+  }, [currentProd, selectedSize, selectedFlavor]);
 
   const activeDisplayImage = useMemo(() => {
-    const variantImg = matchedVariant?.image?.trim() || matchedVariant?.imageThumbnail?.trim();
+    const variantImg = matchedVariant?.image?.trim() || matchedVariant?.imageThumbnail?.trim() || matchedVariant?.imageUrl?.trim();
     if (variantImg) return variantImg;
     if (selectedImage && selectedImage.trim() !== '') return selectedImage;
     return currentProd?.image || galleryList[0] || fallbackImg;
@@ -258,13 +321,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   // Synchronize variant-specific image immediately upon variant selection
   useEffect(() => {
-    const variantImg = matchedVariant?.image?.trim() || matchedVariant?.imageThumbnail?.trim();
+    const variantImg = matchedVariant?.image?.trim() || matchedVariant?.imageThumbnail?.trim() || matchedVariant?.imageUrl?.trim();
     if (variantImg) {
       if (variantImg !== selectedImage) {
         setSelectedImage(variantImg);
       }
     }
-  }, [matchedVariant?.image, matchedVariant?.imageThumbnail, selectedFlavor, selectedSize]);
+  }, [matchedVariant?.image, matchedVariant?.imageThumbnail, matchedVariant?.imageUrl, selectedFlavor, selectedSize]);
 
   const localizedCaption = useMemo(() => {
     if (!currentProd) return '';
@@ -318,69 +381,32 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   // Handler to fetch on-demand variant when user clicks a variant with a distinct URL
   const handleVariantSelect = async (newFlavor?: string, newSize?: string) => {
-    let targetFlavor = newFlavor !== undefined ? newFlavor : selectedFlavor;
-    let targetSize = newSize !== undefined ? newSize : selectedSize;
+    const targetFlavor = newFlavor !== undefined ? newFlavor : selectedFlavor;
+    const targetSize = newSize !== undefined ? newSize : selectedSize;
 
-    if (activeVariants.length > 0) {
-      if (newFlavor !== undefined) {
-        const res = handleFlavorChange(activeVariants, newFlavor, selectedSize);
-        targetFlavor = res.flavor;
-        targetSize = res.size;
-        setSelectedFlavor(res.flavor);
-        setSelectedSize(res.size);
-      } else if (newSize !== undefined) {
-        const res = handleSizeChange(activeVariants, newSize, selectedFlavor);
-        targetSize = res.size;
-        setSelectedSize(res.size);
-      }
-    } else {
-      if (newFlavor !== undefined) setSelectedFlavor(newFlavor);
-      if (newSize !== undefined) setSelectedSize(newSize);
-    }
+    if (newFlavor !== undefined) setSelectedFlavor(newFlavor);
+    if (newSize !== undefined) setSelectedSize(newSize);
 
-    if (newFlavor !== undefined) {
-      // If the selected flavor has a dedicated image, switch to it immediately
-      if (Array.isArray(currentProd?.flavors)) {
-        const flvObj = currentProd.flavors.find((f: any) => {
-          if (!f) return false;
-          const name = typeof f === 'string' ? f : (f?.flavor || f?.name || '');
-          return name.toLowerCase() === newFlavor.toLowerCase();
-        });
-        if (flvObj && typeof flvObj === 'object') {
-          const customImg = (flvObj as any).imageUrl || (flvObj as any).image;
-          if (customImg) {
-            setSelectedImage(customImg);
-          }
-        }
-      }
+    // Find matching variant to instantly switch hero photo
+    const matchingVar = currentProd?.variants?.find((v: any) => {
+      const matchFlavor = !targetFlavor || areVariantsMatching(v.flavor, targetFlavor);
+      const matchSize = !targetSize || areVariantsMatching(v.size || v.name, targetSize);
+      return matchFlavor && matchSize;
+    }) || currentProd?.variants?.find((v: any) =>
+      targetFlavor && areVariantsMatching(v.flavor, targetFlavor)
+    ) || currentProd?.variantMatrix?.items?.find((v: any) => {
+      const matchFlavor = !targetFlavor || areVariantsMatching(v.flavor, targetFlavor);
+      const matchSize = !targetSize || areVariantsMatching(v.size, targetSize);
+      return matchFlavor && matchSize;
+    });
+
+    const varImg = matchingVar?.image?.trim() || matchingVar?.imageThumbnail?.trim() || matchingVar?.imageUrl?.trim();
+    if (varImg) {
+      setSelectedImage(varImg);
     }
 
     // Look for target variant item with a distinct url
-    let targetVariantUrl: string | undefined;
-
-    if (activeVariants.length > 0) {
-      const vMatch = findExactVariant(activeVariants, targetFlavor, targetSize);
-      if (vMatch?.url) {
-        targetVariantUrl = vMatch.url;
-      }
-      if (vMatch?.imageThumbnail || vMatch?.image) {
-        setSelectedImage(vMatch.imageThumbnail || vMatch.image);
-      }
-    } else if (currentProd?.variantMatrix?.items && currentProd.variantMatrix.items.length > 0) {
-      const match = currentProd.variantMatrix.items.find(v => {
-        const matchSize = !targetSize || v.size === targetSize || v.title?.toLowerCase().includes(targetSize.toLowerCase());
-        const matchFlavor = !targetFlavor || v.flavor === targetFlavor || v.title?.toLowerCase().includes(targetFlavor.toLowerCase());
-        return matchSize && matchFlavor;
-      }) || currentProd.variantMatrix.items.find(v => {
-        if (targetSize && (v.size === targetSize || v.title === targetSize)) return true;
-        if (targetFlavor && (v.flavor === targetFlavor || v.title === targetFlavor)) return true;
-        return false;
-      });
-
-      if (match?.url) {
-        targetVariantUrl = match.url;
-      }
-    }
+    let targetVariantUrl: string | undefined = matchingVar?.url;
 
     if (!targetVariantUrl && Array.isArray(currentProd.variants)) {
       const vMatch = currentProd.variants.find(v => {
@@ -746,14 +772,6 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   </span>
                   <div className="flex flex-wrap gap-2">
                     {extractedSizes.map((sz: string, idx: number) => {
-                      const itemMatch = activeVariants.length > 0
-                        ? findExactVariant(activeVariants, selectedFlavor, sz) || activeVariants.find(v => areVariantsMatching(v.size || v.name, sz))
-                        : currentProd.variantMatrix?.items?.find(it => it.size === sz || it.title === sz || it.name === sz);
-                      const isAvailable = activeVariants.length > 0
-                        ? isSizeAvailableForFlavor(activeVariants, sz, selectedFlavor)
-                        : (itemMatch ? itemMatch.inStock !== false : true);
-                      const itemPrice = itemMatch ? (itemMatch.priceAED ?? itemMatch.priceAed) : null;
-                      const hasDiffPrice = itemPrice && itemPrice > 0 && itemPrice !== basePriceAed;
                       const isSelected = areVariantsMatching(selectedSize, sz);
                       const formattedSize = formatPersianSize(sz);
 
@@ -761,13 +779,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         <button
                           key={idx}
                           type="button"
-                          disabled={!isAvailable || isVariantLoading}
                           onClick={() => handleVariantSelect(undefined, sz)}
                           className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                            !isAvailable
-                              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through'
-                              : isSelected
-                              ? 'bg-red-600 text-white border-red-600 shadow-md scale-102'
+                            isSelected
+                              ? 'bg-red-600 text-white border-red-600 shadow-md scale-102 font-black'
                               : 'bg-white text-gray-800 border-gray-300 hover:border-red-400'
                           }`}
                         >
@@ -787,12 +802,6 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   </span>
                   <div className="flex flex-wrap gap-2">
                     {extractedFlavors.map((flv: string, idx: number) => {
-                      const itemMatch = activeVariants.length > 0
-                        ? findExactVariant(activeVariants, flv, selectedSize) || activeVariants.find(v => areVariantsMatching(v.flavor, flv))
-                        : currentProd.variantMatrix?.items?.find(it => it.flavor === flv || it.title === flv || it.name === flv);
-                      const isAvailable = activeVariants.length > 0
-                        ? isFlavorAvailable(activeVariants, flv)
-                        : (itemMatch ? itemMatch.inStock !== false : true);
                       const isSelected = areVariantsMatching(selectedFlavor, flv);
                       const translated = translateFlavor(flv);
 
@@ -800,13 +809,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         <button
                           key={idx}
                           type="button"
-                          disabled={!isAvailable || isVariantLoading}
                           onClick={() => handleVariantSelect(flv, undefined)}
                           className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                            !isAvailable
-                              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through'
-                              : isSelected
-                              ? 'bg-red-600 text-white border-red-600 shadow-md scale-102'
+                            isSelected
+                              ? 'bg-red-600 text-white border-red-600 shadow-md scale-102 font-black'
                               : 'bg-white text-gray-800 border-gray-300 hover:border-red-400'
                           }`}
                         >

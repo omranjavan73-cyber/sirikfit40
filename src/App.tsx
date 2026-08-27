@@ -595,32 +595,28 @@ function MainApp() {
 
       // 8. Real-time collection sync for special_deals
       unsubSpecialDeals = onSnapshot(collection(db, 'special_deals'), (snap) => {
-        if (!snap.empty) {
-          const loadedDeals: any[] = [];
-          snap.forEach(docSnap => {
-            loadedDeals.push({ id: docSnap.id, ...docSnap.data() });
-          });
-          setCmsConfig(prev => {
-            if (!prev) return prev;
-            return { ...prev, deals: loadedDeals };
-          });
-        }
+        const loadedDeals: any[] = [];
+        snap.forEach(docSnap => {
+          loadedDeals.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        setCmsConfig(prev => {
+          if (!prev) return prev;
+          return { ...prev, deals: loadedDeals };
+        });
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore special_deals onSnapshot notice:', err);
       });
 
       // 9. Real-time collection sync for iran_warehouse
       unsubIranWarehouse = onSnapshot(collection(db, 'iran_warehouse'), (snap) => {
-        if (!snap.empty) {
-          const loadedLocal: any[] = [];
-          snap.forEach(docSnap => {
-            loadedLocal.push({ id: docSnap.id, ...docSnap.data() });
-          });
-          setCmsConfig(prev => {
-            if (!prev) return prev;
-            return { ...prev, localInventory: loadedLocal };
-          });
-        }
+        const loadedLocal: any[] = [];
+        snap.forEach(docSnap => {
+          loadedLocal.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        setCmsConfig(prev => {
+          if (!prev) return prev;
+          return { ...prev, localInventory: loadedLocal };
+        });
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore iran_warehouse onSnapshot notice:', err);
       });

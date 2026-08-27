@@ -39,19 +39,15 @@ export const Home: React.FC<HomePageProps> = ({
 
   useEffect(() => {
     const unsubDeals = onSnapshot(collection(db, 'special_deals'), (snap) => {
-      if (!snap.empty) {
-        const list: FeaturedDeal[] = [];
-        snap.forEach((doc) => list.push({ id: doc.id, ...doc.data() } as FeaturedDeal));
-        setDeals(list);
-      }
+      const list: FeaturedDeal[] = [];
+      snap.forEach((doc) => list.push({ id: doc.id, ...doc.data() } as FeaturedDeal));
+      setDeals(list);
     }, () => {});
 
     const unsubLocal = onSnapshot(collection(db, 'iran_warehouse'), (snap) => {
-      if (!snap.empty) {
-        const list: LocalInventoryItem[] = [];
-        snap.forEach((doc) => list.push({ id: doc.id, ...doc.data() } as LocalInventoryItem));
-        setLocalInventory(list);
-      }
+      const list: LocalInventoryItem[] = [];
+      snap.forEach((doc) => list.push({ id: doc.id, ...doc.data() } as LocalInventoryItem));
+      setLocalInventory(list);
     }, () => {});
 
     return () => {

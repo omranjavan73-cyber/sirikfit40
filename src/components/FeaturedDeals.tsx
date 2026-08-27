@@ -24,105 +24,6 @@ interface FeaturedDealsProps {
   onOpenCart?: () => void;
 }
 
-const DEFAULT_DEALS: FeaturedDeal[] = [
-  {
-    id: 'deal-1',
-    title: 'مکمل پروتئین وی ON Gold Standard 5lb',
-    brand: 'Optimum Nutrition',
-    category: 'مکمل‌های ورزشی',
-    mainCategory: 'sports_nutrition',
-    subCategory: 'whey',
-    priceAed: 199.05,
-    originalPriceAed: 249,
-    discountPercent: 20,
-    weightKg: 2.27,
-    storeName: 'GNC Store',
-    isActive: true,
-    badge: 'پیشنهاد ویژه',
-    url: 'https://gnc-mena.com'
-  },
-  {
-    id: 'deal-2',
-    title: 'مکمل گینر افزایش وزن MuscleTech Mass Tech Elite',
-    brand: 'MuscleTech',
-    category: 'مکمل‌های ورزشی',
-    mainCategory: 'sports_nutrition',
-    subCategory: 'gainer',
-    priceAed: 170.48,
-    originalPriceAed: 215,
-    discountPercent: 20,
-    weightKg: 3.18,
-    storeName: 'GNC Store',
-    isActive: true,
-    badge: 'پیشنهاد ویژه',
-    url: 'https://gnc-mena.com'
-  },
-  {
-    id: 'deal-3',
-    title: 'شیکر و قمقمه ورزشی GNC Shaker Bottle',
-    brand: 'GNC',
-    category: 'مکمل‌های ورزشی',
-    mainCategory: 'sports_nutrition',
-    subCategory: 'accessories',
-    priceAed: 38.09,
-    originalPriceAed: 45,
-    discountPercent: 15,
-    weightKg: 0.3,
-    storeName: 'GNC Store',
-    isActive: true,
-    badge: 'پیشنهاد ویژه',
-    url: 'https://gnc-mena.com'
-  },
-  {
-    id: 'deal-4',
-    title: 'مکمل اورجینال GNC Lean Shake 25 414ml',
-    brand: 'GNC',
-    category: 'تغذیه سالم',
-    mainCategory: 'healthy_food',
-    subCategory: 'peanut_butter',
-    priceAed: 14.67,
-    originalPriceAed: 20,
-    discountPercent: 25,
-    weightKg: 0.45,
-    storeName: 'GNC Store',
-    isActive: true,
-    badge: 'پیشنهاد ویژه',
-    url: 'https://gnc-mena.com'
-  },
-  {
-    id: 'deal-5',
-    title: 'مکمل آمینو اسید Project#1 Amino Evolution',
-    brand: 'GNC',
-    category: 'مکمل‌های ورزشی',
-    mainCategory: 'sports_nutrition',
-    subCategory: 'amino_bcaa',
-    priceAed: 118,
-    originalPriceAed: 140,
-    discountPercent: 15,
-    weightKg: 0.4,
-    storeName: 'GNC Store',
-    isActive: true,
-    badge: 'پیشنهاد ویژه',
-    url: 'https://gnc-mena.com'
-  },
-  {
-    id: 'deal-6',
-    title: 'Dr. Nutrition Applied Nutrition Joint Complex',
-    brand: 'Applied Nutrition',
-    category: 'دغدغه‌های سلامتی',
-    mainCategory: 'health_concerns',
-    subCategory: 'joints',
-    priceAed: 84.62,
-    originalPriceAed: 110,
-    discountPercent: 23,
-    weightKg: 0.35,
-    storeName: 'Dr. Nutrition',
-    isActive: true,
-    badge: 'پیشنهاد ویژه',
-    url: 'https://www.drnutrition.com'
-  }
-];
-
 export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   deals = [],
   settings,
@@ -138,8 +39,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
   const [filterState, setFilterState] = useState<ProductFilterState>(DEFAULT_FILTER_STATE);
 
-  const rawDeals = (deals && deals.length > 0) ? deals : DEFAULT_DEALS;
-  const activeDeals = (rawDeals || []).filter((d) => d && d.isActive !== false);
+  const activeDeals = (deals || []).filter((d) => d && d.isActive !== false);
 
   const filteredDeals = useMemo(() => {
     const matchedTaxonomy = activeDeals.filter((deal) => {

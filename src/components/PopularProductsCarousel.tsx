@@ -15,50 +15,7 @@ export interface PopularProductItem {
   sampleWeightKg?: number;
 }
 
-const DEFAULT_POPULAR_PRODUCTS: PopularProductItem[] = [
-  {
-    id: 'whey-protein',
-    title: 'پروتئین وی طعم‌دار',
-    filterKey: 'whey',
-    image: 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
-    type: 'custom'
-  },
-  {
-    id: 'creatine-monohydrate',
-    title: 'کراتین مونوهیدرات',
-    filterKey: 'creatine',
-    image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?w=500&auto=format&fit=crop&q=80',
-    type: 'custom'
-  },
-  {
-    id: 'multivitamin-men',
-    title: 'مولتی ویتامین',
-    filterKey: 'vitamin',
-    image: 'https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=500&auto=format&fit=crop&q=80',
-    type: 'custom'
-  },
-  {
-    id: 'c4-preworkout',
-    title: 'پمپ C4 Extreme',
-    filterKey: 'pre',
-    image: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=500&auto=format&fit=crop&q=80',
-    type: 'custom'
-  },
-  {
-    id: 'omega-gnc',
-    title: 'امگا ۳ فشرده GNC',
-    filterKey: 'omega',
-    image: 'https://images.unsplash.com/photo-1526947425960-945c6e72858f?w=500&auto=format&fit=crop&q=80',
-    type: 'custom'
-  },
-  {
-    id: 'gainer-weight',
-    title: 'گینر افزایش وزن',
-    filterKey: 'gainer',
-    image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop&q=80',
-    type: 'custom'
-  }
-];
+
 
 interface PopularProductsCarouselProps {
   onSelectCategory?: (categoryKey: string) => void;
@@ -88,8 +45,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
     }
   };
 
-  const rawList = items || products;
-  const list = rawList !== undefined ? rawList : DEFAULT_POPULAR_PRODUCTS;
+  const list = items || products || [];
 
   if (!list || list.length === 0) {
     return null;

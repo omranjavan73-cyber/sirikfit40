@@ -83,13 +83,11 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
 
     // Real-time Firestore snapshot listener
     const unsub = onSnapshot(collection(db, 'special_deals'), (snap) => {
-      if (!snap.empty) {
-        const loaded: FeaturedDeal[] = [];
-        snap.forEach((docSnap) => {
-          loaded.push({ id: docSnap.id, ...docSnap.data() } as FeaturedDeal);
-        });
-        setDealsList(loaded);
-      }
+      const loaded: FeaturedDeal[] = [];
+      snap.forEach((docSnap) => {
+        loaded.push({ id: docSnap.id, ...docSnap.data() } as FeaturedDeal);
+      });
+      setDealsList(loaded);
     }, (err) => {
       console.warn('Special Deals onSnapshot notice:', err);
     });

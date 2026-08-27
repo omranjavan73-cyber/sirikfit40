@@ -25,6 +25,8 @@ import { extractAttributesFromText } from '../../utils/attributeParser';
 import { toPersianDigits, formatToman, parseAndConvertSize } from '../../utils/formatters';
 import { saveSingleProductWithVariants, saveIranWarehouseItems, saveSpecialDeals } from '../../services/adminService';
 import { VariantMatrixTable, STANDARD_SIZES_PRESET } from '../../components/admin/VariantMatrixTable';
+import { PRESET_FLAVORS } from '../../utils/variantPresets';
+import { FlavorAutocompleteInput } from '../../components/admin/FlavorAutocompleteInput';
 import { AdminDiscounts } from '../../components/AdminDiscounts';
 import { LinkManagementTab } from '../../components/admin/LinkManagementTab';
 import { IranWarehouseAdmin } from './IranWarehouseAdmin';
@@ -343,6 +345,29 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
       return prev;
     });
     setNewCustomSizeInput('');
+  };
+
+  const toggleAllowedFlavor = (flavorLabel: string) => {
+    setProduct(prev => {
+      const current = prev.flavors || [];
+      const updated = current.includes(flavorLabel)
+        ? current.filter(f => f !== flavorLabel)
+        : [...current, flavorLabel];
+      return { ...prev, flavors: updated };
+    });
+  };
+
+  const [newCustomFlavorInput, setNewCustomFlavorInput] = useState('');
+  const handleAddCustomFlavorChip = () => {
+    if (!newCustomFlavorInput.trim()) return;
+    setProduct(prev => {
+      const current = prev.flavors || [];
+      if (!current.includes(newCustomFlavorInput.trim())) {
+        return { ...prev, flavors: [...current, newCustomFlavorInput.trim()] };
+      }
+      return prev;
+    });
+    setNewCustomFlavorInput('');
   };
 
   return (
@@ -672,7 +697,73 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         </div>
       </div>
 
-      {/* Section 3: Allowed Sizes Pool & Active Chips */}
+      {/* Section 3: Allowed Flavors Pool & Active Chips */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+        <details className="group" open>
+          <summary className="cursor-pointer text-xs font-black text-amber-900 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-2.5 flex items-center gap-2 list-none select-none hover:bg-amber-100 transition">
+            <Sparkles className="w-4 h-4 text-amber-600" />
+            <span>چیپ‌های طعم‌های مجاز محصول ({toPersianDigits((product.flavors || []).length)} طعم انتخاب شده)</span>
+          </summary>
+          <div className="mt-3 p-4 bg-amber-50/60 border border-amber-200 rounded-2xl space-y-3">
+            <p className="text-[11px] text-amber-800 font-medium">
+              طعم‌های استاندارد و کامپاند این محصول را انتخاب کنید یا طعم سفارشی خود را با جستجوی هوشمند اضافه نمایید:
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {PRESET_FLAVORS.map(flv => {
+                const checked = (product.flavors || []).includes(flv.name);
+                return (
+                  <button
+                    key={flv.id}
+                    type="button"
+                    onClick={() => toggleAllowedFlavor(flv.name)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 cursor-pointer transition ${
+                      checked
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-amber-400'
+                    }`}
+                  >
+                    {checked && <Check className="w-3.5 h-3.5" />}
+                    <span>{flv.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-amber-200/60">
+              <FlavorAutocompleteInput
+                value={newCustomFlavorInput}
+                onChange={setNewCustomFlavorInput}
+                onSelect={(selectedName) => {
+                  setProduct(prev => {
+                    const current = prev.flavors || [];
+                    if (!current.includes(selectedName)) {
+                      return { ...prev, flavors: [...current, selectedName] };
+                    }
+                    return prev;
+                  });
+                  setNewCustomFlavorInput('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleAddCustomFlavorChip();
+                  }
+                }}
+                placeholder="تایپ طعم سفارشی (فارسی / انگلیسی)..."
+                inputClassName="w-full bg-white border border-amber-200 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-amber-500"
+              />
+              <button
+                type="button"
+                onClick={handleAddCustomFlavorChip}
+                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl cursor-pointer shrink-0"
+              >
+                + افزودن چیپ طعم
+              </button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      {/* Section 4: Allowed Sizes Pool & Active Chips */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
         <details className="group" open>
           <summary className="cursor-pointer text-xs font-black text-blue-900 bg-blue-50 border border-blue-200 rounded-2xl px-4 py-2.5 flex items-center gap-2 list-none select-none hover:bg-blue-100 transition">
@@ -710,7 +801,7 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
                 value={newCustomSizeInput}
                 onChange={(e) => setNewCustomSizeInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddCustomSizeChip()}
-                placeholder="تایپ سایز سفارشی (مثال: 60 Servings, 2.45 kg, 30 ساشه)..."
+                placeholder="تایپ سایز سفارشی (مثال: 5 lb (2.27 kg), 60 Servings, 2.45 kg)..."
                 className="flex-1 max-w-sm bg-white border border-blue-200 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-blue-500"
               />
               <button
@@ -729,7 +820,7 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           variants={product.variants || []}
           availableSizes={product.sizes || []}
           availableFlavors={product.flavors || []}
-          mainProductImage={mainImage || (galleryImages[0] || '')}
+          mainProductImage={product.image || product.imageUrl || (product.galleryImages && product.galleryImages[0]) || ''}
           aedRate={51400}
           onUpdateVariant={handleUpdateVariant}
           onDeleteVariant={handleDeleteVariant}

@@ -1,6 +1,9 @@
 process.env.IS_FIREBASE_FUNCTION = "true";
+const { setGlobalOptions } = require("firebase-functions/v2");
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+
+setGlobalOptions({ region: "us-central1" });
 
 let app;
 function getApp() {

@@ -10,6 +10,8 @@ import {
   PRESET_FLAVORS, PRESET_SIZES, STANDARD_SIZE_OPTIONS,
   convertLbsToKg
 } from '../../utils/variantPresets';
+import { FlavorAutocompleteInput } from '../../components/admin/FlavorAutocompleteInput';
+import { VariantImagePopover } from '../../components/admin/VariantImagePopover';
 import {
   TaxonomyCategory, DEFAULT_TAXONOMY, fetchTaxonomyFromFirestore
 } from '../../utils/taxonomyHelper';
@@ -170,6 +172,7 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
   const [customSizes, setCustomSizes] = useState<Record<string, { val: string; unit: string }>>({});
   // Per-variant custom row mode
   const [customRowMode, setCustomRowMode] = useState<Record<string, { customSize?: boolean; customFlavor?: boolean }>>({});
+  const [editingVariantImage, setEditingVariantImage] = useState<{ itemId: string; variantId: string; variantTitle?: string; currentUrl?: string; mainImage?: string } | null>(null);
 
   // Search & filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -958,10 +961,19 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                         })}
                       </div>
                       <div className="flex gap-2">
-                        <input type="text" value={customFlavors[item.id] || ''}
-                          onChange={e => setCustomFlavors(p => ({ ...p, [item.id]: e.target.value }))}
-                          placeholder="طعم سفارشی..."
-                          className="flex-1 bg-white border border-amber-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-amber-500"
+                        <FlavorAutocompleteInput
+                          value={customFlavors[item.id] || ''}
+                          onChange={val => setCustomFlavors(p => ({ ...p, [item.id]: val }))}
+                          onSelect={selectedName => {
+                            setCustomFlavors(p => ({ ...p, [item.id]: selectedName }));
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              addCustomFlavor(item.id);
+                            }
+                          }}
+                          placeholder="طعم سفارشی (فارسی / انگلیسی)..."
+                          inputClassName="w-full bg-white border border-amber-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-amber-500 font-bold"
                         />
                         <button type="button" onClick={() => addCustomFlavor(item.id)}
                           className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg cursor-pointer shrink-0">
@@ -1064,16 +1076,35 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                           className="grid grid-cols-12 gap-1.5 items-center bg-white border border-slate-200 p-2 rounded-xl text-xs">
                           {/* Thumb & Optional Variant Image */}
                           <div className="col-span-3 flex items-center gap-1.5">
-                            {v.image || item.image ? (
-                              <img
-                                src={v.image || item.image}
-                                alt=""
-                                className="w-8 h-8 object-contain rounded-lg border border-slate-200 p-0.5 shrink-0 bg-white shadow-2xs"
-                                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                              />
-                            ) : (
-                              <div className="w-8 h-8 bg-slate-100 rounded-lg text-[9px] text-slate-400 flex items-center justify-center shrink-0">تصویر</div>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => setEditingVariantImage({
+                                itemId: item.id,
+                                variantId: v.id,
+                                variantTitle: `${item.title || ''} - ${v.flavor || ''} ${v.size || ''}`.trim(),
+                                currentUrl: v.image,
+                                mainImage: item.image
+                              })}
+                              className="cursor-pointer hover:ring-2 hover:ring-amber-500 rounded-lg transition-all shrink-0 select-none group/thumb relative focus:outline-none"
+                              title="ویرایش عکس اختصاصی واریانت"
+                            >
+                              {v.image || item.image ? (
+                                <img
+                                  src={v.image || item.image}
+                                  alt=""
+                                  className="w-9 h-9 object-contain rounded-lg border border-slate-200 p-0.5 shrink-0 bg-white shadow-2xs group-hover/thumb:brightness-95"
+                                  onError={(e) => {
+                                    if (item.image && (e.target as HTMLImageElement).src !== item.image) {
+                                      (e.target as HTMLImageElement).src = item.image;
+                                    } else {
+                                      (e.target as HTMLElement).style.display = 'none';
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-9 h-9 bg-slate-100 rounded-lg text-[9px] text-slate-400 flex items-center justify-center shrink-0 group-hover/thumb:bg-slate-200 transition">تصویر</div>
+                              )}
+                            </button>
                             <input
                               type="text"
                               value={v.image || ''}
@@ -1089,10 +1120,13 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                           <div className="col-span-2">
                             {isCustFlavor
                               ? <div className="flex items-center gap-1">
-                                  <input type="text" value={v.flavor || ''}
-                                    onChange={e => updateVariant(item.id, v.id, 'flavor', e.target.value)}
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
-                                  <button type="button" onClick={() => setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customFlavor: false } }))} className="text-[10px] text-blue-600 font-bold">لیست</button>
+                                  <FlavorAutocompleteInput
+                                    value={v.flavor || ''}
+                                    onChange={val => updateVariant(item.id, v.id, 'flavor', val)}
+                                    placeholder="طعم سفارشی..."
+                                    inputClassName="w-full bg-slate-50 border border-amber-300 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none text-xs"
+                                  />
+                                  <button type="button" onClick={() => setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customFlavor: false } }))} className="text-[10px] text-blue-600 font-bold shrink-0">لیست</button>
                                 </div>
                               : <select value={v.flavor || (flavorsPool[0] || '')}
                                   onChange={e => {
@@ -1103,7 +1137,7 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                                   {flavorsPool.map(f => <option key={f} value={f}>{f}</option>)}
                                   <option value="__custom__">+ طعم سفارشی...</option>
                                 </select>
-                            }
+                              }
                           </div>
 
                           {/* Size Dropdown */}
@@ -1212,6 +1246,20 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
           <span>{isSaving ? 'در حال ذخیره‌سازی...' : 'ذخیره سراسری تنظیمات و محصولات'}</span>
         </button>
       </div>
+
+      {/* Floating Variant Image Popover Modal */}
+      <VariantImagePopover
+        isOpen={editingVariantImage !== null}
+        onClose={() => setEditingVariantImage(null)}
+        imageUrl={editingVariantImage?.currentUrl}
+        onSave={(newUrl) => {
+          if (editingVariantImage) {
+            updateVariant(editingVariantImage.itemId, editingVariantImage.variantId, 'image', newUrl);
+          }
+        }}
+        mainProductImage={editingVariantImage?.mainImage}
+        variantTitle={editingVariantImage?.variantTitle}
+      />
     </div>
   );
 };

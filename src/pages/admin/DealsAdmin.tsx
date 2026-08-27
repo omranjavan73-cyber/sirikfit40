@@ -10,6 +10,8 @@ import {
   PRESET_FLAVORS, PRESET_SIZES, STANDARD_SIZE_OPTIONS,
   convertLbsToKg
 } from '../../utils/variantPresets';
+import { FlavorAutocompleteInput } from '../../components/admin/FlavorAutocompleteInput';
+import { VariantImagePopover } from '../../components/admin/VariantImagePopover';
 import {
   TaxonomyCategory, DEFAULT_TAXONOMY, fetchTaxonomyFromFirestore
 } from '../../utils/taxonomyHelper';
@@ -167,6 +169,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   const [customFlavors, setCustomFlavors] = useState<Record<string, string>>({});
   const [customSizes, setCustomSizes] = useState<Record<string, { val: string; unit: string }>>({});
   const [customRowMode, setCustomRowMode] = useState<Record<string, { customSize?: boolean; customFlavor?: boolean }>>({});
+  const [editingVariantImage, setEditingVariantImage] = useState<{ itemId: string; variantId: string; variantTitle?: string; currentUrl?: string; mainImage?: string } | null>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
@@ -909,10 +912,19 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                         })}
                       </div>
                       <div className="flex gap-2">
-                        <input type="text" value={customFlavors[deal.id] || ''}
-                          onChange={e => setCustomFlavors(p => ({ ...p, [deal.id]: e.target.value }))}
-                          placeholder="طعم سفارشی..."
-                          className="flex-1 bg-white border border-amber-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-amber-500"
+                        <FlavorAutocompleteInput
+                          value={customFlavors[deal.id] || ''}
+                          onChange={val => setCustomFlavors(p => ({ ...p, [deal.id]: val }))}
+                          onSelect={selectedName => {
+                            setCustomFlavors(p => ({ ...p, [deal.id]: selectedName }));
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              addCustomFlavor(deal.id);
+                            }
+                          }}
+                          placeholder="طعم سفارشی (فارسی / انگلیسی)..."
+                          inputClassName="w-full bg-white border border-amber-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-amber-500 font-bold"
                         />
                         <button type="button" onClick={() => addCustomFlavor(deal.id)}
                           className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg cursor-pointer shrink-0">+ افزودن</button>
@@ -1006,16 +1018,35 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                           className="grid grid-cols-12 gap-1.5 items-center bg-white border border-slate-200 p-2 rounded-xl text-xs">
                           {/* Thumb & Optional Variant Image */}
                           <div className="col-span-3 flex items-center gap-1.5">
-                            {v.image || deal.image ? (
-                              <img
-                                src={v.image || deal.image}
-                                alt=""
-                                className="w-8 h-8 object-contain rounded-lg border border-slate-200 p-0.5 shrink-0 bg-white shadow-2xs"
-                                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                              />
-                            ) : (
-                              <div className="w-8 h-8 bg-slate-100 rounded-lg text-[9px] text-slate-400 flex items-center justify-center shrink-0">تصویر</div>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => setEditingVariantImage({
+                                itemId: deal.id,
+                                variantId: v.id,
+                                variantTitle: `${deal.title || ''} - ${v.flavor || ''} ${v.size || ''}`.trim(),
+                                currentUrl: v.image,
+                                mainImage: deal.image
+                              })}
+                              className="cursor-pointer hover:ring-2 hover:ring-amber-500 rounded-lg transition-all shrink-0 select-none group/thumb relative focus:outline-none"
+                              title="ویرایش عکس اختصاصی واریانت"
+                            >
+                              {v.image || deal.image ? (
+                                <img
+                                  src={v.image || deal.image}
+                                  alt=""
+                                  className="w-9 h-9 object-contain rounded-lg border border-slate-200 p-0.5 shrink-0 bg-white shadow-2xs group-hover/thumb:brightness-95"
+                                  onError={(e) => {
+                                    if (deal.image && (e.target as HTMLImageElement).src !== deal.image) {
+                                      (e.target as HTMLImageElement).src = deal.image;
+                                    } else {
+                                      (e.target as HTMLElement).style.display = 'none';
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-9 h-9 bg-slate-100 rounded-lg text-[9px] text-slate-400 flex items-center justify-center shrink-0 group-hover/thumb:bg-slate-200 transition">تصویر</div>
+                              )}
+                            </button>
                             <input
                               type="text"
                               value={v.image || ''}
@@ -1030,9 +1061,15 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                           {/* Flavor */}
                           <div className="col-span-2">
                             {isCustFlavor
-                              ? <input type="text" value={v.flavor || ''}
-                                  onChange={e => updateVariant(deal.id, v.id, 'flavor', e.target.value)}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none" />
+                              ? <div className="flex items-center gap-1">
+                                  <FlavorAutocompleteInput
+                                    value={v.flavor || ''}
+                                    onChange={val => updateVariant(deal.id, v.id, 'flavor', val)}
+                                    placeholder="طعم سفارشی..."
+                                    inputClassName="w-full bg-slate-50 border border-amber-300 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none text-xs"
+                                  />
+                                  <button type="button" onClick={() => setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customFlavor: false } }))} className="text-[10px] text-amber-600 font-bold shrink-0">لیست</button>
+                                </div>
                               : <select value={v.flavor || (flavorsPool[0] || '')}
                                   onChange={e => {
                                     if (e.target.value === '__custom__') setCustomRowMode(p => ({ ...p, [modeKey]: { ...p[modeKey], customFlavor: true } }));
@@ -1146,6 +1183,20 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           <span>{isSaving ? 'در حال ذخیره‌سازی...' : 'ذخیره سراسری تنظیمات و محصولات'}</span>
         </button>
       </div>
+
+      {/* Floating Variant Image Popover Modal */}
+      <VariantImagePopover
+        isOpen={editingVariantImage !== null}
+        onClose={() => setEditingVariantImage(null)}
+        imageUrl={editingVariantImage?.currentUrl}
+        onSave={(newUrl) => {
+          if (editingVariantImage) {
+            updateVariant(editingVariantImage.itemId, editingVariantImage.variantId, 'image', newUrl);
+          }
+        }}
+        mainProductImage={editingVariantImage?.mainImage}
+        variantTitle={editingVariantImage?.variantTitle}
+      />
     </div>
   );
 };

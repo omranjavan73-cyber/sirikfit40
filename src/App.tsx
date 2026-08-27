@@ -187,10 +187,17 @@ function MainApp() {
 
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
 
-  // CMS State initialized from LocalStorage FIRST
+  // CMS State initialized from LocalStorage FIRST — but strip deals & localInventory
+  // which are owned by real-time onSnapshot listeners. Stale values here cause ghost products.
   const [cmsConfig, setCmsConfig] = useState<CmsConfig | null>(() => {
     const saved = getSafeItem<any>('sirikfit_cms_config', null) || getSafeItem<any>('omex_home_cms', null);
-    return saved && typeof saved === 'object' ? saved : null;
+    if (saved && typeof saved === 'object') {
+      const clean = { ...saved };
+      delete clean.deals;
+      delete clean.localInventory;
+      return clean;
+    }
+    return null;
   });
 
   const [isLocalInventoryModalOpen, setIsLocalInventoryModalOpen] = useState(false);
@@ -348,16 +355,22 @@ function MainApp() {
         }
 
         if (detail?.cmsConfig) {
+          const incomingCms = { ...detail.cmsConfig };
+          delete incomingCms.deals;
+          delete incomingCms.localInventory;
           setCmsConfig(prev => ({
             ...(prev || {}),
-            ...detail.cmsConfig
+            ...incomingCms
           }));
         } else {
           const savedCms = localStorage.getItem('sirikfit_cms_config');
           if (savedCms) {
             const parsedCms = JSON.parse(savedCms);
             if (parsedCms) {
-              setCmsConfig(parsedCms);
+              const cleanCms = { ...parsedCms };
+              delete cleanCms.deals;
+              delete cleanCms.localInventory;
+              setCmsConfig(cleanCms);
             }
           }
         }
@@ -838,22 +851,31 @@ function MainApp() {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem('omex_home_cms');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (
-          parsed.appTitle?.includes('PLATFORM IMPORTS') ||
-          parsed.appTitle?.includes('PRO') ||
-          parsed.brandTitle?.includes('PLATFORM IMPORTS') ||
-          parsed.brandTitle?.includes('PRO')
-        ) {
-          parsed.appTitle = 'SIRIK FIT';
-          parsed.brandTitle = 'SIRIK FIT';
-          parsed.brandSubtitle = 'مکملهای ورزشی و اورجینال';
-          parsed.appSubtitle = 'مکملهای ورزشی و اورجینال';
-          localStorage.setItem('omex_home_cms', JSON.stringify(parsed));
-        }
-      }
+      // Purge stale CMS data that causes ghost products
+      const keysToClean = ['sirikfit_cms_config', 'omex_home_cms'];
+      keysToClean.forEach(key => {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+              let changed = false;
+              if ('deals' in parsed) { delete parsed.deals; changed = true; }
+              if ('localInventory' in parsed) { delete parsed.localInventory; changed = true; }
+              // Also fix stale brand titles
+              if (parsed.appTitle?.includes('PLATFORM IMPORTS') || parsed.appTitle?.includes('PRO')) {
+                parsed.appTitle = 'SIRIK FIT'; changed = true;
+              }
+              if (parsed.brandTitle?.includes('PLATFORM IMPORTS') || parsed.brandTitle?.includes('PRO')) {
+                parsed.brandTitle = 'SIRIK FIT';
+                parsed.brandSubtitle = 'مکملهای ورزشی و اورجینال';
+                changed = true;
+              }
+              if (changed) localStorage.setItem(key, JSON.stringify(parsed));
+            }
+          }
+        } catch (_) {}
+      });
     } catch (e) {
       console.error('Error purging localStorage:', e);
     }

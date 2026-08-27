@@ -533,10 +533,16 @@ export async function getCmsFromFirestore(): Promise<any> {
     const snap = await getDoc(doc(db, 'settings', 'cms'));
     if (snap.exists()) {
       const data = snap.data();
+      // CRITICAL: Strip deals & localInventory — these are owned exclusively by
+      // the real-time onSnapshot listeners for special_deals and iran_warehouse.
+      // Including them here resurrects ghost/deleted products on every page load.
+      const cleanData = { ...data };
+      delete cleanData.deals;
+      delete cleanData.localInventory;
       if (typeof window !== 'undefined') {
-        localStorage.setItem('sirikfit_cms_config', JSON.stringify(data));
+        localStorage.setItem('sirikfit_cms_config', JSON.stringify(cleanData));
       }
-      return data;
+      return cleanData;
     }
   } catch (err) {
     console.warn('Firestore CMS read notice:', err);
@@ -545,10 +551,13 @@ export async function getCmsFromFirestore(): Promise<any> {
   // 2. REST API fallback
   const res = await safeFetchJson('/api/cms');
   if (res.ok && res.data) {
+    const cleanData = { ...res.data };
+    delete cleanData.deals;
+    delete cleanData.localInventory;
     if (typeof window !== 'undefined') {
-      localStorage.setItem('sirikfit_cms_config', JSON.stringify(res.data));
+      localStorage.setItem('sirikfit_cms_config', JSON.stringify(cleanData));
     }
-    return res.data;
+    return cleanData;
   }
 
   // 3. LocalStorage fallback
@@ -556,7 +565,13 @@ export async function getCmsFromFirestore(): Promise<any> {
     if (typeof window !== 'undefined') {
       const local = localStorage.getItem('sirikfit_cms_config');
       if (local) {
-        return JSON.parse(local);
+        const parsed = JSON.parse(local);
+        if (parsed) {
+          const cleanData = { ...parsed };
+          delete cleanData.deals;
+          delete cleanData.localInventory;
+          return cleanData;
+        }
       }
     }
   } catch (_lsErr) {}

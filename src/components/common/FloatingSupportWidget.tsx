@@ -56,13 +56,15 @@ export const FloatingSupportWidget: React.FC = () => {
       {/* 1. Sleek Half-Drawer / Popup Card */}
       <SupportPopup isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
 
-      {/* 2. Floating Support Trigger Badge (Rounded Squircle Card with Isolated External Pulsing Ring) */}
+      {/* 2. Floating Support Trigger Badge (Rounded Squircle with Fixed Pulsing Neon Border) */}
       <div className="fixed bottom-24 left-4 sm:bottom-6 sm:left-6 md:bottom-8 md:left-8 z-50 font-['Vazirmatn',sans-serif]">
         <div className="relative">
-          {/* Dedicated External Background Ring for Animation */}
-          <div className="absolute inset-0 rounded-2xl ring-2 ring-emerald-500 animate-ping opacity-75 pointer-events-none" />
+          {/* Fixed-size pulsing emerald neon ring — blinks glow only, zero scale/expand */}
+          <div
+            className="absolute inset-0 rounded-2xl ring-2 ring-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.45)] animate-pulse pointer-events-none"
+          />
 
-          {/* 100% Solid Opaque Squircle Button Container (Static & Always Opacity-100) */}
+          {/* 100% Solid Opaque Squircle Button — static, always opacity-100, never fades */}
           <button
             id="floating-support-trigger"
             type="button"

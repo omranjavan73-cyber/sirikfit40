@@ -5985,18 +5985,165 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, customUser
   // TIER 0: DIRECT DR. NUTRITION LIVE API (Bypasses Cloudflare HTML Protection)
   const handle = extractDrNutritionHandle(targetUrl);
   if (handle) {
+    const apiHeaders = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'X-Locale': 'en',
+      'X-Region': 'ae',
+      'X-Locale-Region': 'en-ae',
+      'Accept-Language': 'en',
+      'User-Agent': customUserAgent || headers['User-Agent']
+    };
+
+    // 0A. Check Combos / Stacks API endpoint
+    try {
+      const comboUrl = `https://data.drnutrition.com/api/v1/combos/${encodeURIComponent(handle)}`;
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 6000);
+      const comboRes = await fetch(comboUrl, {
+        headers: apiHeaders,
+        signal: controller.signal
+      });
+      clearTimeout(tId);
+
+      if (comboRes.ok) {
+        const json: any = await comboRes.json();
+        const combo = json?.data?.combo;
+        if (combo) {
+          const pAed = Number(combo.selling_price?.amount || 0);
+          if (pAed > 0) {
+            const rawT = String(combo.name || '').trim();
+            const cleanT = rawT;
+            const origP = Number(combo.price?.amount || 0);
+            const finalOrig = origP > pAed ? origP : undefined;
+            const discountPercent = finalOrig ? Math.round(((finalOrig - pAed) / finalOrig) * 100) : undefined;
+
+            let mainImg = sanitizeImageUrl(combo.base_image || combo.thumbnail_url, targetUrl);
+            if (isInvalidDrImage(mainImg)) mainImg = '';
+
+            const galleryImages: string[] = [];
+            if (mainImg) galleryImages.push(mainImg);
+
+            const flavors: string[] = [];
+            const sizes: string[] = [];
+            const variantItems: any[] = [];
+
+            if (Array.isArray(combo.products)) {
+              combo.products.forEach((pItem: any, pIdx: number) => {
+                const defOpt = (Array.isArray(pItem.options) ? pItem.options.find((o: any) => o.is_default) : null) || pItem.options?.[0];
+                const optLabel = defOpt?.label || pItem.product?.name || `گزینه ${pIdx + 1}`;
+                const optImg = defOpt?.image ? sanitizeImageUrl(defOpt.image, targetUrl) : undefined;
+                if (optImg && !isInvalidDrImage(optImg) && !galleryImages.includes(optImg)) {
+                  galleryImages.push(optImg);
+                }
+                if (optLabel) {
+                  const lowerL = optLabel.toLowerCase();
+                  if (lowerL.includes('kg') || lowerL.includes('gm') || lowerL.includes('g') || lowerL.includes('lb') || lowerL.includes('l ')) {
+                    if (!sizes.includes(optLabel)) sizes.push(optLabel);
+                  } else {
+                    if (!flavors.includes(optLabel)) flavors.push(optLabel);
+                  }
+                }
+                variantItems.push({
+                  id: String(defOpt?.id || pItem.id || `combo-v-${pIdx}`),
+                  title: optLabel,
+                  name: optLabel,
+                  priceAED: pAed,
+                  priceAed: pAed,
+                  inStock: true
+                });
+              });
+            }
+
+            if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
+
+            return {
+              ok: true,
+              title: cleanT,
+              price: pAed,
+              originalPriceAed: finalOrig,
+              discountPercent,
+              currency: "AED",
+              image: mainImg,
+              galleryImages,
+              images: galleryImages,
+              flavors,
+              sizes,
+              options: [...flavors, ...sizes],
+              variantMatrix: {
+                flavors,
+                sizes,
+                items: variantItems
+              },
+              storeName,
+              inStock: combo.is_active !== false
+            };
+          }
+        }
+      }
+    } catch (_comboErr: any) {}
+
+    // 0B. Check Individual Product API endpoint
+    try {
+      const prodUrl = `https://data.drnutrition.com/api/v1/products/${encodeURIComponent(handle)}`;
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 6000);
+      const prodRes = await fetch(prodUrl, {
+        headers: apiHeaders,
+        signal: controller.signal
+      });
+      clearTimeout(tId);
+
+      if (prodRes.ok) {
+        const json: any = await prodRes.json();
+        const prod = json?.data;
+        if (prod) {
+          const pAed = Number(prod.selling_price || prod.price || 0);
+          if (pAed > 0) {
+            const rawT = String(prod.name || prod.title || '').trim();
+            const cleanT = cleanDrTitle(rawT);
+            const origP = Number(prod.price || 0);
+            const finalOrig = origP > pAed ? origP : undefined;
+            const discountPercent = prod.discount || (finalOrig ? Math.round(((finalOrig - pAed) / finalOrig) * 100) : undefined);
+
+            let mainImg = sanitizeImageUrl(prod.base_image || prod.image, targetUrl);
+            if (isInvalidDrImage(mainImg)) mainImg = '';
+
+            const galleryImages: string[] = [];
+            if (mainImg) galleryImages.push(mainImg);
+            if (Array.isArray(prod.additional_images)) {
+              prod.additional_images.forEach((img: any) => {
+                const s = sanitizeImageUrl(img, targetUrl);
+                if (s && !isInvalidDrImage(s) && !galleryImages.includes(s)) galleryImages.push(s);
+              });
+            }
+            if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
+
+            return {
+              ok: true,
+              title: cleanT,
+              price: pAed,
+              originalPriceAed: finalOrig,
+              discountPercent,
+              currency: "AED",
+              image: mainImg,
+              galleryImages,
+              images: galleryImages,
+              flavors: [],
+              sizes: [],
+              options: [],
+              storeName,
+              inStock: prod.availability !== 'Out of stock' && prod.in_stock !== false
+            };
+          }
+        }
+      }
+    } catch (_prodErr: any) {}
+
+    // 0C. Check Search API endpoint
     try {
       const searchQuery = cleanDrNutritionSlugForSearch(handle);
       if (searchQuery) {
-        const apiHeaders = {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-Locale': 'en',
-          'X-Region': 'ae',
-          'X-Locale-Region': 'en-ae',
-          'Accept-Language': 'en',
-          'User-Agent': customUserAgent || headers['User-Agent']
-        };
         const searchApiUrl = `https://data.drnutrition.com/api/v1/search?q=${encodeURIComponent(searchQuery)}`;
         const controller = new AbortController();
         const tId = setTimeout(() => controller.abort(), 6000);
@@ -6095,9 +6242,70 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, customUser
           }
         }
       }
-    } catch (_apiErr: any) {
-      console.warn('[drNutritionAdapter server] Live API notice:', _apiErr?.message || _apiErr);
-    }
+    } catch (_searchErr: any) {}
+
+    // 0D. Jina Reader HTML/Markdown proxy fallback
+    try {
+      const jinaUrl = `https://r.jina.ai/${targetUrl}`;
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 8000);
+      const jinaRes = await fetch(jinaUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: controller.signal
+      });
+      clearTimeout(tId);
+
+      if (jinaRes.ok) {
+        const md = await jinaRes.text();
+        if (typeof md === 'string' && md.length > 100) {
+          const cleanMd = md.replace(/(?:free\s+(?:delivery|shipping)\s+on\s+orders?\s+over\s+aed\s*\d+)/gi, '');
+          const priceMatches = Array.from(cleanMd.matchAll(/AED\s*([0-9]+(?:\.[0-9]{1,2})?)/gi));
+          if (priceMatches.length > 0) {
+            const sellingPrice = parseFloat(priceMatches[0][1]);
+            let origPrice: number | undefined = undefined;
+            if (priceMatches.length >= 2) {
+              origPrice = parseFloat(priceMatches[1][1]);
+            }
+            if (sellingPrice > 0) {
+              const titleMatch = md.match(/^#\s+(.+)$/m) || md.match(/Title:\s*(.+)$/m);
+              const rawTitle = titleMatch ? titleMatch[1].trim() : handle.replace(/-/g, ' ');
+              const titleEn = cleanDrTitle(rawTitle);
+
+              const imgMatches = Array.from(md.matchAll(/https%3A%2F%2Fmedia\.drnutrition\.com%2Fmedia%2F[^&"'\s)]+|https:\/\/media\.drnutrition\.com\/media\/[^"'\s)]+/gi));
+              let mainImg = '';
+              const galleryImages: string[] = [];
+              for (const im of imgMatches) {
+                const decoded = decodeURIComponent(im[0]);
+                if (!isInvalidDrImage(decoded) && !galleryImages.includes(decoded)) {
+                  galleryImages.push(decoded);
+                  if (!mainImg) mainImg = decoded;
+                }
+              }
+
+              const discountMatch = md.match(/(\d+)%\s*OFF/i);
+              const discountPercent = discountMatch ? parseInt(discountMatch[1], 10) : undefined;
+
+              return {
+                ok: true,
+                title: titleEn,
+                price: sellingPrice,
+                originalPriceAed: origPrice && origPrice > sellingPrice ? origPrice : undefined,
+                discountPercent,
+                currency: "AED",
+                image: mainImg,
+                galleryImages,
+                images: galleryImages,
+                flavors: [],
+                sizes: [],
+                options: [],
+                storeName,
+                inStock: true
+              };
+            }
+          }
+        }
+      }
+    } catch (_jinaErr: any) {}
   }
 
   // TIER 1: DIRECT PRODUCT JSON ENDPOINT (/products/[handle].json)

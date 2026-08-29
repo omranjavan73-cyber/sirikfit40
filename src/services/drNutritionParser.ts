@@ -418,6 +418,152 @@ export class DrNutritionParser {
   public static async parse(targetUrl: string, rawHtml?: string): Promise<UniversalProduct | null> {
     try {
       const normalizedUrl = this.normalizeUrl(targetUrl);
+      const clean = normalizedUrl.split('?')[0].split('#')[0];
+      const parts = clean.split('/').filter(Boolean);
+      const handle = parts[parts.length - 1];
+
+      if (handle) {
+        const apiHeaders = {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-Locale': 'en',
+          'X-Region': 'ae',
+          'X-Locale-Region': 'en-ae',
+          'Accept-Language': 'en'
+        };
+
+        // 1. Try combo endpoint
+        try {
+          const comboRes = await fetch(`https://data.drnutrition.com/api/v1/combos/${encodeURIComponent(handle)}`, {
+            headers: apiHeaders
+          });
+          if (comboRes.ok) {
+            const json: any = await comboRes.json();
+            const combo = json?.data?.combo;
+            if (combo) {
+              const priceAed = Number(combo.selling_price?.amount || 0);
+              if (priceAed > 0) {
+                const origAed = Number(combo.price?.amount || 0);
+                const originalPriceAed = origAed > priceAed ? origAed : undefined;
+                const discountPercent = originalPriceAed ? Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100) : undefined;
+                let mainImage = combo.base_image || combo.thumbnail_url || '';
+                if (this.isInvalidImage(mainImage)) mainImage = '';
+                const galleryImages: string[] = [mainImage].filter(Boolean);
+                const variants: any[] = [];
+                const flavors: string[] = [];
+                const sizes: string[] = [];
+
+                if (Array.isArray(combo.products)) {
+                  combo.products.forEach((pItem: any, idx: number) => {
+                    const defOpt = (Array.isArray(pItem.options) ? pItem.options.find((o: any) => o.is_default) : null) || pItem.options?.[0];
+                    const optLabel = defOpt?.label || pItem.product?.name || `گزینه ${idx + 1}`;
+                    if (defOpt?.image && !this.isInvalidImage(defOpt.image) && !galleryImages.includes(defOpt.image)) {
+                      galleryImages.push(defOpt.image);
+                    }
+                    const lowerL = optLabel.toLowerCase();
+                    if (lowerL.includes('kg') || lowerL.includes('gm') || lowerL.includes('g') || lowerL.includes('lb') || lowerL.includes('l ')) {
+                      if (!sizes.includes(optLabel)) sizes.push(optLabel);
+                    } else {
+                      if (!flavors.includes(optLabel)) flavors.push(optLabel);
+                    }
+                    variants.push({
+                      id: String(defOpt?.id || pItem.id || `combo-${idx}`),
+                      title: optLabel,
+                      name: optLabel,
+                      priceAED: priceAed,
+                      priceAed,
+                      price: priceAed,
+                      image: defOpt?.image,
+                      inStock: true
+                    });
+                  });
+                }
+
+                if (!mainImage && galleryImages.length > 0) mainImage = galleryImages[0];
+                const brand = combo.brand?.name || this.storeName;
+                const titleEn = combo.name || handle;
+                const titleFa = `پک ویژه ${titleEn} اصل دبی`;
+
+                return {
+                  title: titleFa,
+                  titleFa,
+                  titleEn,
+                  url: normalizedUrl,
+                  priceAed,
+                  originalPriceAed,
+                  discountPercent,
+                  weightKg: 1.2,
+                  image: mainImage || galleryImages[0] || '',
+                  images: galleryImages,
+                  galleryImages,
+                  storeName: this.storeName,
+                  storeOrigin: this.storeOrigin,
+                  brand,
+                  description: combo.description || `پکیج اورجینال از ${this.storeName}`,
+                  variants,
+                  options: variants.map(v => v.title),
+                  flavors: flavors.length > 0 ? flavors : undefined,
+                  sizes: sizes.length > 0 ? sizes : undefined,
+                  inStock: combo.is_active !== false
+                };
+              }
+            }
+          }
+        } catch (_comboErr) {}
+
+        // 2. Try product endpoint
+        try {
+          const prodRes = await fetch(`https://data.drnutrition.com/api/v1/products/${encodeURIComponent(handle)}`, {
+            headers: apiHeaders
+          });
+          if (prodRes.ok) {
+            const json: any = await prodRes.json();
+            const prod = json?.data;
+            if (prod) {
+              const priceAed = Number(prod.selling_price || prod.price || 0);
+              if (priceAed > 0) {
+                const origAed = Number(prod.price || 0);
+                const originalPriceAed = origAed > priceAed ? origAed : undefined;
+                const discountPercent = prod.discount || (originalPriceAed ? Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100) : undefined);
+                let mainImage = prod.base_image || prod.image || '';
+                if (this.isInvalidImage(mainImage)) mainImage = '';
+                const galleryImages: string[] = [mainImage].filter(Boolean);
+                if (Array.isArray(prod.additional_images)) {
+                  prod.additional_images.forEach((img: string) => {
+                    if (img && !this.isInvalidImage(img) && !galleryImages.includes(img)) galleryImages.push(img);
+                  });
+                }
+                if (!mainImage && galleryImages.length > 0) mainImage = galleryImages[0];
+                const brand = prod.brand || prod.brand_details?.name || this.storeName;
+                const titleEn = prod.name || prod.title || handle;
+                const titleFa = `${titleEn} اورجینال دبی`;
+
+                return {
+                  title: titleFa,
+                  titleFa,
+                  titleEn,
+                  url: normalizedUrl,
+                  priceAed,
+                  originalPriceAed,
+                  discountPercent,
+                  weightKg: 0.8,
+                  image: mainImage || galleryImages[0] || '',
+                  images: galleryImages,
+                  galleryImages,
+                  storeName: this.storeName,
+                  storeOrigin: this.storeOrigin,
+                  brand,
+                  description: prod.description || `محصول اورجینال از ${this.storeName}`,
+                  variants: [],
+                  options: [],
+                  inStock: prod.availability !== 'Out of stock' && prod.in_stock !== false
+                };
+              }
+            }
+          }
+        } catch (_prodErr) {}
+      }
+
       let html = rawHtml || '';
 
       if (!html || html.length < 100) {

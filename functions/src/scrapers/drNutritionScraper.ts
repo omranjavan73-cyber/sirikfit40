@@ -89,18 +89,194 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
   // -------------------------------------------------------------
   const handle = extractDrNutritionHandle(normalizedUrl);
   if (handle) {
+    const apiHeaders = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'X-Locale': 'en',
+      'X-Region': 'ae',
+      'X-Locale-Region': 'en-ae',
+      'Accept-Language': 'en',
+      'User-Agent': options?.userAgent || headers['User-Agent']
+    };
+
+    // 0A. Check Combos / Stacks API endpoint
+    try {
+      const comboUrl = `https://data.drnutrition.com/api/v1/combos/${encodeURIComponent(handle)}`;
+      const comboRes = await axios.get(comboUrl, {
+        headers: apiHeaders,
+        timeout: Math.min(timeout, 8000),
+        validateStatus: (s) => s < 400
+      });
+
+      const combo = comboRes.data?.data?.combo;
+      if (combo) {
+        const priceAed = Number(combo.selling_price?.amount || 0);
+        if (priceAed > 0) {
+          const rawTitle = String(combo.name || '').trim();
+          const titleEn = rawTitle;
+          const origAed = Number(combo.price?.amount || 0);
+          const originalPriceAed = origAed > priceAed ? origAed : undefined;
+          const discountPercent = originalPriceAed
+            ? Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100)
+            : undefined;
+
+          let mainImg = sanitizeImageUrl(combo.base_image || combo.thumbnail_url, normalizedUrl);
+          if (isInvalidDrNutritionImage(mainImg)) mainImg = '';
+
+          const galleryImages: string[] = [];
+          if (mainImg) galleryImages.push(mainImg);
+
+          const variantsList: any[] = [];
+          const flavorsList: string[] = [];
+          const sizesList: string[] = [];
+
+          if (Array.isArray(combo.products)) {
+            combo.products.forEach((pItem: any, pIdx: number) => {
+              const defOpt = (Array.isArray(pItem.options) ? pItem.options.find((o: any) => o.is_default) : null) || pItem.options?.[0];
+              const optLabel = defOpt?.label || pItem.product?.name || `گزینه ${pIdx + 1}`;
+              const optImg = defOpt?.image ? sanitizeImageUrl(defOpt.image, normalizedUrl) : undefined;
+              if (optImg && !isInvalidDrNutritionImage(optImg) && !galleryImages.includes(optImg)) {
+                galleryImages.push(optImg);
+              }
+              if (optLabel) {
+                const lowerL = optLabel.toLowerCase();
+                if (lowerL.includes('kg') || lowerL.includes('gm') || lowerL.includes('g') || lowerL.includes('lb') || lowerL.includes('l ')) {
+                  if (!sizesList.includes(optLabel)) sizesList.push(optLabel);
+                } else {
+                  if (!flavorsList.includes(optLabel)) flavorsList.push(optLabel);
+                }
+              }
+              variantsList.push({
+                id: String(defOpt?.id || pItem.id || `combo-v-${pIdx}`),
+                title: optLabel,
+                price: priceAed,
+                priceAed,
+                priceAED: priceAed,
+                image: optImg,
+                inStock: true
+              });
+            });
+          }
+
+          if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
+
+          const brand = combo.brand?.name || 'Dr. Nutrition';
+          const titleFa = generateBilingualProductTitle(titleEn, brand);
+
+          return {
+            success: true,
+            ok: true,
+            titleFa,
+            titleEn,
+            title: titleEn,
+            brand,
+            priceAed,
+            priceAED: priceAed,
+            originalPriceAed,
+            originalPriceAED: originalPriceAed,
+            discountPercent,
+            image: mainImg,
+            imageUrl: mainImg,
+            galleryImages,
+            inStock: combo.is_active !== false,
+            retailer: 'DrNutrition',
+            store: 'Dr. Nutrition',
+            storeName: 'Dr. Nutrition',
+            sourceUrl: normalizedUrl,
+            selectedFlavor: flavorsList.length > 0 ? flavorsList[0] : null,
+            selectedSize: sizesList.length > 0 ? sizesList[0] : null,
+            flavors: flavorsList,
+            sizes: sizesList,
+            variants: variantsList,
+            weightKg: 1.2
+          };
+        }
+      }
+    } catch (_comboErr: any) {}
+
+    // 0B. Check Individual Product API endpoint
+    try {
+      const prodUrl = `https://data.drnutrition.com/api/v1/products/${encodeURIComponent(handle)}`;
+      const prodRes = await axios.get(prodUrl, {
+        headers: apiHeaders,
+        timeout: Math.min(timeout, 8000),
+        validateStatus: (s) => s < 400
+      });
+
+      const prod = prodRes.data?.data;
+      if (prod) {
+        const priceAed = Number(prod.selling_price || prod.price || 0);
+        if (priceAed > 0) {
+          const rawTitle = String(prod.name || prod.title || '').trim();
+          const titleEn = cleanDrNutritionTitle(rawTitle);
+          const origAed = Number(prod.price || 0);
+          const originalPriceAed = origAed > priceAed ? origAed : undefined;
+          const discountPercent = prod.discount || (originalPriceAed ? Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100) : undefined);
+
+          let mainImg = sanitizeImageUrl(prod.base_image || prod.image, normalizedUrl);
+          if (isInvalidDrNutritionImage(mainImg)) mainImg = '';
+
+          const galleryImages: string[] = [];
+          if (mainImg) galleryImages.push(mainImg);
+          if (Array.isArray(prod.additional_images)) {
+            prod.additional_images.forEach((img: any) => {
+              const s = sanitizeImageUrl(img, normalizedUrl);
+              if (s && !isInvalidDrNutritionImage(s) && !galleryImages.includes(s)) {
+                galleryImages.push(s);
+              }
+            });
+          }
+          if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
+
+          let weightKg = 0.8;
+          if (prod.weight) {
+            const wStr = String(prod.weight).toLowerCase();
+            const num = parseFloat(wStr.replace(/[^0-9.]/g, ''));
+            if (!isNaN(num) && num > 0) {
+              if (wStr.includes('kg') || wStr.includes('کیلوگرم')) weightKg = num;
+              else if (wStr.includes('g') || wStr.includes('گرم') || wStr.includes('gm')) weightKg = Math.round((num / 1000) * 100) / 100;
+              else if (wStr.includes('lb')) weightKg = Math.round(num * 0.453592 * 100) / 100;
+            }
+          }
+
+          const brand = prod.brand || prod.brand_details?.name || 'Dr. Nutrition';
+          const titleFa = generateBilingualProductTitle(titleEn, brand);
+
+          return {
+            success: true,
+            ok: true,
+            titleFa,
+            titleEn,
+            title: titleEn,
+            brand,
+            priceAed,
+            priceAED: priceAed,
+            originalPriceAed,
+            originalPriceAED: originalPriceAed,
+            discountPercent,
+            image: mainImg,
+            imageUrl: mainImg,
+            galleryImages,
+            inStock: prod.availability !== 'Out of stock' && prod.in_stock !== false,
+            retailer: 'DrNutrition',
+            store: 'Dr. Nutrition',
+            storeName: 'Dr. Nutrition',
+            sourceUrl: normalizedUrl,
+            selectedFlavor: null,
+            selectedSize: null,
+            flavors: [],
+            sizes: [],
+            variants: [],
+            weightKg
+          };
+        }
+      }
+    } catch (_prodErr: any) {}
+
+    // 0C. Check Search API endpoint
     try {
       const searchQuery = cleanDrNutritionSlugForSearch(handle);
       if (searchQuery) {
-        const apiHeaders = {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-Locale': 'en',
-          'X-Region': 'ae',
-          'X-Locale-Region': 'en-ae',
-          'Accept-Language': 'en',
-          'User-Agent': options?.userAgent || headers['User-Agent']
-        };
         const searchApiUrl = `https://data.drnutrition.com/api/v1/search?q=${encodeURIComponent(searchQuery)}`;
         const apiRes = await axios.get(searchApiUrl, {
           headers: apiHeaders,
@@ -110,7 +286,6 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
 
         if (apiRes.data && apiRes.data.data?.products && Array.isArray(apiRes.data.data.products) && apiRes.data.data.products.length > 0) {
           const products = apiRes.data.data.products;
-          // Find exact slug match or best relevant product
           let matched = products.find((p: any) => p.slug === handle || p.url?.endsWith(handle));
           if (!matched) {
             matched = products[0];
@@ -175,18 +350,6 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
             const brand = matched.category_one_name || 'Dr. Nutrition';
             const titleFa = generateBilingualProductTitle(titleEn, brand);
 
-            const structuredVariants: any[] = [{
-              id: String(matched.product_option_id || matched.product_id || 'v-0'),
-              title: titleEn,
-              price: priceAed,
-              priceAed,
-              priceAED: priceAed,
-              image: mainImg || undefined,
-              inStock: matched.in_stock !== false,
-              flavor: cleanFlavors.length > 0 ? cleanFlavors[0] : undefined,
-              size: cleanSizes.length > 0 ? cleanSizes[0] : undefined
-            }];
-
             return {
               success: true,
               ok: true,
@@ -211,15 +374,91 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
               selectedSize: cleanSizes.length > 0 ? cleanSizes[0] : null,
               flavors: cleanFlavors,
               sizes: cleanSizes,
-              variants: structuredVariants,
+              variants: [{
+                id: String(matched.product_option_id || matched.product_id || 'v-0'),
+                title: titleEn,
+                price: priceAed,
+                priceAed,
+                priceAED: priceAed,
+                image: mainImg || undefined,
+                inStock: matched.in_stock !== false,
+                flavor: cleanFlavors.length > 0 ? cleanFlavors[0] : undefined,
+                size: cleanSizes.length > 0 ? cleanSizes[0] : undefined
+              }],
               weightKg
             };
           }
         }
       }
-    } catch (_apiErr: any) {
-      console.warn('[drNutritionScraper] Live API tier notice:', _apiErr?.message || _apiErr);
-    }
+    } catch (_searchErr: any) {}
+
+    // 0D. Jina Reader HTML/Markdown proxy fallback
+    try {
+      const jinaUrl = `https://r.jina.ai/${normalizedUrl}`;
+      const jinaRes = await axios.get(jinaUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        timeout: Math.min(timeout, 10000)
+      });
+      const md = jinaRes.data;
+      if (typeof md === 'string' && md.length > 100) {
+        const cleanMd = md.replace(/(?:free\s+(?:delivery|shipping)\s+on\s+orders?\s+over\s+aed\s*\d+)/gi, '');
+        const priceMatches = Array.from(cleanMd.matchAll(/AED\s*([0-9]+(?:\.[0-9]{1,2})?)/gi));
+        if (priceMatches.length > 0) {
+          const sellingPrice = parseFloat(priceMatches[0][1]);
+          let origPrice: number | undefined = undefined;
+          if (priceMatches.length >= 2) {
+            origPrice = parseFloat(priceMatches[1][1]);
+          }
+          if (sellingPrice > 0) {
+            const titleMatch = md.match(/^#\s+(.+)$/m) || md.match(/Title:\s*(.+)$/m);
+            const rawTitle = titleMatch ? titleMatch[1].trim() : handle.replace(/-/g, ' ');
+            const titleEn = cleanDrNutritionTitle(rawTitle);
+
+            const imgMatches = Array.from(md.matchAll(/https%3A%2F%2Fmedia\.drnutrition\.com%2Fmedia%2F[^&"'\s)]+|https:\/\/media\.drnutrition\.com\/media\/[^"'\s)]+/gi));
+            let mainImg = '';
+            const galleryImages: string[] = [];
+            for (const im of imgMatches) {
+              const decoded = decodeURIComponent(im[0]);
+              if (!isInvalidDrNutritionImage(decoded) && !galleryImages.includes(decoded)) {
+                galleryImages.push(decoded);
+                if (!mainImg) mainImg = decoded;
+              }
+            }
+
+            const discountMatch = md.match(/(\d+)%\s*OFF/i);
+            const discountPercent = discountMatch ? parseInt(discountMatch[1], 10) : undefined;
+
+            return {
+              success: true,
+              ok: true,
+              titleFa: generateBilingualProductTitle(titleEn, 'Dr. Nutrition'),
+              titleEn,
+              title: titleEn,
+              brand: 'Dr. Nutrition',
+              priceAed: sellingPrice,
+              priceAED: sellingPrice,
+              originalPriceAed: origPrice && origPrice > sellingPrice ? origPrice : undefined,
+              originalPriceAED: origPrice && origPrice > sellingPrice ? origPrice : undefined,
+              discountPercent,
+              image: mainImg,
+              imageUrl: mainImg,
+              galleryImages,
+              inStock: true,
+              retailer: 'DrNutrition',
+              store: 'Dr. Nutrition',
+              storeName: 'Dr. Nutrition',
+              sourceUrl: normalizedUrl,
+              selectedFlavor: null,
+              selectedSize: null,
+              flavors: [],
+              sizes: [],
+              variants: [],
+              weightKg: 1.0
+            };
+          }
+        }
+      }
+    } catch (_jinaErr: any) {}
   }
 
   // -------------------------------------------------------------

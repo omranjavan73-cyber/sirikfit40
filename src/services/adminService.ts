@@ -701,5 +701,19 @@ export async function saveSupportConfigToFirestore(
   };
 }
 
+/**
+ * Save stores list to Firestore and local storage
+ */
+export async function saveStoresSettings(stores: any[]): Promise<BulkSaveResponse> {
+  const { saveStoresToFirestore } = await import('./storeService');
+  const res = await saveStoresToFirestore(stores);
+  return {
+    success: res.success,
+    message: res.success ? 'تنظیمات فروشگاه‌ها با موفقیت ذخیره شد.' : (res.error || 'خطا در ذخیره فروشگاه‌ها'),
+    error: res.error
+  };
+}
+
+
 
 

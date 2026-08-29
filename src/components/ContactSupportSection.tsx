@@ -1,5 +1,6 @@
 import React from 'react';
-import { Headphones, Mail, PhoneCall, Clock, MapPin, Send, HelpCircle, ArrowLeft } from 'lucide-react';
+import { Mail, PhoneCall, Clock, MapPin, Send, HelpCircle, ArrowLeft } from 'lucide-react';
+import { SupportHeadsetLogo } from './common/SupportHeadsetLogo';
 import type { CmsConfig, LandingContentSettings } from '../types';
 import { DEFAULT_LANDING_CONTENT } from '../types';
 
@@ -54,7 +55,7 @@ export const ContactSupportSection: React.FC<ContactSupportSectionProps> = ({ cm
         </div>
 
         <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-          <Headphones className="w-6 h-6 sm:w-7 sm:h-7 text-red-600" />
+          <SupportHeadsetLogo className="w-7 h-7 sm:w-8 sm:h-8" />
           <span>{title}</span>
         </h2>
 

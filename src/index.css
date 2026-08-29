@@ -54,6 +54,15 @@ html, body, #root, #app {
   background: #111111;
 }
 
+/* Cross-browser scrollbar hiding utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Brand gradient and soft glow - END Nutrition Black x White x Rose Red Theme */
 .purple-gradient,
 .orange-gradient,

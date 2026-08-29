@@ -1,6 +1,6 @@
 import React from 'react';
 import { Trash2, ChevronDown, ChevronUp } from 'lucide-react';
-import { toPersianDigits } from '../../utils/persianDigits';
+import { toPersianDigits } from '../../utils/formatters';
 
 export interface ProductCardAdminProps {
   product: {

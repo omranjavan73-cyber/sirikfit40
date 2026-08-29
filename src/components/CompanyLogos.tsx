@@ -67,6 +67,16 @@ export const DoctorNutritionSquareLogo: React.FC<CompanyLogoProps> = ({ classNam
   </div>
 );
 
+// 4. iHerb Square Logo Icon
+export const IherbSquareLogo: React.FC<CompanyLogoProps> = ({ className = 'w-12 h-12' }) => (
+  <div className={`bg-[#458500] border border-emerald-700 shadow-2xs rounded-xl flex items-center justify-center p-1 shrink-0 select-none overflow-hidden ${className}`}>
+    <div className="flex items-center justify-center font-black tracking-tight text-white text-sm md:text-base font-sans">
+      <span className="text-white font-extrabold text-xs mr-0.5">🌿</span>
+      <span className="font-black text-white text-[13px] md:text-[15px]">iHerb</span>
+    </div>
+  </div>
+);
+
 // Introduction Logo Bar displaying all 3 in required order: GNC -> Life Pharmacy -> Doctor Nutrition
 export const IntroductionLogosBar: React.FC = () => {
   return (

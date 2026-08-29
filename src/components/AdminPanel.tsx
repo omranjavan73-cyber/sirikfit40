@@ -2053,18 +2053,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const newStore: StoreCardItem = {
       id: 'store-' + Date.now(),
       title: 'فروشگاه جدید دبی',
+      shortTitle: 'فروشگاه جدید',
+      nameFa: 'فروشگاه جدید دبی',
+      nameEn: 'New Store',
       description: 'توضیحات کوتاه فروشگاه و برند‌های موجود',
-      url: 'https://www.drnutrition.com',
-      image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
-      badge: 'ارسال سریع',
+      url: 'https://ae.iherb.com',
+      image: '',
+      logoUrl: '',
+      brandColor: '#458500',
+      badge: 'ضمانت اصالت',
+      orderCtaText: 'محاسبه و خرید از فروشگاه',
+      ctaText: 'محاسبه و خرید از فروشگاه',
+      enabled: true,
+      isActive: true,
       samplePriceAed: 150,
       sampleWeightKg: 1.0
     };
-    setStoresList([...storesList, newStore]);
+    setStoresList(prev => [...prev, newStore]);
+    if (showToast) showToast('فروشگاه جدید افزوده شد. اکنون می‌توانید لوگو و مشخصات آن را تنظیم نمایید.', 'success');
   };
 
   const handleUpdateStoreField = (id: string, field: keyof StoreCardItem, value: any) => {
-    setStoresList(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s));
+    setStoresList(prev => prev.map(s => {
+      if (s.id !== id) return s;
+      const updated: any = { ...s, [field]: value };
+      if (field === 'logoUrl') {
+        updated.image = value;
+      } else if (field === 'image') {
+        updated.logoUrl = value;
+      } else if (field === 'nameFa') {
+        updated.title = value;
+      } else if (field === 'title') {
+        updated.nameFa = value;
+      } else if (field === 'nameEn') {
+        updated.shortTitle = value;
+      } else if (field === 'shortTitle') {
+        updated.nameEn = value;
+      } else if (field === 'orderCtaText') {
+        updated.ctaText = value;
+      } else if (field === 'ctaText') {
+        updated.orderCtaText = value;
+      } else if (field === 'isActive') {
+        updated.enabled = value;
+      } else if (field === 'enabled') {
+        updated.isActive = value;
+      }
+      return updated;
+    }));
   };
 
   const handleDeleteStore = (id: string) => {
@@ -7140,20 +7175,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
 
                     {/* 4. LOGO UPLOAD & PRESET OFFICIAL LOGOS */}
-                    <div className="sm:col-span-2 lg:col-span-3 bg-white p-3 rounded-xl border border-slate-200 space-y-2 mt-1">
+                    <div className="sm:col-span-2 lg:col-span-3 bg-white p-3.5 rounded-xl border border-slate-200 space-y-2.5 mt-1">
                       <div className="flex items-center justify-between">
                         <label className="text-[11px] font-extrabold text-slate-800 flex items-center gap-1.5">
                           <ImageIcon className="w-3.5 h-3.5 text-slate-700" />
                           <span>لوگوی رسمی و تصویر کارت فروشگاه (Logo URL / File Upload):</span>
                         </label>
                         <span className="text-[10px] text-slate-500 font-medium">
-                          پیش‌نمایش در کادر ۶۴x۶۴ استاندارد
+                          پیش‌نمایش زنده در کادر ۶۴x۶۴
                         </span>
                       </div>
 
                       <div className="flex flex-col sm:flex-row items-center gap-3">
                         <div
-                          className="shrink-0 border border-slate-200/90 shadow-2xs"
+                          className="shrink-0 border border-slate-200/90 shadow-2xs relative group"
                           style={{
                             width: '64px',
                             height: '64px',
@@ -7167,9 +7202,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             flexShrink: 0
                           }}
                         >
-                          {store.image ? (
+                          {(store.logoUrl || store.image) ? (
                             <img
-                              src={store.image}
+                              src={store.logoUrl || store.image}
                               alt={store.title}
                               style={{
                                 maxWidth: '100%',
@@ -7183,18 +7218,48 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               بدون لوگو
                             </div>
                           )}
+
+                          {(store.logoUrl || store.image) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleUpdateStoreField(store.id, 'logoUrl', '');
+                                handleUpdateStoreField(store.id, 'image', '');
+                              }}
+                              className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white cursor-pointer"
+                              title="حذف لوگو"
+                            >
+                              <Trash2 className="w-4 h-4 text-rose-400" />
+                            </button>
+                          )}
                         </div>
 
                         <div className="flex-1 w-full space-y-2">
                           <div className="flex items-center gap-2">
                             <input
                               type="text"
-                              value={store.image || ''}
-                              onChange={(e) => handleUpdateStoreField(store.id, 'image', e.target.value)}
-                              placeholder="آدرس URL لوگو (https://... یا data:image/...)"
+                              value={store.logoUrl || store.image || ''}
+                              onChange={(e) => {
+                                handleUpdateStoreField(store.id, 'logoUrl', e.target.value);
+                                handleUpdateStoreField(store.id, 'image', e.target.value);
+                              }}
+                              placeholder="https://example.com/logo.png یا فرمت SVG / DataURI"
                               className="flex-1 bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-slate-800 dir-ltr font-mono"
                               dir="ltr"
                             />
+
+                            {(store.logoUrl || store.image) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleUpdateStoreField(store.id, 'logoUrl', '');
+                                  handleUpdateStoreField(store.id, 'image', '');
+                                }}
+                                className="text-xs text-rose-500 hover:text-rose-700 font-bold px-2 py-1.5 transition cursor-pointer shrink-0"
+                              >
+                                حذف
+                              </button>
+                            )}
 
                             <label className="bg-slate-900 hover:bg-black text-white text-xs font-bold px-3 py-2 rounded-lg transition cursor-pointer shrink-0 flex items-center gap-1">
                               <Upload className="w-3.5 h-3.5" />
@@ -7208,6 +7273,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   if (file) {
                                     const compressed = await compressImageFile(file, 600, 600, 0.7);
                                     if (compressed) {
+                                      handleUpdateStoreField(store.id, 'logoUrl', compressed);
                                       handleUpdateStoreField(store.id, 'image', compressed);
                                     }
                                   }
@@ -7217,11 +7283,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </div>
 
                           <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                            <span className="font-bold text-slate-500">لوگوهای رسمی آماده:</span>
+                            <span className="font-bold text-slate-500">لوگوهای آماده:</span>
                             <button
                               type="button"
                               onClick={() => {
-                                handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><text x="100" y="115" text-anchor="middle" fill="%23E31837" font-weight="900" font-size="70" font-family="Arial,sans-serif" letter-spacing="-2">GNC</text><text x="100" y="145" text-anchor="middle" fill="%23E31837" font-weight="800" font-size="20" font-family="Arial,sans-serif" letter-spacing="4">LIVE WELL</text></svg>');
+                                const logo = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="24" fill="%23458500"/><text x="100" y="118" text-anchor="middle" fill="%23FFFFFF" font-weight="900" font-size="54" font-family="Arial,sans-serif" letter-spacing="-1">iHerb</text><path d="M50 145 Q 100 162 150 145" stroke="%23A0D636" stroke-width="5" fill="none" stroke-linecap="round"/><circle cx="150" cy="145" r="4" fill="%23A0D636"/></svg>';
+                                handleUpdateStoreField(store.id, 'logoUrl', logo);
+                                handleUpdateStoreField(store.id, 'image', logo);
+                                handleUpdateStoreField(store.id, 'brandColor', '#458500');
+                                handleUpdateStoreField(store.id, 'url', 'https://ae.iherb.com');
+                                handleUpdateStoreField(store.id, 'badge', 'ضمانت اصالت ۱۰۰٪');
+                                handleUpdateStoreField(store.id, 'subtitle', 'انبار مرکزی و رسمی آی‌هرب');
+                              }}
+                              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 font-bold cursor-pointer"
+                            >
+                              🌿 iHerb UAE
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const logo = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="24" fill="%23ffffff"/><text x="100" y="115" text-anchor="middle" fill="%23E31837" font-weight="900" font-size="70" font-family="Arial,sans-serif" letter-spacing="-2">GNC</text><text x="100" y="145" text-anchor="middle" fill="%23E31837" font-weight="800" font-size="20" font-family="Arial,sans-serif" letter-spacing="4">LIVE WELL</text></svg>';
+                                handleUpdateStoreField(store.id, 'logoUrl', logo);
+                                handleUpdateStoreField(store.id, 'image', logo);
                                 handleUpdateStoreField(store.id, 'brandColor', '#dc2626');
                               }}
                               className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
@@ -7231,7 +7314,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><path d="M100 15 C56 15 40 42 40 70 V135 H160 V70 C160 42 144 15 100 15 Z" fill="%231C3F94"/><circle cx="100" cy="55" r="9" fill="%23FFFFFF"/><path d="M100 68 C84 80 72 84 64 110 H136 C128 84 116 80 100 68 Z" fill="%23FFFFFF"/><text x="100" y="172" text-anchor="middle" fill="%23C42582" font-weight="900" font-size="36" font-family="sans-serif">LIFE%C2%AE</text></svg>');
+                                const logo = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="24" fill="%23ffffff"/><path d="M100 15 C56 15 40 42 40 70 V135 H160 V70 C160 42 144 15 100 15 Z" fill="%231C3F94"/><circle cx="100" cy="55" r="9" fill="%23FFFFFF"/><path d="M100 68 C84 80 72 84 64 110 H136 C128 84 116 80 100 68 Z" fill="%23FFFFFF"/><text x="100" y="172" text-anchor="middle" fill="%23C42582" font-weight="900" font-size="36" font-family="sans-serif">LIFE%C2%AE</text></svg>';
+                                handleUpdateStoreField(store.id, 'logoUrl', logo);
+                                handleUpdateStoreField(store.id, 'image', logo);
                                 handleUpdateStoreField(store.id, 'brandColor', '#1e40af');
                               }}
                               className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
@@ -7241,7 +7326,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 200"><rect width="220" height="200" fill="%230a0a0c"/><text x="25" y="130" fill="%238B2FC9" font-weight="900" font-size="100" font-family="sans-serif" letter-spacing="-6">dnp</text><path d="M50 120 C 90 70, 135 40, 175 28 C 150 65, 110 110, 75 130 Z" fill="%2378BE20"/><path d="M60 112 Q 115 65, 163 35" stroke="%235A9614" stroke-width="3" fill="none"/></svg>');
+                                const logo = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 200"><rect width="220" height="200" rx="24" fill="%230a0a0c"/><text x="25" y="130" fill="%238B2FC9" font-weight="900" font-size="100" font-family="sans-serif" letter-spacing="-6">dnp</text><path d="M50 120 C 90 70, 135 40, 175 28 C 150 65, 110 110, 75 130 Z" fill="%2378BE20"/><path d="M60 112 Q 115 65, 163 35" stroke="%235A9614" stroke-width="3" fill="none"/></svg>';
+                                handleUpdateStoreField(store.id, 'logoUrl', logo);
+                                handleUpdateStoreField(store.id, 'image', logo);
                                 handleUpdateStoreField(store.id, 'brandColor', '#9333ea');
                               }}
                               className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
@@ -7251,12 +7338,38 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                handleUpdateStoreField(store.id, 'image', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23232F3E"/><text x="100" y="105" text-anchor="middle" fill="%23FFFFFF" font-weight="900" font-size="38" font-family="sans-serif">amazon</text><text x="100" y="132" text-anchor="middle" fill="%23FF9900" font-weight="800" font-size="22" font-family="sans-serif">.ae</text><path d="M50 145 Q 100 165 150 145" stroke="%23FF9900" stroke-width="6" fill="none" stroke-linecap="round"/><path d="M142 138 L 152 146 L 140 152 Z" fill="%23FF9900"/></svg>');
+                                const logo = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="24" fill="%230f172a"/><text x="100" y="118" text-anchor="middle" fill="%23F59E0B" font-weight="900" font-size="44" font-family="Arial,sans-serif">SPORTER</text></svg>';
+                                handleUpdateStoreField(store.id, 'logoUrl', logo);
+                                handleUpdateStoreField(store.id, 'image', logo);
                                 handleUpdateStoreField(store.id, 'brandColor', '#f59e0b');
                               }}
                               className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
                             >
+                              🟡 Sporter
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const logo = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="24" fill="%23232F3E"/><text x="100" y="105" text-anchor="middle" fill="%23FFFFFF" font-weight="900" font-size="38" font-family="sans-serif">amazon</text><text x="100" y="132" text-anchor="middle" fill="%23FF9900" font-weight="800" font-size="22" font-family="sans-serif">.ae</text><path d="M50 145 Q 100 165 150 145" stroke="%23FF9900" stroke-width="6" fill="none" stroke-linecap="round"/><path d="M142 138 L 152 146 L 140 152 Z" fill="%23FF9900"/></svg>';
+                                handleUpdateStoreField(store.id, 'logoUrl', logo);
+                                handleUpdateStoreField(store.id, 'image', logo);
+                                handleUpdateStoreField(store.id, 'brandColor', '#d97706');
+                              }}
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
+                            >
                               🟠 Amazon AE
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const logo = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="24" fill="%23FEE600"/><text x="100" y="120" text-anchor="middle" fill="%23000000" font-weight="900" font-size="60" font-family="Arial,sans-serif">noon</text></svg>';
+                                handleUpdateStoreField(store.id, 'logoUrl', logo);
+                                handleUpdateStoreField(store.id, 'image', logo);
+                                handleUpdateStoreField(store.id, 'brandColor', '#eab308');
+                              }}
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 font-semibold cursor-pointer"
+                            >
+                              🟡 Noon
                             </button>
                           </div>
                         </div>

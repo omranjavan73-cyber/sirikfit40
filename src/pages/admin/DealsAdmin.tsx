@@ -16,7 +16,7 @@ import {
   TaxonomyCategory, DEFAULT_TAXONOMY, fetchTaxonomyFromFirestore
 } from '../../utils/taxonomyHelper';
 import { generatePersianTitle } from '../../utils/supplementLocalization';
-import { deleteDoc, doc, setDoc, getDocs, collection } from 'firebase/firestore';
+import { deleteDoc, doc, setDoc, updateDoc, getDocs, collection } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { parseWeightKg, calculateProductTomanPrice } from '../../utils/pricingCalculator';
 import { saveSpecialDeals } from '../../services/adminService';
@@ -678,15 +678,15 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
             }}
             className="sm:col-span-3 bg-white border border-amber-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold"
           >
-            {categoriesTree.map(c => <option key={c.id || c.slug} value={c.name}>{c.name}</option>)}
+            {categoriesTree.map((c, cIdx) => <option key={c.id || c.slug || c.name || `cat-opt-${cIdx}`} value={c.name}>{c.name}</option>)}
           </select>
           <select
             value={newDealSubCategory}
             onChange={e => setNewDealSubCategory(e.target.value)}
             className="sm:col-span-2 bg-white border border-amber-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold"
           >
-            {(categoriesTree.find(c => c.name === newDealCategory)?.subCategories || []).map(s =>
-              <option key={s.id || s.slug} value={s.name}>{s.name}</option>
+            {(categoriesTree.find(c => c.name === newDealCategory)?.subCategories || []).map((s, sIdx) =>
+              <option key={s.id || s.slug || s.name || `sub-opt-${sIdx}`} value={s.name}>{s.name}</option>
             )}
           </select>
           <button
@@ -717,7 +717,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           className="bg-slate-50 border border-slate-200 text-xs px-3 py-1.5 rounded-xl font-bold text-slate-700 focus:outline-none"
         >
           <option value="all">همه دسته‌ها</option>
-          {categoriesTree.map(c => <option key={c.id || c.slug} value={c.name}>{c.name}</option>)}
+          {categoriesTree.map((c, cIdx) => <option key={c.id || c.slug || c.name || `filter-cat-${cIdx}`} value={c.name}>{c.name}</option>)}
         </select>
         <div className="flex gap-1">
           {(['all', 'active', 'popular', 'draft'] as const).map(s => (
@@ -735,6 +735,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       {/* ── Deal Accordion List ── */}
       <div className="space-y-2">
         {filteredDeals.map((deal, idx) => {
+          const dealKey = deal.id ? `deal-${deal.id}` : `deal-idx-${idx}`;
           const isOpen = expandedIds.has(deal.id);
           const flavorsPool = (deal.flavors as any as string[]) || [];
           const sizesPool = (deal.sizes as any as string[]) || [];
@@ -742,7 +743,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           const currentMargin = deal.profitMargin !== undefined ? deal.profitMargin : defaultMargin;
 
           return (
-            <div key={deal.id}
+            <div key={dealKey}
               className={`rounded-2xl border transition-all ${deal.isActive ? 'border-slate-200 bg-white' : 'border-dashed border-amber-300 bg-amber-50/30'}`}
             >
               {/* ── Compact Header Row ── */}
@@ -887,7 +888,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                         onChange={e => updateDeal(deal.id, { mainCategory: e.target.value } as any)}
                         className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:border-amber-500"
                       >
-                        {categoriesTree.map(c => <option key={c.id || c.slug} value={c.name}>{c.name}</option>)}
+                        {categoriesTree.map((c, cIdx) => <option key={c.id || c.slug || c.name || `cat-tree-${cIdx}`} value={c.name}>{c.name}</option>)}
                       </select>
                     </div>
                     <div>
@@ -897,7 +898,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                         onChange={e => updateDeal(deal.id, { subcategory: e.target.value })}
                         className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:border-amber-500"
                       >
-                        {subCats.map(s => <option key={s.id || s.slug} value={s.name}>{s.name}</option>)}
+                        {subCats.map((s, sIdx) => <option key={s.id || s.slug || s.name || `subcat-opt-${sIdx}`} value={s.name}>{s.name}</option>)}
                       </select>
                     </div>
                   </div>
@@ -912,10 +913,10 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                     </summary>
                     <div className="mt-2 p-3 bg-amber-50/60 border border-amber-200 rounded-xl space-y-2">
                       <div className="flex flex-wrap gap-1.5">
-                        {PRESET_FLAVORS.map(f => {
+                        {PRESET_FLAVORS.map((f, fIdx) => {
                           const checked = flavorsPool.includes(f.name) || flavorsPool.includes(f.nameEn);
                           return (
-                            <button key={f.id} type="button"
+                            <button key={f.id || `preset-flavor-${f.name}-${fIdx}`} type="button"
                               onClick={() => toggleFlavor(deal.id, f.name)}
                               className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border flex items-center gap-1 cursor-pointer transition ${checked ? 'bg-amber-500 text-white border-amber-600' : 'bg-white text-slate-700 border-slate-200 hover:border-amber-400'}`}
                             >
@@ -954,10 +955,10 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                     </summary>
                     <div className="mt-2 p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-2">
                       <div className="flex flex-wrap gap-1.5">
-                        {PRESET_SIZES.map(sz => {
+                        {PRESET_SIZES.map((sz, szIdx) => {
                           const checked = sizesPool.includes(sz.label);
                           return (
-                            <button key={sz.id} type="button"
+                            <button key={sz.id || `preset-size-${sz.label}-${szIdx}`} type="button"
                               onClick={() => toggleSize(deal.id, sz.label)}
                               className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border flex items-center gap-1 cursor-pointer transition ${checked ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-slate-700 border-slate-200 hover:border-blue-400'}`}
                             >
@@ -1049,8 +1050,9 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                       <p className="text-[11px] text-slate-400 py-2">واریانتی ثبت نشده — «افزودن سطر» را بزنید.</p>
                     )}
 
-                    {(deal.variants || []).map(v => {
-                      const modeKey = `${deal.id}_${v.id}`;
+                    {(deal.variants || []).map((v, vIdx) => {
+                      const variantKey = v.id || `var-${deal.id || idx}-${v.flavor || 'flavor'}-${v.size || 'size'}-${vIdx}`;
+                      const modeKey = `${deal.id}_${v.id || vIdx}`;
                       const isCustFlavor = Boolean(customRowMode[modeKey]?.customFlavor);
                       const availableRowSizes = Array.from(new Set([
                         ...STANDARD_SIZE_OPTIONS,
@@ -1060,15 +1062,15 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                       const isCustSize = Boolean(customRowMode[modeKey]?.customSize);
 
                       return (
-                        <div key={v.id}
+                        <div key={variantKey}
                           className="grid grid-cols-12 gap-1.5 items-center bg-white border border-slate-200 p-2 rounded-xl text-xs">
                           {/* Thumb & Optional Variant Image */}
                           <div className="col-span-3 flex items-center gap-1.5">
                             <button
                               type="button"
                               onClick={() => setEditingVariantImage({
-                                dealId: deal.id,
-                                variantId: v.id,
+                                itemId: deal.id,
+                                variantId: v.id || `var-${vIdx}`,
                                 variantTitle: `${deal.title || ''} - ${v.flavor || ''} ${v.size || ''}`.trim(),
                                 currentUrl: v.image,
                                 mainImage: deal.image
@@ -1126,7 +1128,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                                     else updateVariant(deal.id, v.id, 'flavor', e.target.value);
                                   }}
                                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold focus:bg-white focus:outline-none">
-                                  {flavorsPool.map(f => <option key={f} value={f}>{f}</option>)}
+                                  {flavorsPool.map((f, fIdx) => <option key={`flavor-opt-${f}-${fIdx}`} value={f}>{f}</option>)}
                                   <option value="__custom__">+ طعم سفارشی...</option>
                                 </select>}
                           </div>
@@ -1151,14 +1153,14 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                                 >
                                   {sizesPool.length > 0 && (
                                     <optgroup label="✨ سایزهای فعال">
-                                      {sizesPool.map(opt => <option key={`pool-${opt}`} value={opt}>{opt}</option>)}
+                                      {sizesPool.map((opt, optIdx) => <option key={`pool-${opt}-${optIdx}`} value={opt}>{opt}</option>)}
                                     </optgroup>
                                   )}
                                   <optgroup label="📋 تمامی سایزهای استاندارد">
-                                    {STANDARD_SIZE_OPTIONS.filter(opt => !sizesPool.includes(opt)).map(opt => <option key={`std-${opt}`} value={opt}>{opt}</option>)}
+                                    {STANDARD_SIZE_OPTIONS.filter(opt => !sizesPool.includes(opt)).map((opt, optIdx) => <option key={`std-${opt}-${optIdx}`} value={opt}>{opt}</option>)}
                                   </optgroup>
                                   {v.size && !STANDARD_SIZE_OPTIONS.includes(v.size) && !sizesPool.includes(v.size) && (
-                                    <option value={v.size}>{v.size}</option>
+                                    <option key={`custom-opt-size-${v.size}`} value={v.size}>{v.size}</option>
                                   )}
                                   <option value="__custom__">+ سایر (تایپ دستی)...</option>
                                 </select>}

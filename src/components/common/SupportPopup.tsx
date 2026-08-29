@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import { X, Headphones, Clock, ShieldCheck, ExternalLink } from 'lucide-react';
+import { X, Clock, ShieldCheck, ExternalLink } from 'lucide-react';
 import { useSupport } from '../../context/SupportContext';
+import { SupportHeadsetLogo } from './SupportHeadsetLogo';
 
 interface SupportPopupProps {
   isOpen: boolean;
@@ -72,8 +73,8 @@ export const SupportPopup: React.FC<SupportPopupProps> = ({ isOpen, onClose }) =
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800/80 mb-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-xs">
-            <Headphones className="w-4 h-4 text-red-500" />
+          <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center shadow-xs p-1">
+            <SupportHeadsetLogo className="w-6 h-6" />
           </div>
           <div>
             <h4 className="text-xs font-black text-slate-900 dark:text-white leading-tight">

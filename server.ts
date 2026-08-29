@@ -4216,9 +4216,266 @@ export interface ParseAdapterResult {
   scrapedAt?: string;
 }
 
+/**
+ * Strips HTML elements and textual patterns indicating strikethrough, crossed-out, was, or old prices.
+ * This guarantees the scraper never extracts original / crossed-out prices as current selling prices.
+ */
+function stripStrikethroughAndOldPrices(html: string): string {
+  if (!html) return '';
+  return html
+    // 1. Remove HTML tags with explicit strikethrough semantic tags
+    .replace(/<del\b[^>]*>[\s\S]*?<\/del>/gi, ' ')
+    .replace(/<s\b[^>]*>[\s\S]*?<\/s>/gi, ' ')
+    .replace(/<strike\b[^>]*>[\s\S]*?<\/strike>/gi, ' ')
+    // 2. Remove markdown strikethrough: ~~AED 318.76~~ or ~~...~~
+    .replace(/~~[\s\S]*?~~/g, ' ')
+    // 3. Remove elements with classes indicating old / crossed-out / was price
+    .replace(/<[^>]*class=["'][^"']*\b(?:old-price|was-price|price-was|original-price|price-old|line-through|strikethrough|crossed-out|strike|is-crossed)\b[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9]+>/gi, ' ')
+    // 4. Remove elements with data-price-type="oldPrice" or data-price-type="basePrice"
+    .replace(/<[^>]*data-price-type=["'](?:oldPrice|basePrice)["'][^>]*>[\s\S]*?<\/[a-z0-9]+>/gi, ' ')
+    // 5. Remove elements with inline style text-decoration: line-through
+    .replace(/<[^>]*style=["'][^"']*text-decoration\s*:\s*line-through[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9]+>/gi, ' ')
+    // 6. Remove textual "Was: AED 318.76", "Old Price: ...", "Regular Price: ...", "السعر السابق: ...", "قیمت اصلی: ..."
+    .replace(/(?:Was|Old Price|Regular Price|List Price|MSRP|Original Price|قبل الخصم|السعر السابق|السعر القديم|قیمت قبل|قیمت اصلی)\s*[:\-]?\s*(?:AED|Dhs|درهم)?\s*[\d\.,]+/gi, ' ');
+}
+
+/**
+ * Dedicated Parser for Sporter.com product pages.
+ * Strictly extracts the ACTUAL current selling price (highlighted / bold),
+ * completely ignoring any strikethrough / crossed-out / old "was" prices (e.g. AED 318.76 -> extracts AED 255.00).
+ */
+function parseSporterProduct(rawHtmlText: string, targetUrl: string = ''): ParseAdapterResult {
+  let title = '';
+  let finalPrice = 0;
+  let oldPrice = 0;
+  let discountPercent = 0;
+  let mainImage = '';
+  const galleryImages: string[] = [];
+  const flavors: string[] = [];
+  const sizes: string[] = [];
+  let description = '';
+
+  if (!rawHtmlText) {
+    return { ok: false, requireManualEntry: true, message: "صفحه خالی است." };
+  }
+
+  // 1. Title Extraction
+  const h1Match = rawHtmlText.match(/<h1[^>]*class=["'][^"']*page-title[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i) ||
+                  rawHtmlText.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
+                  rawHtmlText.match(/<meta[^>]*property=["'](?:og:title|title)["'][^>]*content=["']([^"']+)["']/i);
+  if (h1Match && h1Match[1]) {
+    title = cleanTitleStr(h1Match[1]);
+  }
+
+  // 2. Price Extraction Strategy for Sporter:
+  // Step A: Check Sporter's Magento / Hyvä / Custom data-price attributes
+  // Sporter explicitly marks current price with:
+  // - data-price-type="finalPrice"
+  // - class="special-price"
+  const finalPriceAttrMatch = rawHtmlText.match(/data-price-type=["']finalPrice["'][^>]*data-price-amount=["']?([\d\.,]+)["']?/i) ||
+                             rawHtmlText.match(/data-price-amount=["']?([\d\.,]+)["']?[^>]*data-price-type=["']finalPrice["']/i) ||
+                             rawHtmlText.match(/class=["'][^"']*special-price[^"']*["'][^>]*data-price-amount=["']?([\d\.,]+)["']?/i) ||
+                             rawHtmlText.match(/class=["'][^"']*special-price[^"']*["'][\s\S]*?data-price-amount=["']?([\d\.,]+)["']?/i);
+  
+  if (finalPriceAttrMatch && finalPriceAttrMatch[1]) {
+    const val = parseFloat(normalizeToEnglishDigits(finalPriceAttrMatch[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+    if (!isNaN(val) && val > 0) finalPrice = Math.round(val * 100) / 100;
+  }
+
+  // Step B: Check .special-price element directly in HTML
+  if (finalPrice === 0) {
+    const specialPriceBlockMatch = rawHtmlText.match(/<(?:span|div|p)[^>]*class=["'][^"']*special-price[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div|p)>/i);
+    if (specialPriceBlockMatch && specialPriceBlockMatch[1]) {
+      const pMatch = specialPriceBlockMatch[1].match(/(?:AED|Dhs)?\s*([\d\.,]+)/i);
+      if (pMatch && pMatch[1]) {
+        const val = parseFloat(normalizeToEnglishDigits(pMatch[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+        if (!isNaN(val) && val > 0) finalPrice = Math.round(val * 100) / 100;
+      }
+    }
+  }
+
+  // Step C: Check Sporter's JSON configurations inside <script> tags
+  const scriptTags = Array.from(rawHtmlText.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi));
+  for (const s of scriptTags) {
+    const content = s[1] || '';
+    if (content.includes('finalPrice') || content.includes('final_price') || content.includes('special_price') || content.includes('price_range')) {
+      if (finalPrice === 0) {
+        const fpMatch = content.match(/["']finalPrice["']\s*:\s*\{\s*["']amount["']\s*:\s*([\d\.,]+)/i) ||
+                        content.match(/["']final_price["']\s*:\s*([\d\.,]+)/i) ||
+                        content.match(/["']special_price["']\s*:\s*([\d\.,]+)/i) ||
+                        content.match(/["']minimal_price["']\s*:\s*([\d\.,]+)/i) ||
+                        content.match(/["']sale_price["']\s*:\s*([\d\.,]+)/i);
+        if (fpMatch && fpMatch[1]) {
+          const val = parseFloat(normalizeToEnglishDigits(fpMatch[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+          if (!isNaN(val) && val > 0) finalPrice = Math.round(val * 100) / 100;
+        }
+      }
+      if (oldPrice === 0) {
+        const opMatch = content.match(/["']oldPrice["']\s*:\s*\{\s*["']amount["']\s*:\s*([\d\.,]+)/i) ||
+                        content.match(/["']regular_price["']\s*:\s*([\d\.,]+)/i) ||
+                        content.match(/["']basePrice["']\s*:\s*\{\s*["']amount["']\s*:\s*([\d\.,]+)/i);
+        if (opMatch && opMatch[1]) {
+          const val = parseFloat(normalizeToEnglishDigits(opMatch[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+          if (!isNaN(val) && val > 0) oldPrice = Math.round(val * 100) / 100;
+        }
+      }
+    }
+  }
+
+  // Step D: Check old / crossed-out price elements on DOM
+  if (oldPrice === 0) {
+    const oldPriceAttrMatch = rawHtmlText.match(/data-price-type=["']oldPrice["'][^>]*data-price-amount=["']?([\d\.,]+)["']?/i) ||
+                              rawHtmlText.match(/class=["'][^"']*old-price[^"']*["'][\s\S]*?data-price-amount=["']?([\d\.,]+)["']?/i);
+    if (oldPriceAttrMatch && oldPriceAttrMatch[1]) {
+      const val = parseFloat(normalizeToEnglishDigits(oldPriceAttrMatch[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(val) && val > 0) oldPrice = Math.round(val * 100) / 100;
+    }
+  }
+
+  // Step E: Strip all strikethrough / crossed-out / old prices and search for price in cleaned HTML
+  if (finalPrice === 0) {
+    const cleanedHtml = stripStrikethroughAndOldPrices(rawHtmlText);
+    const priceBoxMatch = cleanedHtml.match(/class=["'][^"']*(?:price-wrapper|price-box|current-price|product-price)[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div|p)>/i) ||
+                          cleanedHtml.match(/(?:AED|Dhs)\s*([\d\.,]+)/i) ||
+                          cleanedHtml.match(/([\d\.,]+)\s*(?:AED|Dhs)/i);
+    if (priceBoxMatch && priceBoxMatch[1]) {
+      const val = parseFloat(normalizeToEnglishDigits(priceBoxMatch[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(val) && val > 0) finalPrice = Math.round(val * 100) / 100;
+    }
+  }
+
+  // Step F: Discount Badge Extraction (e.g. "20% OFF", "Save 20%")
+  const discountMatch = rawHtmlText.match(/(\d+)%\s*(?:OFF|خصم|تخفیف|Off)/i) ||
+                        rawHtmlText.match(/Save\s*(\d+)%/i) ||
+                        rawHtmlText.match(/class=["'][^"']*discount[^"']*["'][^>]*>[\s\S]*?(\d+)%[\s\S]*?<\/[a-z0-9]+>/i);
+  if (discountMatch && discountMatch[1]) {
+    discountPercent = parseInt(discountMatch[1], 10);
+  }
+
+  // If old price exists and final price exists, compute discount if not parsed
+  if (oldPrice > finalPrice && finalPrice > 0) {
+    if (!discountPercent) {
+      discountPercent = Math.round(((oldPrice - finalPrice) / oldPrice) * 100);
+    }
+  } else if (discountPercent > 0 && finalPrice > 0 && oldPrice === 0) {
+    oldPrice = Math.round((finalPrice / (1 - (discountPercent / 100))) * 100) / 100;
+  }
+
+  // Description
+  const descMatch = rawHtmlText.match(/<div[^>]*class=["'][^"']*(?:product-description|overview|details-content)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
+                    rawHtmlText.match(/<meta[^>]*property=["'](?:og:description|description)["'][^>]*content=["']([^"']+)["']/i);
+  if (descMatch && descMatch[1]) {
+    description = descMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  }
+
+  // Images & Gallery
+  const imgMatches = Array.from(rawHtmlText.matchAll(/<img[^>]*(?:data-zoom-image|data-large_image|data-full-image|data-src|src)=["']([^"']+)["'][^>]*>/gi));
+  for (const m of imgMatches) {
+    const src = m[1];
+    if (src && !src.includes('icon') && !src.includes('logo') && !src.includes('flag') && !src.includes('pixel') && !src.includes('placeholder')) {
+      const sanitized = sanitizeImageUrl(src, targetUrl);
+      if (sanitized && !galleryImages.includes(sanitized)) {
+        galleryImages.push(sanitized);
+      }
+    }
+  }
+  if (galleryImages.length > 0) {
+    mainImage = galleryImages[0];
+  } else {
+    const metaImg = rawHtmlText.match(/<meta[^>]*property=["'](?:og:image|og:image:secure_url)["'][^>]*content=["']([^"']+)["']/i);
+    if (metaImg && metaImg[1]) {
+      mainImage = sanitizeImageUrl(metaImg[1], targetUrl);
+      if (mainImage) galleryImages.push(mainImage);
+    }
+  }
+
+  // Variants (Flavors & Sizes) from Sporter Swatches
+  const isDummyOption = (val: string) => {
+    if (!val || typeof val !== 'string') return true;
+    const lower = val.trim().toLowerCase();
+    return ['default title', 'default', 'standard', 'normal', 'select option', 'choose', 'undefined', 'null'].includes(lower);
+  };
+
+  const swatchOptions = Array.from(rawHtmlText.matchAll(/<div[^>]*class=["'][^"']*swatch-option[^"']*["'][^>]*label=["']([^"']+)["']/gi));
+  for (const sw of swatchOptions) {
+    const label = (sw[1] || '').trim();
+    if (label && !isDummyOption(label)) {
+      const lower = label.toLowerCase();
+      if (lower.includes('kg') || lower.includes('g') || lower.includes('lb') || lower.includes('serving') || lower.includes('capsule') || lower.includes('tablet')) {
+        if (!sizes.includes(label)) sizes.push(label);
+      } else {
+        if (!flavors.includes(label)) flavors.push(label);
+      }
+    }
+  }
+
+  const variantGroups: any[] = [];
+  if (flavors.length > 0) {
+    variantGroups.push({
+      id: 'flavors',
+      name: 'طعم (Flavor)',
+      type: 'flavor',
+      options: flavors.map((f, idx) => ({ id: `flv-${idx}`, name: f, priceAed: finalPrice, inStock: true }))
+    });
+  }
+  if (sizes.length > 0) {
+    variantGroups.push({
+      id: 'sizes',
+      name: 'وزن / سایز (Size)',
+      type: 'size',
+      options: sizes.map((s, idx) => ({ id: `sz-${idx}`, name: s, priceAed: finalPrice, inStock: true }))
+    });
+  }
+
+  return {
+    ok: finalPrice > 0 && !!title,
+    title: title || 'محصول اسپورتر دبی',
+    price: finalPrice,
+    currency: 'AED',
+    originalPriceAed: oldPrice > finalPrice ? oldPrice : undefined,
+    originalPriceAED: oldPrice > finalPrice ? oldPrice : undefined,
+    discountPercent: discountPercent > 0 ? discountPercent : undefined,
+    discountPercentage: discountPercent > 0 ? discountPercent : undefined,
+    image: mainImage,
+    galleryImages,
+    images: galleryImages,
+    variantGroups,
+    flavors,
+    sizes,
+    options: [...new Set([...flavors, ...sizes])],
+    storeName: 'Sporter UAE',
+    description: description || title,
+    inStock: true
+  };
+}
+
 function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
+  // If target URL is Sporter or HTML indicates Sporter, use dedicated Sporter parser
+  if (targetUrl.toLowerCase().includes('sporter.com') || rawHtmlText.includes('sporter.com')) {
+    const sporterResult = parseSporterProduct(rawHtmlText, targetUrl);
+    if (sporterResult.ok && sporterResult.price && sporterResult.price > 0) {
+      return {
+        title: sporterResult.title || '',
+        price: sporterResult.price,
+        originalPriceAed: sporterResult.originalPriceAed,
+        discountPercent: sporterResult.discountPercent,
+        image: sporterResult.image || '',
+        galleryImages: sporterResult.galleryImages || [],
+        videos: sporterResult.videos || [],
+        features: sporterResult.features || [],
+        description: sporterResult.description || '',
+        variantGroups: sporterResult.variantGroups || [],
+        options: sporterResult.options || [],
+        flavors: sporterResult.flavors || [],
+        sizes: sporterResult.sizes || []
+      };
+    }
+  }
+
   let extractedTitle = '';
   let extractedPrice = 0;
+  let extractedOriginalPrice = 0;
+  let extractedDiscountPercent = 0;
   let extractedImage = '';
   let extractedDesc = '';
   const extractedGallery: string[] = [];
@@ -4513,18 +4770,22 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
     }
   }
 
-  // 6. Regex Price Fallback
+  // 6. Regex Price Fallback (Run on cleaned HTML with strikethrough/old prices removed first)
   if (extractedPrice === 0) {
+    const cleanedHtml = stripStrikethroughAndOldPrices(rawHtmlText);
     const pricePatterns = [
       /(?:AED|Dhs)\s*([\d\.,\u0660-\u0669\u06f0-\u06f9]+)/i,
       /([\d\.,\u0660-\u0669\u06f0-\u06f9]+)\s*(?:AED|Dhs)/i,
+      /["']special_price["']\s*:\s*([\d\.,\u0660-\u0669\u06f0-\u06f9]+)/i,
+      /["']final_price["']\s*:\s*([\d\.,\u0660-\u0669\u06f0-\u06f9]+)/i,
       /["']sale_price["']\s*:\s*([\d\.,\u0660-\u0669\u06f0-\u06f9]+)/i,
       /["']price["']\s*:\s*["']?([\d\.,\u0660-\u0669\u06f0-\u06f9]+)["']?/i,
       /data-price=["']?([\d\.,]+)["']?/i,
       /["']price_aed["']\s*:\s*([\d\.,]+)/i
     ];
+    // First try on cleanedHtml
     for (const pat of pricePatterns) {
-      const m = rawHtmlText.match(pat);
+      const m = cleanedHtml.match(pat);
       if (m && m[1]) {
         const norm = normalizeToEnglishDigits(m[1]);
         const p = parseFloat(norm.replace(/,/g, '').replace(/[^0-9.]/g, ''));
@@ -4534,6 +4795,25 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
         }
       }
     }
+    // Secondary fallback
+    if (extractedPrice === 0) {
+      for (const pat of pricePatterns) {
+        const m = rawHtmlText.match(pat);
+        if (m && m[1]) {
+          const norm = normalizeToEnglishDigits(m[1]);
+          const p = parseFloat(norm.replace(/,/g, '').replace(/[^0-9.]/g, ''));
+          if (!isNaN(p) && p > 0) {
+            extractedPrice = Math.round(p * 100) / 100;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Calculate discount if old price exists
+  if (extractedOriginalPrice > extractedPrice && extractedPrice > 0 && !extractedDiscountPercent) {
+    extractedDiscountPercent = Math.round(((extractedOriginalPrice - extractedPrice) / extractedOriginalPrice) * 100);
   }
 
   // 7. Advanced Variant & E-Commerce Options Matrix Extraction
@@ -4754,6 +5034,8 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
   return {
     title: extractedTitle,
     price: extractedPrice,
+    originalPriceAed: (extractedOriginalPrice > extractedPrice && extractedPrice > 0) ? extractedOriginalPrice : undefined,
+    discountPercent: extractedDiscountPercent > 0 ? extractedDiscountPercent : undefined,
     image: extractedImage,
     galleryImages: finalGallery,
     videos: extractedVideos,
@@ -6346,12 +6628,20 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any, customUserAgen
       if (res.ok) {
         const html = await res.text();
         if (html && html.length > 200) {
+          // First attempt with dedicated Sporter parser (guarantees selling price, strips crossed-out price)
+          const sporterParsed = parseSporterProduct(html, url);
+          if (sporterParsed.ok && sporterParsed.price && sporterParsed.price > 0) {
+            return sporterParsed;
+          }
+
           const parsed = parseHtmlEngine(html, url);
           if (parsed.title && parsed.price > 0) {
             return {
               ok: true,
               title: parsed.title,
               price: parsed.price,
+              originalPriceAed: parsed.originalPriceAed,
+              discountPercent: parsed.discountPercent,
               currency: "AED",
               image: sanitizeImageUrl(parsed.image, url),
               galleryImages: parsed.galleryImages,
@@ -6383,12 +6673,19 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any, customUserAgen
 
     if (jinaRes.ok) {
       const md = await jinaRes.text();
+      const sporterParsed = parseSporterProduct(md, enAeUrl);
+      if (sporterParsed.ok && sporterParsed.price && sporterParsed.price > 0) {
+        return sporterParsed;
+      }
+
       const parsed = parseHtmlEngine(md, enAeUrl);
       if (parsed.title && parsed.price > 0) {
         return {
           ok: true,
           title: parsed.title,
           price: parsed.price,
+          originalPriceAed: parsed.originalPriceAed,
+          discountPercent: parsed.discountPercent,
           currency: "AED",
           image: sanitizeImageUrl(parsed.image, enAeUrl),
           galleryImages: parsed.galleryImages,
@@ -6418,7 +6715,8 @@ async function sporterAdapter(targetUrl: string, cmsConfig?: any, customUserAgen
 async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: any): Promise<ParseAdapterResult> {
   const lowerUrl = targetUrl.toLowerCase();
   let storeName = 'فروشگاه آنلاین دبی';
-  if (lowerUrl.includes('noon.com')) storeName = 'Noon Dubai';
+  if (lowerUrl.includes('iherb.com') || lowerUrl.includes('ae.iherb.com')) storeName = 'iHerb';
+  else if (lowerUrl.includes('noon.com')) storeName = 'Noon Dubai';
   else if (lowerUrl.includes('amazon.ae') || lowerUrl.includes('amazon.')) storeName = 'Amazon UAE';
   else if (lowerUrl.includes('sporter.com')) storeName = 'Sporter UAE';
   else if (lowerUrl.includes('lifeextension.com')) storeName = 'Life Extension';
@@ -6763,7 +7061,7 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
     const isFreeReq = req.body?.is_free_extraction === true || req.body?.is_free_extraction === 'true' || req.body?.isFreeExtraction === true;
     const reqRestricted = req.body?.enable_domain_restriction ?? req.body?.enableDomainRestriction;
 
-    const defaultAllowedDomains = ['noon.com', 'amazon.ae', 'lifepharmacy.com', 'drpharmacy.ae', 'sporter.com', 'drnutrition.com', 'gnc-mena.com', 'gnc.ae', 'gnc.com'];
+    const defaultAllowedDomains = ['noon.com', 'amazon.ae', 'lifepharmacy.com', 'drpharmacy.ae', 'sporter.com', 'drnutrition.com', 'gnc-mena.com', 'gnc.ae', 'gnc.com', 'iherb.com', 'ae.iherb.com'];
     const configuredAllowed = (cmsConfig?.apiConfig?.allowedDomains && cmsConfig.apiConfig.allowedDomains.length > 0)
       ? cmsConfig.apiConfig.allowedDomains
       : defaultAllowedDomains;

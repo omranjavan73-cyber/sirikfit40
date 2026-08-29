@@ -41,6 +41,7 @@ import {
   handleFlavorChange,
   handleSizeChange
 } from '../utils/variantMatrixEngine';
+import { resolveVariantHeroImage, getVariantImageUrl } from '../utils/variantHelpers';
 
 /**
  * Utility to strip raw HTML tags and markdown formatting from scraped text
@@ -149,17 +150,11 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
           ? (activeProd as any).images
           : (activeProd.image ? [String(activeProd.image)] : [])))
     : [];
-  const galleryList: string[] = Array.from(new Set(rawGalleryList.filter(Boolean).map(String)));
 
-  const [activeImage, setActiveImage] = useState<string>(galleryList[0] || activeProd?.image || '');
+  const defaultProductImage = (activeProd as any)?.imageUrl || activeProd?.image || (activeProd as any)?.mainImage || (rawGalleryList[0] ? String(rawGalleryList[0]) : '') || '/placeholder-supplement.png';
 
-  useEffect(() => {
-    if (galleryList.length > 0) {
-      if (!activeImage || !galleryList.includes(activeImage)) {
-        setActiveImage(galleryList[0]);
-      }
-    }
-  }, [activeProd?.image, galleryList]);
+  const [activeImage, setActiveImage] = useState<string>(defaultProductImage);
+  const [isImageLoading, setIsImageLoading] = useState<boolean>(false);
 
   // Interactive Hover Zoom Lens States (Desktop)
   const [isHovered, setIsHovered] = useState<boolean>(false);
@@ -431,6 +426,47 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     if (!activeProd?.variants || !Array.isArray(activeProd.variants) || activeProd.variants.length === 0) return null;
     return findExactVariant(activeProd.variants, selectedFlavorOpt?.name, selectedSizeOpt?.name);
   }, [activeProd?.variants, selectedFlavorOpt?.name, selectedSizeOpt?.name]);
+
+  // Deterministic dynamic variant image resolution:
+  // 1. Exact variant (flavor + size) matching row's imageLink / image / imageUrl
+  // 2. Flavor-level image link
+  // 3. Size-level image link
+  // 4. Default product main image
+  // 5. Placeholder
+  const resolvedVariantImage = React.useMemo(() => {
+    if (!activeProd) return '';
+    return resolveVariantHeroImage(
+      activeProd.variants || [],
+      selectedFlavorOpt?.name,
+      selectedSizeOpt?.name,
+      defaultProductImage
+    );
+  }, [activeProd, selectedFlavorOpt?.name, selectedSizeOpt?.name, defaultProductImage]);
+
+  // Synchronize main active image when variant selection changes
+  useEffect(() => {
+    if (resolvedVariantImage) {
+      setIsImageLoading(true);
+      setActiveImage(resolvedVariantImage);
+    }
+  }, [resolvedVariantImage]);
+
+  // Consolidated gallery list including product images and variant image links
+  const galleryList: string[] = React.useMemo(() => {
+    const list = [...rawGalleryList.filter(Boolean).map(String)];
+    if (activeProd?.image && !list.includes(String(activeProd.image))) {
+      list.unshift(String(activeProd.image));
+    }
+    if (Array.isArray(activeProd?.variants)) {
+      activeProd.variants.forEach((v: any) => {
+        const vImg = getVariantImageUrl(v);
+        if (vImg && !list.includes(vImg)) {
+          list.push(vImg);
+        }
+      });
+    }
+    return Array.from(new Set(list.filter(Boolean)));
+  }, [rawGalleryList, activeProd?.image, activeProd?.variants]);
 
   // Dynamically calculate effective Price AED based on exact active variant
   const selectedVariantPriceAed = React.useMemo(() => {
@@ -1190,18 +1226,30 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
                   {activeImage ? (
                     <img
+                      key={activeImage}
                       src={activeImage}
                       alt={product?.title || ''}
                       referrerPolicy="no-referrer"
+                      onLoad={() => setIsImageLoading(false)}
                       style={{
                         transformOrigin: `${zoomPos.x}% ${zoomPos.y}%`,
                         transform: isHovered ? 'scale(2.3)' : 'scale(1)'
                       }}
-                      className="w-full h-full object-contain object-center block rounded-xl transition-transform duration-100 ease-out will-change-transform drop-shadow-sm"
+                      className={`w-full h-full object-contain object-center block rounded-xl transition-all duration-300 ease-out will-change-transform drop-shadow-sm ${
+                        isImageLoading ? 'opacity-40 scale-95' : 'opacity-100 scale-100'
+                      }`}
                       onError={(e) => {
+                        setIsImageLoading(false);
                         const target = e.currentTarget;
-                        if (String(target.src || '').includes('images.weserv.nl') === false && activeImage) {
-                          target.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(String(activeImage));
+                        const defaultFallback = defaultProductImage;
+                        if (target.src !== defaultFallback && !target.src.includes('weserv.nl')) {
+                          if (activeImage && !activeImage.includes('weserv.nl')) {
+                            target.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(String(activeImage));
+                          } else {
+                            target.src = defaultFallback;
+                          }
+                        } else {
+                          target.src = '/placeholder-supplement.png';
                         }
                       }}
                     />
@@ -1355,7 +1403,15 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                                   }
 
                                   setSelectedVariants(nextSelected);
-                                  if (opt.image) {
+
+                                  const targetFlavor = (dim.type === 'flavor' || dim.id === 'flavors') ? opt.name : (nextSelected['flavors']?.name || selectedFlavorOpt?.name);
+                                  const targetSize = (dim.type === 'size' || dim.id === 'sizes') ? opt.name : (nextSelected['sizes']?.name || selectedSizeOpt?.name);
+                                  const matchedHeroImg = resolveVariantHeroImage(activeProd?.variants || [], targetFlavor, targetSize, defaultProductImage);
+                                  if (matchedHeroImg) {
+                                    setIsImageLoading(true);
+                                    setActiveImage(matchedHeroImg);
+                                  } else if (opt.image) {
+                                    setIsImageLoading(true);
                                     setActiveImage(opt.image);
                                   }
 

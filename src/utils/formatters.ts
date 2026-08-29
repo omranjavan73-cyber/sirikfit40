@@ -359,7 +359,16 @@ export interface StoreBadgeTheme {
 export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeTheme {
   const s = (storeNameOrBrand || '').toLowerCase().trim();
 
-  // 1. GNC / GNC Store / GNC MENA
+  // 1. iHerb
+  if (s.includes('iherb') || s.includes('آی‌هرب') || s.includes('آی هرب')) {
+    return {
+      bg: 'bg-[#458500] text-white ring-1 ring-emerald-600 shadow-sm',
+      dot: 'bg-emerald-300',
+      name: 'iHerb'
+    };
+  }
+
+  // 2. GNC / GNC Store / GNC MENA
   if (s.includes('gnc')) {
     return {
       bg: 'bg-red-600 text-white ring-1 ring-red-400 shadow-sm',
@@ -368,7 +377,7 @@ export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeThe
     };
   }
 
-  // 2. Sporter
+  // 3. Sporter
   if (s.includes('sporter')) {
     return {
       bg: 'bg-amber-400 text-slate-950 font-bold ring-1 ring-amber-300 shadow-sm',
@@ -377,7 +386,7 @@ export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeThe
     };
   }
 
-  // 3. Dr. Nutrition / DrNutrition
+  // 4. Dr. Nutrition / DrNutrition
   if (s.includes('dr nutrition') || s.includes('drnutrition') || s.includes('dnp') || s.includes('dr.')) {
     return {
       bg: 'bg-blue-600 text-white ring-1 ring-blue-400 shadow-sm',
@@ -386,7 +395,7 @@ export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeThe
     };
   }
 
-  // 4. Life Pharmacy
+  // 5. Life Pharmacy
   if (s.includes('life pharmacy') || s.includes('lifepharmacy') || s.includes('life')) {
     return {
       bg: 'bg-teal-600 text-white ring-1 ring-teal-400 shadow-sm',
@@ -395,7 +404,7 @@ export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeThe
     };
   }
 
-  // 5. Iran Warehouse / انبار ایران
+  // 6. Iran Warehouse / انبار ایران
   if (
     s.includes('انبار ایران') ||
     s.includes('iranwarehouse') ||
@@ -417,4 +426,5 @@ export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeThe
     name: storeNameOrBrand || 'خرید مستقیم از دبی'
   };
 }
+
 

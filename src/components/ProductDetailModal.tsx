@@ -67,10 +67,13 @@ export interface ProductDetailModalProduct {
   brand?: string;
   category?: string;
   description?: string;
+  specifications?: any;
   badge?: string;
   deliveryBadge?: string;
   flavors?: string[];
+  allowedFlavors?: any[];
   sizes?: string[];
+  allowedSizes?: any[];
   selectedFlavor?: string;
   selectedSize?: string;
   variantMatrix?: ProductVariantMatrix;
@@ -258,33 +261,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     return resolveCompoundVariant(list, selectedFlavor, selectedSize);
   }, [exactVariant, currentProd?.variants, product?.variants, selectedFlavor, selectedSize]);
 
-  // 3. Fallback resolution: Gallery Override -> Exact Variant Image -> Flavor Variant Image -> Product Main Image -> Placeholder
+  // 3. Fallback resolution: Gallery Override -> Exact Variant Image Link -> Flavor Variant Image Link -> Size Variant Image Link -> Product Main Image -> Placeholder
   const resolvedHeroImage = useMemo(() => {
     if (selectedGalleryImage && selectedGalleryImage.trim() !== '') {
       return selectedGalleryImage.trim();
     }
-    const exactImg = (exactVariant?.image && exactVariant.image.trim() !== '')
-      ? exactVariant.image.trim()
-      : ((exactVariant as any)?.imageUrl && (exactVariant as any).imageUrl.trim() !== '')
-      ? (exactVariant as any).imageUrl.trim()
-      : null;
-
-    if (exactImg) return exactImg;
-
-    const flavorImg = (flavorVariant?.image && flavorVariant.image.trim() !== '')
-      ? flavorVariant.image.trim()
-      : ((flavorVariant as any)?.imageUrl && (flavorVariant as any).imageUrl.trim() !== '')
-      ? (flavorVariant as any).imageUrl.trim()
-      : null;
-
-    if (flavorImg) return flavorImg;
-
-    return (currentProd?.image && currentProd.image.trim() !== '')
+    const list = currentProd?.variants || product?.variants || [];
+    const fallback = (currentProd?.image && currentProd.image.trim() !== '')
       ? currentProd.image.trim()
       : (product?.image && product.image.trim() !== '')
       ? product.image.trim()
       : '/placeholder-supplement.png';
-  }, [selectedGalleryImage, exactVariant, flavorVariant, currentProd?.image, product?.image]);
+
+    return resolveVariantHeroImage(list, selectedFlavor, selectedSize, fallback);
+  }, [selectedGalleryImage, currentProd?.variants, product?.variants, selectedFlavor, selectedSize, currentProd?.image, product?.image]);
 
   const activeHeroImage = resolvedHeroImage;
 
@@ -303,7 +293,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const basePriceAed = currentProd.priceAed || 100;
   const baseWeightKg = currentProd.weightKg || 0.5;
   const originalPriceAed = currentProd.originalPriceAed;
-  const isAvailable = matchedVariant ? (matchedVariant as any).inStock !== false : ((currentProd as any).inStock !== false);
+  const isAvailable = activeVariant ? (activeVariant as any).inStock !== false : ((currentProd as any).inStock !== false);
   
   // Rate & Financial parameters
   const activeAedRate = getEffectiveAedRate(settings) || settings?.aedRate || 55000;
@@ -735,7 +725,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   <div className="flex flex-wrap gap-2">
                     {availableSizes.map((sz: string, idx: number) => {
                       const isSelected = isMatchVariant(selectedSize, sz);
-                      const isAvailable = sizesForFlavor.length === 0 || sizesForFlavor.some(s => isMatchVariant(s, sz));
+                      const isAvailable = sizesForFlavor.length === 0 || sizesForFlavor.some((s: any) => isMatchVariant(s, sz));
                       const formattedSize = formatPersianSize(sz);
 
                       return (
@@ -962,7 +952,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             )}
 
             <img
-              src={galleryList[lightboxIndex] || selectedImage || fallbackImg}
+              src={galleryList[lightboxIndex] || activeHeroImage || fallbackImg}
               alt={product.title}
               referrerPolicy="no-referrer"
               onClick={(e) => {

@@ -26,6 +26,9 @@ export interface ScraperAdapter {
 
 export function detectStoreOrigin(url: string): { storeName: string; origin: string; flag: string } {
   const lower = (url || '').toLowerCase();
+  if (lower.includes('iherb.com') || lower.includes('ae.iherb.com')) {
+    return { storeName: 'iHerb', origin: 'انبار مرکزی iHerb امارات و دبی', flag: '🇦🇪' };
+  }
   if (lower.includes('amazon.ae') || lower.includes('amazon.')) {
     return { storeName: 'Amazon UAE', origin: 'دبی، امارات (Amazon.ae)', flag: '🇦🇪' };
   }

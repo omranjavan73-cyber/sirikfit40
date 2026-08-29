@@ -4,6 +4,7 @@ export interface ProductFlavorVariant {
   flavor?: string;         // for compatibility
   imageUrl?: string;
   image?: string;          // for compatibility
+  imageLink?: string;
   hasCustomPrice?: boolean; // Checkbox toggle
   priceAED?: number;       // Buying price in AED
   priceAed?: number;       // for compatibility
@@ -41,6 +42,8 @@ export interface ProductVariantItem {
   priceToman?: number;
   weightKg?: number;
   image?: string;
+  imageUrl?: string;
+  imageLink?: string;
   imageThumbnail?: string;
   inStock: boolean;
 }
@@ -102,21 +105,54 @@ export interface FinancialSettings {
   updatedAt?: string | number;
 }
 
+export interface StoreSettings {
+  id: string;
+  nameFa: string;
+  nameEn: string;
+  slug: string;
+  logoUrl: string;
+  brandColor: string;
+  isActive: boolean;
+  orderCtaText?: string;
+  ctaText?: string;
+  commissionRate?: number;
+  description?: string;
+  subtitle?: string;
+  badge?: string;
+  url?: string;
+  title?: string;
+  shortTitle?: string;
+  image?: string;
+  enabled?: boolean;
+  samplePriceAed?: number;
+  sampleWeightKg?: number;
+  updatedAt?: string | number;
+}
+
 export interface StoreCardItem {
   id: string;
   title: string;
   shortTitle?: string;
+  nameFa?: string;
+  nameEn?: string;
+  slug?: string;
   subtitle?: string;
   description: string;
   url: string;
   image: string;
+  logoUrl?: string;
+  logo?: string;
   badge?: string;
   brandColor?: string;
   ctaText?: string;
+  orderCtaText?: string;
   enabled?: boolean;
   active?: boolean;
+  isActive?: boolean;
+  commissionRate?: number;
   samplePriceAed?: number;
   sampleWeightKg?: number;
+  updatedAt?: string | number;
 }
 
 export interface FeaturedDeal {
@@ -942,11 +978,12 @@ export interface ProductVariant {
   id: string;
   size?: string | null;
   flavor?: string | null;
-  price: number;            // Active Selling Price AED
+  price?: number;           // Active Selling Price AED
   originalPrice?: number;   // Strikethrough Price AED
   inStock: boolean;
   image?: string | null;
   imageUrl?: string | null;
+  imageLink?: string | null;
   sku?: string;
   title?: string;
   name?: string;
@@ -972,6 +1009,7 @@ export interface NormalizedProduct {
   price: number;
   priceAed?: number;
   priceAED?: number;
+  priceToman?: number;
   originalPrice?: number;
   originalPriceAed?: number;
   originalPriceAED?: number;
@@ -986,6 +1024,10 @@ export interface NormalizedProduct {
   description?: string;
   descriptionFa?: string;
   inStock?: boolean;
+  isPublished?: boolean;
+  isPopular?: boolean;
+  isFeatured?: boolean;
+  isActive?: boolean;
   selectedFlavor?: string | null;
   selectedSize?: string | null;
   sizes: string[];

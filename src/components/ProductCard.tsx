@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Check } from 'lucide-react';
+import { Plus, Check, Star } from 'lucide-react';
 import { formatPrice, formatAedValue, getStoreBadgeTheme } from '../utils/formatters';
 
 export interface ProductCardProps {
@@ -29,6 +29,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const discountPercent = product.discountPercent || (product.originalPriceAed && priceAed ? Math.round(((product.originalPriceAed - priceAed) / product.originalPriceAed) * 100) : 0);
 
   const effectiveBadge = badgeText || (discountPercent > 0 ? `${discountPercent}٪ تخفیف` : product.badge || undefined);
+  const isIHerb = (storeName || '').toLowerCase().includes('iherb') || (product.sourceUrl || product.url || '').toLowerCase().includes('iherb');
   const storeTheme = getStoreBadgeTheme(storeName);
 
   const handleCardClick = () => {
@@ -62,21 +63,27 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     >
       {/* Product Image Section */}
       <div className="relative w-full aspect-square bg-gray-50 rounded-xl p-2 flex items-center justify-center overflow-hidden mb-2">
-        {/* Dynamic Floating Brand Badge (Top Right) */}
-        <div className={`absolute top-2.5 right-2.5 z-10 ${storeTheme.bg} text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs max-w-[120px] truncate backdrop-blur-xs`}>
-          <span className={`inline-block w-1.5 h-1.5 rounded-full ${storeTheme.dot} animate-pulse ml-0.5 shrink-0`} />
-          <span className="truncate">{storeTheme.name}</span>
+        {/* Store Badge (Top-Right) */}
+        <div className="absolute top-1.5 right-1.5 z-10">
+          <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full shadow-sm ${storeTheme.bg || (isIHerb ? 'bg-[#458500] text-white' : 'bg-red-600 text-white')}`}>
+            <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${storeTheme.dot || 'bg-white'}`} />
+            {product.storeName || storeTheme.name || (isIHerb ? 'iHerb' : 'GNC Store')}
+          </span>
         </div>
 
-        {/* Deal / Discount Badge (Top Left) */}
-        {effectiveBadge ? (
-          <span className="absolute top-2.5 left-2.5 z-10 bg-red-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs">
-            {effectiveBadge}
-          </span>
-        ) : (product as any)?.isPopular ? (
-          <span className="absolute top-2.5 left-2.5 z-10 bg-amber-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs flex items-center gap-0.5">
-            ★ پرطرفدار
-          </span>
+        {/* Minimalist Star Badge (Top-Left) */}
+        {(product.isPopular || (product as any)?.isFeatured || (effectiveBadge && effectiveBadge.includes('پرطرفدار'))) ? (
+          <div className="absolute top-1.5 left-1.5 z-10" title="محصول پرطرفدار">
+            <span className="w-5 h-5 flex items-center justify-center bg-amber-500 text-white rounded-full shadow-xs">
+              <Star className="w-3 h-3 text-white fill-white stroke-white" />
+            </span>
+          </div>
+        ) : effectiveBadge ? (
+          <div className="absolute top-1.5 left-1.5 z-10">
+            <span className="inline-flex items-center gap-1 bg-red-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-sm">
+              {effectiveBadge}
+            </span>
+          </div>
         ) : null}
 
         <img

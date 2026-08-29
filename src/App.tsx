@@ -1135,7 +1135,7 @@ function MainApp() {
       )}
 
       {/* Main Container */}
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 pt-3 pb-8">
+      <main className={`flex-1 max-w-4xl w-full mx-auto px-2 sm:px-4 pb-8 ${activeTab === 'deals' || activeTab === 'inventory' ? 'pt-1' : 'pt-3'}`}>
         {/* PUBLIC PAGE (MAIN / صفحه اصلی - COMPACT PREVIEW & CLEAN HOME SCREEN) */}
         {activeTab === 'main' && (
           <div id="home" className="space-y-2.5">

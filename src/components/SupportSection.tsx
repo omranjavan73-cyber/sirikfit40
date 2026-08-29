@@ -1,5 +1,6 @@
 import React from 'react';
-import { Headphones, PhoneCall, ShieldCheck, Truck, Clock, HelpCircle, ArrowLeft } from 'lucide-react';
+import { Mail, PhoneCall, ShieldCheck, Truck, Clock, HelpCircle, ArrowLeft } from 'lucide-react';
+import { SupportHeadsetLogo } from './common/SupportHeadsetLogo';
 import type { CmsConfig } from '../types';
 
 interface SupportSectionProps {
@@ -58,8 +59,8 @@ export const SupportSection: React.FC<SupportSectionProps> = ({ cms, onOpenFAQ }
           <h3 id="support-headline" className="font-extrabold text-sm md:text-base text-white">{supportHeadline}</h3>
           <p id="support-subtitle" className="text-[11px] md:text-xs text-neutral-300 font-medium mt-0.5">{supportSubtitle}</p>
         </div>
-        <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center text-white shrink-0">
-          <Headphones className="w-5 h-5 text-white" />
+        <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center text-white shrink-0 p-1.5">
+          <SupportHeadsetLogo className="w-8 h-8" />
         </div>
       </div>
 
@@ -101,7 +102,7 @@ export const SupportSection: React.FC<SupportSectionProps> = ({ cms, onOpenFAQ }
                 </span>
               </div>
               <div className="w-11 h-11 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform duration-200">
-                <Headphones className="w-5 h-5 text-slate-700" />
+                <Mail className="w-5 h-5 text-slate-700" />
               </div>
             </a>
           )}

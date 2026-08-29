@@ -1,5 +1,6 @@
 import React from 'react';
-import { ShieldCheck, Truck, Coins, Headphones, Check, Sparkles } from 'lucide-react';
+import { ShieldCheck, Truck, Coins, Check, Sparkles } from 'lucide-react';
+import { SupportHeadsetLogo } from './common/SupportHeadsetLogo';
 import type { CmsConfig, LandingContentSettings, ServicePillarItem } from '../types';
 import { DEFAULT_LANDING_CONTENT } from '../types';
 
@@ -25,12 +26,12 @@ const getPillarIcon = (iconName?: string, index: number = 0) => {
     case 'headphones':
     case 'support':
     case 'consult':
-      return <Headphones className="w-6 h-6 text-red-600" />;
+      return <SupportHeadsetLogo className="w-6 h-6" />;
     default:
       if (index === 0) return <ShieldCheck className="w-6 h-6 text-emerald-600" />;
       if (index === 1) return <Truck className="w-6 h-6 text-blue-600" />;
       if (index === 2) return <Coins className="w-6 h-6 text-amber-600" />;
-      return <Headphones className="w-6 h-6 text-red-600" />;
+      return <SupportHeadsetLogo className="w-6 h-6" />;
   }
 };
 

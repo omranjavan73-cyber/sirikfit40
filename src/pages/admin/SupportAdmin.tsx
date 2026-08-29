@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Headphones,
   Save,
   MessageCircle,
   Send,
@@ -13,6 +12,7 @@ import {
   ExternalLink,
   Sparkles
 } from 'lucide-react';
+import { SupportHeadsetLogo } from '../../components/common/SupportHeadsetLogo';
 import { useSupport } from '../../context/SupportContext';
 import { SupportConfig, DEFAULT_SUPPORT_CONFIG } from '../../types/support';
 
@@ -64,8 +64,8 @@ export const SupportAdmin: React.FC<SupportAdminProps> = ({ showToast }) => {
       <div className="bg-white dark:bg-zinc-900 border border-slate-200/90 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-md">
-              <Headphones className="w-6 h-6 text-red-500" />
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center shadow-md p-1.5">
+              <SupportHeadsetLogo className="w-9 h-9" />
             </div>
             <div>
               <h2 className="text-lg font-black text-slate-900 dark:text-white">

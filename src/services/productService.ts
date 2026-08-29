@@ -36,6 +36,7 @@ export interface StandardProductDoc {
   storeName: string;
   inStock: boolean;
   isActive: boolean;
+  isPublished?: boolean;
   isPopular: boolean;
   isFeatured: boolean;
   allowedFlavors: string[];
@@ -112,8 +113,8 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
       };
     });
 
-  const cleanFlavors = Array.from(new Set(cleanVariants.map(v => v.flavor)));
-  const cleanSizes = Array.from(new Set(cleanVariants.map(v => v.size)));
+  const cleanFlavors: string[] = Array.from(new Set(cleanVariants.map((v: any) => String(v.flavor))));
+  const cleanSizes: string[] = Array.from(new Set(cleanVariants.map((v: any) => String(v.size))));
 
   return {
     id: String(prod.id || Date.now()),

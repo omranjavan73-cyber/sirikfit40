@@ -56,7 +56,7 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
   const activeMainConfig = taxonomy.find(c => c.id === selectedMainCat || c.slug === selectedMainCat) || taxonomy[0] || DEFAULT_TAXONOMY[0];
 
   return (
-    <div className="flex flex-col gap-2 pt-1.5 pb-2 px-1 sm:px-2 font-['Vazirmatn',sans-serif] text-right w-full">
+    <div className="flex flex-col gap-1 px-1 pt-0 pb-0.5 font-['Vazirmatn',sans-serif] text-right w-full">
       {/* 1. Streamlined Top Action Row (Full-width Search Bar + Compact Cart Icon Button) */}
       <div className="flex items-center gap-1.5 w-full">
         <div className="relative flex-1">
@@ -66,14 +66,15 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={searchPlaceholder}
-              className="w-full bg-transparent py-1.5 pr-8 pl-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none text-right dir-rtl font-medium"
+              className="w-full bg-transparent py-1.5 pr-8 pl-7 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none text-right dir-rtl font-medium"
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 shrink-0 pointer-events-none" />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => onSearchChange('')}
-                className="absolute left-3 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+                className="absolute left-2.5 text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
+                title="پاک کردن"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -91,21 +92,21 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
               window.dispatchEvent(new CustomEvent('openCartDirect'));
             }
           }}
-          className="shrink-0 relative z-10 w-9 h-9 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-800 dark:text-white shadow-2xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition cursor-pointer active:scale-95"
+          className="shrink-0 relative z-10 w-8 h-8 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-800 dark:text-white shadow-2xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition cursor-pointer active:scale-95"
           title="مشاهده سبد خرید"
           aria-label="مشاهده سبد خرید"
         >
-          <ShoppingCart className="w-4 h-4" />
+          <ShoppingCart className="w-3.5 h-3.5" />
           {effectiveCartCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-xs">
+            <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow-xs">
               {effectiveCartCount > 99 ? '99+' : effectiveCartCount}
             </span>
           )}
         </button>
       </div>
 
-      {/* 2. Row 1: Main Category Pills */}
-      <div className="w-full flex items-center gap-1.5 overflow-x-auto whitespace-nowrap no-scrollbar py-1">
+      {/* 2. Row 1: Main Category Pills (Deep Obsidian Black Active State) */}
+      <div className="w-full flex items-center gap-1.5 overflow-x-auto whitespace-nowrap no-scrollbar py-0.5">
         {taxonomy.map((cat) => {
           const isActive = selectedMainCat === cat.id || selectedMainCat === cat.slug;
 
@@ -117,10 +118,10 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
                 onSelectMainCat(cat.id);
                 onSelectSubCat('all'); // Reset subcategory to all on main category change
               }}
-              className={`whitespace-nowrap px-3.5 py-1.5 text-xs sm:text-sm font-black transition-all duration-200 cursor-pointer rounded-xl shrink-0 text-center relative border ${
+              className={`whitespace-nowrap px-2.5 py-1 text-xs font-bold transition-all duration-200 cursor-pointer rounded-lg shrink-0 text-center relative border ${
                 isActive
-                  ? 'bg-slate-900 text-white shadow-sm ring-1 ring-slate-800 border-slate-900 dark:bg-zinc-900 dark:ring-zinc-700'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80 dark:bg-zinc-800 dark:text-zinc-300'
+                  ? 'bg-slate-900 text-white shadow-xs ring-1 ring-slate-800 border-slate-900 dark:bg-zinc-900 dark:ring-zinc-700'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200/80 dark:bg-zinc-800 dark:text-zinc-300'
               }`}
             >
               <span>{cat.name}</span>
@@ -129,9 +130,9 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
         })}
       </div>
 
-      {/* 3. Row 2: Sub-Filter Pills */}
+      {/* 3. Row 2: Sub-Filter Pills (Vibrant Brand Red Active State - High Distinction) */}
       {activeMainConfig?.subCategories && activeMainConfig.subCategories.length > 0 && (
-        <div className="w-full flex items-center gap-1 overflow-x-auto whitespace-nowrap no-scrollbar py-1">
+        <div className="w-full flex items-center gap-1 overflow-x-auto whitespace-nowrap no-scrollbar py-0">
           {activeMainConfig.subCategories.map((sub) => {
             const isSubActive = selectedSubCat === sub.id || selectedSubCat === sub.slug;
 
@@ -140,10 +141,10 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
                 key={sub.id}
                 type="button"
                 onClick={() => onSelectSubCat(sub.id)}
-                className={`whitespace-nowrap px-3 py-1 rounded-xl text-xs font-black transition-all duration-200 cursor-pointer shrink-0 border ${
+                className={`whitespace-nowrap px-2 py-0.5 rounded-lg text-[11px] font-semibold transition-all duration-200 cursor-pointer shrink-0 border ${
                   isSubActive
-                    ? 'bg-red-600 text-white border-red-600 shadow-sm ring-1 ring-red-500'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80 dark:bg-zinc-800 dark:text-zinc-300'
+                    ? 'bg-red-600 text-white border-red-600 shadow-xs ring-1 ring-red-400 font-bold'
+                    : 'bg-slate-100/90 hover:bg-slate-200 text-slate-600 border-slate-200/70 dark:bg-zinc-800/80 dark:text-zinc-300'
                 }`}
               >
                 {sub.name}

@@ -389,6 +389,22 @@ export async function fetchHtmlWithCorsProxy(targetUrl: string): Promise<string 
 }
 
 /**
+ * Strips HTML elements and textual patterns indicating strikethrough, crossed-out, was, or old prices.
+ */
+function stripStrikethroughAndOldPrices(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<del\b[^>]*>[\s\S]*?<\/del>/gi, ' ')
+    .replace(/<s\b[^>]*>[\s\S]*?<\/s>/gi, ' ')
+    .replace(/<strike\b[^>]*>[\s\S]*?<\/strike>/gi, ' ')
+    .replace(/~~[\s\S]*?~~/g, ' ')
+    .replace(/<[^>]*class=["'][^"']*\b(?:old-price|was-price|price-was|original-price|price-old|line-through|strikethrough|crossed-out|strike|is-crossed)\b[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9]+>/gi, ' ')
+    .replace(/<[^>]*data-price-type=["'](?:oldPrice|basePrice)["'][^>]*>[\s\S]*?<\/[a-z0-9]+>/gi, ' ')
+    .replace(/<[^>]*style=["'][^"']*text-decoration\s*:\s*line-through[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9]+>/gi, ' ')
+    .replace(/(?:Was|Old Price|Regular Price|List Price|MSRP|Original Price|قبل الخصم|السعر السابق|السعر القديم|قیمت قبل|قیمت اصلی)\s*[:\-]?\s*(?:AED|Dhs|درهم)?\s*[\d\.,]+/gi, ' ');
+}
+
+/**
  * High-Speed, Lightweight OpenGraph / JSON-LD HTML Metadata Extractor.
  * Bypasses AI for instant (sub-second) parsing when valid e-commerce meta tags or JSON-LD are found.
  */
@@ -402,16 +418,38 @@ export function parseHtmlMetadata(html: string, targetUrl: string): ParsedProduc
   let storeName = '';
   let brand = '';
 
+  const isSporter = targetUrl.toLowerCase().includes('sporter.com') || html.includes('sporter.com');
+
+  // Sporter Dedicated HTML Price check (guarantees selling price, not crossed-out price)
+  if (isSporter) {
+    const sporterFinalMatch = html.match(/data-price-type=["']finalPrice["'][^>]*data-price-amount=["']?([\d\.,]+)["']?/i) ||
+                             html.match(/data-price-amount=["']?([\d\.,]+)["']?[^>]*data-price-type=["']finalPrice["']/i) ||
+                             html.match(/class=["'][^"']*special-price[^"']*["'][^>]*data-price-amount=["']?([\d\.,]+)["']?/i) ||
+                             html.match(/class=["'][^"']*special-price[^"']*["'][\s\S]*?data-price-amount=["']?([\d\.,]+)["']?/i);
+    if (sporterFinalMatch && sporterFinalMatch[1]) {
+      const parsed = parseFloat(sporterFinalMatch[1].replace(/,/g, '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(parsed) && parsed > 0) priceAed = parsed;
+    }
+
+    const sporterOldMatch = html.match(/data-price-type=["']oldPrice["'][^>]*data-price-amount=["']?([\d\.,]+)["']?/i) ||
+                           html.match(/class=["'][^"']*old-price[^"']*["'][\s\S]*?data-price-amount=["']?([\d\.,]+)["']?/i);
+    if (sporterOldMatch && sporterOldMatch[1]) {
+      const parsed = parseFloat(sporterOldMatch[1].replace(/,/g, '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(parsed) && parsed > priceAed) originalPriceAed = parsed;
+    }
+  }
+
   // Extract domain-based store name as intelligent fallback
   try {
     const parsedUrl = new URL(targetUrl);
     const host = parsedUrl.hostname.replace(/^www\./i, '');
-    if (host.includes('drnutrition')) storeName = 'Dr. Nutrition';
+    if (host.includes('iherb')) storeName = 'iHerb';
+    else if (host.includes('drnutrition')) storeName = 'Dr. Nutrition';
     else if (host.includes('lifepharmacy')) storeName = 'Life Pharmacy';
     else if (host.includes('sporter')) storeName = 'Sporter';
-    else if (host.includes('gnc')) storeName = 'GNC';
-    else if (host.includes('noon')) storeName = 'Noon';
-    else if (host.includes('amazon')) storeName = 'Amazon';
+    else if (host.includes('gnc')) storeName = 'GNC Store';
+    else if (host.includes('noon')) storeName = 'Noon Dubai';
+    else if (host.includes('amazon')) storeName = 'Amazon UAE';
     else {
       const parts = host.split('.');
       if (parts[0]) {
@@ -506,6 +544,28 @@ export function parseHtmlMetadata(html: string, targetUrl: string): ParsedProduc
         if (!isNaN(parsed) && parsed > 0) {
           priceAed = parsed;
           break;
+        }
+      }
+    }
+
+    if (!priceAed) {
+      const cleaned = stripStrikethroughAndOldPrices(html);
+      const generalPriceRx = [
+        /(?:AED|Dhs)\s*([\d\.,]+)/i,
+        /([\d\.,]+)\s*(?:AED|Dhs)/i,
+        /["']special_price["']\s*:\s*([\d\.,]+)/i,
+        /["']final_price["']\s*:\s*([\d\.,]+)/i,
+        /["']sale_price["']\s*:\s*([\d\.,]+)/i,
+        /["']price["']\s*:\s*["']?([\d\.,]+)["']?/i
+      ];
+      for (const rx of generalPriceRx) {
+        const m = cleaned.match(rx);
+        if (m && m[1]) {
+          const parsed = parseFloat(m[1].replace(/,/g, '').replace(/[^0-9.]/g, ''));
+          if (!isNaN(parsed) && parsed > 0) {
+            priceAed = parsed;
+            break;
+          }
         }
       }
     }

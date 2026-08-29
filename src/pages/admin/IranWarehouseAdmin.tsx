@@ -16,7 +16,7 @@ import {
   TaxonomyCategory, DEFAULT_TAXONOMY, fetchTaxonomyFromFirestore
 } from '../../utils/taxonomyHelper';
 import { generatePersianTitle } from '../../utils/supplementLocalization';
-import { deleteDoc, doc, setDoc, getDocs, collection } from 'firebase/firestore';
+import { deleteDoc, doc, setDoc, updateDoc, getDocs, collection } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { calculateProductTomanPrice, parseWeightKg, computeVariantToman } from '../../utils/pricingCalculator';
 import { saveIranWarehouseItems } from '../../services/adminService';

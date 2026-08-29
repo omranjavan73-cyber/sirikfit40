@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShoppingCart, RotateCw } from 'lucide-react';
+import { ShoppingCart, RotateCcw } from 'lucide-react';
 import type { FinancialSettings, User, CmsConfig } from '../types';
 import { formatToman, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
 import { SirikFitLogo } from './SirikFitLogo';
@@ -157,17 +157,22 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* 2. AED Rate Pill (Physically to the RIGHT of Cart Button) */}
+            {/* 2. Compact Crisp White 2-Line AED Rate Badge (Physically to the RIGHT of Cart Button in LTR container) */}
             <div
               onClick={() => {
                 if (onRefreshSettings) onRefreshSettings();
                 refreshSettings();
               }}
-              className="text-[11px] font-bold text-slate-800 dark:text-zinc-200 bg-slate-100 dark:bg-zinc-800 px-2.5 py-1 rounded-lg shrink-0 flex items-center gap-1 cursor-pointer select-none border border-slate-200/80 dark:border-zinc-700 hover:border-slate-300 transition"
+              className="flex flex-col items-center justify-center bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 shadow-xs px-2.5 py-1 rounded-xl shrink-0 cursor-pointer select-none hover:border-slate-400 dark:hover:border-zinc-500 transition active:scale-95"
               title="به‌روزرسانی نرخ درهم"
             >
-              <RotateCw className={`w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400 ${isLoadingRate ? 'animate-spin text-amber-500' : ''}`} />
-              <span>درهم: {dirhamRate && dirhamRate > 0 ? Number(dirhamRate).toLocaleString('fa-IR') : '۵۵,۷۰۰'} تومان</span>
+              <div className="flex items-center gap-1 text-[9px] text-slate-500 dark:text-zinc-400 font-semibold leading-tight">
+                <RotateCcw className={`w-2.5 h-2.5 ${isLoadingRate ? 'animate-spin text-amber-500' : 'text-slate-400'}`}/>
+                <span>نرخ درهم</span>
+              </div>
+              <div className="text-[11px] font-black text-slate-900 dark:text-white leading-tight mt-0.5">
+                {dirhamRate ? Number(dirhamRate).toLocaleString('fa-IR') : '۵۵,۷۰۰'} تومان
+              </div>
             </div>
 
           </div>

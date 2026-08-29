@@ -1,5 +1,6 @@
 export type { StoreBadgeTheme } from '../utils/formatters';
 export * from '../types';
+export * from '../constants/stores';
 
 export interface Product {
   id: string;

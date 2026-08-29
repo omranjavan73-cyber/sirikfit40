@@ -25,6 +25,7 @@ export interface ProductVariantLike {
   weightKg?: number;
   image?: string;
   imageUrl?: string;
+  imageLink?: string;
   imageThumbnail?: string;
   inStock?: boolean;
   isAvailable?: boolean;

@@ -174,7 +174,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
     } catch (_e) {}
 
     if (isRestricted) {
-      const defaultAllowedDomains = ['noon.com', 'amazon.ae', 'lifepharmacy.com', 'sporter.com', 'drnutrition.com', 'gnc-mena.com'];
+      const defaultAllowedDomains = ['noon.com', 'amazon.ae', 'lifepharmacy.com', 'sporter.com', 'drnutrition.com', 'gnc-mena.com', 'gnc.ae', 'gnc.com', 'iherb.com', 'ae.iherb.com'];
       const configuredAllowed = (cms?.apiConfig?.allowedDomains && cms.apiConfig.allowedDomains.length > 0)
         ? cms.apiConfig.allowedDomains
         : defaultAllowedDomains;

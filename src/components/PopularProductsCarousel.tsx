@@ -7,12 +7,21 @@ import { getEffectiveAedRate, calculateFinalToman, formatPrice } from '../utils/
 export interface PopularProductItem {
   id: string;
   title: string;
+  titleFa?: string;
+  name?: string;
   image: string;
+  imageUrl?: string;
+  galleryImages?: string[];
   filterKey?: string;
   rawItem?: any;
   type?: 'local' | 'deal' | 'custom';
   samplePriceAed?: number;
   sampleWeightKg?: number;
+  priceToman?: number;
+  priceAed?: number;
+  profitMargin?: number;
+  marginPercent?: number;
+  weightKg?: number;
 }
 
 

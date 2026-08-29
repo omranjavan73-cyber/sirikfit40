@@ -1,6 +1,6 @@
 {
-  "name": "@sirikfit40 2.1",
-  "description": "SirikFit - Dubai supplement ordering and calculation platform with live scraper, cart, and store catalog.",
+  "name": "سیریک فیت | SirikFit",
+  "description": "فروشگاه آنلاین سیریک فیت؛ خرید مستقیم و بدون واسطه انواع مکمل‌های ورزشی، ویتامین و پروتئین اورجینال از امارات با ضمانت اصالت و تحویل سریع در سراسر ایران.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

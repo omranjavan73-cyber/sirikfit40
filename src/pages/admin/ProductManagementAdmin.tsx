@@ -32,7 +32,9 @@ import { LinkManagementTab } from '../../components/admin/LinkManagementTab';
 import { IranWarehouseAdmin } from './IranWarehouseAdmin';
 import { DealsAdmin } from './DealsAdmin';
 import { AdminTaxonomyManager } from '../../components/AdminTaxonomyManager';
-import { collection, onSnapshot, doc, getDoc, setDoc } from 'firebase/firestore';
+import { STORE_LIST, getStoreConfig } from '../../constants/stores';
+import { detectStoreOrigin } from '../../services/scraperService';
+import { collection, onSnapshot, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 interface ProductManagementAdminProps {
@@ -166,12 +168,15 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         const updatedSizes = Array.from(new Set([...(scraped.sizes || []), sz].filter(Boolean)));
         const updatedFlavors = Array.from(new Set([...(scraped.flavors || []), flv].filter(Boolean)));
 
+        const originInfo = detectStoreOrigin(mainUrl.trim());
+        const resolvedStore = scraped.storeName || (mainUrl.toLowerCase().includes('iherb') ? 'iHerb' : (originInfo?.storeName || undefined));
+
         setProduct(prev => ({
           ...prev,
           title: scraped.title || prev.title,
           titleFa: scraped.titleFa || prev.titleFa,
           brand: scraped.brand || prev.brand,
-          storeName: scraped.storeName || prev.storeName,
+          storeName: resolvedStore || prev.storeName || 'iHerb',
           sourceUrl: mainUrl.trim(),
           price: pAed || prev.price,
           priceAed: pAed || prev.priceAed,
@@ -638,7 +643,7 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           <div className="space-y-2">
             {[...dealsList, ...inventoryList].map((prod: any, idx) => (
               <div
-                key={prod.id || idx}
+                key={prod.id ? `prod-sample-${prod.id}-${idx}` : `prod-sample-idx-${idx}`}
                 className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-2xl"
               >
                 <div className="flex items-center gap-3">
@@ -696,8 +701,15 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           <input
             type="url"
             value={mainUrl}
-            onChange={(e) => setMainUrl(e.target.value)}
-            placeholder="https://www.drnutrition.com/en-ae/... یا https://www.sporter.com/en-ae/..."
+            onChange={(e) => {
+              const val = e.target.value;
+              setMainUrl(val);
+              const origin = detectStoreOrigin(val);
+              if (origin?.storeName && (!product.storeName || product.storeName === 'فروشگاه معتبر دبی')) {
+                setProduct(prev => ({ ...prev, storeName: origin.storeName }));
+              }
+            }}
+            placeholder="https://ae.iherb.com/... یا https://www.drnutrition.com/en-ae/... یا https://www.sporter.com/en-ae/..."
             className="flex-1 bg-slate-50 border border-slate-300 text-slate-900 text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-black font-medium dir-ltr text-right"
           />
           <button
@@ -713,19 +725,43 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
 
         {/* Product Basic Meta Preview */}
         {product.title && (
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-4 mt-3">
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-3">
             <div className="flex items-center gap-4 flex-1 min-w-0">
               {product.image && (
                 <img src={product.image} alt={product.title} className="w-16 h-16 object-contain rounded-xl bg-white border border-slate-200 p-1 shrink-0" />
               )}
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 space-y-1">
                 <span className="text-xs font-black text-slate-900 block truncate">{product.title}</span>
-                <div className="flex items-center gap-3 text-[11px] text-slate-500 font-bold mt-1">
+                <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 font-bold">
                   <span>برند: {product.brand || '—'}</span>
-                  <span>فروشگاه: {product.storeName || '—'}</span>
                   <span className="text-emerald-600 font-bold">قیمت پایه: {product.priceAed} AED</span>
                 </div>
               </div>
+            </div>
+
+            {/* Store Selector & Badge Matrix Preview */}
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-2 shrink-0">
+              <span className="text-[11px] font-bold text-slate-600">فروشگاه:</span>
+              <select
+                value={product.storeName || 'iHerb'}
+                onChange={(e) => setProduct(prev => ({ ...prev, storeName: e.target.value }))}
+                className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 focus:outline-none focus:border-black cursor-pointer"
+              >
+                {STORE_LIST.map(st => (
+                  <option key={st.id} value={st.name}>
+                    {st.name} {st.nameFa ? `(${st.nameFa})` : ''}
+                  </option>
+                ))}
+              </select>
+              {(() => {
+                const cfg = getStoreConfig(product.storeName);
+                return (
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${cfg.badgeBg} ${cfg.badgeText}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${cfg.pulseColor} animate-pulse`} />
+                    {cfg.name}
+                  </span>
+                );
+              })()}
             </div>
           </div>
         )}

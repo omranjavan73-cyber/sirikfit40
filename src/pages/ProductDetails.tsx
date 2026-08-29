@@ -53,6 +53,9 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
   // ── Store / Brand Badge Resolver (Rendered cleanly above title) ──────────────
   const storeBadge = useMemo(() => {
     const s = ((product as any)?.storeName || product?.brand || '').toLowerCase();
+    if (s.includes('iherb') || s.includes('آی‌هرب') || s.includes('آی هرب')) {
+      return { name: 'iHerb', bg: 'bg-[#458500]/10 text-[#458500] border-[#458500]/30', dot: 'bg-[#458500]' };
+    }
     if (s.includes('dr. nutrition') || s.includes('dr nutrition') || s.includes('drnutrition')) {
       return { name: 'Dr. Nutrition', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' };
     }

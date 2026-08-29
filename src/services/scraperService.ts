@@ -75,14 +75,20 @@ export class UniversalScraperService {
     const storeName = raw.storeName || raw.sourceStore || originInfo.storeName;
     const brand = raw.brand || storeName;
 
-    const mainImage = raw.mainImage || raw.image || raw.image_url || '';
+    let mainImage = raw.mainImage || raw.image || raw.image_url || '';
+    if (mainImage && (mainImage.toLowerCase().includes('logo') || mainImage.toLowerCase().includes('dnp') || mainImage.toLowerCase().includes('vector.svg') || mainImage.toLowerCase().includes('og-logo'))) {
+      mainImage = '';
+    }
     const rawGallery: string[] = Array.isArray(raw.galleryImages)
       ? raw.galleryImages
       : (Array.isArray(raw.images) ? raw.images : []);
 
     const images: string[] = Array.from(
-      new Set([mainImage, ...rawGallery].filter(Boolean))
+      new Set([mainImage, ...rawGallery].filter(img => img && !img.toLowerCase().includes('logo') && !img.toLowerCase().includes('dnp') && !img.toLowerCase().includes('vector.svg') && !img.toLowerCase().includes('og-logo')))
     );
+    if (!mainImage && images.length > 0) {
+      mainImage = images[0];
+    }
 
     const price = Number(raw.basePriceAED || raw.priceAed || raw.price_aed || raw.price) || 0;
     const originalPrice = Number(raw.originalPriceAed || raw.original_price_aed || raw.originalPrice) || undefined;
@@ -455,14 +461,20 @@ export class UniversalScraperService {
     const storeName = raw.storeName || raw.sourceStore || originInfo.storeName;
     const brand = raw.brand || storeName;
 
-    const mainImage = raw.mainImage || raw.image || raw.image_url || '';
+    let mainImage = raw.mainImage || raw.image || raw.image_url || '';
+    if (mainImage && (mainImage.toLowerCase().includes('logo') || mainImage.toLowerCase().includes('dnp') || mainImage.toLowerCase().includes('vector.svg') || mainImage.toLowerCase().includes('og-logo'))) {
+      mainImage = '';
+    }
     const rawGallery: string[] = Array.isArray(raw.galleryImages)
       ? raw.galleryImages
       : (Array.isArray(raw.images) ? raw.images : []);
 
     const galleryImages: string[] = Array.from(
-      new Set([mainImage, ...rawGallery].filter(Boolean))
+      new Set([mainImage, ...rawGallery].filter(img => img && !img.toLowerCase().includes('logo') && !img.toLowerCase().includes('dnp') && !img.toLowerCase().includes('vector.svg') && !img.toLowerCase().includes('og-logo')))
     );
+    if (!mainImage && galleryImages.length > 0) {
+      mainImage = galleryImages[0];
+    }
 
     const priceAed = Number(raw.basePriceAED || raw.priceAed || raw.price_aed || raw.price) || 0;
     const originalPriceAed = Number(raw.originalPriceAed || raw.original_price_aed) || undefined;

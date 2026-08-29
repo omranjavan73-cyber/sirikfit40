@@ -988,8 +988,12 @@ export async function parseProductLinkUniversal(params: {
           const storeName = d.retailer || d.storeName || 'دبی';
           const brandName = d.brand || storeName;
           const formattedTitle = d.titleFa || generateBilingualProductTitle(rawT, storeName, brandName);
-          const mainImg = d.image || (Array.isArray(d.galleryImages) && d.galleryImages[0]) || '';
-          const galleryImages = Array.from(new Set([mainImg, ...(Array.isArray(d.galleryImages) ? d.galleryImages : [])].filter(Boolean)));
+          let mainImg = d.image || (Array.isArray(d.galleryImages) && d.galleryImages[0]) || '';
+          if (mainImg && (mainImg.toLowerCase().includes('logo') || mainImg.toLowerCase().includes('dnp') || mainImg.toLowerCase().includes('vector.svg') || mainImg.toLowerCase().includes('og-logo'))) {
+            mainImg = '';
+          }
+          const galleryImages = Array.from(new Set([mainImg, ...(Array.isArray(d.galleryImages) ? d.galleryImages : [])].filter(img => img && !img.toLowerCase().includes('logo') && !img.toLowerCase().includes('dnp') && !img.toLowerCase().includes('vector.svg') && !img.toLowerCase().includes('og-logo'))));
+          if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
           
           return {
             success: true,
@@ -1049,11 +1053,15 @@ export async function parseProductLinkUniversal(params: {
       const brandName = data.brand || storeName;
       const formattedTitle = generateBilingualProductTitle(data.title, storeName, brandName);
 
-      const mainImg = data.image || data.mainImage || data.image_url || '';
+      let mainImg = data.image || data.mainImage || data.image_url || '';
+      if (mainImg && (mainImg.toLowerCase().includes('logo') || mainImg.toLowerCase().includes('dnp') || mainImg.toLowerCase().includes('vector.svg') || mainImg.toLowerCase().includes('og-logo'))) {
+        mainImg = '';
+      }
       const rawGallery = Array.isArray(data.galleryImages) 
         ? data.galleryImages 
         : (Array.isArray(data.images) ? data.images : []);
-      const galleryImages = Array.from(new Set([mainImg, ...rawGallery].filter(Boolean)));
+      const galleryImages = Array.from(new Set([mainImg, ...rawGallery].filter(img => img && !img.toLowerCase().includes('logo') && !img.toLowerCase().includes('dnp') && !img.toLowerCase().includes('vector.svg') && !img.toLowerCase().includes('og-logo'))));
+      if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
 
       // Process variant groups
       let variantGroups: ProductVariantGroup[] = [];

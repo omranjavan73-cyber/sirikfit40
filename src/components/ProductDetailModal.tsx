@@ -63,6 +63,7 @@ export interface ProductDetailModalProduct {
   image?: string;
   images?: string[];
   galleryImages?: string[];
+  sourceUrl?: string;
   storeName?: string;
   brand?: string;
   category?: string;
@@ -633,7 +634,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             <div className="relative w-full aspect-square max-h-72 bg-gray-50 rounded-2xl p-4 flex items-center justify-center border border-gray-100 overflow-hidden">
               {/* Dynamic Official Store Badge */}
               {(() => {
-                const storeTheme = getStoreBadgeTheme(product.storeName || product.brand);
+                const isIherb = (product.storeName || '').toLowerCase().includes('iherb') || (product.sourceUrl || product.url || '').toLowerCase().includes('iherb');
+                const storeTheme = getStoreBadgeTheme(isIherb ? 'iHerb' : (product.storeName || product.brand));
                 return (
                   <div className={`absolute top-3 right-3 z-10 ${storeTheme.bg} rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm shadow-sm`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse ml-1.5 shrink-0`} />

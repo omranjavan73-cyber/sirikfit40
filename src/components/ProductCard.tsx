@@ -30,7 +30,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
   const effectiveBadge = badgeText || (discountPercent > 0 ? `${discountPercent}٪ تخفیف` : product.badge || undefined);
   const isIHerb = (storeName || '').toLowerCase().includes('iherb') || (product.sourceUrl || product.url || '').toLowerCase().includes('iherb');
-  const storeTheme = getStoreBadgeTheme(storeName);
+  const storeTheme = getStoreBadgeTheme(isIHerb ? 'iHerb' : storeName);
 
   const handleCardClick = () => {
     if (onSelect) {
@@ -65,9 +65,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       <div className="relative w-full aspect-square bg-gray-50 rounded-xl p-2 flex items-center justify-center overflow-hidden mb-2">
         {/* Store Badge (Top-Right) */}
         <div className="absolute top-1.5 right-1.5 z-10">
-          <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full shadow-sm ${storeTheme.bg || (isIHerb ? 'bg-[#458500] text-white' : 'bg-red-600 text-white')}`}>
-            <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${storeTheme.dot || 'bg-white'}`} />
-            {product.storeName || storeTheme.name || (isIHerb ? 'iHerb' : 'GNC Store')}
+          <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full shadow-sm ${isIHerb ? 'bg-[#458500] text-white ring-1 ring-emerald-600 shadow-sm' : (storeTheme.bg || 'bg-red-600 text-white')}`}>
+            <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${isIHerb ? 'bg-emerald-300' : (storeTheme.dot || 'bg-white')}`} />
+            {isIHerb ? 'iHerb' : (product.storeName || storeTheme.name || 'GNC Store')}
           </span>
         </div>
 

@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import firebaseConfigJson from './firebase-applet-config.json';
 import { scraperRouter } from './functions/src/routes/scraper';
+import { iherbAdapter, parseIherbHtml } from './functions/src/scrapers';
 
 // Suppress internal gRPC stream disconnect debug/info messages
 try {
@@ -3901,6 +3902,9 @@ function normalizeTargetUrl(rawUrl: string): string {
     const urlObj = new URL(clean);
     const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ref', 'v', '_ga'];
     trackingParams.forEach(p => urlObj.searchParams.delete(p));
+    if (urlObj.hostname.toLowerCase().includes('iherb.com')) {
+      urlObj.hostname = 'ae.iherb.com';
+    }
     let normalized = urlObj.toString();
     if (normalized.endsWith('/') && urlObj.pathname !== '/') {
       normalized = normalized.slice(0, -1);
@@ -4450,6 +4454,29 @@ function parseSporterProduct(rawHtmlText: string, targetUrl: string = ''): Parse
 }
 
 function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
+  // If target URL is iHerb or HTML indicates iHerb, use dedicated iHerb parser
+  if (targetUrl.toLowerCase().includes('iherb.com') || targetUrl.toLowerCase().includes('ae.iherb.com') || rawHtmlText.includes('iherb.com')) {
+    const iherbResult = parseIherbHtml(rawHtmlText, targetUrl);
+    if (iherbResult.ok && iherbResult.priceAed && iherbResult.priceAed > 0) {
+      return {
+        title: iherbResult.titleEn || iherbResult.title || '',
+        titleFa: iherbResult.titleFa || '',
+        price: iherbResult.priceAed,
+        originalPriceAed: iherbResult.originalPriceAed,
+        discountPercent: iherbResult.discountPercent,
+        image: iherbResult.image || '',
+        galleryImages: iherbResult.galleryImages || [],
+        description: iherbResult.description || '',
+        variantGroups: iherbResult.variantGroups || [],
+        variantMatrix: iherbResult.variantMatrix || null,
+        variants: iherbResult.variants || [],
+        options: iherbResult.flavors || [],
+        flavors: iherbResult.flavors || [],
+        sizes: iherbResult.sizes || []
+      };
+    }
+  }
+
   // If target URL is Sporter or HTML indicates Sporter, use dedicated Sporter parser
   if (targetUrl.toLowerCase().includes('sporter.com') || rawHtmlText.includes('sporter.com')) {
     const sporterResult = parseSporterProduct(rawHtmlText, targetUrl);
@@ -7110,7 +7137,8 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
           try {
             const domain = new URL(normalizedUrl).hostname.toLowerCase();
             let freshRes: any = null;
-            if (domain.includes('gnc')) freshRes = await gncAdapter(normalizedUrl, cmsConfig);
+            if (domain.includes('iherb')) freshRes = await iherbAdapter(normalizedUrl, cmsConfig);
+            else if (domain.includes('gnc')) freshRes = await gncAdapter(normalizedUrl, cmsConfig);
             else if (domain.includes('lifepharmacy') || domain.includes('drpharmacy')) freshRes = await lifePharmacyAdapter(normalizedUrl, cmsConfig);
             else if (domain.includes('drnutrition')) freshRes = await drNutritionAdapter(normalizedUrl, cmsConfig);
             else if (domain.includes('sporter')) freshRes = await sporterAdapter(normalizedUrl, cmsConfig);
@@ -7176,7 +7204,9 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
     let result: ParseAdapterResult;
 
     const executeScraper = async (userAgent?: string): Promise<ParseAdapterResult> => {
-      if (domain.includes('gnc')) {
+      if (domain.includes('iherb')) {
+        return (await iherbAdapter(normalizedUrl, cmsConfig, userAgent)) as ParseAdapterResult;
+      } else if (domain.includes('gnc')) {
         return await gncAdapter(normalizedUrl, cmsConfig);
       } else if (domain.includes('lifepharmacy') || domain.includes('drpharmacy')) {
         return await lifePharmacyAdapter(normalizedUrl, cmsConfig);
@@ -7784,7 +7814,7 @@ app.post('/api/admin/sync-product-prices', async (req, res) => {
   }
 });
 
-app.use('/api/scraper', scraperRouter);
+app.use('/api/scraper', scraperRouter as any);
 app.all('/api/parse-link', handleParseLinkRoute);
 app.all('/api/scrape-product', handleParseLinkRoute);
 

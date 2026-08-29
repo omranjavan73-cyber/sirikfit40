@@ -67,6 +67,7 @@ export interface ScrapedProductResult {
     items: any[];
   };
   options?: string[];
+  inStock?: boolean;
 }
 
 export const extractRobustProductData = (html: string, sourceUrl: string): ExtractedProduct => {

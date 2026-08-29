@@ -227,6 +227,29 @@ export function cleanHtmlContent(html: string): string {
 }
 
 /**
+ * Resolves an iHerb CDN image URL to its highest-resolution direct CDN image link.
+ */
+export function resolveIherbHighResImage(rawUrl: string): string {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  let clean = rawUrl.trim();
+  if (clean.startsWith('//')) clean = 'https:' + clean;
+
+  if (clean.includes('iherb.com') || clean.includes('images-iherb.com')) {
+    clean = clean.replace(/(\/images\.iherb\.com\/)(?:m|s|t|v|c)(\/[a-z0-9_-]+\.(?:jpg|png|webp|jpeg))/i, '$1l$2');
+    clean = clean.replace(/(\/)(?:m|s|t|v|c)(\/[a-z0-9_-]+\.(?:jpg|png|webp|jpeg))/i, '$1l$2');
+    try {
+      const u = new URL(clean);
+      u.searchParams.delete('w');
+      u.searchParams.delete('h');
+      u.searchParams.delete('width');
+      u.searchParams.delete('height');
+      clean = u.toString();
+    } catch (_e) {}
+  }
+  return clean;
+}
+
+/**
  * Stage 1: Ultra-Fast Primary Extractor using Microlink API.
  * Microlink uses cloud instances to bypass Cloudflare 403 blocks and return normalized OpenGraph data.
  */
@@ -419,6 +442,29 @@ export function parseHtmlMetadata(html: string, targetUrl: string): ParsedProduc
   let brand = '';
 
   const isSporter = targetUrl.toLowerCase().includes('sporter.com') || html.includes('sporter.com');
+  const isIherb = targetUrl.toLowerCase().includes('iherb.com') || targetUrl.toLowerCase().includes('ae.iherb.com') || html.includes('iherb.com');
+
+  if (isIherb) {
+    storeName = 'iHerb';
+    const iherbPriceMatch = html.match(/class=["'][^"']*\bour-price\b[^"']*["'][^>]*>([\s\S]*?)<\/[a-z0-9]+>/i) ||
+                           html.match(/class=["'][^"']*\bproduct-price-amount\b[^"']*["'][^>]*>([\s\S]*?)<\/[a-z0-9]+>/i) ||
+                           html.match(/itemprop=["']price["'][^>]*content=["']([\d.,]+)["']/i) ||
+                           html.match(/<b\b[^>]*itemprop=["']price["'][^>]*>([\s\S]*?)<\/b>/i);
+    if (iherbPriceMatch && iherbPriceMatch[1]) {
+      const parsed = parseFloat(iherbPriceMatch[1].replace(/,/g, '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(parsed) && parsed > 0) priceAed = parsed;
+    }
+    const iherbTitleMatch = html.match(/<h1\b[^>]*class=["'][^"']*\bproduct-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i) ||
+                            html.match(/<h1\b[^>]*id=["']name["'][^>]*>([\s\S]*?)<\/h1>/i);
+    if (iherbTitleMatch && iherbTitleMatch[1]) {
+      title = iherbTitleMatch[1].replace(/<[^>]+>/g, '').trim();
+    }
+    const iherbBrandMatch = html.match(/class=["'][^"']*\bproduct-brand\b[^"']*["'][^>]*>([\s\S]*?)<\/[a-z0-9]+>/i) ||
+                            html.match(/<div\b[^>]*id=["']brand["'][^>]*>([\s\S]*?)<\/div>/i);
+    if (iherbBrandMatch && iherbBrandMatch[1]) {
+      brand = iherbBrandMatch[1].replace(/<[^>]+>/g, '').trim();
+    }
+  }
 
   // Sporter Dedicated HTML Price check (guarantees selling price, not crossed-out price)
   if (isSporter) {
@@ -629,6 +675,11 @@ export function parseHtmlMetadata(html: string, targetUrl: string): ParsedProduc
       discountPercent = Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100);
     }
 
+    let resolvedImage = image || '';
+    if (isIherb && resolvedImage) {
+      resolvedImage = resolveIherbHighResImage(resolvedImage);
+    }
+
     return {
       success: true,
       title: formattedTitle,
@@ -638,8 +689,8 @@ export function parseHtmlMetadata(html: string, targetUrl: string): ParsedProduc
       storeName: storeName || 'فروشگاه دبی',
       brand: brand || storeName || 'برند معتبر',
       category: '💊 مکمل‌های ورزشی',
-      image: image || '',
-      images: image ? [image] : [],
+      image: resolvedImage,
+      images: resolvedImage ? [resolvedImage] : [],
       weightKg: 0.8,
       description: `محصول اورجینال با ضمانت اصالت ۱۰۰٪ از ${storeName || 'فروشگاه‌های معتبر دبی'}`,
       options: ["پیش‌فرض / استاندارد"]

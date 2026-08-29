@@ -14,8 +14,10 @@ import { GncAdapter } from './GncAdapter';
 import { DrNutritionAdapter } from './DrNutritionAdapter';
 import { GncParser } from './gncParser';
 import { DrNutritionParser } from './drNutritionParser';
+import { IherbAdapter } from './IherbAdapter';
+import { IherbParser, resolveIherbHighResImage } from './iherbParser';
 
-export { GncAdapter, DrNutritionAdapter, GncParser, DrNutritionParser };
+export { GncAdapter, DrNutritionAdapter, GncParser, DrNutritionParser, IherbAdapter, IherbParser, resolveIherbHighResImage };
 
 export interface ScraperAdapter {
   storeName: string;

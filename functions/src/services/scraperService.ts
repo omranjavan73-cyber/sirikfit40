@@ -4,6 +4,7 @@ import { scrapeSporter } from '../scrapers/sporterScraper';
 import { scrapeDrNutrition } from '../scrapers/drNutritionScraper';
 import { scrapeGnc } from '../scrapers/gncScraper';
 import { lifePharmacyAdapter } from '../scrapers/lifePharmacyAdapter';
+import { scrapeIherb } from '../scrapers/iherbScraper';
 import { cleanAndNormalizeUrl, hashUrl, USER_AGENT_ROTATION_POOL, getRandomUserAgent } from '../scrapers/utils';
 
 // Lazy Firebase Admin initialization
@@ -18,7 +19,7 @@ function getAdminDb() {
   }
 }
 
-export type SupportedRetailer = 'Sporter' | 'DrNutrition' | 'GNC' | 'LifePharmacy';
+export type SupportedRetailer = 'Sporter' | 'DrNutrition' | 'GNC' | 'LifePharmacy' | 'iHerb';
 
 export interface StandardizedProductData {
   titleFa: string;
@@ -65,6 +66,7 @@ export class BackendScraperService {
    */
   public detectRetailer(url: string): SupportedRetailer {
     const lower = url.toLowerCase();
+    if (lower.includes('iherb.com') || lower.includes('ae.iherb.com')) return 'iHerb';
     if (lower.includes('sporter.com')) return 'Sporter';
     if (lower.includes('drnutrition.com')) return 'DrNutrition';
     if (lower.includes('gnc-mena.com') || lower.includes('gnc.ae') || lower.includes('gnc.com')) return 'GNC';
@@ -140,7 +142,9 @@ export class BackendScraperService {
     let extracted: any = null;
 
     const runExtraction = async (ua: string, timeoutMs: number) => {
-      if (retailer === 'Sporter') {
+      if (retailer === 'iHerb') {
+        return await scrapeIherb(normalizedUrl, { userAgent: ua, timeoutMs });
+      } else if (retailer === 'Sporter') {
         return await scrapeSporter(normalizedUrl, { userAgent: ua, timeoutMs });
       } else if (retailer === 'DrNutrition') {
         return await scrapeDrNutrition(normalizedUrl, { userAgent: ua, timeoutMs });

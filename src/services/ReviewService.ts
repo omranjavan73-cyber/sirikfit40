@@ -13,7 +13,8 @@ import {
   limit,
   onSnapshot
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { db } from '../config/firebase';
+import { handleFirestoreError, OperationType } from '../firebase';
 
 export interface ReviewItem {
   id: string;

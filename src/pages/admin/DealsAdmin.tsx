@@ -16,7 +16,7 @@ import {
   TaxonomyCategory, DEFAULT_TAXONOMY, fetchTaxonomyFromFirestore
 } from '../../utils/taxonomyHelper';
 import { generatePersianTitle } from '../../utils/supplementLocalization';
-import { deleteDoc, doc, setDoc } from 'firebase/firestore';
+import { deleteDoc, doc, setDoc, getDocs, collection } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { parseWeightKg, calculateProductTomanPrice } from '../../utils/pricingCalculator';
 import { saveSpecialDeals } from '../../services/adminService';
@@ -53,53 +53,60 @@ export function computeTomanSellingPrice(
 }
 
 // Strict Data Sanitizer: forces valid fallbacks and purges any undefined values
-export const sanitizeProductPayload = (prod: any, globalRate: number = 51400, defaultMargin: number = 20) => {
+export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, defaultMargin: number = 20) => {
   const margin = Number(prod.profitMargin !== undefined && prod.profitMargin !== null && !isNaN(Number(prod.profitMargin)) ? prod.profitMargin : defaultMargin);
   const baseAed = Number(prod.basePriceAed || prod.priceAed || prod.price || 0);
   const baseWeight = Number(prod.weightKg || 0.8);
 
   const rawVariants = Array.isArray(prod.variants) ? prod.variants : [];
-  const cleanVariants = rawVariants.map((v: any) => {
-    const vAed = Number(v.priceAed ?? v.price ?? v.priceAED ?? baseAed ?? 0);
-    const vToman = Number(v.priceToman || calculateProductTomanPrice({
-      priceAed: vAed,
-      profitMarginPercent: margin,
-      aedToTomanRate: globalRate,
-      baseShippingAed: 20
-    }));
+  const cleanVariants = rawVariants
+    .filter((v: any) => v && ((v.size && String(v.size).trim()) || (v.flavor && String(v.flavor).trim())))
+    .map((v: any) => {
+      const vAed = Number(v.priceAed ?? v.price ?? v.priceAED ?? baseAed ?? 0);
+      const vToman = Number(v.priceToman || calculateProductTomanPrice({
+        priceAed: vAed,
+        profitMarginPercent: margin,
+        aedToTomanRate: globalRate,
+        baseShippingAed: 20
+      }));
 
-    const cleanVar: Record<string, any> = {
-      id: String(v.id || `var-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`),
-      flavor: String(v.flavor || ''),
-      size: String(v.size || ''),
-      priceAed: vAed,
-      price: vAed,
-      priceAED: vAed,
-      priceToman: vToman,
-      weightKg: parseWeightKg(v.size, Number(v.weightKg) || baseWeight),
-      image: String(v.image || prod.imageUrl || prod.image || ''),
-      inStock: v.inStock !== false
-    };
+      const cleanFlavor = (v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__')
+        ? String(v.flavor).trim()
+        : 'پیش‌فرض';
+      const cleanSize = (v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__')
+        ? String(v.size).trim()
+        : 'استاندارد';
 
-    if (v.url) {
-      cleanVar.url = String(v.url);
-    }
+      const cleanVar: Record<string, any> = {
+        id: String(v.id || `var-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`),
+        flavor: cleanFlavor,
+        size: cleanSize,
+        priceAed: vAed,
+        price: vAed,
+        priceAED: vAed,
+        priceToman: vToman,
+        weightKg: parseWeightKg(cleanSize, Number(v.weightKg) || baseWeight),
+        image: (v.image && String(v.image).trim() !== '') ? String(v.image).trim() : ((v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : null),
+        imageUrl: (v.image && String(v.image).trim() !== '') ? String(v.image).trim() : ((v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : null),
+        inStock: v.inStock !== false
+      };
 
-    return cleanVar;
-  });
+      if (v.url) {
+        cleanVar.url = String(v.url);
+      }
 
-  const productPriceToman = Number(prod.priceToman || calculateProductTomanPrice({
+      return cleanVar;
+    });
+
+  const cleanFlavors = Array.from(new Set(cleanVariants.map((v: any) => v.flavor)));
+  const cleanSizes = Array.from(new Set(cleanVariants.map((v: any) => v.size)));
+
+  const productPriceToman = Number(prod.priceToman) || calculateProductTomanPrice({
     priceAed: baseAed,
     profitMarginPercent: margin,
     aedToTomanRate: globalRate,
     baseShippingAed: 20
-  }));
-
-  const rawFlavors = Array.isArray(prod.allowedFlavors) ? prod.allowedFlavors : (Array.isArray(prod.flavors) ? prod.flavors : []);
-  const cleanFlavors = rawFlavors.filter((f: any) => typeof f === 'string' && f.trim().length > 0);
-
-  const rawSizes = Array.isArray(prod.allowedSizes) ? prod.allowedSizes : (Array.isArray(prod.sizes) ? prod.sizes : []);
-  const cleanSizes = rawSizes.filter((s: any) => typeof s === 'string' && s.trim().length > 0);
+  });
 
   const titleFa = String(prod.titleFa || prod.title || prod.titleEn || 'بدون عنوان');
   const titleEn = String(prod.titleEn || prod.rawTitle || '');
@@ -132,7 +139,8 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 51400, de
     stockCount: Number(prod.stockCount !== undefined ? prod.stockCount : (prod.stockQuantity !== undefined ? prod.stockQuantity : 10)),
     url: String(prod.url || ''),
     storeName: String(prod.storeName || 'فروشگاه دبی'),
-    isActive: Boolean(prod.isActive),
+    isActive: prod.isActive !== undefined ? Boolean(prod.isActive) : (prod.isPublished !== undefined ? Boolean(prod.isPublished) : true),
+    isPublished: prod.isPublished !== undefined ? Boolean(prod.isPublished) : (prod.isActive !== undefined ? Boolean(prod.isActive) : true),
     isPopular: Boolean(prod.isPopular),
     isFeatured: Boolean(prod.isFeatured || prod.isPopular),
     inStock: prod.inStock !== false,
@@ -175,7 +183,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'popular' | 'draft'>('all');
 
-  const aedRate = getEffectiveAedRate(settings, cms) || 51400;
+  const aedRate = getEffectiveAedRate(settings, cms) || 54500;
   const defaultMargin = Number(settings?.profitMargin || 20);
 
   useEffect(() => {
@@ -220,8 +228,45 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       baseShippingAed: 20
     });
 
+  useEffect(() => {
+    if (initialDeals && initialDeals.length > 0) {
+      setDeals(initialDeals);
+    }
+  }, [initialDeals]);
+
   const toggleExpand = (id: string) =>
     setExpandedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const handleTogglePopular = (productId: string) => {
+    const target = deals.find(d => d.id === productId);
+    const nextPop = !Boolean((target as any)?.isPopular);
+    setDeals((prev) =>
+      prev.map((d) => (d.id === productId ? { ...d, isPopular: nextPop, isFeatured: nextPop } : d))
+    );
+    try {
+      updateDoc(doc(db, COLLECTION_NAME, productId), {
+        isPopular: nextPop,
+        isFeatured: nextPop,
+        updatedAt: new Date().toISOString()
+      }).catch((e) => console.warn('Instant popular toggle notice:', e));
+    } catch (_e) {}
+  };
+
+  const handleTogglePublished = (productId: string) => {
+    const target = deals.find(d => d.id === productId);
+    const currentPub = target?.isPublished !== undefined ? target.isPublished : target?.isActive;
+    const nextPub = !currentPub;
+    setDeals((prev) =>
+      prev.map((d) => (d.id === productId ? { ...d, isPublished: nextPub, isActive: nextPub } : d))
+    );
+    try {
+      updateDoc(doc(db, COLLECTION_NAME, productId), {
+        isPublished: nextPub,
+        isActive: nextPub,
+        updatedAt: new Date().toISOString()
+      }).catch((e) => console.warn('Instant publish toggle notice:', e));
+    } catch (_e) {}
+  };
 
   const updateDeal = (id: string, patch: Partial<FeaturedDeal>) => {
     setDeals(prev => prev.map(d => {
@@ -560,8 +605,20 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       // Execute bulk save across Firestore, LocalStorage, and Server REST API
       const result = await saveSpecialDeals(cleanList, aedRate, defaultMargin);
 
-      // Sync reactive state across UI and CMS
-      await onSaveDeals(cleanList);
+      // Immediately refetch from Firestore to ensure state reflects Firestore
+      try {
+        const snap = await getDocs(collection(db, COLLECTION_NAME));
+        const freshList: FeaturedDeal[] = [];
+        snap.forEach((d) => freshList.push({ id: d.id, ...d.data() } as FeaturedDeal));
+        if (freshList.length > 0) {
+          setDeals(freshList);
+          await onSaveDeals(freshList);
+        } else {
+          await onSaveDeals(cleanList);
+        }
+      } catch (_refetchErr) {
+        await onSaveDeals(cleanList);
+      }
 
       if (showToast) showToast(result.message || 'تمامی آفرها، ماتریس واریانت‌ها و تنظیمات با موفقیت ذخیره شدند', 'success');
     } catch (err: any) {
@@ -713,15 +770,6 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                     {deal.brand && (
                       <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-md">{deal.brand}</span>
                     )}
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5 ${deal.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {deal.isActive ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
-                      {deal.isActive ? 'فعال' : 'پیش‌نویس'}
-                    </span>
-                    {(deal as any).isPopular && (
-                      <span className="text-[10px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-2xs">
-                        <Sparkles className="w-2.5 h-2.5" />★ پرطرفدار
-                      </span>
-                    )}
                     <span className="text-[10px] text-slate-500 font-medium">واریانت: {toPersianDigits(deal.variants?.length || 0)}</span>
                     <span className="text-[10px] text-emerald-600 font-mono font-bold">{deal.priceAed} AED</span>
                     <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded-md">
@@ -731,15 +779,6 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Publish toggle */}
-                  <button type="button"
-                    onClick={() => updateDeal(deal.id, { isActive: !deal.isActive })}
-                    className={`p-1.5 rounded-lg transition cursor-pointer ${deal.isActive ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                    title={deal.isActive ? 'غیرفعال کردن' : 'فعال‌سازی'}
-                  >
-                    {deal.isActive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                  </button>
-
                   <button type="button"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -863,23 +902,6 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                     </div>
                   </div>
 
-                  {/* Publish & Popular toggles */}
-                  <div className="flex gap-3 flex-wrap">
-                    <button type="button"
-                      onClick={() => updateDeal(deal.id, { isActive: !deal.isActive })}
-                      className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition cursor-pointer border ${deal.isActive ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
-                    >
-                      {deal.isActive ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                      <span>{deal.isActive ? 'منتشر شده در سایت ✓' : 'پیش‌نویس (مخفی از سایت)'}</span>
-                    </button>
-                    <button type="button"
-                      onClick={() => updateDeal(deal.id, { isPopular: !(deal as any).isPopular } as any)}
-                      className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition cursor-pointer border ${(deal as any).isPopular ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      <span>{(deal as any).isPopular ? '★ پرطرفدار (نمایش در خانه) ✓' : 'نمایش در نمونه‌های پرطرفدار'}</span>
-                    </button>
-                  </div>
 
                   {/* Allowed Flavors Pool */}
                   <details className="group">
@@ -964,6 +986,35 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                       </div>
                     </div>
                   </details>
+
+                  {/* Single Unified Status Control Toolbar */}
+                  <div className="flex items-center gap-2 py-2 w-full">
+                    {/* 1. Publication State Toggle (isPublished) */}
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePublished(deal.id)}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        (deal.isPublished !== false && deal.isActive !== false)
+                          ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
+                          : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700'
+                      }`}
+                    >
+                      <span>{(deal.isPublished !== false && deal.isActive !== false) ? '✓ منتشر شده در سایت (عمومی)' : '⊘ پیشنویس (مخفی از سایت)'}</span>
+                    </button>
+
+                    {/* 2. Homepage Featured Toggle (isPopular) */}
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePopular(deal.id)}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        Boolean((deal as any).isPopular)
+                          ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/20'
+                          : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700'
+                      }`}
+                    >
+                      <span>{Boolean((deal as any).isPopular) ? '★ پرطرفدار (نمایش در خانه)' : '☆ پرطرفدار (غیرفعال)'}</span>
+                    </button>
+                  </div>
 
                   {/* Variant Matrix */}
                   <div className="space-y-2">

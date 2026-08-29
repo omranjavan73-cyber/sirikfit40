@@ -39,7 +39,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
   const [filterState, setFilterState] = useState<ProductFilterState>(DEFAULT_FILTER_STATE);
 
-  const activeDeals = (deals || []).filter((d) => d && d.isActive !== false);
+  const activeDeals = (deals || []).filter((d) => d && d.isActive !== false && (d as any).isPublished !== false && (d as any).isDraft !== true);
 
   const filteredDeals = useMemo(() => {
     const matchedTaxonomy = activeDeals.filter((deal) => {
@@ -76,7 +76,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   };
 
   return (
-    <div className="space-y-2 font-['Vazirmatn',sans-serif] animate-fade-in pb-24 text-right">
+    <div className="space-y-1 font-['Vazirmatn',sans-serif] animate-fade-in pb-24 text-right">
       {/* 1. Two-Tier Category Navigation & Clean Search Header */}
       <TwoTierCategoryNav
         selectedMainCat={selectedMainCat}

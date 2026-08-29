@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { FinancialSettings, CmsConfig, PricingRulesConfig, CommissionRule, ShippingIncrementRule } from '../types';
 import { db, saveSettingsToFirestore, saveCmsToFirestore, isFirestoreGrpcNoise } from '../firebase';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import {
   DEFAULT_PRICING_RULES,
   calculateOrderPricing,
@@ -33,6 +33,7 @@ import {
 import { formatToman, toPersianDigits, normalizeToEnglishDigits } from '../utils/formatters';
 import { useSettings } from '../context/SettingsContext';
 import { safeParseNumeric, sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
+import { sanitizeForFirestore } from '../utils/sanitizePayload';
 
 interface PricingRulesAdminProps {
   settings: FinancialSettings | null;
@@ -211,15 +212,29 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('PricingRulesConfig onSnapshot notice:', err);
       });
+
+      let unsubPricingRulesDoc = onSnapshot(doc(db, 'settings', 'pricing_rules'), (snap) => {
+        if (snap.exists()) {
+          const d = snap.data();
+          if (d.dirhamRate) {
+            setAedRateInput(String(d.dirhamRate));
+            setSimAedRate(String(d.dirhamRate));
+          }
+          populateFromData(d);
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('pricing_rules onSnapshot notice:', err);
+      });
+
+      return () => {
+        if (unsubApp) unsubApp();
+        if (unsubPricing) unsubPricing();
+        if (unsubPricingRules) unsubPricingRules();
+        if (unsubPricingRulesDoc) unsubPricingRulesDoc();
+      };
     } catch (err) {
       console.warn('Error setting up PricingRules onSnapshot:', err);
     }
-
-    return () => {
-      if (unsubApp) unsubApp();
-      if (unsubPricing) unsubPricing();
-      if (unsubPricingRules) unsubPricingRules();
-    };
   }, []);
 
   // Update sim rate when main rate changes
@@ -421,8 +436,29 @@ export const PricingRulesAdmin: React.FC<PricingRulesAdminProps> = ({
         updatedAt: new Date().toISOString()
       };
 
+      const unifiedPricingRulesPayload = sanitizeForFirestore({
+        dirhamRate: Number(parsedRate) || 54500,
+        profitMargin: Number(cleanBasePercent) || 20,
+        fixedShippingAed: Number(cleanBaseShip) || 0,
+        minOrderAmountToman: parsedMinOrderToman,
+        minOrderLimitEnabled: parsedMinOrderToman > 0,
+        baseCommission: activePricingConfig.baseCommission,
+        shippingConfig: activePricingConfig.shippingConfig,
+        commissionRules: activePricingConfig.commissionRules,
+        shippingIncrementRules: activePricingConfig.shippingIncrementRules,
+        updatedAt: new Date().toISOString()
+      });
+
       // Direct Firestore document updates
       await Promise.all([
+        setDoc(doc(db, 'settings', 'pricing_rules'), sanitizeForFirestore({
+          ...unifiedPricingRulesPayload,
+          dirhamRate: Number(parsedRate) || 54500,
+          aedRate: Number(parsedRate) || 54500,
+          profitMargin: Number(cleanBasePercent) || 20,
+          fixedShippingAed: Number(cleanBaseShip) || 0,
+          updatedAt: new Date().toISOString()
+        }), { merge: true }),
         setDoc(doc(db, 'settings', 'pricing'), sanitizePayloadForFirestore(directPricingDoc), { merge: true }),
         setDoc(doc(db, 'settings', 'app'), sanitizePayloadForFirestore(appSettingsPayload), { merge: true }),
         setDoc(doc(db, 'settings', 'financial'), sanitizePayloadForFirestore(directFinancialPayload), { merge: true }),

@@ -56,19 +56,19 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
   const activeMainConfig = taxonomy.find(c => c.id === selectedMainCat || c.slug === selectedMainCat) || taxonomy[0] || DEFAULT_TAXONOMY[0];
 
   return (
-    <div className="flex flex-col gap-1.5 pt-2 pb-1 font-['Vazirmatn',sans-serif] text-right">
+    <div className="flex flex-col gap-2 pt-1.5 pb-2 px-1 sm:px-2 font-['Vazirmatn',sans-serif] text-right w-full">
       {/* 1. Streamlined Top Action Row (Full-width Search Bar + Compact Cart Icon Button) */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 w-full">
         <div className="relative flex-1">
-          <div className="relative flex items-center bg-white dark:bg-zinc-900 border border-slate-200/90 dark:border-zinc-700 focus-within:border-slate-800 rounded-2xl shadow-2xs transition">
+          <div className="relative flex items-center bg-white dark:bg-zinc-900 border border-slate-200/90 dark:border-zinc-700 focus-within:border-slate-800 rounded-xl shadow-2xs transition">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={searchPlaceholder}
-              className="w-full bg-transparent py-2.5 pr-10 pl-4 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none text-right dir-rtl font-medium"
+              className="w-full bg-transparent py-1.5 pr-8 pl-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none text-right dir-rtl font-medium"
             />
-            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 shrink-0 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 shrink-0 pointer-events-none" />
             {searchQuery && (
               <button
                 type="button"
@@ -91,11 +91,11 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
               window.dispatchEvent(new CustomEvent('openCartDirect'));
             }
           }}
-          className="relative w-11 h-11 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-800 dark:text-white shadow-2xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0 active:scale-95"
+          className="shrink-0 relative z-10 w-9 h-9 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-800 dark:text-white shadow-2xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition cursor-pointer active:scale-95"
           title="مشاهده سبد خرید"
           aria-label="مشاهده سبد خرید"
         >
-          <ShoppingCart className="w-5 h-5" />
+          <ShoppingCart className="w-4 h-4" />
           {effectiveCartCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-xs">
               {effectiveCartCount > 99 ? '99+' : effectiveCartCount}
@@ -104,57 +104,54 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
         </button>
       </div>
 
-      {/* 2. Tier 1: Slate Black Main Category Navigation Bar */}
-      <div className="bg-slate-100 dark:bg-zinc-800/90 rounded-2xl p-1 shadow-xs border border-slate-200/80 overflow-hidden">
-        <div className="flex items-center justify-between gap-1 overflow-x-auto no-scrollbar scrollbar-none py-0.5 px-0.5 dir-rtl">
-          {taxonomy.map((cat) => {
-            const isActive = selectedMainCat === cat.id || selectedMainCat === cat.slug;
-
-            return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => {
-                  onSelectMainCat(cat.id);
-                  onSelectSubCat('all'); // Reset subcategory to all on main category change
-                }}
-                className={`whitespace-nowrap px-3.5 py-1.5 text-xs sm:text-sm font-black transition-all duration-200 cursor-pointer rounded-xl flex-1 text-center relative ${
-                  isActive
-                    ? 'bg-slate-900 text-white shadow-sm ring-1 ring-slate-800 dark:bg-zinc-900 dark:ring-zinc-700'
-                    : 'bg-transparent text-slate-700 hover:bg-slate-200 dark:text-zinc-300 dark:hover:bg-zinc-700'
-                }`}
-              >
-                <span>{cat.name}</span>
-                {isActive && (
-                  <span className="absolute bottom-1 left-3 right-3 h-0.5 bg-red-500 rounded-full" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 3. Tier 2: Sub-Category / Filter Pills (Brand Red / Clean Light Gray) */}
-      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scrollbar-none py-0.5 px-0.5 dir-rtl">
-        {activeMainConfig.subCategories.map((sub) => {
-          const isSubActive = selectedSubCat === sub.id || selectedSubCat === sub.slug;
+      {/* 2. Row 1: Main Category Pills */}
+      <div className="w-full flex items-center gap-1.5 overflow-x-auto whitespace-nowrap no-scrollbar py-1">
+        {taxonomy.map((cat) => {
+          const isActive = selectedMainCat === cat.id || selectedMainCat === cat.slug;
 
           return (
             <button
-              key={sub.id}
+              key={cat.id}
               type="button"
-              onClick={() => onSelectSubCat(sub.id)}
-              className={`whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-black transition-all duration-200 cursor-pointer shrink-0 border ${
-                isSubActive
-                  ? 'bg-red-600 text-white border-red-600 shadow-sm ring-1 ring-red-500'
+              onClick={() => {
+                onSelectMainCat(cat.id);
+                onSelectSubCat('all'); // Reset subcategory to all on main category change
+              }}
+              className={`whitespace-nowrap px-3.5 py-1.5 text-xs sm:text-sm font-black transition-all duration-200 cursor-pointer rounded-xl shrink-0 text-center relative border ${
+                isActive
+                  ? 'bg-slate-900 text-white shadow-sm ring-1 ring-slate-800 border-slate-900 dark:bg-zinc-900 dark:ring-zinc-700'
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80 dark:bg-zinc-800 dark:text-zinc-300'
               }`}
             >
-              {sub.name}
+              <span>{cat.name}</span>
             </button>
           );
         })}
       </div>
+
+      {/* 3. Row 2: Sub-Filter Pills */}
+      {activeMainConfig?.subCategories && activeMainConfig.subCategories.length > 0 && (
+        <div className="w-full flex items-center gap-1 overflow-x-auto whitespace-nowrap no-scrollbar py-1">
+          {activeMainConfig.subCategories.map((sub) => {
+            const isSubActive = selectedSubCat === sub.id || selectedSubCat === sub.slug;
+
+            return (
+              <button
+                key={sub.id}
+                type="button"
+                onClick={() => onSelectSubCat(sub.id)}
+                className={`whitespace-nowrap px-3 py-1 rounded-xl text-xs font-black transition-all duration-200 cursor-pointer shrink-0 border ${
+                  isSubActive
+                    ? 'bg-red-600 text-white border-red-600 shadow-sm ring-1 ring-red-500'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80 dark:bg-zinc-800 dark:text-zinc-300'
+                }`}
+              >
+                {sub.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

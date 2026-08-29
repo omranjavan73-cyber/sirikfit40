@@ -57,11 +57,11 @@ export const FloatingSupportWidget: React.FC = () => {
       <SupportPopup isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
 
       {/* 2. Floating Support Trigger Badge (Rounded Squircle with Fixed Pulsing Neon Border) */}
-      <div className="fixed bottom-24 left-4 sm:bottom-6 sm:left-6 md:bottom-8 md:left-8 z-50 font-['Vazirmatn',sans-serif]">
+      <div className="fixed bottom-20 left-1 sm:bottom-6 sm:left-2 z-50 font-['Vazirmatn',sans-serif]">
         <div className="relative">
-          {/* Fixed-size pulsing emerald neon ring — blinks glow only, zero scale/expand */}
+          {/* Fixed-size pulsing emerald neon ring */}
           <div
-            className="absolute inset-0 rounded-2xl ring-2 ring-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.45)] animate-pulse pointer-events-none"
+            className="absolute inset-0 rounded-2xl ring-2 ring-emerald-500 animate-pulse pointer-events-none"
           />
 
           {/* 100% Solid Opaque Squircle Button — static, always opacity-100, never fades */}
@@ -71,14 +71,14 @@ export const FloatingSupportWidget: React.FC = () => {
             onClick={toggleDrawer}
             aria-label="پشتیبانی و مشاوره آنلاین سیریک فیت"
             title="پشتیبانی و مشاوره خرید سیریک فیت"
-            className="relative w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer transition-transform active:scale-95 z-50 group opacity-100"
+            className="relative w-12 h-12 sm:w-13 sm:h-13 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer transition-transform active:scale-95 z-50 group opacity-100"
           >
             {/* Center Avatar Icon: Customer Support Agent with Headset */}
             {isDrawerOpen ? (
               <X className="w-7 h-7 text-slate-900 dark:text-white transition-transform duration-200 rotate-90 scale-105" />
             ) : (
-              <div className="text-slate-900 dark:text-white transition-transform duration-200 group-hover:scale-105 flex items-center justify-center">
-                <CustomerAgentHeadsetSvg className="w-9 h-9 sm:w-10 sm:h-10" />
+              <div className="text-slate-900 dark:text-white flex items-center justify-center">
+                <CustomerAgentHeadsetSvg className="w-9 h-9" />
               </div>
             )}
           </button>

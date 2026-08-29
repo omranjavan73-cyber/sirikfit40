@@ -1,6 +1,7 @@
-import { db } from '../firebase';
-import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../config/firebase';
+import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, getDocs } from 'firebase/firestore';
 import { sanitizePayloadForFirestore, safeParseNumeric } from '../utils/adminSaveHelper';
+import { sanitizeForFirestore } from '../utils/sanitizePayload';
 import type { FeaturedDeal, LocalInventoryItem, FinancialSettings, CmsConfig, NormalizedProduct, TelegramConfig } from '../types';
 import { sanitizeProductForFirestore } from './productService';
 
@@ -17,7 +18,7 @@ export interface BulkSaveResponse {
  */
 export async function saveIranWarehouseItems(
   items: LocalInventoryItem[],
-  aedRate: number = 51400,
+  aedRate: number = 54500,
   profitMargin: number = 20
 ): Promise<BulkSaveResponse> {
   if (!Array.isArray(items)) {
@@ -52,41 +53,80 @@ export async function saveIranWarehouseItems(
     }
   }
 
-  // 3. Firestore SDK Persistence (Gracefully handle permission-denied / offline)
+  // 3. Firestore SDK Atomic Batch Persistence
   let firestoreFailed = false;
   let firestoreErrorMsg = '';
 
   try {
-    const promises: Promise<any>[] = [];
     const currentIds = new Set(cleanList.map(item => item.id));
 
     // A. Query existing documents in collection to delete orphaned / removed docs
     try {
-      const { getDocs, collection } = await import('firebase/firestore');
       const existingSnap = await getDocs(collection(db, 'iran_warehouse'));
+      const deletePromises: Promise<any>[] = [];
       existingSnap.forEach((docSnap) => {
         if (!currentIds.has(docSnap.id)) {
-          promises.push(deleteDoc(docSnap.ref));
+          deletePromises.push(deleteDoc(docSnap.ref));
         }
       });
+      if (deletePromises.length > 0) {
+        await Promise.all(deletePromises);
+      }
     } catch (queryErr) {
       console.warn('Could not query existing iran_warehouse docs for cleanup:', queryErr);
     }
 
-    // B. Write or update active documents
-    for (const docItem of cleanList) {
-      const docRef = doc(db, 'iran_warehouse', docItem.id);
-      promises.push(setDoc(docRef, sanitizePayloadForFirestore(docItem), { merge: true }));
+    // B. Write or update active documents using atomic writeBatch
+    const batch = writeBatch(db);
+    for (const p of cleanList) {
+      const docRef = doc(db, 'iran_warehouse', p.id || doc(collection(db, 'iran_warehouse')).id);
+      const cleanProduct = sanitizeForFirestore({
+        id: docRef.id,
+        titleFa: (p.titleFa || p.title || '').trim(),
+        titleEn: (p.titleEn || (p as any).rawTitle || '').trim(),
+        title: (p.titleFa || p.title || p.titleEn || '').trim(),
+        brand: (p.brand || 'انبار ایران').trim(),
+        category: p.category || 'sports-nutrition',
+        subCategory: p.subCategory || 'all',
+        image: p.image?.trim() || '',
+        images: Array.isArray(p.images) ? p.images : (p.image ? [p.image] : []),
+        priceAed: Number(p.priceAed) || 0,
+        priceToman: Number(p.priceToman) || 0,
+        originalPriceToman: p.originalPriceToman ? Number(p.originalPriceToman) : null,
+        isPopular: Boolean(p.isPopular),
+        isFeatured: Boolean(p.isPopular),
+        isPublished: p.isPublished !== undefined ? Boolean(p.isPublished) : true,
+        isActive: p.isPublished !== undefined ? Boolean(p.isPublished) : (p.isActive !== undefined ? Boolean(p.isActive) : true),
+        inStock: p.inStock ?? true,
+        storeName: p.storeName || 'انبار ایران',
+        weightKg: Number(p.weightKg) || 0.8,
+        description: p.description?.trim() || '',
+        variants: (p.variants || [])
+          .filter((v: any) => v && ((v.size && String(v.size).trim()) || (v.flavor && String(v.flavor).trim())))
+          .map((v: any) => ({
+            flavor: (v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__') ? String(v.flavor).trim() : 'پیش‌فرض',
+            size: (v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__') ? String(v.size).trim() : 'استاندارد',
+            priceAed: Number(v.priceAed ?? v.price ?? 0),
+            priceToman: Number(v.priceToman || 0),
+            image: (v.image && String(v.image).trim() !== '') ? String(v.image).trim() : ((v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : null),
+            inStock: v.inStock ?? true
+          })),
+        flavors: Array.from(new Set((p.variants || []).map((v: any) => v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__' ? String(v.flavor).trim() : null).filter(Boolean))),
+        sizes: Array.from(new Set((p.variants || []).map((v: any) => v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__' ? String(v.size).trim() : null).filter(Boolean))),
+        updatedAt: new Date().toISOString()
+      });
+      batch.set(docRef, cleanProduct, { merge: true });
     }
+    await batch.commit();
 
     // C. Also update settings/cms for backward compatibility
-    promises.push(
-      setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore({ localInventory: cleanList, updatedAt: new Date().toISOString() }), { merge: true })
+    await setDoc(
+      doc(db, 'settings', 'cms'),
+      sanitizeForFirestore({ localInventory: cleanList, updatedAt: new Date().toISOString() }),
+      { merge: true }
     );
-
-    await Promise.all(promises);
   } catch (fsErr: any) {
-    console.warn('Firestore direct write notice (Warehouse):', fsErr?.message || fsErr);
+    console.warn('Firestore atomic batch write notice (Warehouse):', fsErr?.message || fsErr);
     firestoreFailed = true;
     firestoreErrorMsg = fsErr?.message || '';
   }
@@ -121,7 +161,7 @@ export async function saveIranWarehouseItems(
  */
 export async function saveSpecialDeals(
   deals: FeaturedDeal[],
-  aedRate: number = 51400,
+  aedRate: number = 54500,
   profitMargin: number = 20
 ): Promise<BulkSaveResponse> {
   if (!Array.isArray(deals)) {
@@ -155,38 +195,77 @@ export async function saveSpecialDeals(
     }
   }
 
-  // 3. Firestore SDK Persistence
+  // 3. Firestore SDK Atomic Batch Persistence
   try {
-    const promises: Promise<any>[] = [];
     const currentIds = new Set(cleanList.map(item => item.id));
 
     // A. Query existing documents in collection to delete orphaned / removed docs
     try {
-      const { getDocs, collection } = await import('firebase/firestore');
       const existingSnap = await getDocs(collection(db, 'special_deals'));
+      const deletePromises: Promise<any>[] = [];
       existingSnap.forEach((docSnap) => {
         if (!currentIds.has(docSnap.id)) {
-          promises.push(deleteDoc(docSnap.ref));
+          deletePromises.push(deleteDoc(docSnap.ref));
         }
       });
+      if (deletePromises.length > 0) {
+        await Promise.all(deletePromises);
+      }
     } catch (queryErr) {
       console.warn('Could not query existing special_deals docs for cleanup:', queryErr);
     }
 
-    // B. Write or update active documents
-    for (const docItem of cleanList) {
-      const docRef = doc(db, 'special_deals', docItem.id);
-      promises.push(setDoc(docRef, sanitizePayloadForFirestore(docItem), { merge: true }));
+    // B. Write or update active documents using atomic writeBatch
+    const batch = writeBatch(db);
+    for (const p of cleanList) {
+      const docRef = doc(db, 'special_deals', p.id || doc(collection(db, 'special_deals')).id);
+      const cleanProduct = sanitizeForFirestore({
+        id: docRef.id,
+        titleFa: (p.titleFa || p.title || '').trim(),
+        titleEn: (p.titleEn || (p as any).rawTitle || '').trim(),
+        title: (p.titleFa || p.title || p.titleEn || '').trim(),
+        brand: (p.brand || 'GNC Store').trim(),
+        category: p.category || 'sports-nutrition',
+        subCategory: p.subCategory || 'all',
+        image: p.image?.trim() || '',
+        images: Array.isArray(p.images) ? p.images : (p.image ? [p.image] : []),
+        priceAed: Number(p.priceAed) || 0,
+        priceToman: Number(p.priceToman) || 0,
+        originalPriceAed: p.originalPriceAed ? Number(p.originalPriceAed) : null,
+        isPopular: Boolean(p.isPopular),
+        isFeatured: Boolean(p.isPopular),
+        isPublished: p.isPublished !== undefined ? Boolean(p.isPublished) : true,
+        isActive: p.isPublished !== undefined ? Boolean(p.isPublished) : (p.isActive !== undefined ? Boolean(p.isActive) : true),
+        inStock: p.inStock ?? true,
+        storeName: p.storeName || 'GNC Store',
+        weightKg: Number(p.weightKg) || 0.8,
+        description: p.description?.trim() || '',
+        variants: (p.variants || [])
+          .filter((v: any) => v && ((v.size && String(v.size).trim()) || (v.flavor && String(v.flavor).trim())))
+          .map((v: any) => ({
+            flavor: (v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__') ? String(v.flavor).trim() : 'پیش‌فرض',
+            size: (v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__') ? String(v.size).trim() : 'استاندارد',
+            priceAed: Number(v.priceAed ?? v.price ?? 0),
+            priceToman: Number(v.priceToman || 0),
+            image: (v.image && String(v.image).trim() !== '') ? String(v.image).trim() : ((v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : null),
+            inStock: v.inStock ?? true
+          })),
+        flavors: Array.from(new Set((p.variants || []).map((v: any) => v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__' ? String(v.flavor).trim() : null).filter(Boolean))),
+        sizes: Array.from(new Set((p.variants || []).map((v: any) => v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__' ? String(v.size).trim() : null).filter(Boolean))),
+        updatedAt: new Date().toISOString()
+      });
+      batch.set(docRef, cleanProduct, { merge: true });
     }
+    await batch.commit();
 
     // C. Also update settings/cms for backward compatibility
-    promises.push(
-      setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore({ deals: cleanList, updatedAt: new Date().toISOString() }), { merge: true })
+    await setDoc(
+      doc(db, 'settings', 'cms'),
+      sanitizeForFirestore({ deals: cleanList, updatedAt: new Date().toISOString() }),
+      { merge: true }
     );
-
-    await Promise.all(promises);
   } catch (fsErr: any) {
-    console.warn('Firestore direct write notice (Deals):', fsErr?.message || fsErr);
+    console.warn('Firestore atomic batch write notice (Deals):', fsErr?.message || fsErr);
   }
 
   // 4. Server REST API Sync
@@ -224,7 +303,11 @@ export async function saveSingleProductWithVariants(
     return { success: false, message: 'عنوان محصول الزامی است' };
   }
 
-  const cleanDoc = sanitizeProductForFirestore(product);
+  const cleanDoc = sanitizeProductForFirestore({
+    ...product,
+    isPublished: product.isPublished !== undefined ? Boolean(product.isPublished) : true,
+    isPopular: Boolean(product.isPopular)
+  });
 
   // Local storage cache
   if (typeof window !== 'undefined') {
@@ -235,7 +318,7 @@ export async function saveSingleProductWithVariants(
 
   // Firestore write
   try {
-    await setDoc(doc(db, collectionName, cleanDoc.id), sanitizePayloadForFirestore(cleanDoc), { merge: true });
+    await setDoc(doc(db, collectionName, cleanDoc.id), sanitizeForFirestore(cleanDoc), { merge: true });
   } catch (fsErr: any) {
     console.warn(`Firestore save notice for ${collectionName}/${cleanDoc.id}:`, fsErr?.message || fsErr);
   }

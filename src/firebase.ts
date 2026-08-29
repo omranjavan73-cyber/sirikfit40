@@ -1,8 +1,4 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
 import {
-  getFirestore,
-  initializeFirestore,
   setLogLevel,
   doc,
   getDoc,
@@ -19,16 +15,13 @@ import {
 import { safeFetchJson } from './utils/apiHelper';
 import { dispatchOrderToGoogleSheets } from './utils/googleSheetsSync';
 import firebaseConfigJson from '../firebase-applet-config.json';
-
-export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyARiTsbTwglCwXPaoIMVFCG9zqGPG77X0",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "sirikfit40.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "sirikfit40",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "sirikfit40.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "632765767852",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:632765767852:web:01f36071ea0c94b4933b49",
-  measurementId: "G-QFR8GQOFNK"
-};
+import {
+  app as centralizedApp,
+  db as centralizedDb,
+  auth as centralizedAuth,
+  storage as centralizedStorage,
+  firebaseConfig as centralizedConfig
+} from './config/firebase';
 
 // Suppress internal gRPC stream disconnect debug/info messages
 try {
@@ -129,24 +122,12 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// Initialize Firebase App & Firestore with long polling for proxy & Cloud Run resilience
-export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-
-const targetDbId = (firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== '(default)')
-  ? firebaseConfigJson.firestoreDatabaseId
-  : undefined;
-
-let firestoreDb;
-try {
-  firestoreDb = initializeFirestore(app, {
-    experimentalForceLongPolling: true,
-  }, targetDbId);
-} catch (_e) {
-  firestoreDb = targetDbId ? getFirestore(app, targetDbId) : getFirestore(app);
-}
-
-export const db = firestoreDb;
-export const auth = getAuth(app);
+// Centralized Firebase App, Firestore, Auth & Storage Singletons bound to sirikfit40
+export const app = centralizedApp;
+export const db = centralizedDb;
+export const auth = centralizedAuth;
+export const storage = centralizedStorage;
+export const firebaseConfig = centralizedConfig;
 export const isFirebaseConfigured = true;
 
 export {
@@ -186,6 +167,8 @@ export function sanitizePayloadForFirestore<T = any>(obj: T): T {
   }
   return clean as T;
 }
+
+export { sanitizeForFirestore } from './utils/sanitizePayload';
 
 export enum OperationType {
   CREATE = 'create',
@@ -452,18 +435,36 @@ export async function saveSettingsToFirestore(settingsData: any): Promise<boolea
 }
 
 export async function fetchSettingsFromFirestore(): Promise<any> {
-  // 1. Direct Firestore read
+  // 1. Direct Firestore read from settings/pricing_rules and settings/app
   try {
-    const snap = await getDoc(doc(db, 'settings', 'app'));
-    if (snap.exists()) {
-      const data = snap.data();
+    const [rulesSnap, appSnap] = await Promise.all([
+      getDoc(doc(db, 'settings', 'pricing_rules')),
+      getDoc(doc(db, 'settings', 'app'))
+    ]);
+
+    let mergedData: any = {};
+    if (appSnap.exists()) {
+      mergedData = { ...appSnap.data() };
+    }
+    if (rulesSnap.exists()) {
+      const rulesData = rulesSnap.data();
+      const liveRate = Number(rulesData.dirhamRate || rulesData.aedRate || 0);
+      if (liveRate > 0) {
+        mergedData.aedRate = liveRate;
+        mergedData.manualAedRate = liveRate;
+        mergedData.dirhamRate = liveRate;
+      }
+      mergedData = { ...mergedData, ...rulesData };
+    }
+
+    if (Object.keys(mergedData).length > 0) {
       if (typeof window !== 'undefined') {
-        localStorage.setItem('sirikfit_financial_settings', JSON.stringify(data));
-        if (data.aedRate) {
-          localStorage.setItem('sirikfit_aed_rate', String(data.aedRate));
+        localStorage.setItem('sirikfit_financial_settings', JSON.stringify(mergedData));
+        if (mergedData.aedRate) {
+          localStorage.setItem('sirikfit_aed_rate', String(mergedData.aedRate));
         }
       }
-      return data;
+      return mergedData;
     }
   } catch (err) {
     console.warn('Firestore settings read notice:', err);

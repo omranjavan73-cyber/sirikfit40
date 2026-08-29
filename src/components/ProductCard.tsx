@@ -69,11 +69,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         </div>
 
         {/* Deal / Discount Badge (Top Left) */}
-        {effectiveBadge && (
+        {effectiveBadge ? (
           <span className="absolute top-2.5 left-2.5 z-10 bg-red-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs">
             {effectiveBadge}
           </span>
-        )}
+        ) : (product as any)?.isPopular ? (
+          <span className="absolute top-2.5 left-2.5 z-10 bg-amber-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs flex items-center gap-0.5">
+            ★ پرطرفدار
+          </span>
+        ) : null}
 
         <img
           src={imageUrl}

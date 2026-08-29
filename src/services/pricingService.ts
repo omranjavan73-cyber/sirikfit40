@@ -1,4 +1,4 @@
-import { db } from '../firebase';
+import { db } from '../config/firebase';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import type { PricingRulesConfig, CommissionRule, ShippingIncrementRule } from '../types';
 

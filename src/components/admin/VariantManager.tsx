@@ -33,7 +33,7 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
   onUpdateFlavors,
   onUpdateSizes,
 }) => {
-  const activeAedRate = getEffectiveAedRate(settings, cms) || 51400;
+  const activeAedRate = getEffectiveAedRate(settings, cms) || 54500;
   const cargoRate = settings?.cargoRatePerKg || 35;
 
   const pricingConfig = {

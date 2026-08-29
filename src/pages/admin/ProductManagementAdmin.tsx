@@ -308,19 +308,80 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
     }
     setIsSaving(true);
     try {
+      // Sanitize variant rows: ignore placeholder labels, ensure string/number types
+      const sanitizedVariants = (product.variants || [])
+        .filter((r: any) => r && ((r.size && String(r.size).trim()) || (r.flavor && String(r.flavor).trim())))
+        .map((r: any) => {
+          const img = (r.image && String(r.image).trim() !== '')
+            ? String(r.image).trim()
+            : ((r.imageUrl && String(r.imageUrl).trim() !== '') ? String(r.imageUrl).trim() : null);
+          return {
+            id: r.id || `var-${Math.random().toString(36).substring(2, 9)}`,
+            flavor: (r.flavor && !r.flavor.includes('+ طعم سفارشی') && r.flavor !== '__custom__') ? String(r.flavor).trim() : 'پیش‌فرض',
+            size: (r.size && !r.size.includes('+ تایپ سایز') && r.size !== '__custom__') ? String(r.size).trim() : 'استاندارد',
+            priceAed: Number(r.priceAed ?? r.price ?? 0),
+            priceToman: Number(r.priceToman || 0),
+            image: img,
+            imageUrl: img,
+            inStock: r.inStock ?? true
+          };
+        });
+
+      const sanitizedProduct = {
+        ...product,
+        priceToman: Number(product.priceToman) || 0,
+        priceAed: Number(product.priceAed) || 0,
+        isPublished: product.isPublished !== false,
+        isPopular: Boolean(product.isPopular),
+        variants: sanitizedVariants,
+        flavors: Array.from(new Set(sanitizedVariants.map(v => v.flavor))),
+        sizes: Array.from(new Set(sanitizedVariants.map(v => v.size))),
+        updatedAt: new Date().toISOString()
+      };
+
       if (onSaveProduct) {
-        await onSaveProduct(product);
+        await onSaveProduct(sanitizedProduct);
       } else {
-        await saveSingleProductWithVariants(product, 'products');
+        await saveSingleProductWithVariants(sanitizedProduct, 'products');
       }
+      setProduct(sanitizedProduct);
       if (showToast) showToast('محصول و تمامی واریانت‌ها با موفقیت ذخیره شدند', 'success');
     } catch (err: any) {
-      console.warn('Save product handled notice:', err);
-      // Fallback direct save
-      await saveSingleProductWithVariants(product, 'products');
-      if (showToast) showToast('محصول و تمامی واریانت‌ها با موفقیت ذخیره شدند', 'success');
+      console.error('Save product failed:', err);
+      if (showToast) showToast('خطا در ذخیره‌سازی اطلاعات: ' + (err?.message || 'خطای سرور'), 'error');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleTogglePopular = (productId?: string) => {
+    const nextPop = !Boolean(product.isPopular);
+    setProduct((prev) => ({ ...prev, isPopular: nextPop, isFeatured: nextPop }));
+    const idToUpdate = productId || product.id;
+    if (idToUpdate) {
+      try {
+        updateDoc(doc(db, 'products', idToUpdate), {
+          isPopular: nextPop,
+          isFeatured: nextPop,
+          updatedAt: new Date().toISOString()
+        }).catch(() => {});
+      } catch (_e) {}
+    }
+  };
+
+  const handleTogglePublished = (productId?: string) => {
+    const currentPub = product.isPublished !== undefined ? product.isPublished : product.isActive;
+    const nextPub = !currentPub;
+    setProduct((prev) => ({ ...prev, isPublished: nextPub, isActive: nextPub }));
+    const idToUpdate = productId || product.id;
+    if (idToUpdate) {
+      try {
+        updateDoc(doc(db, 'products', idToUpdate), {
+          isPublished: nextPub,
+          isActive: nextPub,
+          updatedAt: new Date().toISOString()
+        }).catch(() => {});
+      } catch (_e) {}
     }
   };
 
@@ -652,16 +713,18 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
 
         {/* Product Basic Meta Preview */}
         {product.title && (
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-4 mt-3">
-            {product.image && (
-              <img src={product.image} alt={product.title} className="w-16 h-16 object-contain rounded-xl bg-white border border-slate-200 p-1" />
-            )}
-            <div className="flex-1 min-w-0">
-              <span className="text-xs font-black text-slate-900 block truncate">{product.title}</span>
-              <div className="flex items-center gap-3 text-[11px] text-slate-500 font-bold mt-1">
-                <span>برند: {product.brand || '—'}</span>
-                <span>فروشگاه: {product.storeName || '—'}</span>
-                <span className="text-emerald-600">قیمت پایه: {product.priceAed} AED</span>
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-4 mt-3">
+            <div className="flex items-center gap-4 flex-1 min-w-0">
+              {product.image && (
+                <img src={product.image} alt={product.title} className="w-16 h-16 object-contain rounded-xl bg-white border border-slate-200 p-1 shrink-0" />
+              )}
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-black text-slate-900 block truncate">{product.title}</span>
+                <div className="flex items-center gap-3 text-[11px] text-slate-500 font-bold mt-1">
+                  <span>برند: {product.brand || '—'}</span>
+                  <span>فروشگاه: {product.storeName || '—'}</span>
+                  <span className="text-emerald-600 font-bold">قیمت پایه: {product.priceAed} AED</span>
+                </div>
               </div>
             </div>
           </div>
@@ -815,13 +878,42 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           </div>
         </details>
 
+        {/* Single Unified Status Control Toolbar */}
+        <div className="flex items-center gap-2 py-2 w-full">
+          {/* 1. Publication State Toggle (isPublished) */}
+          <button
+            type="button"
+            onClick={() => handleTogglePublished(product.id)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              product.isPublished !== false
+                ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
+                : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700'
+            }`}
+          >
+            <span>{product.isPublished !== false ? '✓ منتشر شده در سایت (عمومی)' : '⊘ پیشنویس (مخفی از سایت)'}</span>
+          </button>
+
+          {/* 2. Homepage Featured Toggle (isPopular) */}
+          <button
+            type="button"
+            onClick={() => handleTogglePopular(product.id)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              Boolean(product.isPopular)
+                ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/20'
+                : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700'
+            }`}
+          >
+            <span>{Boolean(product.isPopular) ? '★ پرطرفدار (نمایش در خانه)' : '☆ پرطرفدار (غیرفعال)'}</span>
+          </button>
+        </div>
+
         {/* Dynamic Interactive Variant Matrix Table with Instant Dropdowns */}
         <VariantMatrixTable
           variants={product.variants || []}
           availableSizes={product.sizes || []}
           availableFlavors={product.flavors || []}
           mainProductImage={product.image || product.imageUrl || (product.galleryImages && product.galleryImages[0]) || ''}
-          aedRate={51400}
+          aedRate={54500}
           onUpdateVariant={handleUpdateVariant}
           onDeleteVariant={handleDeleteVariant}
           onAddVariant={handleAddManualVariant}

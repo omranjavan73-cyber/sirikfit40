@@ -38,7 +38,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
   const [filterState, setFilterState] = useState<ProductFilterState>(DEFAULT_FILTER_STATE);
 
-  const visibleItems = (items || []).filter(item => item && item.inStock !== false);
+  const visibleItems = (items || []).filter(item => item && item.inStock !== false && (item as any).isActive !== false && (item as any).isPublished !== false && (item as any).isDraft !== true);
 
   // Apply full taxonomy and multi-variable filtering
   const filteredItems = useMemo(() => {
@@ -65,7 +65,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
   };
 
   return (
-    <div className="space-y-2 font-['Vazirmatn',sans-serif] animate-fade-in pb-24 text-right">
+    <div className="space-y-1 font-['Vazirmatn',sans-serif] animate-fade-in pb-24 text-right">
       {/* 1. Two-Tier Category Navigation & Clean Search Header */}
       <TwoTierCategoryNav
         selectedMainCat={selectedMainCat}

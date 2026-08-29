@@ -4,6 +4,7 @@ import type { FinancialSettings, User, CmsConfig } from '../types';
 import { formatToman, toPersianDigits, getEffectiveAedRate } from '../utils/formatters';
 import { SirikFitLogo } from './SirikFitLogo';
 import { useSettings } from '../context/SettingsContext';
+import { usePricing } from '../context/PricingContext';
 
 interface HeaderProps {
   settings: FinancialSettings | null;
@@ -33,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({
   isCartActive
 }) => {
   const { aedRate, isLoading: isSettingsContextLoading, refreshSettings } = useSettings();
+  const { dirhamRate: pricingDirhamRate } = usePricing();
 
   const home = cms?.homeContent;
   const showPromo = home?.showTopPromo ?? false;
@@ -45,14 +47,10 @@ export const Header: React.FC<HeaderProps> = ({
   const rawBrandSubtitle = (home as any)?.brandSubtitle || home?.headerPillSlogan || home?.appSubtitle || (settings as any)?.brandSubtitle || 'مکملهای ورزشی و اورجینال';
   const cleanBrandSubtitle = rawBrandSubtitle.replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').trim() || 'مکملهای ورزشی و اورجینال';
 
-  // Read dynamic aedRate directly from React Global Context or localStorage
-  const localRateStr = typeof window !== 'undefined' ? localStorage.getItem('sirikfit_aed_rate') : null;
-  const localRate = localRateStr ? parseFloat(localRateStr) : null;
-  const dynamicRate = (aedRate && aedRate > 0)
-    ? aedRate
-    : ((localRate && localRate > 0)
-      ? localRate
-      : (settings?.aedRate || settings?.manualAedRate || getEffectiveAedRate(settings, cms) || null));
+  // Read dynamic dirhamRate directly from PricingContext with zero hardcoded defaults
+  const dirhamRate = (pricingDirhamRate && pricingDirhamRate > 0)
+    ? pricingDirhamRate
+    : (aedRate && aedRate > 0 ? aedRate : 54500);
 
   const isLoadingRate = isLoadingSettings || isSettingsContextLoading;
 
@@ -90,42 +88,25 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       )}
 
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200/90 px-3 sm:px-4 py-2 sm:py-2.5 transition-all shadow-xs font-['Vazirmatn',sans-serif] dir-rtl w-full max-w-[100vw] overflow-hidden">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 w-full max-w-[100vw] overflow-hidden">
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200/90 transition-all shadow-xs font-['Vazirmatn',sans-serif] dir-rtl w-full">
+        <div className="flex items-center justify-between gap-2 px-3 py-2 w-full max-w-4xl mx-auto">
           
           {/* RIGHT SIDE ALIGNMENT (.brand-right) with Triple-Tap for Admin */}
           <div
             onClick={handleLogoTap}
-            className="brand-right cursor-pointer select-none active:scale-[0.98] transition-transform"
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '60%', flexShrink: 0 }}
+            className="brand-right cursor-pointer select-none active:scale-[0.98] transition-transform flex items-center gap-2 min-w-0 shrink"
             title="SIRIK FIT"
           >
-            {/* Circular Fixed-Size Logo Container (48px x 48px) */}
+            {/* Circular Fixed-Size Logo Container (42px x 42px on mobile, 48px on sm) */}
             <div
-              className="logo-container border border-black/10 shadow-2xs"
-              style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '50%',
-                overflow: 'hidden',
-                flexShrink: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: '#ffffff'
-              }}
+              className="logo-container border border-black/10 shadow-2xs w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-white"
             >
               {logoUrl ? (
                 <img
                   id="header-app-logo"
                   src={logoUrl}
                   alt="SIRIK FIT"
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'contain',
-                    display: 'block'
-                  }}
+                  className="w-full h-full object-contain block"
                   onError={(e) => {
                     (e.target as HTMLElement).style.display = 'none';
                   }}
@@ -139,13 +120,12 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex flex-col items-start justify-center leading-none min-w-0">
               <h1
                 id="header-app-title"
-                className="text-[#000000] uppercase font-['Arial',sans-serif]"
-                style={{ fontSize: '16px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                className="text-[#000000] uppercase font-['Arial',sans-serif] text-sm sm:text-base font-extrabold whitespace-nowrap overflow-hidden text-ellipsis"
               >
                 {cleanBrandTitle}
               </h1>
-              <div id="header-app-subtitle" className="bg-[#0f0f11] text-white text-[9px] sm:text-[11px] font-extrabold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full flex items-center gap-1 sm:gap-1.5 shadow-2xs mt-0.5 sm:mt-1 border border-neutral-900 whitespace-nowrap">
-                <span className="w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full bg-[#e50914] text-white flex items-center justify-center text-[8px] sm:text-[9px] font-black shrink-0">
+              <div id="header-app-subtitle" className="bg-[#0f0f11] text-white text-[8.5px] sm:text-[10.5px] font-extrabold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full flex items-center gap-1 shadow-2xs mt-0.5 border border-neutral-900 whitespace-nowrap">
+                <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#e50914] text-white flex items-center justify-center text-[7px] sm:text-[8px] font-black shrink-0">
                   ✓
                 </span>
                 <span className="whitespace-nowrap">{cleanBrandSubtitle}</span>
@@ -162,15 +142,15 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={onOpenCart}
                 title="سبد خرید"
-                className={`relative w-10 h-10 sm:w-10.5 sm:h-10.5 rounded-2xl border flex items-center justify-center transition cursor-pointer shadow-2xs shrink-0 ${
+                className={`shrink-0 relative z-10 w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl border flex items-center justify-center transition cursor-pointer shadow-2xs active:scale-95 ${
                   isCartActive
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-[#f5f7fa] hover:bg-slate-100 text-[#1e293b] border-slate-200/90'
                 }`}
               >
-                <ShoppingCart className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[2]" />
+                <ShoppingCart className="w-4 h-4 sm:w-4.5 sm:h-4.5 stroke-[2]" />
                 {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[#e50914] text-white text-[9.5px] font-black w-4 h-4 rounded-full flex items-center justify-center border-2 border-white shadow-xs">
+                  <span className="absolute -top-1 -right-1 bg-[#e50914] text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center border-2 border-white shadow-xs">
                     {toPersianDigits(cartCount)}
                   </span>
                 )}
@@ -183,24 +163,11 @@ export const Header: React.FC<HeaderProps> = ({
                 if (onRefreshSettings) onRefreshSettings();
                 refreshSettings();
               }}
-              className="flex flex-col items-center justify-center dir-rtl bg-white border border-slate-200 hover:border-slate-300 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-2xl shadow-2xs cursor-pointer select-none transition min-w-[78px] sm:min-w-[95px] shrink-0"
+              className="text-[11px] font-bold text-slate-800 dark:text-zinc-200 bg-slate-100 dark:bg-zinc-800 px-2.5 py-1 rounded-lg shrink-0 flex items-center gap-1 cursor-pointer select-none border border-slate-200/80 dark:border-zinc-700 hover:border-slate-300 transition"
               title="به‌روزرسانی نرخ درهم"
             >
-              <div className="flex items-center justify-center gap-1">
-                <span className="text-[9px] sm:text-[9.5px] font-bold text-slate-400 whitespace-nowrap leading-none">
-                  نرخ درهم
-                </span>
-                <RotateCw className={`w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400 ${isLoadingRate ? 'animate-spin text-amber-500' : ''}`} />
-              </div>
-              <span className="font-extrabold text-slate-900 text-[9.5px] sm:text-[11px] whitespace-nowrap leading-tight mt-0.5">
-                {isLoadingRate ? (
-                  <span className="text-slate-400 font-normal">--</span>
-                ) : dynamicRate && dynamicRate > 0 ? (
-                  `${toPersianDigits(Number(dynamicRate).toLocaleString('fa-IR'))} تومان`
-                ) : (
-                  '--'
-                )}
-              </span>
+              <RotateCw className={`w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400 ${isLoadingRate ? 'animate-spin text-amber-500' : ''}`} />
+              <span>درهم: {dirhamRate && dirhamRate > 0 ? Number(dirhamRate).toLocaleString('fa-IR') : '۵۵,۷۰۰'} تومان</span>
             </div>
 
           </div>

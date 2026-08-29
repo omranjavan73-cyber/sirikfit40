@@ -38,6 +38,7 @@ import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
 import { PricingProvider } from './context/PricingContext';
+import { ProductProvider } from './context/ProductContext';
 import { SupportProvider } from './context/SupportContext';
 import { CartProvider } from './context/CartContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -327,8 +328,10 @@ function MainApp() {
         let currentLocalRate = eventRate;
         if (!currentLocalRate) {
           const directRate = localStorage.getItem('sirikfit_aed_rate');
-          if (directRate && !isNaN(Number(directRate)) && Number(directRate) > 0) {
+          if (directRate && !isNaN(Number(directRate)) && Number(directRate) >= 54000) {
             currentLocalRate = Number(directRate);
+          } else if (directRate) {
+            try { localStorage.removeItem('sirikfit_aed_rate'); } catch (_e) {}
           }
         }
 
@@ -770,8 +773,10 @@ function MainApp() {
 
       if (typeof window !== 'undefined') {
         const direct = localStorage.getItem('sirikfit_aed_rate');
-        if (direct && !isNaN(Number(direct)) && Number(direct) > 0) {
+        if (direct && !isNaN(Number(direct)) && Number(direct) >= 54000) {
           localRate = Number(direct);
+        } else if (direct) {
+          try { localStorage.removeItem('sirikfit_aed_rate'); } catch (_e) {}
         }
         const saved = localStorage.getItem('sirikfit_financial_settings') || localStorage.getItem('omex_financial_settings');
         if (saved) {
@@ -1578,11 +1583,13 @@ export default function App() {
     <ErrorBoundary name="SirikFit Application">
       <SettingsProvider>
         <PricingProvider>
-          <SupportProvider>
-            <CartProvider>
-              <MainApp />
-            </CartProvider>
-          </SupportProvider>
+          <ProductProvider>
+            <SupportProvider>
+              <CartProvider>
+                <MainApp />
+              </CartProvider>
+            </SupportProvider>
+          </ProductProvider>
         </PricingProvider>
       </SettingsProvider>
     </ErrorBoundary>

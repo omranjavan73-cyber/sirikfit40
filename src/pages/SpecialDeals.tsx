@@ -57,7 +57,7 @@ function toModalDeal(deal: FeaturedDeal, settings: FinancialSettings): ProductDe
 
 export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
   deals: initialDeals,
-  settings = { aedRate: 51400, cargoRatePerKg: 35, profitMargin: 20 },
+  settings = { aedRate: 54500, cargoRatePerKg: 35, profitMargin: 20 },
   onSelectDeal,
   onAddToCart,
   showToast,
@@ -100,10 +100,12 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
     }
   };
 
+  const visibleDeals = dealsList.filter(d => d && d.isActive !== false && (d as any).isPublished !== false && (d as any).isDraft !== true);
+
   return (
-    <div className="container mx-auto px-2 sm:px-4 py-2" dir="rtl">
+    <div className="container mx-auto px-1 sm:px-3 py-0" dir="rtl">
       <FeaturedDeals
-        deals={dealsList}
+        deals={visibleDeals}
         settings={settings}
         onSelectDeal={handleSelect}
         onAddToCart={onAddToCart}

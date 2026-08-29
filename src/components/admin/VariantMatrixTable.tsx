@@ -27,7 +27,7 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
   availableSizes = [],
   availableFlavors = [],
   mainProductImage = '',
-  aedRate = 51400,
+  aedRate = 54500,
   profitMargin = 20,
   cargoRatePerKg = 35,
   onUpdateVariant,
@@ -59,6 +59,7 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
   const handleSizeChange = (idx: number, varId: string, value: string) => {
     if (value === '__custom__') {
       setCustomMode(prev => ({ ...prev, [varId]: { ...prev[varId], customSize: true } }));
+      onUpdateVariant(idx, 'size', '');
       return;
     }
     setCustomMode(prev => ({ ...prev, [varId]: { ...prev[varId], customSize: false } }));
@@ -74,6 +75,7 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
   const handleFlavorChange = (idx: number, varId: string, value: string) => {
     if (value === '__custom__') {
       setCustomMode(prev => ({ ...prev, [varId]: { ...prev[varId], customFlavor: true } }));
+      onUpdateVariant(idx, 'flavor', '');
       return;
     }
     setCustomMode(prev => ({ ...prev, [varId]: { ...prev[varId], customFlavor: false } }));
@@ -157,9 +159,9 @@ export const VariantMatrixTable: React.FC<VariantMatrixTableProps> = ({
                         </button>
                         <input
                           type="text"
-                          value={v.image || ''}
+                          value={v.image || (v as any).imageUrl || ''}
                           onChange={(e) => {
-                            const val = e.target.value.trim() || undefined;
+                            const val = e.target.value;
                             onUpdateVariant(idx, 'image', val);
                             onUpdateVariant(idx, 'imageUrl' as any, val);
                           }}

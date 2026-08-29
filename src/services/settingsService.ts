@@ -1,5 +1,6 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db, isFirestoreGrpcNoise } from '../firebase';
+import { db } from '../config/firebase';
+import { isFirestoreGrpcNoise } from '../firebase';
 import type { LandingSettings } from '../types';
 import { ENAMAD_CONFIG } from '../types';
 

@@ -8,6 +8,7 @@ import { getEffectiveGeminiKeysList, extractProductWithGeminiAI } from '../utils
 import { parseProductLinkUniversal } from '../utils/parseLink';
 import { SpeedboatLoader } from './SpeedboatLoader';
 import { ImageMagnifier } from './ImageMagnifier';
+import { usePricing } from '../context/PricingContext';
 
 interface HeroCalculatorProps {
   settings: FinancialSettings;
@@ -131,14 +132,18 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
     setWeightInput(String(weightKg));
   }, [weightKg]);
 
+  const { dirhamRate, pricingRules: contextPricingRules } = usePricing();
+  const activeAedRate = dirhamRate > 0 ? dirhamRate : getEffectiveAedRate(settings, cms);
+  const activeRules = contextPricingRules || cms?.pricingRules;
+
   // Pricing Engine Formula Calculation for current Quantity
   const totalAed = priceAed * quantity;
   const totalWeightKg = Math.round(weightKg * quantity * 100) / 100;
   const pricingResult = calculateOrderPricing(
     totalAed,
     quantity,
-    getEffectiveAedRate(settings, cms),
-    cms?.pricingRules,
+    activeAedRate,
+    activeRules,
     totalWeightKg,
     settings.cargoRatePerKg
   );
@@ -868,20 +873,20 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                       <div className="mt-3 bg-white p-3.5 rounded-xl border border-slate-200 text-xs space-y-2 animate-fadeIn">
                         <div className="flex justify-between items-center text-slate-600">
                           <span>قیمت پایه کالا در دبی:</span>
-                          <span className="font-bold dir-ltr">{formatAed(totalAed)} ({formatToman(totalAed * settings.aedRate)})</span>
+                          <span className="font-bold dir-ltr">{formatAed(totalAed)} ({formatToman(totalAed * activeAedRate)})</span>
                         </div>
                         <div className="flex justify-between items-center text-slate-600">
                           <span>نرخ تبدیل درهم روز:</span>
-                          <span className="font-bold">{formatToman(settings.aedRate)}</span>
+                          <span className="font-bold">{formatToman(activeAedRate)}</span>
                         </div>
                         <div className="flex justify-between items-center text-slate-600">
                           <span>کارمزد سفارش:</span>
-                          <span className="font-bold text-amber-700">{toPersianDigits(pricingResult.commissionPercent)}% ({formatToman(pricingResult.commissionAmountAed * settings.aedRate)})</span>
+                          <span className="font-bold text-amber-700">{toPersianDigits(pricingResult.commissionPercent)}% ({formatToman(pricingResult.commissionAmountAed * activeAedRate)})</span>
                         </div>
                         <div className="flex justify-between items-center text-slate-600">
                           <span>هزینه ارسال دبی به ایران ({toPersianDigits(totalWeightKg)} کیلوگرم):</span>
                           <span className="font-bold dir-ltr">
-                            {formatAed(pricingResult.shippingCostAed)} ({formatToman(pricingResult.shippingCostAed * settings.aedRate)})
+                            {formatAed(pricingResult.shippingCostAed)} ({formatToman(pricingResult.shippingCostAed * activeAedRate)})
                           </span>
                         </div>
                         <div className="border-t border-slate-100 pt-2 flex justify-between items-center font-black text-slate-900 text-sm">

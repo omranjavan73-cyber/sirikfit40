@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { fetchSettingsFromFirestore, saveSettingsToFirestore } from '../firebase';
+import { db } from '../config/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { safeFetchJson } from '../utils/apiHelper';
 import { getSafeItem, setSafeItem } from '../utils/safeStorage';
 
@@ -51,9 +53,10 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     const cached = getSafeItem<string>('sirikfit_aed_rate', '');
     if (cached) {
       const num = parseFloat(cached);
-      if (!isNaN(num) && num > 0) return num;
+      if (!isNaN(num) && num >= 54000) return num;
+      try { localStorage.removeItem('sirikfit_aed_rate'); } catch (_e) {}
     }
-    return null;
+    return 54500;
   });
 
   const [settings, setSettingsState] = useState<SiteSettings>(() => {
@@ -66,7 +69,10 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     const cachedDirect = getSafeItem<string>('sirikfit_aed_rate', '');
     if (cachedDirect) {
       const num = parseFloat(cachedDirect);
-      if (!isNaN(num) && num > 0) initialRate = num;
+      if (!isNaN(num) && num >= 54000) initialRate = num;
+      else {
+        try { localStorage.removeItem('sirikfit_aed_rate'); } catch (_e) {}
+      }
     }
 
     const savedFin = getSafeItem<any>('sirikfit_financial_settings', null);
@@ -77,9 +83,10 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
       if (typeof savedFin.minOrderAmountToman === 'number') minOrderToman = savedFin.minOrderAmountToman;
       if (!initialRate) {
         const r = Number(savedFin.aedRate || savedFin.manualAedRate || savedFin.exchangeRate);
-        if (!isNaN(r) && r > 0) initialRate = r;
+        if (!isNaN(r) && r >= 54000) initialRate = r;
       }
     }
+    if (!initialRate) initialRate = 54500;
 
     const savedApp = getSafeItem<any>('sirikfit_app_settings', null);
     if (savedApp && typeof savedApp === 'object' && typeof savedApp.minOrderAmountToman === 'number') {
@@ -180,6 +187,25 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
   useEffect(() => {
     refreshSettings();
 
+    // Real-time Firestore subscription to settings/pricing_rules
+    const unsubRules = onSnapshot(doc(db, 'settings', 'pricing_rules'), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        const liveRate = Number(d.dirhamRate || d.aedRate || 0);
+        if (liveRate > 0) {
+          setAedRateState(liveRate);
+          setSettingsState(prev => ({
+            ...prev,
+            aedRate: liveRate,
+            manualAedRate: liveRate
+          }));
+          setSafeItem('sirikfit_aed_rate', String(liveRate));
+        }
+      }
+    }, (err) => {
+      console.warn('SettingsContext pricing_rules notice:', err);
+    });
+
     const handleUpdate = (e?: Event) => {
       const detail = (e as CustomEvent)?.detail;
       if (detail) {
@@ -193,6 +219,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     window.addEventListener('settingsUpdated', handleUpdate as EventListener);
     window.addEventListener('storage', handleUpdate as EventListener);
     return () => {
+      unsubRules();
       window.removeEventListener('settingsUpdated', handleUpdate as EventListener);
       window.removeEventListener('storage', handleUpdate as EventListener);
     };

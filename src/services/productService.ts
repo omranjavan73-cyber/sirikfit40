@@ -1,4 +1,4 @@
-import { db } from '../firebase';
+import { db } from '../config/firebase';
 import { collection, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
 import type { FeaturedDeal, LocalInventoryItem } from '../types';
@@ -58,7 +58,7 @@ export interface StandardProductDoc {
   updatedAt: string;
 }
 
-export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 51400): StandardProductDoc => {
+export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 54500): StandardProductDoc => {
   const baseAed = Number(prod.basePriceAed || prod.priceAed || prod.price || 0);
   const margin = Number(prod.profitMargin !== undefined && prod.profitMargin !== null && !isNaN(Number(prod.profitMargin)) ? prod.profitMargin : 20);
   const baseWeight = Number(prod.weightKg || 0.8);
@@ -76,40 +76,44 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
   const img = String(prod.imageUrl || prod.image || '');
 
   const rawVariants = Array.isArray(prod.variants) ? prod.variants : [];
-  const cleanVariants = rawVariants.map((v: any) => {
-    const vAed = Number(v.priceAed || v.price || v.priceAED || baseAed || 0);
-    const vToman = Number(v.priceToman || calculateProductTomanPrice({
-      priceAed: vAed,
-      profitMarginPercent: margin,
-      aedToTomanRate,
-      baseShippingAed: 20
-    }));
+  const cleanVariants = rawVariants
+    .filter((v: any) => v && ((v.size && String(v.size).trim()) || (v.flavor && String(v.flavor).trim())))
+    .map((v: any) => {
+      const vAed = Number(v.priceAed ?? v.price ?? v.priceAED ?? baseAed ?? 0);
+      const vToman = Number(v.priceToman || calculateProductTomanPrice({
+        priceAed: vAed,
+        profitMarginPercent: margin,
+        aedToTomanRate,
+        baseShippingAed: 20
+      }));
 
-    const varImg = String(v.image || v.imageUrl || '').trim();
+      const cleanFlavor = (v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__')
+        ? String(v.flavor).trim()
+        : 'پیش‌فرض';
+      const cleanSize = (v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__')
+        ? String(v.size).trim()
+        : 'استاندارد';
 
-    return {
-      id: String(v.id || Math.random().toString(36).substring(2, 8)),
-      flavor: String(v.flavor || '').trim(),
-      size: String(v.size || '').trim(),
-      priceAed: vAed,
-      price: vAed,
-      priceAED: vAed,
-      priceToman: vToman,
-      weightKg: parseWeightKg(v.size, Number(v.weightKg) || baseWeight),
-      image: varImg || String(prod.imageUrl || prod.image || ''),
-      imageUrl: varImg || String(prod.imageUrl || prod.image || ''),
-      inStock: v.inStock !== false,
-      ...(v.url ? { url: String(v.url) } : {})
-    };
-  });
+      const varImg = String(v.image || v.imageUrl || '').trim();
 
-  const rawFlavors = Array.isArray(prod.allowedFlavors) ? prod.allowedFlavors : (Array.isArray(prod.flavors) ? prod.flavors : []);
-  const variantFlavors = cleanVariants.map(v => v.flavor).filter(Boolean);
-  const cleanFlavors = Array.from(new Set([...rawFlavors.filter((f: any) => typeof f === 'string' && f.trim().length > 0), ...variantFlavors]));
+      return {
+        id: String(v.id || Math.random().toString(36).substring(2, 8)),
+        flavor: cleanFlavor,
+        size: cleanSize,
+        priceAed: vAed,
+        price: vAed,
+        priceAED: vAed,
+        priceToman: vToman,
+        weightKg: parseWeightKg(cleanSize, Number(v.weightKg) || baseWeight),
+        image: varImg !== '' ? varImg : null,
+        imageUrl: varImg !== '' ? varImg : null,
+        inStock: v.inStock !== false,
+        ...(v.url ? { url: String(v.url) } : {})
+      };
+    });
 
-  const rawSizes = Array.isArray(prod.allowedSizes) ? prod.allowedSizes : (Array.isArray(prod.sizes) ? prod.sizes : []);
-  const variantSizes = cleanVariants.map(v => v.size).filter(Boolean);
-  const cleanSizes = Array.from(new Set([...rawSizes.filter((s: any) => typeof s === 'string' && s.trim().length > 0), ...variantSizes]));
+  const cleanFlavors = Array.from(new Set(cleanVariants.map(v => v.flavor)));
+  const cleanSizes = Array.from(new Set(cleanVariants.map(v => v.size)));
 
   return {
     id: String(prod.id || Date.now()),
@@ -139,7 +143,8 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
     url: String(prod.url || ''),
     storeName: String(prod.storeName || 'فروشگاه دبی'),
     inStock: prod.inStock !== false,
-    isActive: Boolean(prod.isActive),
+    isActive: prod.isActive !== undefined ? Boolean(prod.isActive) : (prod.isPublished !== undefined ? Boolean(prod.isPublished) : true),
+    isPublished: prod.isPublished !== undefined ? Boolean(prod.isPublished) : (prod.isActive !== undefined ? Boolean(prod.isActive) : true),
     isPopular: Boolean(prod.isPopular),
     isFeatured: Boolean(prod.isFeatured || prod.isPopular),
     allowedFlavors: cleanFlavors,

@@ -6,6 +6,7 @@ import { PopularProductsCarousel } from '../components/PopularProductsCarousel';
 import { HeroBanner } from '../components/HeroBanner';
 import { LocalInventorySection } from '../components/LocalInventorySection';
 import { FeaturedDeals } from '../components/FeaturedDeals';
+import { useProducts } from '../context/ProductContext';
 
 interface HomePageProps {
   deals?: FeaturedDeal[];
@@ -20,12 +21,13 @@ interface HomePageProps {
 export const Home: React.FC<HomePageProps> = ({
   deals: initialDeals = [],
   localInventory: initialLocal = [],
-  settings = { aedRate: 51400, cargoRatePerKg: 35, profitMargin: 20 },
+  settings = { aedRate: 54500, cargoRatePerKg: 35, profitMargin: 20 },
   cmsConfig,
   onSelectProduct,
   onAddToCart,
   showToast
 }) => {
+  const { popularProducts: contextPopular } = useProducts();
   const [deals, setDeals] = useState<FeaturedDeal[]>(initialDeals);
   const [localInventory, setLocalInventory] = useState<LocalInventoryItem[]>(initialLocal);
 
@@ -56,14 +58,41 @@ export const Home: React.FC<HomePageProps> = ({
     };
   }, []);
 
-  const activeDeals = deals.filter(d => d.isActive === true);
-  const popularDeals = deals.filter(d => d.isActive === true && (d as any).isPopular === true);
+  const activeDeals = deals.filter(d => d && d.isActive !== false && (d as any).isPublished !== false && (d as any).isDraft !== true);
+
+  // Composite Homepage Popular Products Selector:
+  // Strictly enforces: item.isPublished !== false && item.isPopular === true across both collections
+  const popularProducts = useMemo(() => {
+    const specialDeals = deals || [];
+    const iranWarehouseProducts = localInventory || [];
+    const sourceList = [...specialDeals, ...iranWarehouseProducts];
+    const candidateList = sourceList.length > 0 ? sourceList : (contextPopular || []);
+
+    const uniqueMap = new Map<string, any>();
+    candidateList
+      .filter((item: any) =>
+        item &&
+        item.id &&
+        item.isPublished !== false &&
+        item.isActive !== false &&
+        item.isDraft !== true &&
+        (item.isPopular === true || String(item.isPopular) === 'true')
+      )
+      .forEach((item: any) => {
+        if (!uniqueMap.has(item.id)) {
+          uniqueMap.set(item.id, item);
+        }
+      });
+
+    return Array.from(uniqueMap.values());
+  }, [deals, localInventory, contextPopular]);
 
   return (
     <div className="space-y-8 font-['Vazirmatn',sans-serif]" dir="rtl">
-      {popularDeals.length > 0 && (
+      {popularProducts.length > 0 && (
         <PopularProductsCarousel
-          products={popularDeals as any}
+          products={popularProducts as any}
+          settings={settings}
           onSelectProduct={onSelectProduct || ((p) => window.dispatchEvent(new CustomEvent('openProductDetail', { detail: p })))}
           onAddToCart={onAddToCart}
           showToast={showToast}

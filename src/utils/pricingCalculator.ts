@@ -15,20 +15,20 @@
 export interface PricingPolicyParams {
   priceAed: number;
   profitMarginPercent?: number; // Default: 20 (%)
-  aedToTomanRate?: number;     // From global settings (e.g. 51,400)
+  aedToTomanRate?: number;     // From global settings (e.g. 54,500)
   baseShippingAed?: number;    // From global shipping rules (e.g. 20 AED base)
 }
 
 export const calculateProductTomanPrice = ({
   priceAed,
   profitMarginPercent = 20,
-  aedToTomanRate = 51400,
+  aedToTomanRate = 54500,
   baseShippingAed = 20
 }: PricingPolicyParams): number => {
   const pAed = Number(priceAed) || 0;
   if (!pAed || isNaN(pAed) || pAed <= 0) return 0;
 
-  const rate = Number(aedToTomanRate) || 51400;
+  const rate = Number(aedToTomanRate) || 54500;
   const itemCostToman = pAed * rate;
   const shippingToman = (Number(baseShippingAed) || 20) * rate;
   const margin = profitMarginPercent !== undefined ? Number(profitMarginPercent) : 20;
@@ -74,7 +74,7 @@ export const computeVariantToman = (
 ): number => {
   const pAed = Number(priceAed) || 0;
   if (pAed <= 0) return 0;
-  const aedRate = Number(rates?.aedToToman || rates?.aedRate || 51400);
+  const aedRate = Number(rates?.aedToToman || rates?.aedRate || 54500);
   const margin = Number(rates?.profitMargin !== undefined ? rates.profitMargin : 20);
   const baseShippingAed = Number(rates?.baseShippingAed || 20);
 
@@ -102,7 +102,7 @@ export function calculateTomanPrice(
   settings?: PricingSettings
 ): number {
   const aed = Number(priceAED) || 0;
-  const aedRate = Number(settings?.aedRate) || 51400;
+  const aedRate = Number(settings?.aedRate) || 54500;
   const margin = Number(settings?.profitMarginPercent ?? settings?.profitMargin ?? 20);
   const baseShippingAed = Number(settings?.baseShippingAed ?? 20);
 
@@ -156,7 +156,7 @@ export function getActivePrices(params: {
   const baseAed = Number(product.priceAED ?? product.priceAed ?? product.basePriceAed ?? product.price ?? 0);
   const baseWeight = Number(product.weightKg ?? 0.8);
   const effectiveMargin = Number(product.profitMargin ?? product.marginPercent ?? settings?.profitMargin ?? 20);
-  const activeAedRate = Number(settings?.aedRate) || 51400;
+  const activeAedRate = Number(settings?.aedRate) || 54500;
   const baseShipping = Number(settings?.baseShippingAed ?? 20);
 
   const defaultBaseToman = product.priceToman && product.priceToman > 0

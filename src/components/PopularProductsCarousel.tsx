@@ -62,7 +62,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
   const defaultSettings: FinancialSettings = settings || {
     cargoRatePerKg: 35,
     profitMargin: 20,
-    aedRate: 23000
+    aedRate: 54500
   };
 
   return (
@@ -99,25 +99,34 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {list.map((prod) => {
-            const effectiveRate = getEffectiveAedRate(settings) || defaultSettings.aedRate || 55000;
+            const effectiveRate = getEffectiveAedRate(settings) || defaultSettings.aedRate || 54500;
             const rawItem = prod.rawItem;
             let priceVal: number | null = null;
 
-            if (rawItem?.priceToman && rawItem.priceToman > 0) {
+            if (prod.priceToman && prod.priceToman > 0) {
+              priceVal = prod.priceToman;
+            } else if (rawItem?.priceToman && rawItem.priceToman > 0) {
               priceVal = rawItem.priceToman;
             } else if (rawItem?.calculatedTomanOverride && rawItem.calculatedTomanOverride > 0) {
               priceVal = rawItem.calculatedTomanOverride;
             } else if (rawItem?.calculatedToman && rawItem.calculatedToman > 0) {
               priceVal = rawItem.calculatedToman;
+            } else if (prod.priceAed && prod.priceAed > 0) {
+              const margin = prod.profitMargin ?? prod.marginPercent ?? defaultSettings.profitMargin ?? 20;
+              const cargo = (prod.weightKg || 0.5) * (defaultSettings.cargoRatePerKg || 35) * effectiveRate;
+              priceVal = Math.floor(((prod.priceAed * effectiveRate * (1 + margin / 100)) + cargo) / 1000) * 1000;
             } else if (rawItem?.priceAed && rawItem.priceAed > 0) {
-              const margin = rawItem.profitMargin ?? rawItem.marginPercent ?? defaultSettings.profitMargin ?? 15;
+              const margin = rawItem.profitMargin ?? rawItem.marginPercent ?? defaultSettings.profitMargin ?? 20;
               const cargo = (rawItem.weightKg || 0.5) * (defaultSettings.cargoRatePerKg || 35) * effectiveRate;
               priceVal = Math.floor(((rawItem.priceAed * effectiveRate * (1 + margin / 100)) + cargo) / 1000) * 1000;
             } else if (prod.samplePriceAed && prod.samplePriceAed > 0) {
-              const margin = defaultSettings.profitMargin ?? 15;
+              const margin = defaultSettings.profitMargin ?? 20;
               const cargo = (prod.sampleWeightKg || 0.5) * (defaultSettings.cargoRatePerKg || 35) * effectiveRate;
               priceVal = Math.floor(((prod.samplePriceAed * effectiveRate * (1 + margin / 100)) + cargo) / 1000) * 1000;
             }
+
+            const itemImage = prod.image || prod.imageUrl || (rawItem && (rawItem.image || rawItem.imageUrl)) || (prod.galleryImages && prod.galleryImages[0]) || '';
+            const itemTitle = prod.title || prod.titleFa || prod.name || (rawItem && (rawItem.title || rawItem.name)) || 'محصول پرطرفدار';
 
             return (
               <div
@@ -130,8 +139,8 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
                   {/* Inner Image Frame: Micro Inner Border + Overflow Hidden */}
                   <div className="w-full h-full rounded-full border border-gray-200/70 overflow-hidden bg-white flex items-center justify-center p-1">
                     <img
-                      src={prod.image}
-                      alt={prod.title}
+                      src={itemImage}
+                      alt={itemTitle}
                       className="w-full h-full object-contain select-none group-hover:scale-110 transition-transform duration-300"
                       referrerPolicy="no-referrer"
                       onError={(e) => {
@@ -143,7 +152,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
 
                 {/* Product Persian Title Below Circle */}
                 <span className="text-[11px] md:text-xs font-medium text-gray-700 group-hover:text-gray-900 mt-1.5 w-full truncate px-1 text-center">
-                  {prod.title}
+                  {itemTitle}
                 </span>
 
                 {/* Price Badge Overhaul: Standalone, Compact, Elegant Pill Badge */}

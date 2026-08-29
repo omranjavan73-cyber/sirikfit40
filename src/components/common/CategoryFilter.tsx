@@ -77,17 +77,17 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
   const subCats = customSubCategories || activeMainConfig?.subCategories || [];
 
   return (
-    <div className={`flex flex-col gap-1.5 pt-2 pb-1 font-['Vazirmatn',sans-serif] text-right ${className}`} dir="rtl">
+    <div className={`flex flex-col gap-2 pt-1.5 pb-2 px-1 sm:px-2 font-['Vazirmatn',sans-serif] text-right w-full ${className}`} dir="rtl">
       {/* 1. Optional Search Header */}
       {showSearch && onSearchChange && (
-        <div className="relative">
+        <div className="relative w-full">
           <div className="relative flex items-center bg-white border border-slate-200/90 focus-within:border-slate-800 rounded-2xl shadow-2xs transition">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={searchPlaceholder}
-              className="w-full bg-transparent py-2.5 pr-10 pl-4 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none text-right dir-rtl font-medium"
+              className="w-full bg-transparent py-2 px-4 pr-10 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none text-right dir-rtl font-medium"
             />
             <Search className="w-4 h-4 text-slate-400 absolute right-3.5 shrink-0 pointer-events-none" />
             {searchQuery && (
@@ -104,39 +104,34 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
         </div>
       )}
 
-      {/* 2. Tier 1: Main Category Navigation Tabs (Slate Black / Cool Gray) */}
-      <div className="bg-slate-100 dark:bg-zinc-800/80 p-1 rounded-2xl shadow-xs overflow-hidden border border-slate-200/70">
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar scrollbar-none py-0.5 px-0.5 dir-rtl">
-          {taxonomy.map((cat) => {
-            const isActive = selectedMainCategory === cat.id || selectedMainCategory === cat.slug;
+      {/* 2. Row 1: Main Category Pills */}
+      <div className="w-full flex items-center gap-1.5 overflow-x-auto whitespace-nowrap no-scrollbar py-1">
+        {taxonomy.map((cat) => {
+          const isActive = selectedMainCategory === cat.id || selectedMainCategory === cat.slug;
 
-            return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => {
-                  if (onSelectMainCategory) onSelectMainCategory(cat.id);
-                  if (onSelectSubCategory) onSelectSubCategory('all');
-                }}
-                className={`whitespace-nowrap px-3.5 py-1.5 text-xs sm:text-sm font-black transition-all duration-200 cursor-pointer rounded-xl flex-1 text-center relative ${
-                  isActive
-                    ? 'bg-slate-900 text-white shadow-sm ring-1 ring-slate-800 dark:bg-zinc-900 dark:ring-zinc-700'
-                    : 'bg-transparent text-slate-700 hover:bg-slate-200/80 dark:text-zinc-300 dark:hover:bg-zinc-700'
-                }`}
-              >
-                <span>{cat.name}</span>
-                {isActive && (
-                  <span className="absolute bottom-1 left-3 right-3 h-0.5 bg-red-500 rounded-full" />
-                )}
-              </button>
-            );
-          })}
-        </div>
+          return (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => {
+                if (onSelectMainCategory) onSelectMainCategory(cat.id);
+                if (onSelectSubCategory) onSelectSubCategory('all');
+              }}
+              className={`whitespace-nowrap px-3.5 py-1.5 text-xs sm:text-sm font-black transition-all duration-200 cursor-pointer rounded-xl shrink-0 text-center relative border ${
+                isActive
+                  ? 'bg-slate-900 text-white shadow-sm ring-1 ring-slate-800 border-slate-900 dark:bg-zinc-900 dark:ring-zinc-700'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80 dark:bg-zinc-800 dark:text-zinc-300'
+              }`}
+            >
+              <span>{cat.name}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* 3. Tier 2: Sub-Category / Filter Pills (Brand Red / Clean Light Gray) */}
+      {/* 3. Row 2: Sub-Category / Filter Pills */}
       {subCats.length > 0 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scrollbar-none py-0.5 px-0.5 dir-rtl">
+        <div className="w-full flex items-center gap-1 overflow-x-auto whitespace-nowrap no-scrollbar py-1">
           {subCats.map((sub) => {
             const isSubActive = selectedSubCategory === sub.id;
 
@@ -147,7 +142,7 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
                 onClick={() => {
                   if (onSelectSubCategory) onSelectSubCategory(sub.id);
                 }}
-                className={`whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-black transition-all duration-200 cursor-pointer shrink-0 border ${
+                className={`whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black transition-all duration-200 cursor-pointer shrink-0 border ${
                   isSubActive
                     ? 'bg-red-600 text-white shadow-sm ring-1 ring-red-500 border-red-600'
                     : 'bg-slate-100 hover:bg-slate-200/90 text-slate-700 border-slate-200/80 dark:bg-zinc-800/80 dark:text-zinc-300'

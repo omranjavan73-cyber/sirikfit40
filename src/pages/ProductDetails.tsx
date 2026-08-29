@@ -15,6 +15,7 @@ import {
   handleFlavorChange,
   handleSizeChange
 } from '../utils/variantMatrixEngine';
+import { isMatchVariant, matchVariantAttr, resolveCompoundVariant, resolveVariantHeroImage } from '../utils/variantHelpers';
 import { ShoppingCart, Check, AlertCircle } from 'lucide-react';
 import { formatPersianSize, translateFlavor, sanitizeVariantLabel } from '../utils/supplementLocalization';
 
@@ -130,11 +131,13 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
     const res = handleFlavorChange(activeVariants, flavor, selectedSize);
     setSelectedFlavor(res.flavor);
     setSelectedSize(res.size);
+    setSelectedGalleryImage('');
   };
 
   const handleSizeClick = (size: string) => {
     // Size simply selects the size; does NOT disable or filter flavors
     setSelectedSize(size);
+    setSelectedGalleryImage('');
   };
 
   // Initial auto-sync on mount or product change
@@ -159,7 +162,7 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
   // 5. Exact Active Variant Resolution & Dynamic Pricing
   const activeVariant = useMemo(() => {
     if (activeVariants.length === 0) return null;
-    return findExactVariant(activeVariants, selectedFlavor, selectedSize);
+    return resolveCompoundVariant(activeVariants, selectedFlavor, selectedSize);
   }, [activeVariants, selectedFlavor, selectedSize]);
 
   const currentPriceAed = activeVariant 
@@ -210,7 +213,17 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
     return list;
   }, [rawImages, activeVariant]);
 
-  const mainDisplayImage = selectedGalleryImage || activeVariant?.image || product.imageUrl || product.image || product.mainImage || '';
+  const mainDisplayImage = useMemo(() => {
+    if (selectedGalleryImage && selectedGalleryImage.trim() !== '') {
+      return selectedGalleryImage.trim();
+    }
+    return resolveVariantHeroImage(
+      product.variants || [],
+      selectedFlavor,
+      selectedSize,
+      product.imageUrl || product.image || (product as any)?.mainImage
+    );
+  }, [selectedGalleryImage, product.variants, selectedFlavor, selectedSize, product.imageUrl, product.image]);
 
   const handleAddToCart = () => {
     if (!isComboAvailable) return;
@@ -248,6 +261,9 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
                 alt={product.title}
                 referrerPolicy="no-referrer"
                 className="max-h-80 w-auto object-contain transition-all duration-300 hover:scale-105"
+                onError={(e) => {
+                  e.currentTarget.src = product.image || product.imageUrl || '/placeholder-supplement.png';
+                }}
               />
             ) : (
               <div className="w-48 h-48 bg-gray-200 dark:bg-gray-700 rounded-2xl flex items-center justify-center text-gray-400">

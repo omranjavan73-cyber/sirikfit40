@@ -2181,7 +2181,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           ? data.title
           : (prefixText || data.title || 'مکمل اورجینال دبی');
 
-        const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+        const currentAedRate = getEffectiveAedRate(settings, cms) || 54500;
         const cargoRate = settings?.cargoRatePerKg || 35;
         const marginPercent = settings?.profitMargin || 20;
         const weightKg = Number(data.weightKg) || 0.8;
@@ -2296,7 +2296,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           ? data.title
           : (prefixText || data.title || 'مکمل اورجینال دبی');
 
-        const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+        const currentAedRate = getEffectiveAedRate(settings, cms) || 54500;
         const cargoRate = settings?.cargoRatePerKg || 35;
         const marginPercent = settings?.profitMargin || 20;
         const weightKg = Number(data.weightKg) || 0.8;
@@ -2642,7 +2642,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         // Dynamic Toman price calculation in real-time
         if (field === 'priceAed' || field === 'weightKg' || field === 'marginPercent') {
-          const aedRate = getEffectiveAedRate(settings, cms) || 51400;
+          const aedRate = getEffectiveAedRate(settings, cms) || 54500;
           const cargoRate = settings?.cargoRatePerKg || 35;
           const baseAed = Number(updated.priceAed) || 0;
           const weight = Number(updated.weightKg) || 0.8;
@@ -5243,7 +5243,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               const val = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
                               const currentWeight = item.weightKg !== undefined ? Number(item.weightKg) : 0.8;
                               const currentMargin = item.marginPercent !== undefined ? Number(item.marginPercent) : 20;
-                              const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                              const currentAedRate = getEffectiveAedRate(settings, cms) || 54500;
                               const cargoRate = settings?.cargoRatePerKg || 35;
                               const newToman = calculateTomanPrice(val, currentWeight, {
                                 aedRate: currentAedRate,
@@ -5270,7 +5270,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               const val = e.target.value === '' ? 0.8 : parseFloat(e.target.value) || 0.8;
                               const currentAed = item.priceAed || 0;
                               const currentMargin = item.marginPercent !== undefined ? Number(item.marginPercent) : 20;
-                              const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                              const currentAedRate = getEffectiveAedRate(settings, cms) || 54500;
                               const cargoRate = settings?.cargoRatePerKg || 35;
                               const newToman = calculateTomanPrice(currentAed, val, {
                                 aedRate: currentAedRate,
@@ -5296,7 +5296,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               const val = e.target.value === '' ? 20 : parseFloat(e.target.value) || 0;
                               const currentAed = item.priceAed || 0;
                               const currentWeight = item.weightKg !== undefined ? Number(item.weightKg) : 0.8;
-                              const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                              const currentAedRate = getEffectiveAedRate(settings, cms) || 54500;
                               const cargoRate = settings?.cargoRatePerKg || 35;
                               const newToman = calculateTomanPrice(currentAed, currentWeight, {
                                 aedRate: currentAedRate,
@@ -5874,7 +5874,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 const val = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
                                 const currentWeight = deal.weightKg !== undefined ? Number(deal.weightKg) : 0.8;
                                 const currentMargin = deal.profitMargin !== undefined ? Number(deal.profitMargin) : 20;
-                                const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                                const currentAedRate = getEffectiveAedRate(settings, cms) || 54500;
                                 const cargoRate = settings?.cargoRatePerKg || 35;
                                 const newToman = calculateTomanPrice(val, currentWeight, {
                                   aedRate: currentAedRate,
@@ -5902,7 +5902,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 const val = e.target.value === '' ? 0.8 : parseFloat(e.target.value) || 0.8;
                                 const currentAed = deal.priceAed || 0;
                                 const currentMargin = deal.profitMargin !== undefined ? Number(deal.profitMargin) : 20;
-                                const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                                const currentAedRate = getEffectiveAedRate(settings, cms) || 54500;
                                 const cargoRate = settings?.cargoRatePerKg || 35;
                                 const newToman = calculateTomanPrice(currentAed, val, {
                                   aedRate: currentAedRate,
@@ -5929,7 +5929,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 const val = e.target.value === '' ? 20 : parseFloat(e.target.value) || 0;
                                 const currentAed = deal.priceAed || 0;
                                 const currentWeight = deal.weightKg !== undefined ? Number(deal.weightKg) : 0.8;
-                                const currentAedRate = getEffectiveAedRate(settings, cms) || 51400;
+                                const currentAedRate = getEffectiveAedRate(settings, cms) || 54500;
                                 const cargoRate = settings?.cargoRatePerKg || 35;
                                 const newToman = calculateTomanPrice(currentAed, currentWeight, {
                                   aedRate: currentAedRate,

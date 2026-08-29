@@ -145,6 +145,7 @@ export interface FeaturedDeal {
   isFeaturedInCalculator?: boolean;
   isPopularSample?: boolean;
   isPopular?: boolean;
+  isPublished?: boolean;
   isActive: boolean;
   inStock?: boolean;
   mainCategory?: string;
@@ -178,6 +179,7 @@ export interface LocalInventoryItem {
   isLocalInventory?: boolean;
   isPopularSample?: boolean;
   isPopular?: boolean;
+  isPublished?: boolean;
   priceAed?: number;
   weightKg?: number;
   marginPercent?: number;
@@ -943,7 +945,8 @@ export interface ProductVariant {
   price: number;            // Active Selling Price AED
   originalPrice?: number;   // Strikethrough Price AED
   inStock: boolean;
-  image?: string;
+  image?: string | null;
+  imageUrl?: string | null;
   sku?: string;
   title?: string;
   name?: string;

@@ -49,7 +49,7 @@ function toModalProduct(item: LocalInventoryItem, aedRate: number = 55000): Prod
 
 export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
   items: initialItems,
-  settings = { aedRate: 51400, cargoRatePerKg: 35, profitMargin: 20 },
+  settings = { aedRate: 54500, cargoRatePerKg: 35, profitMargin: 20 },
   onSelectLocalProduct,
   onAddToCart,
   showToast,
@@ -92,10 +92,12 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
     }
   };
 
+  const visibleItems = itemsList.filter(item => item && (item as any).isActive !== false && (item as any).isPublished !== false && (item as any).isDraft !== true);
+
   return (
-    <div className="container mx-auto px-2 sm:px-4 py-2" dir="rtl">
+    <div className="container mx-auto px-1 sm:px-3 py-0" dir="rtl">
       <InventoryPage
-        items={itemsList}
+        items={visibleItems}
         settings={settings}
         onSelectLocalProduct={handleSelect}
         onAddToCart={onAddToCart}

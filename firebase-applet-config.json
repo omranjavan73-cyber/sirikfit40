@@ -1,12 +1,12 @@
 {
   "projectId": "sirikfit40",
-  "appId": "1:632765767852:web:01f36071ea0c94b4933b49",
-  "apiKey": "AIzaSyARiTsbTwglCwXPaoIMVFCG9zqGPG77X0",
+  "appId": "1:532757567852:web:01f36071a84c96b4933b49",
+  "apiKey": "AIzaSyB4BiTsbUtWgLcHxFAqImYEC59Zq6P7Zk0",
   "authDomain": "sirikfit40.firebaseapp.com",
   "firestoreDatabaseId": "(default)",
   "storageBucket": "sirikfit40.firebasestorage.app",
-  "messagingSenderId": "632765767852",
-  "measurementId": "G-QFR8GQOFNK",
+  "messagingSenderId": "532757567852",
+  "measurementId": "G-QFR8G0QFNH",
   "oAuthClientId": "957535196365-s8uo4ql063a8d771oeoig5kgigtdgtug.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

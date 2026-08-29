@@ -1,7 +1,7 @@
 import { PricingRulesConfig, CommissionRule, ShippingIncrementRule } from '../types';
 
 export interface PricingRules {
-  exchangeRate: number;        // e.g., 51200
+  exchangeRate: number;        // e.g., 54500
   defaultProfitMargin: number; // e.g., 20 (%)
   baseShippingAED: number;     // e.g., 20 AED (1st item)
   extraItemShippingAED: number;// e.g., 5 AED (per additional item)

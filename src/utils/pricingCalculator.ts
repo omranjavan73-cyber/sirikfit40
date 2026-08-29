@@ -12,6 +12,8 @@
  * (Rounded to the nearest 1,000 Toman)
  */
 
+export { calculateLandedPrice } from '../services/pricingService';
+
 export interface PricingPolicyParams {
   priceAed: number;
   profitMarginPercent?: number; // Default: 20 (%)

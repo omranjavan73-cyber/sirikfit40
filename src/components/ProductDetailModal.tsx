@@ -50,6 +50,7 @@ export interface ProductDetailModalProduct {
   englishTitle?: string;
   url?: string;
   priceAed: number;
+  price?: number;
   originalPriceAed?: number;
   priceToman?: number;
   originalPriceToman?: number;

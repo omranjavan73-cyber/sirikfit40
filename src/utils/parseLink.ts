@@ -426,7 +426,10 @@ function stripStrikethroughAndOldPrices(html: string): string {
     .replace(/<[^>]*class=["'][^"']*\b(?:old-price|was-price|price-was|original-price|price-old|line-through|strikethrough|crossed-out|strike|is-crossed)\b[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9]+>/gi, ' ')
     .replace(/<[^>]*data-price-type=["'](?:oldPrice|basePrice)["'][^>]*>[\s\S]*?<\/[a-z0-9]+>/gi, ' ')
     .replace(/<[^>]*style=["'][^"']*text-decoration\s*:\s*line-through[^"']*["'][^>]*>[\s\S]*?<\/[a-z0-9]+>/gi, ' ')
-    .replace(/(?:Was|Old Price|Regular Price|List Price|MSRP|Original Price|قبل الخصم|السعر السابق|السعر القديم|قیمت قبل|قیمت اصلی)\s*[:\-]?\s*(?:AED|Dhs|درهم)?\s*[\d\.,]+/gi, ' ');
+    .replace(/(?:Was|Old Price|Regular Price|List Price|MSRP|Original Price|قبل الخصم|السعر السابق|السعر القديم|قیمت قبل|قیمت اصلی)\s*[:\-]?\s*(?:AED|Dhs|درهم)?\s*[\d\.,]+/gi, ' ')
+    // 7. Remove delivery/shipping threshold announcements e.g. "Free delivery on orders over AED 100"
+    .replace(/(?:free\s*(?:delivery|shipping)|orders?\s*(?:above|over)|threshold)[^\n<]{0,80}(?:AED|Dhs|د\.إ)?\s*\d+(?:\.\d+)?/gi, ' ')
+    .replace(/\b(?:100)\s*(?:AED|Dhs|د\.إ)?\b[^\n<]{0,40}(?:free|shipping|delivery)/gi, ' ');
 }
 
 /**

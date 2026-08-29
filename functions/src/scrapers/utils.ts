@@ -301,9 +301,9 @@ export const sanitizeImageUrl = (rawImg: string, cleanUrl: string = ''): string 
 
 /**
  * Strict Hierarchical Image Resolution for Dr. Nutrition
- * Tier 1: OpenGraph & Meta Image (og:image, product:image, twitter:image)
- * Tier 2: Schema.org JSON-LD (Product.image)
- * Tier 3: DOM Selectors (.product-image-photo, .gallery-placeholder img, .fotorama__img, [itemprop="image"])
+ * Tier 1: Schema.org JSON-LD (Product.image)
+ * Tier 2: Specific DOM Selectors (.product-image-photo, .gallery-placeholder img, .fotorama__img, [itemprop="image"])
+ * Tier 3: OpenGraph & Meta Image (og:image, product:image, twitter:image)
  */
 export const extractDrNutritionImageHierarchical = ($: cheerio.CheerioAPI, sourceUrl: string): { mainImage: string; galleryImages: string[] } => {
   const galleryImages: string[] = [];
@@ -321,19 +321,7 @@ export const extractDrNutritionImageHierarchical = ($: cheerio.CheerioAPI, sourc
     return false;
   };
 
-  // Tier 1: OpenGraph & Meta Tags
-  const metaCandidates = [
-    $('meta[property="og:image"]').attr('content'),
-    $('meta[property="og:image:secure_url"]').attr('content'),
-    $('meta[property="product:image"]').attr('content'),
-    $('meta[name="twitter:image"]').attr('content'),
-    $('meta[name="twitter:image:src"]').attr('content')
-  ];
-  for (const m of metaCandidates) {
-    addCandidate(m);
-  }
-
-  // Tier 2: JSON-LD Schema
+  // Tier 1: JSON-LD Schema (PRIORITY 1)
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const content = $(el).html();
@@ -354,7 +342,7 @@ export const extractDrNutritionImageHierarchical = ($: cheerio.CheerioAPI, sourc
     } catch (_e) {}
   });
 
-  // Tier 3: Specific DOM Selectors
+  // Tier 2: Specific DOM Selectors
   const domSelectors = [
     '.product-image-photo',
     '.gallery-placeholder img',
@@ -372,9 +360,23 @@ export const extractDrNutritionImageHierarchical = ($: cheerio.CheerioAPI, sourc
 
   for (const selector of domSelectors) {
     $(selector).each((_, el) => {
-      const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-zoom-image') || $(el).attr('data-full');
-      addCandidate(src);
+      const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-zoom-image');
+      if (src) addCandidate(src);
     });
+  }
+
+  // Tier 3: OpenGraph & Meta Tags (ONLY if valid product image and NOT website logo)
+  const metaCandidates = [
+    $('meta[property="product:image"]').attr('content'),
+    $('meta[property="og:image:secure_url"]').attr('content'),
+    $('meta[property="og:image"]').attr('content'),
+    $('meta[name="twitter:image"]').attr('content'),
+    $('meta[name="twitter:image:src"]').attr('content')
+  ];
+  for (const m of metaCandidates) {
+    if (m && !m.toLowerCase().includes('og-logo') && !m.toLowerCase().includes('vector.svg')) {
+      addCandidate(m);
+    }
   }
 
   const mainImage = galleryImages.length > 0 ? galleryImages[0] : '';
@@ -469,7 +471,10 @@ export const extractPriceNumber = (textOrVal: any): number => {
   if (typeof textOrVal === 'number') {
     return isNaN(textOrVal) || textOrVal <= 0 ? 0 : Math.round(textOrVal * 100) / 100;
   }
-  const cleanStr = normalizeToEnglishDigits(String(textOrVal)).replace(/,/g, '').trim();
+  let cleanStr = normalizeToEnglishDigits(String(textOrVal)).replace(/,/g, '').trim();
+  if (/(?:free\s*(?:delivery|shipping)|orders?\s*(?:above|over)|threshold)/i.test(cleanStr)) {
+    return 0;
+  }
   
   // Try matching AED / Dhs currency regex first
   const currencyMatch = cleanStr.match(/(?:AED|Dhs\.?)\s*([0-9]+(?:\.[0-9]{1,2})?)/i);

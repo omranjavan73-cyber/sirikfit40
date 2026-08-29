@@ -68,14 +68,18 @@ export function parseDrNutritionJinaMarkdown(
   const brandMatch = md.match(/By\s+([A-Za-z0-9\s&.\-]+?)(?:\n|\|)/i) || md.match(/Brand:\s*([^\n]+)/i);
   if (brandMatch) brand = brandMatch[1].trim();
 
-  // 3. Prices
-  const fullPriceMatch = md.match(/AED\s*([\d,]+\.?\d*)\s+AED\s*([\d,]+\.?\d*)\s+([\d]+)%\s*OFF/i);
+  // 3. Prices (Strip shipping and promotional banners first)
+  const cleanMd = md
+    .replace(/(?:free\s*(?:delivery|shipping)|orders?\s*(?:above|over)|threshold)[^\n<]{0,80}(?:AED|Dhs|د\.إ)?\s*\d+(?:\.\d+)?/gi, ' ')
+    .replace(/\b(?:100)\s*(?:AED|Dhs|د\.إ)?\b[^\n<]{0,40}(?:free|shipping|delivery)/gi, ' ');
+
+  const fullPriceMatch = cleanMd.match(/AED\s*([\d,]+\.?\d*)\s+AED\s*([\d,]+\.?\d*)\s+([\d]+)%\s*OFF/i);
   if (fullPriceMatch) {
     price = parseFloat(fullPriceMatch[1].replace(/,/g, ''));
     originalPrice = parseFloat(fullPriceMatch[2].replace(/,/g, ''));
     discountPercent = parseInt(fullPriceMatch[3], 10);
   } else {
-    const dualPriceMatch = md.match(/AED\s*([\d,]+\.?\d*)\s+AED\s*([\d,]+\.?\d*)/i);
+    const dualPriceMatch = cleanMd.match(/AED\s*([\d,]+\.?\d*)\s+AED\s*([\d,]+\.?\d*)/i);
     if (dualPriceMatch) {
       const p1 = parseFloat(dualPriceMatch[1].replace(/,/g, ''));
       const p2 = parseFloat(dualPriceMatch[2].replace(/,/g, ''));
@@ -85,7 +89,7 @@ export function parseDrNutritionJinaMarkdown(
         discountPercent = Math.round(((originalPrice - price) / originalPrice) * 100);
       }
     } else {
-      const singleMatch = md.match(/AED\s*([\d,]+\.?\d*)/i);
+      const singleMatch = cleanMd.match(/AED\s*([\d,]+\.?\d*)/i);
       if (singleMatch) price = parseFloat(singleMatch[1].replace(/,/g, ''));
     }
   }
@@ -102,7 +106,8 @@ export function parseDrNutritionJinaMarkdown(
     }
     const sanitized = sanitizeImageUrlFn(imgUrl, sourceUrl);
     if (sanitized && !galleryImages.includes(sanitized) &&
-        !sanitized.includes('logo') && !sanitized.includes('icon') && !sanitized.includes('.svg') &&
+        !sanitized.includes('logo') && !sanitized.includes('og-logo') && !sanitized.includes('dnp') &&
+        !sanitized.includes('placeholder') && !sanitized.includes('icon') && !sanitized.includes('.svg') &&
         !sanitized.includes('flag') && !sanitized.includes('banner') && !sanitized.includes('mode')) {
       galleryImages.push(sanitized);
     }

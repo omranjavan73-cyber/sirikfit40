@@ -643,6 +643,8 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
       const jinaRes = await axios.get(jinaUrl, {
         headers: {
           ...headers,
+          'Accept': 'text/html,application/xhtml+xml',
+          'X-Return-Format': 'html',
           'X-With-Images-Summary': 'true',
           'X-No-Cache': 'true'
         },
@@ -709,7 +711,7 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
     if (jsonLdData.brand) brand = jsonLdData.brand;
     if (jsonLdData.priceAED > 0) activePrices.push(jsonLdData.priceAED);
     if (jsonLdData.originalPriceAED && jsonLdData.originalPriceAED > 0) oldPrices.push(jsonLdData.originalPriceAED);
-    if (!mainImage && jsonLdData.image && !isInvalidDrNutritionImage(jsonLdData.image)) {
+    if (jsonLdData.image && !isInvalidDrNutritionImage(jsonLdData.image)) {
       mainImage = jsonLdData.image;
     }
     if (jsonLdData.galleryImages?.length > 0) {

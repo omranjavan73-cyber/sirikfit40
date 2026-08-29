@@ -226,7 +226,7 @@ export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
               id: selectedLocalForModal.id,
               title: `${selectedLocalForModal.title} (موجودی انبار ایران)`,
               url: selectedLocalForModal.url || 'https://omex.ir/stock/' + selectedLocalForModal.id,
-              priceAed: selectedLocalForModal.priceAed || Math.round(selectedLocalForModal.priceToman / effectiveRate) || 100,
+              priceAed: selectedLocalForModal.priceAed || Math.round(selectedLocalForModal.priceToman / effectiveRate) || 0,
               originalPriceAed: selectedLocalForModal.originalPriceToman ? Math.round(selectedLocalForModal.originalPriceToman / effectiveRate) : 0,
               priceToman: selectedLocalForModal.priceToman,
               originalPriceToman: selectedLocalForModal.originalPriceToman,

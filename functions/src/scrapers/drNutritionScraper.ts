@@ -13,6 +13,7 @@ import {
   isArtificialFallback,
   extractDrNutritionHandle,
   cleanDrNutritionTitle,
+  cleanDrNutritionSlugForSearch,
   sanitizeFlavorName,
   extractDrNutritionImageHierarchical,
   isInvalidDrNutritionImage
@@ -34,16 +35,16 @@ export interface DrNutritionScraperResult {
   imageUrl: string;
   galleryImages: string[];
   inStock: boolean;
-  retailer: 'DrNutrition';
+  retailer: string;
   store: string;
   storeName: string;
   sourceUrl: string;
   selectedFlavor?: string | null;
   selectedSize?: string | null;
-  flavors: string[];
-  sizes: string[];
-  variants: any[];
-  weightKg: number;
+  flavors?: string[];
+  sizes?: string[];
+  variants?: any[];
+  weightKg?: number;
   description?: string;
   error?: string;
 }
@@ -70,7 +71,8 @@ export const isStruckOrOldPrice = ($: cheerio.CheerioAPI, el: any): boolean => {
 
 /**
  * Permanent, Multi-Tier Dr. Nutrition Extraction Engine
- * Tier 1: Direct Product JSON Endpoint (/products/[handle].json) - Clean bypass of HTML bot protection
+ * Tier 0: Direct Dr. Nutrition Live API (Bypasses Cloudflare HTML Protection)
+ * Tier 1: Direct Product JSON Endpoint (/products/[handle].json)
  * Tier 2: Standardized JSON-LD Schema (Google SEO Mandatory metadata)
  * Tier 3: Framework Hydration & Next.js pageProps (multi-flavor, multi-size configurable options)
  * Tier 4: Sanitized High-Res DOM Selectors with Strikethrough Elimination
@@ -82,9 +84,147 @@ export async function scrapeDrNutrition(rawUrl: string, options?: DrNutritionScr
   const timeout = options?.timeoutMs || 15000;
 
   // -------------------------------------------------------------
-  // TIER 1: Direct Product JSON Endpoint (/products/[handle].json)
+  // TIER 0: Direct Dr. Nutrition Live API (Bypasses Cloudflare HTML Protection)
+  // Endpoint: https://data.drnutrition.com/api/v1/search?q=...
   // -------------------------------------------------------------
   const handle = extractDrNutritionHandle(normalizedUrl);
+  if (handle) {
+    try {
+      const searchQuery = cleanDrNutritionSlugForSearch(handle);
+      if (searchQuery) {
+        const apiHeaders = {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-Locale': 'en',
+          'X-Region': 'ae',
+          'X-Locale-Region': 'en-ae',
+          'Accept-Language': 'en',
+          'User-Agent': options?.userAgent || headers['User-Agent']
+        };
+        const searchApiUrl = `https://data.drnutrition.com/api/v1/search?q=${encodeURIComponent(searchQuery)}`;
+        const apiRes = await axios.get(searchApiUrl, {
+          headers: apiHeaders,
+          timeout: Math.min(timeout, 8000),
+          validateStatus: (s) => s < 400
+        });
+
+        if (apiRes.data && apiRes.data.data?.products && Array.isArray(apiRes.data.data.products) && apiRes.data.data.products.length > 0) {
+          const products = apiRes.data.data.products;
+          // Find exact slug match or best relevant product
+          let matched = products.find((p: any) => p.slug === handle || p.url?.endsWith(handle));
+          if (!matched) {
+            matched = products[0];
+          }
+
+          const priceAed = Number(matched.selling_price || matched.price || 0);
+          if (priceAed > 0) {
+            const rawTitle = String(matched.title || '').trim();
+            const titleEn = cleanDrNutritionTitle(rawTitle);
+            const rawOrig = Number(matched.price || 0);
+            const originalPriceAed = rawOrig > priceAed ? rawOrig : undefined;
+            const discountPercent = matched.discount || (originalPriceAed ? Math.round(((originalPriceAed - priceAed) / originalPriceAed) * 100) : undefined);
+
+            let mainImg = sanitizeImageUrl(matched.original_image || matched.image, normalizedUrl);
+            if (isInvalidDrNutritionImage(mainImg)) mainImg = '';
+
+            const galleryImages: string[] = [];
+            if (mainImg) galleryImages.push(mainImg);
+            if (Array.isArray(matched.additional_images)) {
+              matched.additional_images.forEach((img: any) => {
+                const s = sanitizeImageUrl(img, normalizedUrl);
+                if (s && !isInvalidDrNutritionImage(s) && !galleryImages.includes(s)) {
+                  galleryImages.push(s);
+                }
+              });
+            }
+            if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
+
+            let weightKg = 0.8;
+            if (matched.weight) {
+              const wStr = String(matched.weight).toLowerCase();
+              const num = parseFloat(wStr.replace(/[^0-9.]/g, ''));
+              if (!isNaN(num) && num > 0) {
+                if (wStr.includes('kg') || wStr.includes('کیلوگرم')) weightKg = num;
+                else if (wStr.includes('g') || wStr.includes('گرم') || wStr.includes('gm')) weightKg = Math.round((num / 1000) * 100) / 100;
+                else if (wStr.includes('lb')) weightKg = Math.round(num * 0.453592 * 100) / 100;
+              }
+            }
+
+            const flavorsList: string[] = [];
+            const sizesList: string[] = [];
+            const titleParts = rawTitle.split(',').map((p: string) => p.trim()).filter(Boolean);
+            if (titleParts.length >= 2) {
+              for (let i = 1; i < titleParts.length; i++) {
+                const part = titleParts[i];
+                const cleanPart = cleanDrNutritionTitle(part);
+                if (!cleanPart || isArtificialFallback(cleanPart)) continue;
+                const lowerP = cleanPart.toLowerCase();
+                const isSize = lowerP.includes('kg') || lowerP.includes('gm') || lowerP.includes('g') || 
+                               lowerP.includes('lb') || lowerP.includes('serving') || lowerP.includes('capsule') || lowerP.includes('tablet');
+                if (isSize) {
+                  if (!sizesList.includes(cleanPart)) sizesList.push(cleanPart);
+                } else {
+                  const cleanFlv = sanitizeFlavorName(cleanPart);
+                  if (cleanFlv && !flavorsList.includes(cleanFlv)) flavorsList.push(cleanFlv);
+                }
+              }
+            }
+
+            const cleanFlavors = deduplicateStrings(flavorsList);
+            const cleanSizes = deduplicateStrings(sizesList);
+            const brand = matched.category_one_name || 'Dr. Nutrition';
+            const titleFa = generateBilingualProductTitle(titleEn, brand);
+
+            const structuredVariants: any[] = [{
+              id: String(matched.product_option_id || matched.product_id || 'v-0'),
+              title: titleEn,
+              price: priceAed,
+              priceAed,
+              priceAED: priceAed,
+              image: mainImg || undefined,
+              inStock: matched.in_stock !== false,
+              flavor: cleanFlavors.length > 0 ? cleanFlavors[0] : undefined,
+              size: cleanSizes.length > 0 ? cleanSizes[0] : undefined
+            }];
+
+            return {
+              success: true,
+              ok: true,
+              titleFa,
+              titleEn,
+              title: titleEn,
+              brand,
+              priceAed,
+              priceAED: priceAed,
+              originalPriceAed,
+              originalPriceAED: originalPriceAed,
+              discountPercent,
+              image: mainImg,
+              imageUrl: mainImg,
+              galleryImages,
+              inStock: matched.in_stock !== false,
+              retailer: 'DrNutrition',
+              store: 'Dr. Nutrition',
+              storeName: 'Dr. Nutrition',
+              sourceUrl: normalizedUrl,
+              selectedFlavor: cleanFlavors.length > 0 ? cleanFlavors[0] : null,
+              selectedSize: cleanSizes.length > 0 ? cleanSizes[0] : null,
+              flavors: cleanFlavors,
+              sizes: cleanSizes,
+              variants: structuredVariants,
+              weightKg
+            };
+          }
+        }
+      }
+    } catch (_apiErr: any) {
+      console.warn('[drNutritionScraper] Live API tier notice:', _apiErr?.message || _apiErr);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // TIER 1: Direct Product JSON Endpoint (/products/[handle].json)
+  // -------------------------------------------------------------
   if (handle) {
     const jsonCandidates = [
       `https://www.drnutrition.com/en-ae/products/${handle}.json`,

@@ -180,6 +180,8 @@ export const isInvalidDrNutritionImage = (rawUrl: string): boolean => {
     'dnp.svg',
     'dnp_header',
     'dnp_icon',
+    'og-logo',
+    'vector.svg',
     'drnutrition_logo',
     'drnutrition-logo',
     '/media/logo/',
@@ -235,6 +237,22 @@ export const isInvalidDrNutritionImage = (rawUrl: string): boolean => {
   } catch (_e) {}
 
   return false;
+};
+
+/**
+ * Clean Dr. Nutrition product slug into clean search keywords for live API querying
+ */
+export const cleanDrNutritionSlugForSearch = (slug: string): string => {
+  if (!slug || typeof slug !== 'string') return '';
+  return slug
+    .trim()
+    .replace(/^product\//i, '')
+    .replace(/\.html?$/i, '')
+    .replace(/-(?:bb|jug|shaker|bottle|free|promo|bundle|gift|offer)-.*/gi, '')
+    .replace(/-bb-?\d+(?:\.\d+)?l?(?:-jug)?/gi, '')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 };
 
 export const sanitizeImageUrl = (rawImg: string, cleanUrl: string = ''): string => {

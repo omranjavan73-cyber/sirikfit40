@@ -333,7 +333,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
 
   const addVariantRow = (dealId: string) => {
     const deal = deals.find(d => d.id === dealId);
-    const pAed = Number(deal?.priceAed || deal?.basePriceAed) || 100;
+    const pAed = Number(deal?.priceAed || deal?.basePriceAed || deal?.price) || 0;
     const defFlavor = (deal?.flavors as any)?.[0] || 'بدون طعم (Unflavored)';
     const defSize = (deal?.sizes as any)?.[0] || '2.45 kg';
     const wt = parseSizeWeightKg(defSize, deal?.weightKg || 0.8);

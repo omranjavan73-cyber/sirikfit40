@@ -958,7 +958,7 @@ function MainApp() {
     const finalToman = (deal.priceToman && deal.priceToman > 0)
       ? deal.priceToman
       : calculateFinalToman(
-          deal.priceAed || 100,
+          deal.priceAed || 0,
           deal.weightKg || 0.5,
           settings.cargoRatePerKg,
           dealMargin,
@@ -1233,7 +1233,7 @@ function MainApp() {
                             : (deal.calculatedToman && deal.calculatedToman > 0
                                 ? deal.calculatedToman
                                 : calculateFinalToman(
-                                    deal.priceAed || 100,
+                                    deal.priceAed || 0,
                                     deal.weightKg || 0.5,
                                     settings.cargoRatePerKg,
                                     dealMargin,
@@ -1243,7 +1243,7 @@ function MainApp() {
                         id: deal.id,
                         title: deal.title || 'پیشنهاد ویژه دبی',
                         url: deal.url || 'https://drnutrition.com',
-                        priceAed: deal.priceAed || 100,
+                        priceAed: deal.priceAed || 0,
                         originalPriceAed: deal.originalPriceAed || 0,
                         discountPercent: deal.discountPercent || 0,
                         weightKg: deal.weightKg || 0.5,

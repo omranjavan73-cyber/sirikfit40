@@ -4157,6 +4157,57 @@ const extractDrNutritionHandle = (url: string): string | null => {
   return null;
 };
 
+const cleanDrNutritionSlugForSearch = (slug: string): string => {
+  if (!slug || typeof slug !== 'string') return '';
+  return slug
+    .trim()
+    .replace(/^product\//i, '')
+    .replace(/\.html?$/i, '')
+    .replace(/-(?:bb|jug|shaker|bottle|free|promo|bundle|gift|offer)-.*/gi, '')
+    .replace(/-bb-?\d+(?:\.\d+)?l?(?:-jug)?/gi, '')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const isInvalidDrImage = (url: string) => {
+  if (!url || typeof url !== 'string') return true;
+  const l = url.toLowerCase();
+  return l.includes('logo') || l.includes('dnp') || l.includes('placeholder') || 
+         l.includes('favicon') || l.includes('badge') || l.includes('drnutrition-logo') ||
+         l.includes('banner') || l.includes('icon') || l.includes('vector.svg') ||
+         l.includes('og-logo') || l.includes('header');
+};
+
+const cleanDrTitle = (raw: string): string => {
+  if (!raw) return '';
+  return raw
+    .replace(/\|\s*Dr\s*Nutrition.*/gi, '')
+    .replace(/\|\s*دكتور\s*نيوترشن.*/gi, '')
+    .replace(/-\s*Dr\.?\s*Nutrition.*/gi, '')
+    .replace(/\s*BB\s*[\d.]+\s*(?:L|Jug|liter)?.*$/i, '')
+    .replace(/\s+-\s+BB\s*[\d.]+.*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const sanitizeDrFlavor = (raw: string): string | null => {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (trimmed.length < 2 || trimmed.length > 50) return null;
+  const l = trimmed.toLowerCase();
+  if (['default', 'default title', 'standard', 'پیش‌فرض', 'پیشفرض', 'select', 'choose', 'none', 'n/a', 'select option'].includes(l)) {
+    return null;
+  }
+  if (/^bb\s*[\d.]+\s*(?:l|jug|liter)?$/i.test(l) || /^l\s+black\s+[\d.]+$/i.test(l)) {
+    return null;
+  }
+  if (/\b(?:free\s+shaker|shaker\s+free|promo|gift|bottle|jug)\b/i.test(l)) {
+    return null;
+  }
+  return trimmed;
+};
+
 const getStandardScraperHeaders = (targetUrl?: string, customUserAgent?: string) => {
   let host = '';
   if (targetUrl) {
@@ -5099,7 +5150,8 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
     const l = url.toLowerCase();
     return l.includes('logo') || l.includes('dnp') || l.includes('placeholder') || 
            l.includes('favicon') || l.includes('badge') || l.includes('drnutrition-logo') ||
-           l.includes('banner') || l.includes('icon');
+           l.includes('banner') || l.includes('icon') || l.includes('vector.svg') ||
+           l.includes('og-logo') || l.includes('header');
   };
 
   const cleanDrTitle = (raw: string): string => {
@@ -5770,10 +5822,16 @@ async function fetchWithMicrolink(targetUrl: string, storeName: string): Promise
 
       // 3. Fallback text regex for AED price
       if (!price) {
-        const text = document.body ? document.body.innerText : '';
+        let text = document.body ? document.body.innerText : '';
+        // Eradicate free shipping banners e.g. "Free shipping on orders above 100 AED"
+        text = text.replace(/(?:free\\s*shipping|delivery|orders?\\s*(?:above|over)|threshold)[^\\n.]{0,50}(?:AED|Dhs|د\\.إ)?\\s*\\d+(?:\\.\\d+)?/gi, '');
+        text = text.replace(/\\b(?:100)\\s*(?:AED|Dhs|د\\.إ)?\\b[^\\n.]{0,30}(?:free|shipping)/gi, '');
         const match = text.match(/(?:AED|Dhs|د\\.إ)\\s*([0-9]+(?:\\.[0-9]{1,2})?)/i) ||
                       text.match(/([0-9]+(?:\\.[0-9]{1,2})?)\\s*(?:AED|Dhs|د\\.إ)/i);
-        if (match) price = parseFloat(match[1]);
+        if (match) {
+          const parsed = parseFloat(match[1]);
+          if (!isNaN(parsed) && parsed > 0) price = parsed;
+        }
       }
 
       // 4. Extract Images
@@ -5819,21 +5877,37 @@ async function fetchWithMicrolink(targetUrl: string, storeName: string): Promise
 
     if (res.ok) {
       const json = await res.json();
+      if (json?.statusCode === 403 || json?.data?.statusCode === 403 || (json?.data?.statusCode && json.data.statusCode >= 400)) {
+        return null;
+      }
+
       const custom = json?.data?.custom;
       const meta = json?.data;
 
       let extractedTitle = custom?.title || meta?.title;
       let extractedPrice = custom?.price ? parseFloat(String(custom.price)) : 0;
-      let mainImg = meta?.image?.url || (Array.isArray(custom?.images) ? custom.images[0] : '');
+      let rawImg = (Array.isArray(custom?.images) && custom.images[0]) || meta?.image?.url || '';
+      
+      const isBadImg = (u: string) => {
+        if (!u) return true;
+        const l = u.toLowerCase();
+        return l.includes('logo') || l.includes('dnp') || l.includes('icon') || l.includes('badge') || l.includes('vector.svg') || l.includes('og-logo') || l.includes('header');
+      };
+
+      let mainImg = isBadImg(rawImg) ? '' : rawImg;
       const gallery: string[] = [];
 
-      if (mainImg) gallery.push(sanitizeImageUrl(mainImg, targetUrl));
+      if (mainImg) {
+        const s = sanitizeImageUrl(mainImg, targetUrl);
+        if (s && !isBadImg(s)) gallery.push(s);
+      }
       if (Array.isArray(custom?.images)) {
         custom.images.forEach((img: string) => {
           const s = sanitizeImageUrl(img, targetUrl);
-          if (s && !gallery.includes(s)) gallery.push(s);
+          if (s && !isBadImg(s) && !gallery.includes(s)) gallery.push(s);
         });
       }
+      if (!mainImg && gallery.length > 0) mainImg = gallery[0];
 
       if (extractedTitle && extractedPrice > 0) {
         const flavors: string[] = [];
@@ -5908,8 +5982,125 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, customUser
     enAeUrl = drUrl.replace('drnutrition.com/', 'drnutrition.com/en-ae/');
   }
 
-  // TIER 1: DIRECT PRODUCT JSON ENDPOINT (/products/[handle].json)
+  // TIER 0: DIRECT DR. NUTRITION LIVE API (Bypasses Cloudflare HTML Protection)
   const handle = extractDrNutritionHandle(targetUrl);
+  if (handle) {
+    try {
+      const searchQuery = cleanDrNutritionSlugForSearch(handle);
+      if (searchQuery) {
+        const apiHeaders = {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-Locale': 'en',
+          'X-Region': 'ae',
+          'X-Locale-Region': 'en-ae',
+          'Accept-Language': 'en',
+          'User-Agent': customUserAgent || headers['User-Agent']
+        };
+        const searchApiUrl = `https://data.drnutrition.com/api/v1/search?q=${encodeURIComponent(searchQuery)}`;
+        const controller = new AbortController();
+        const tId = setTimeout(() => controller.abort(), 6000);
+        const apiRes = await fetch(searchApiUrl, {
+          headers: apiHeaders,
+          signal: controller.signal
+        });
+        clearTimeout(tId);
+
+        if (apiRes.ok) {
+          const apiData: any = await apiRes.json();
+          if (apiData?.data?.products && Array.isArray(apiData.data.products) && apiData.data.products.length > 0) {
+            const products = apiData.data.products;
+            let matched = products.find((p: any) => p.slug === handle || p.url?.endsWith(handle));
+            if (!matched) {
+              matched = products[0];
+            }
+
+            const pAed = Number(matched.selling_price || matched.price || 0);
+            if (pAed > 0) {
+              const rawT = String(matched.title || '').trim();
+              const cleanT = cleanDrTitle(rawT);
+              const origP = Number(matched.price || 0);
+              const finalOrig = origP > pAed ? origP : undefined;
+              const discountPercent = matched.discount || (finalOrig ? Math.round(((finalOrig - pAed) / finalOrig) * 100) : undefined);
+
+              let mainImg = sanitizeImageUrl(matched.original_image || matched.image, targetUrl);
+              if (isInvalidDrImage(mainImg)) mainImg = '';
+
+              const galleryImages: string[] = [];
+              if (mainImg) galleryImages.push(mainImg);
+              if (Array.isArray(matched.additional_images)) {
+                matched.additional_images.forEach((img: any) => {
+                  const s = sanitizeImageUrl(img, targetUrl);
+                  if (s && !isInvalidDrImage(s) && !galleryImages.includes(s)) galleryImages.push(s);
+                });
+              }
+              if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
+
+              const flavors: string[] = [];
+              const sizes: string[] = [];
+              const titleParts = rawT.split(',').map((p: string) => p.trim()).filter(Boolean);
+              if (titleParts.length >= 2) {
+                for (let i = 1; i < titleParts.length; i++) {
+                  const part = titleParts[i];
+                  const cleanP = cleanDrTitle(part);
+                  if (!cleanP) continue;
+                  const lowerP = cleanP.toLowerCase();
+                  const isSize = lowerP.includes('kg') || lowerP.includes('gm') || lowerP.includes('g') || 
+                                 lowerP.includes('lb') || lowerP.includes('serving') || lowerP.includes('capsule') || lowerP.includes('tablet');
+                  if (isSize) {
+                    if (!sizes.includes(cleanP)) sizes.push(cleanP);
+                  } else {
+                    const cleanF = sanitizeDrFlavor(cleanP);
+                    if (cleanF && !flavors.includes(cleanF)) flavors.push(cleanF);
+                  }
+                }
+              }
+
+              const variantGroups: any[] = [];
+              if (flavors.length > 0) {
+                variantGroups.push({
+                  id: 'flavors',
+                  name: 'طعم (Flavor)',
+                  type: 'flavor',
+                  options: flavors.map((f, idx) => ({ id: `flv-${idx}`, name: f, priceAed: pAed, inStock: true }))
+                });
+              }
+              if (sizes.length > 0) {
+                variantGroups.push({
+                  id: 'sizes',
+                  name: 'وزن / سایز (Size)',
+                  type: 'size',
+                  options: sizes.map((s, idx) => ({ id: `sz-${idx}`, name: s, priceAed: pAed, inStock: true }))
+                });
+              }
+
+              return {
+                ok: true,
+                title: cleanT,
+                price: pAed,
+                originalPriceAed: finalOrig,
+                discountPercent,
+                currency: "AED",
+                image: mainImg,
+                galleryImages,
+                images: galleryImages,
+                variantGroups: variantGroups.length > 0 ? variantGroups : undefined,
+                flavors,
+                sizes,
+                options: [...flavors, ...sizes],
+                storeName,
+                inStock: matched.in_stock !== false
+              };
+            }
+          }
+        }
+      }
+    } catch (_apiErr: any) {
+      console.warn('[drNutritionAdapter server] Live API notice:', _apiErr?.message || _apiErr);
+    }
+  }
+
+  // TIER 1: DIRECT PRODUCT JSON ENDPOINT (/products/[handle].json)
   if (handle) {
     const jsonUrls = [
       `https://www.drnutrition.com/en-ae/products/${handle}.json`,

@@ -116,6 +116,8 @@ export class DrNutritionParser {
            lower.includes('banner') ||
            lower.includes('avatar') ||
            lower.includes('payment') ||
+           lower.includes('og-logo') ||
+           lower.includes('vector.svg') ||
            lower.includes('placeholder');
   }
 

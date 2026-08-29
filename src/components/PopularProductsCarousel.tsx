@@ -210,7 +210,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
         } else if (selectedPopularForModal.type === 'deal') {
           profitMarginVal = raw.profitMargin !== undefined ? raw.profitMargin : (raw.marginPercent !== undefined ? raw.marginPercent : (defaultSettings.profitMargin || 20));
           priceTomanVal = calculateFinalToman(
-            raw.priceAed || 100,
+            raw.priceAed || raw.price || 0,
             raw.weightKg || 0.5,
             cargoRate,
             profitMarginVal,

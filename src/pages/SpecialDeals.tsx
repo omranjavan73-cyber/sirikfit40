@@ -24,7 +24,7 @@ function toModalDeal(deal: FeaturedDeal, settings: FinancialSettings): ProductDe
     ? deal.priceToman
     : (deal.calculatedTomanOverride && deal.calculatedTomanOverride > 0
         ? deal.calculatedTomanOverride
-        : calculateFinalToman(deal.priceAed || 100, deal.weightKg || 0.5, settings.cargoRatePerKg || 35, margin, effectiveRate));
+        : calculateFinalToman(deal.priceAed || 0, deal.weightKg || 0.5, settings.cargoRatePerKg || 35, margin, effectiveRate));
 
   return {
     id: deal.id,

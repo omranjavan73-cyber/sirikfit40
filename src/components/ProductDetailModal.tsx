@@ -291,7 +291,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   if (!isOpen || !currentProd) return null;
 
   const isLocal = currentProd.isLocalInventory === true || currentProd.storeName?.includes('انبار ایران') || currentProd.brand?.includes('انبار ایران');
-  const basePriceAed = currentProd.priceAed || 100;
+  const basePriceAed = currentProd.priceAed || currentProd.price || 0;
   const baseWeightKg = currentProd.weightKg || 0.5;
   const originalPriceAed = currentProd.originalPriceAed;
   const isAvailable = activeVariant ? (activeVariant as any).inStock !== false : ((currentProd as any).inStock !== false);

@@ -105,6 +105,20 @@ export class DrNutritionParser {
     }
   }
 
+  public static isInvalidImage(url: string): boolean {
+    if (!url || typeof url !== 'string') return true;
+    const lower = url.toLowerCase();
+    return lower.includes('logo') ||
+           lower.includes('dnp') ||
+           lower.includes('icon') ||
+           lower.includes('header') ||
+           lower.includes('badge') ||
+           lower.includes('banner') ||
+           lower.includes('avatar') ||
+           lower.includes('payment') ||
+           lower.includes('placeholder');
+  }
+
   public static sanitizeImageUrl(src: string, baseUrl: string): string {
     try {
       if (!src || typeof src !== 'string') return '';
@@ -118,7 +132,9 @@ export class DrNutritionParser {
           s = `https://www.drnutrition.com${s}`;
         }
       }
-      return s.split('?')[0];
+      const clean = s.split('?')[0];
+      if (this.isInvalidImage(clean)) return '';
+      return clean;
     } catch (_e) {
       return '';
     }
@@ -294,8 +310,9 @@ export class DrNutritionParser {
       if (pMatch?.[1]) priceAed = this.cleanPrice(pMatch[1]);
     }
 
-    if (!title) title = 'مکمل اورجینال Dr. Nutrition';
-    if (priceAed === 0) priceAed = 100;
+    if (!title || priceAed <= 0) {
+      return null;
+    }
 
     const galleryImages = deduplicateImageUrls([mainImage, ...rawImages], mainImage);
     const bilingualTitle = generateBilingualProductTitle(title, this.storeName, brand);

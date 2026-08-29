@@ -1,4 +1,6 @@
 import { getEffectiveGeminiKeysList, callGeminiApiWithKeyRotation } from './geminiKey';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../firebase';
 import type { ProductVariantGroup, ProductVariantOption, ProductVariantMatrix, ProductVariantItem } from '../types';
 
 export interface ParsedProductResult {
@@ -970,7 +972,57 @@ export async function parseProductLinkUniversal(params: {
 
   const defaultErrorMsg = "در حال حاضر امکان استخراج خودکار اطلاعات این لینک وجود ندارد. لطفاً چند لحظه بعد مجدداً تلاش فرمایید.";
 
-  // Call backend /api/parse-link Microservice
+  // 1. Primary: Firebase Callable Function `extractProductMetadata`
+  try {
+    if (functions) {
+      const callable = httpsCallable<{ url: string; forceRefresh?: boolean }, { success: boolean; data?: any; error?: string }>(
+        functions,
+        'extractProductMetadata'
+      );
+      const callableRes = await callable({ url: targetUrl });
+      if (callableRes?.data?.success && callableRes.data.data) {
+        const d = callableRes.data.data;
+        const pAed = Number(d.priceAed || d.priceAED || 0);
+        if (pAed > 0 && (d.titleEn || d.titleFa || d.title)) {
+          const rawT = d.titleEn || d.title || d.titleFa;
+          const storeName = d.retailer || d.storeName || 'دبی';
+          const brandName = d.brand || storeName;
+          const formattedTitle = d.titleFa || generateBilingualProductTitle(rawT, storeName, brandName);
+          const mainImg = d.image || (Array.isArray(d.galleryImages) && d.galleryImages[0]) || '';
+          const galleryImages = Array.from(new Set([mainImg, ...(Array.isArray(d.galleryImages) ? d.galleryImages : [])].filter(Boolean)));
+          
+          return {
+            success: true,
+            id: `scraped-${Date.now()}`,
+            title: formattedTitle,
+            priceAed: pAed,
+            basePriceAED: pAed,
+            originalPriceAed: d.originalPriceAed,
+            discountPercent: d.discountPercent,
+            storeName,
+            sourceStore: storeName,
+            sourceUrl: targetUrl,
+            brand: brandName,
+            category: '💊 مکمل‌های ورزشی',
+            image: mainImg,
+            mainImage: mainImg,
+            images: galleryImages,
+            galleryImages,
+            weightKg: Number(d.weightKg) || 0.8,
+            description: d.description,
+            inStock: d.inStock !== false,
+            variants: d.variants || [],
+            flavors: d.flavors || [],
+            sizes: d.sizes || []
+          };
+        }
+      }
+    }
+  } catch (callableErr) {
+    console.warn('[parseProductLinkUniversal] Firebase callable warning:', callableErr);
+  }
+
+  // 2. Call backend /api/parse-link Microservice
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);

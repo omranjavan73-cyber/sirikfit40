@@ -10,14 +10,14 @@ export interface SupportHeadsetLogoProps {
 
 /**
  * Live Customer Support Agent Chat Bubble with Over-Ear Headset SVG
- * Matching the red rounded speech bubble with 3 white dots and dark navy headset & mic.
+ * Pixel-perfect match for the vibrant red speech bubble with 3 white dots and dark navy blue over-ear headset with mic.
  */
 export const SupportHeadsetLogo: React.FC<SupportHeadsetLogoProps> = ({
   className = 'w-8 h-8',
   size,
-  bubbleColor = '#E31837', // Vibrant Red
-  headsetColor = '#181E36', // Dark Obsidian / Navy
-  dotsColor = '#FFFFFF'    // White
+  bubbleColor = '#E51A24', // Vibrant Red matching reference
+  headsetColor = '#1D2342', // Dark Navy Blue matching reference
+  dotsColor = '#FFFFFF'    // Crisp White
 }) => {
   const style = size ? { width: size, height: size } : undefined;
 
@@ -30,60 +30,58 @@ export const SupportHeadsetLogo: React.FC<SupportHeadsetLogoProps> = ({
       xmlns="http://www.w3.org/2000/svg"
       aria-label="پشتیبانی سیریک فیت"
     >
-      {/* 1. Red Speech Bubble with Bottom-Right Pointer Tail */}
+      {/* 1. Headset Headband Arch (Behind bubble edges) */}
       <path
-        d="M 100 26 
-           C 142 26 170 54 170 96 
-           C 170 138 142 166 100 166 
-           C 92 166 84 164 77 161 
-           C 66 172 49 178 30 180 
-           C 40 171 47 159 48 147 
-           C 36 134 30 116 30 96 
-           C 30 54 58 26 100 26 Z"
-        fill={bubbleColor}
-      />
-
-      {/* 2. Three Chat Indicator Dots (White) */}
-      <circle cx="70" cy="96" r="10.5" fill={dotsColor} />
-      <circle cx="100" cy="96" r="10.5" fill={dotsColor} />
-      <circle cx="130" cy="96" r="10.5" fill={dotsColor} />
-
-      {/* 3. Headset Arch (Headband over top of bubble) */}
-      <path
-        d="M 33 102 
-           C 30 54 62 18 100 18 
-           C 138 18 170 54 167 102"
+        d="M 43 96 C 43 50 68 22 100 22 C 132 22 157 50 157 96"
         stroke={headsetColor}
         strokeWidth="14"
         strokeLinecap="round"
         fill="none"
       />
 
-      {/* 4. Left Ear Cushion */}
-      <rect
-        x="18"
-        y="80"
-        width="18"
-        height="38"
-        rx="9"
-        fill={headsetColor}
-      />
-
-      {/* 5. Right Ear Cushion */}
-      <rect
-        x="164"
-        y="80"
-        width="18"
-        height="38"
-        rx="9"
-        fill={headsetColor}
-      />
-
-      {/* 6. Microphone Boom Arm curving from left earpiece towards mouth */}
+      {/* 2. Red Speech Bubble with Down-Right Curved Pointer Tail */}
       <path
-        d="M 27 114 
-           C 27 142 42 156 70 156 
-           L 84 156"
+        d="M 100 28
+           C 137 28 164 55 164 92
+           C 164 110 157 126 145 137
+           C 147 149 155 161 166 168
+           C 148 167 130 159 117 148
+           C 111 151 106 153 100 153
+           C 63 153 36 126 36 92
+           C 36 55 63 28 100 28 Z"
+        fill={bubbleColor}
+      />
+
+      {/* 3. Three Chat Indicator Dots (White) */}
+      <circle cx="70" cy="92" r="10" fill={dotsColor} />
+      <circle cx="100" cy="92" r="10" fill={dotsColor} />
+      <circle cx="130" cy="92" r="10" fill={dotsColor} />
+
+      {/* 4. Left Over-Ear Cushion (Dark Navy) */}
+      <rect
+        x="22"
+        y="72"
+        width="19"
+        height="40"
+        rx="9.5"
+        fill={headsetColor}
+      />
+
+      {/* 5. Right Over-Ear Cushion (Dark Navy) */}
+      <rect
+        x="159"
+        y="72"
+        width="19"
+        height="40"
+        rx="9.5"
+        fill={headsetColor}
+      />
+
+      {/* 6. Microphone Boom Arm curving from left cushion to front of mouth */}
+      <path
+        d="M 33 106
+           C 33 138 52 148 76 148
+           L 84 148"
         stroke={headsetColor}
         strokeWidth="9"
         strokeLinecap="round"
@@ -91,13 +89,13 @@ export const SupportHeadsetLogo: React.FC<SupportHeadsetLogoProps> = ({
         fill="none"
       />
 
-      {/* 7. Microphone Capsule / Mic Tip */}
+      {/* 7. Microphone Capsule / Mic Tip (Rounded Pill in Dark Navy) */}
       <rect
-        x="78"
-        y="149"
+        x="77"
+        y="140.5"
         width="22"
-        height="14"
-        rx="7"
+        height="15"
+        rx="7.5"
         fill={headsetColor}
       />
     </svg>

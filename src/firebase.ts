@@ -20,6 +20,7 @@ import {
   db as centralizedDb,
   auth as centralizedAuth,
   storage as centralizedStorage,
+  functions as centralizedFunctions,
   firebaseConfig as centralizedConfig
 } from './config/firebase';
 
@@ -127,6 +128,7 @@ export const app = centralizedApp;
 export const db = centralizedDb;
 export const auth = centralizedAuth;
 export const storage = centralizedStorage;
+export const functions = centralizedFunctions;
 export const firebaseConfig = centralizedConfig;
 export const isFirebaseConfigured = true;
 

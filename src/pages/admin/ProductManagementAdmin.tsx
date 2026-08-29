@@ -20,12 +20,10 @@ import {
   ArrowUp,
   ArrowDown
 } from 'lucide-react';
-import type { NormalizedProduct, ProductVariant, LocalInventoryItem, FeaturedDeal, PricingRulesConfig } from '../../types';
+import type { NormalizedProduct, ProductVariant, LocalInventoryItem, FeaturedDeal } from '../../types';
 import { extractAttributesFromText } from '../../utils/attributeParser';
 import { toPersianDigits, formatToman, parseAndConvertSize } from '../../utils/formatters';
 import { saveSingleProductWithVariants, saveIranWarehouseItems, saveSpecialDeals } from '../../services/adminService';
-import { calculateLandedPrice } from '../../services/pricingService';
-import { generateBilingualProductTitle } from '../../utils/parseLink';
 import { VariantMatrixTable, STANDARD_SIZES_PRESET } from '../../components/admin/VariantMatrixTable';
 import { PRESET_FLAVORS } from '../../utils/variantPresets';
 import { FlavorAutocompleteInput } from '../../components/admin/FlavorAutocompleteInput';
@@ -35,7 +33,7 @@ import { IranWarehouseAdmin } from './IranWarehouseAdmin';
 import { DealsAdmin } from './DealsAdmin';
 import { AdminTaxonomyManager } from '../../components/AdminTaxonomyManager';
 import { STORE_LIST, getStoreConfig } from '../../constants/stores';
-import { detectStoreOrigin } from '../../services/scraperService';
+import { detectStoreOrigin, universalScraperService } from '../../services/scraperService';
 import { collection, onSnapshot, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
@@ -104,36 +102,6 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
     }).catch((e) => console.warn('Could not load popularSamplesOrder:', e));
   }, []);
 
-  const [pricingRules, setPricingRules] = useState<PricingRulesConfig | null>(null);
-  const [liveAedRate, setLiveAedRate] = useState<number>(54500);
-
-  // Live real-time listener for pricing_rules and exchange rate
-  useEffect(() => {
-    const unsubRules = onSnapshot(doc(db, 'settings', 'pricing_rules'), (snap) => {
-      if (snap.exists()) {
-        const rawData = snap.data();
-        setPricingRules(rawData as PricingRulesConfig);
-        const r = Number(rawData?.aedRate || rawData?.manualAedRate);
-        if (r && r > 0) {
-          setLiveAedRate(r);
-        }
-      }
-    }, (err) => console.warn('Could not listen to pricing_rules:', err));
-
-    const unsubGeneral = onSnapshot(doc(db, 'settings', 'general'), (snap) => {
-      if (snap.exists()) {
-        const genData = snap.data();
-        const r = Number(genData?.manualAedRate || genData?.aedRate);
-        if (r && r > 0) setLiveAedRate(r);
-      }
-    }, (err) => console.warn('Could not listen to settings/general:', err));
-
-    return () => {
-      unsubRules();
-      unsubGeneral();
-    };
-  }, []);
-
   const [mainUrl, setMainUrl] = useState<string>(initialProduct?.sourceUrl || initialProduct?.url || '');
   const [auxUrl, setAuxUrl] = useState<string>('');
   const [isScrapingMain, setIsScrapingMain] = useState<boolean>(false);
@@ -144,13 +112,11 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
     return {
       title: initialProduct?.title || '',
       titleFa: initialProduct?.titleFa || '',
-      titleEn: initialProduct?.titleEn || '',
       brand: initialProduct?.brand || '',
       storeName: initialProduct?.storeName || '',
       sourceUrl: initialProduct?.sourceUrl || initialProduct?.url || '',
       price: initialProduct?.price || 0,
       priceAed: initialProduct?.priceAed || initialProduct?.price || 0,
-      priceToman: initialProduct?.priceToman || 0,
       originalPriceAed: initialProduct?.originalPriceAed,
       currency: initialProduct?.currency || 'AED',
       image: initialProduct?.image || initialProduct?.imageUrl || '',
@@ -171,99 +137,75 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
     }
     setIsScrapingMain(true);
     try {
-      const res = await fetch('/api/scrape-product', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: mainUrl.trim() })
-      });
-      const data = await res.json();
-      if (data && (data.title || data.titleEn || data.priceAED || data.priceAed || data.price)) {
+      let data: any = null;
+      try {
+        const extracted = await universalScraperService.extractProductMetadata(mainUrl.trim());
+        if (extracted && (extracted.priceAed || extracted.title)) {
+          data = extracted;
+        }
+      } catch (_extractErr) {
+        console.warn('Direct scraper failed, attempting backend proxy fallback:', _extractErr);
+      }
+
+      if (!data) {
+        const res = await fetch('/api/scrape-product', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: mainUrl.trim() })
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      }
+
+      if (data && (data.title || data.priceAED || data.priceAed || data.price)) {
         const scraped = data;
-        const attr = extractAttributesFromText(scraped.title || scraped.titleEn || '', mainUrl);
-        const pAed = parseFloat(scraped.priceAed || scraped.priceAED || scraped.price || 0);
-        const origAed = parseFloat(scraped.originalPriceAed || scraped.originalPriceAED || scraped.originalPrice || 0) || undefined;
+        const attr = extractAttributesFromText(scraped.title || '', mainUrl);
+        const pAed = parseFloat(scraped.priceAED || scraped.priceAed || scraped.price || 0);
+        const origAed = parseFloat(scraped.originalPriceAED || scraped.originalPriceAed || scraped.originalPrice || 0) || undefined;
         const sz = attr.size || (scraped.sizes && scraped.sizes[0]) || '';
         const flv = attr.flavor || (scraped.flavors && scraped.flavors[0]) || '';
-
-        const originInfo = detectStoreOrigin(mainUrl.trim());
-        const isIherbLink = mainUrl.toLowerCase().includes('iherb.com') || mainUrl.toLowerCase().includes('ae.iherb.com');
-        const resolvedStore = isIherbLink ? 'iHerb' : (scraped.storeName || originInfo?.storeName || 'iHerb');
-
-        const titleEn = scraped.titleEn || scraped.title || '';
-        const titleFa = scraped.titleFa || generateBilingualProductTitle(titleEn, resolvedStore, scraped.brand);
-
-        // Auto-calculate base Toman price using live Dirham exchange rate from settings/pricing_rules
-        const effectiveWeight = scraped.weightKg || attr.weightKg || 0.8;
-        const landedCalc = calculateLandedPrice({
-          priceAed: pAed,
-          weightKg: effectiveWeight,
-          pricingRules: pricingRules,
-          aedRate: liveAedRate
-        });
-        const calculatedTomanPrice = landedCalc.finalToman;
 
         const firstVariant: ProductVariant = {
           id: `var-main-${Date.now()}`,
           size: sz || undefined,
           flavor: flv || undefined,
           price: pAed,
-          priceAed: pAed,
-          priceToman: calculatedTomanPrice,
           originalPrice: origAed,
-          originalPriceAed: origAed,
           inStock: scraped.inStock !== false,
           image: scraped.image || scraped.imageUrl || ''
         };
 
-        const existingVariants: ProductVariant[] = (scraped.variants && Array.isArray(scraped.variants) && scraped.variants.length > 0)
-          ? scraped.variants.map((v: any, vIdx: number) => {
-              const vPriceAed = parseFloat(v.priceAed || v.priceAED || v.price || pAed);
-              const vLanded = calculateLandedPrice({
-                priceAed: vPriceAed,
-                weightKg: v.weightKg || effectiveWeight,
-                pricingRules: pricingRules,
-                aedRate: liveAedRate
-              });
-              return {
-                id: v.id || `var-${vIdx}-${Date.now()}`,
-                size: v.size || sz || undefined,
-                flavor: v.flavor || flv || undefined,
-                price: vPriceAed,
-                priceAed: vPriceAed,
-                priceToman: vLanded.finalToman,
-                originalPrice: v.originalPriceAed || v.originalPriceAED || origAed,
-                originalPriceAed: v.originalPriceAed || v.originalPriceAED || origAed,
-                inStock: v.inStock !== false,
-                image: v.image || v.imageUrl || scraped.image || scraped.imageUrl || ''
-              };
-            })
+        const existingVariants = scraped.variants && Array.isArray(scraped.variants) && scraped.variants.length > 0
+          ? scraped.variants
           : [firstVariant];
 
         const updatedSizes = Array.from(new Set([...(scraped.sizes || []), sz].filter(Boolean)));
         const updatedFlavors = Array.from(new Set([...(scraped.flavors || []), flv].filter(Boolean)));
 
+        const originInfo = detectStoreOrigin(mainUrl.trim());
+        const resolvedStore = scraped.storeName || (mainUrl.toLowerCase().includes('iherb') ? 'iHerb' : (originInfo?.storeName || undefined));
+
         setProduct(prev => ({
           ...prev,
-          title: titleFa || titleEn || prev.title,
-          titleFa: titleFa || prev.titleFa,
-          titleEn: titleEn || prev.titleEn,
+          title: scraped.title || prev.title,
+          titleFa: scraped.titleFa || prev.titleFa,
           brand: scraped.brand || prev.brand,
           storeName: resolvedStore || prev.storeName || 'iHerb',
           sourceUrl: mainUrl.trim(),
           price: pAed || prev.price,
           priceAed: pAed || prev.priceAed,
-          priceToman: calculatedTomanPrice || prev.priceToman,
           originalPriceAed: origAed,
           image: scraped.image || scraped.imageUrl || prev.image,
-          images: scraped.images || scraped.galleryImages || prev.images,
-          galleryImages: scraped.galleryImages || scraped.images || prev.galleryImages,
-          weightKg: effectiveWeight || prev.weightKg,
+          images: scraped.images || prev.images,
+          galleryImages: scraped.galleryImages || prev.galleryImages,
+          weightKg: scraped.weightKg || attr.weightKg || prev.weightKg,
           sizes: updatedSizes,
           flavors: updatedFlavors,
           variants: existingVariants
         }));
 
-        if (showToast) showToast(`اطلاعات محصول از ${resolvedStore} با موفقیت استخراج و نرخ تومان محاسبه شد`, 'success');
+        if (showToast) showToast('اطلاعات اصلی محصول با موفقیت استخراج شد', 'success');
       } else {
         if (showToast) showToast('عدم توانایی در استخراج اطلاعات از لینک', 'error');
       }
@@ -1022,7 +964,7 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           availableSizes={product.sizes || []}
           availableFlavors={product.flavors || []}
           mainProductImage={product.image || product.imageUrl || (product.galleryImages && product.galleryImages[0]) || ''}
-          aedRate={liveAedRate}
+          aedRate={54500}
           onUpdateVariant={handleUpdateVariant}
           onDeleteVariant={handleDeleteVariant}
           onAddVariant={handleAddManualVariant}

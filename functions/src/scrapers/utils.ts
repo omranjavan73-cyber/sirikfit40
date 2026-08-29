@@ -160,6 +160,83 @@ export const isOutOfStockElement = (tagHtml: string, rawText?: string): boolean 
 };
 
 // 5. High-Res Image Sanitizer (Strict Logo / Badge / Icon / SVG Filtering & CDN Normalization)
+export const isInvalidDrNutritionImage = (rawUrl: string): boolean => {
+  if (!rawUrl || typeof rawUrl !== 'string') return true;
+  const lower = rawUrl.toLowerCase().trim();
+
+  // Reject SVG and data URLs
+  if (lower.startsWith('data:image/svg') || lower.endsWith('.svg') || lower.includes('.svg?')) {
+    return true;
+  }
+
+  // Reject explicit logo, branding, and placeholder keywords
+  const invalidKeywords = [
+    'logo',
+    'dnp_logo',
+    'dnp-logo',
+    'dnp.png',
+    'dnp.jpg',
+    'dnp.webp',
+    'dnp.svg',
+    'dnp_header',
+    'dnp_icon',
+    'drnutrition_logo',
+    'drnutrition-logo',
+    '/media/logo/',
+    '/media/logos/',
+    '/stores/1/dnp',
+    'placeholder',
+    'default_logo',
+    'store_logo',
+    'favicon',
+    'badge',
+    'icon',
+    'banner',
+    'header-logo',
+    'footer-logo',
+    'site-logo',
+    'tamara',
+    'tabby',
+    'payment',
+    'visa',
+    'mastercard',
+    'applepay',
+    'pixel',
+    '1x1',
+    'spacer',
+    'blank.gif',
+    'spinner',
+    'loading'
+  ];
+
+  for (const kw of invalidKeywords) {
+    if (lower.includes(kw)) {
+      // If it contains logo or placeholder, reject immediately even if in catalog
+      return true;
+    }
+  }
+
+  // Extract path and filename
+  try {
+    const urlObj = new URL(lower.startsWith('http') ? lower : `https://drnutrition.com${lower.startsWith('/') ? '' : '/'}${lower}`);
+    const pathname = urlObj.pathname;
+    const filename = pathname.split('/').pop() || '';
+
+    if (
+      filename.includes('logo') ||
+      filename.includes('dnp') ||
+      filename.includes('placeholder') ||
+      filename.includes('icon') ||
+      filename.includes('badge') ||
+      filename.includes('banner')
+    ) {
+      return true;
+    }
+  } catch (_e) {}
+
+  return false;
+};
+
 export const sanitizeImageUrl = (rawImg: string, cleanUrl: string = ''): string => {
   if (!rawImg || typeof rawImg !== 'string') return '';
   let str = String(rawImg).trim().replace(/&amp;/g, '&').replace(/^["']|["']$/g, '').trim();
@@ -194,45 +271,165 @@ export const sanitizeImageUrl = (rawImg: string, cleanUrl: string = ''): string 
     return '';
   }
 
-  const lower = str.toLowerCase();
-
-  // 3. Strict check: if the URL or file name contains logo, badge, icon, header, svg, favicon, etc., reject it
-  if (
-    lower.startsWith('data:image/svg') ||
-    lower.endsWith('.svg') ||
-    lower.includes('logo') ||
-    lower.includes('badge') ||
-    lower.includes('icon') ||
-    lower.includes('header') ||
-    lower.includes('favicon') ||
-    lower.includes('searchicon') ||
-    lower.includes('tamara') ||
-    lower.includes('tabby') ||
-    lower.includes('placeholder')
-  ) {
-    const urlWithoutQuery = lower.split('?')[0];
-    const filename = urlWithoutQuery.split('/').pop() || '';
-    if (
-      filename.includes('logo') ||
-      filename.includes('badge') ||
-      filename.includes('icon') ||
-      filename.includes('header') ||
-      filename.includes('favicon') ||
-      filename.includes('tamara') ||
-      filename.includes('tabby') ||
-      filename.includes('placeholder') ||
-      filename.endsWith('.svg')
-    ) {
-      return '';
-    }
-    if (!lower.includes('catalog/product') && !lower.includes('/products/') && !lower.includes('media/catalog') && !lower.includes('product-images') && !lower.includes('images/products')) {
-      return '';
-    }
+  // 3. Strict logo / badge / placeholder check
+  if (isInvalidDrNutritionImage(str)) {
+    return '';
   }
 
   // 4. Upgrade Shopify/Magento/E-Commerce thumbnail images to high-res master/1024x1024
   str = str.replace(/_(?:small|compact|thumb|medium|100x100|150x150|200x200|240x240|300x300)\.(jpe?g|png|webp|avif)/gi, '_1024x1024.$1');
   return str;
+};
+
+/**
+ * Strict Hierarchical Image Resolution for Dr. Nutrition
+ * Tier 1: OpenGraph & Meta Image (og:image, product:image, twitter:image)
+ * Tier 2: Schema.org JSON-LD (Product.image)
+ * Tier 3: DOM Selectors (.product-image-photo, .gallery-placeholder img, .fotorama__img, [itemprop="image"])
+ */
+export const extractDrNutritionImageHierarchical = ($: cheerio.CheerioAPI, sourceUrl: string): { mainImage: string; galleryImages: string[] } => {
+  const galleryImages: string[] = [];
+  const addCandidate = (raw: any): boolean => {
+    if (!raw) return false;
+    const url = typeof raw === 'string' ? raw : (raw?.url || raw?.src || raw?.contentUrl || raw?.full || raw?.file);
+    if (!url || typeof url !== 'string') return false;
+    const clean = sanitizeImageUrl(url, sourceUrl);
+    if (clean && !isInvalidDrNutritionImage(clean)) {
+      if (!galleryImages.includes(clean)) {
+        galleryImages.push(clean);
+      }
+      return true;
+    }
+    return false;
+  };
+
+  // Tier 1: OpenGraph & Meta Tags
+  const metaCandidates = [
+    $('meta[property="og:image"]').attr('content'),
+    $('meta[property="og:image:secure_url"]').attr('content'),
+    $('meta[property="product:image"]').attr('content'),
+    $('meta[name="twitter:image"]').attr('content'),
+    $('meta[name="twitter:image:src"]').attr('content')
+  ];
+  for (const m of metaCandidates) {
+    addCandidate(m);
+  }
+
+  // Tier 2: JSON-LD Schema
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const content = $(el).html();
+      if (!content) return;
+      const parsed = JSON.parse(content);
+      const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed['@graph']) ? parsed['@graph'] : [parsed]);
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue;
+        const isProduct = item['@type'] === 'Product' || item['@type'] === 'IndividualProduct' || Boolean(item.offers);
+        if (isProduct && item.image) {
+          if (Array.isArray(item.image)) {
+            item.image.forEach(addCandidate);
+          } else {
+            addCandidate(item.image);
+          }
+        }
+      }
+    } catch (_e) {}
+  });
+
+  // Tier 3: Specific DOM Selectors
+  const domSelectors = [
+    '.product-image-photo',
+    '.gallery-placeholder img',
+    '[data-gallery-role="gallery-placeholder"] img',
+    '.fotorama__img',
+    '.fotorama__stage__frame img',
+    '[itemprop="image"]',
+    '.product.media img',
+    '.product-image-gallery img',
+    'img[src*="/media/catalog/product/"]',
+    'img[src*="/products/"]',
+    'img[data-src*="/media/catalog/product/"]',
+    'img[data-original*="/media/catalog/product/"]'
+  ];
+
+  for (const selector of domSelectors) {
+    $(selector).each((_, el) => {
+      const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-zoom-image') || $(el).attr('data-full');
+      addCandidate(src);
+    });
+  }
+
+  const mainImage = galleryImages.length > 0 ? galleryImages[0] : '';
+  return { mainImage, galleryImages };
+};
+
+/**
+ * Title Sanitization & Promotional Suffix Cleaning
+ * Removes store name and promotional suffixes like "BB 3.2L Jug", "Free Shaker", etc.
+ */
+export const cleanDrNutritionTitle = (rawTitle: string): string => {
+  if (!rawTitle || typeof rawTitle !== 'string') return '';
+  let clean = rawTitle.trim();
+
+  // Remove store branding
+  clean = clean.replace(/\s*\|\s*Dr\.?\s*Nutrition.*$/i, '');
+  clean = clean.replace(/\s*-\s*Dr\.?\s*Nutrition.*$/i, '');
+  clean = clean.replace(/\s*-\s*Official\s*Store.*$/i, '');
+
+  // Remove promotional bundle suffixes (e.g., "(BB 3.2L Jug)", "BB 3.2L Jug", "+ Free Shaker", "With Shaker")
+  const promoSuffixes = [
+    /\s*[\(\[\+\-\/]?\s*BB\s*\d+(?:\.\d+)?\s*L(?:\s*Jug)?[\)\]]?\s*$/i,
+    /\s*[\(\[\+\-\/]?\s*BB\s*Jug\s*\d+(?:\.\d+)?\s*L[\)\]]?\s*$/i,
+    /\s*[\(\[\+\-\/]?\s*(?:With|Free|\+)\s*(?:Shaker|Bottle|Jug|Gift|Pillbox|T-?Shirt|Bag)[\)\]]?\s*$/i,
+    /\s*[\(\[\+\-\/]?\s*Bundle\s+Offer[\)\]]?\s*$/i,
+    /\s*[\(\[\+\-\/]?\s*Special\s+Offer[\)\]]?\s*$/i,
+    /\s*[\(\[\+\-\/]?\s*Limited\s+Edition[\)\]]?\s*$/i
+  ];
+
+  for (const reg of promoSuffixes) {
+    clean = clean.replace(reg, '');
+  }
+
+  // Remove trailing punctuation and extra spaces
+  clean = clean.replace(/[\(\[\+\-\/,\s]+$/, '').replace(/\s+/g, ' ').trim();
+  return clean;
+};
+
+/**
+ * Flavor String Normalization
+ * Rejects promotional slugs or artificial strings (e.g. "BB 3.2L", "L Black 3.2", "Jug")
+ */
+export const sanitizeFlavorName = (rawFlavor: string | null | undefined): string | null => {
+  if (!rawFlavor || typeof rawFlavor !== 'string') return null;
+  const trimmed = rawFlavor.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (isArtificialFallback(trimmed)) return null;
+  if (lower.length < 2 || lower.length > 50) return null;
+
+  // Check if it's promotional text rather than a real flavor
+  const promoPatterns = [
+    /\bbb\s*\d+(?:\.\d+)?\s*l/i,
+    /\b\d+(?:\.\d+)?\s*l\s*jug\b/i,
+    /\bblack\s*\d+\.\d+\b/i,
+    /\bjug\b/i,
+    /\bshaker\b/i,
+    /\bfree\b/i,
+    /\bbundle\b/i,
+    /\bpack\s+of\s+\d+\b/i,
+    /\bl\s+black\b/i
+  ];
+
+  for (const pat of promoPatterns) {
+    if (pat.test(lower)) return null;
+  }
+
+  // Check if it's purely a weight/size indicator rather than a flavor
+  if (/^\d+(?:\.\d+)?\s*(?:kg|g|lbs?|oz|ml|capsules?|tablets?|servings?|سروینگ|عددی|گرم|کیلوگرم|پوند)$/i.test(lower)) {
+    return null;
+  }
+
+  return trimmed;
 };
 
 // 6. Digit Normalization

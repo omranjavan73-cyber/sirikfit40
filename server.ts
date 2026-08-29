@@ -5094,6 +5094,44 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
   const variantItems: any[] = [];
   const seenVariantKeys = new Set<string>();
 
+  const isInvalidDrImage = (url: string) => {
+    if (!url || typeof url !== 'string') return true;
+    const l = url.toLowerCase();
+    return l.includes('logo') || l.includes('dnp') || l.includes('placeholder') || 
+           l.includes('favicon') || l.includes('badge') || l.includes('drnutrition-logo') ||
+           l.includes('banner') || l.includes('icon');
+  };
+
+  const cleanDrTitle = (raw: string): string => {
+    if (!raw) return '';
+    return raw
+      .replace(/\|\s*Dr\s*Nutrition.*/gi, '')
+      .replace(/\|\s*دكتور\s*نيوترشن.*/gi, '')
+      .replace(/-\s*Dr\.?\s*Nutrition.*/gi, '')
+      .replace(/\s*BB\s*[\d.]+\s*(?:L|Jug|liter)?.*$/i, '')
+      .replace(/\s+-\s+BB\s*[\d.]+.*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const sanitizeDrFlavor = (raw: string): string | null => {
+    if (!raw || typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    if (trimmed.length < 2 || trimmed.length > 50) return null;
+    const l = trimmed.toLowerCase();
+    if (['default', 'default title', 'standard', 'پیش‌فرض', 'پیشفرض', 'select', 'choose', 'none', 'n/a', 'select option'].includes(l)) {
+      return null;
+    }
+    // Filter promotional artifacts like BB 3.2L, L Black 3.2, etc.
+    if (/^bb\s*[\d.]+\s*(?:l|jug|liter)?$/i.test(l) || /^l\s+black\s+[\d.]+$/i.test(l)) {
+      return null;
+    }
+    if (/\b(?:free\s+shaker|shaker\s+free|promo|gift|bottle|jug)\b/i.test(l)) {
+      return null;
+    }
+    return trimmed;
+  };
+
   const isInvalidOption = (s: string) => {
     if (!s || typeof s !== 'string') return true;
     const l = s.trim().toLowerCase();
@@ -5134,7 +5172,7 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
     const url = typeof src === 'string' ? src : (src?.url || src?.src || src?.full || src?.file || src?.img || src?.contentUrl);
     if (url && typeof url === 'string') {
       const sanitized = sanitizeImageUrl(url, targetUrl);
-      if (sanitized && !galleryImages.includes(sanitized)) {
+      if (sanitized && !isInvalidDrImage(sanitized) && !galleryImages.includes(sanitized)) {
         galleryImages.push(sanitized);
       }
     }
@@ -5162,7 +5200,7 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
         // Title
         const candidateTitle = pObj.name || pObj.title || pObj.product_name || pObj.pageTitle || pObj.metaTitle;
         if (!title && candidateTitle && typeof candidateTitle === 'string') {
-          title = cleanTitleStr(candidateTitle);
+          title = cleanDrTitle(candidateTitle);
         }
 
         // Description
@@ -5209,9 +5247,10 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
                     sizeOptions.push({ id: `sz-${vIdx}`, name: cleanLabel, label: cleanLabel, inStock: true });
                   }
                 } else if (isFlavor) {
-                  if (!flavors.includes(cleanLabel)) {
-                    flavors.push(cleanLabel);
-                    flavorOptions.push({ id: `flv-${vIdx}`, name: cleanLabel, label: cleanLabel, inStock: true });
+                  const cleanF = sanitizeDrFlavor(cleanLabel);
+                  if (cleanF && !flavors.includes(cleanF)) {
+                    flavors.push(cleanF);
+                    flavorOptions.push({ id: `flv-${vIdx}`, name: cleanF, label: cleanF, inStock: true });
                   }
                 } else {
                   if (isSizeStr(cleanLabel)) {
@@ -5220,9 +5259,10 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
                       sizeOptions.push({ id: `sz-${vIdx}`, name: cleanLabel, label: cleanLabel, inStock: true });
                     }
                   } else {
-                    if (!flavors.includes(cleanLabel)) {
-                      flavors.push(cleanLabel);
-                      flavorOptions.push({ id: `flv-${vIdx}`, name: cleanLabel, label: cleanLabel, inStock: true });
+                    const cleanF = sanitizeDrFlavor(cleanLabel);
+                    if (cleanF && !flavors.includes(cleanF)) {
+                      flavors.push(cleanF);
+                      flavorOptions.push({ id: `flv-${vIdx}`, name: cleanF, label: cleanF, inStock: true });
                     }
                   }
                 }
@@ -5528,9 +5568,10 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
             const rawText = om[1]?.replace(/<[^>]+>/g, '').trim();
             if (rawText && !isInvalidOption(rawText) && !isOutOfStockElement(om[0], rawText)) {
               const cleanText = rawText.replace(/\s+/g, ' ');
-              if (!flavors.includes(cleanText)) {
-                flavors.push(cleanText);
-                flavorOptions.push({ id: `flv-dom-${oIdx}`, name: cleanText, label: cleanText, inStock: true });
+              const cleanF = sanitizeDrFlavor(cleanText);
+              if (cleanF && !flavors.includes(cleanF)) {
+                flavors.push(cleanF);
+                flavorOptions.push({ id: `flv-dom-${oIdx}`, name: cleanF, label: cleanF, inStock: true });
               }
             }
           });
@@ -5550,9 +5591,10 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
             sizeOptions.push({ id: `sz-sw-${sizeOptions.length}`, name: optVal, label: optVal, inStock: true });
           }
         } else {
-          if (!flavors.includes(optVal)) {
-            flavors.push(optVal);
-            flavorOptions.push({ id: `flv-sw-${flavorOptions.length}`, name: optVal, label: optVal, inStock: true });
+          const cleanF = sanitizeDrFlavor(optVal);
+          if (cleanF && !flavors.includes(cleanF)) {
+            flavors.push(cleanF);
+            flavorOptions.push({ id: `flv-sw-${flavorOptions.length}`, name: cleanF, label: cleanF, inStock: true });
           }
         }
       }

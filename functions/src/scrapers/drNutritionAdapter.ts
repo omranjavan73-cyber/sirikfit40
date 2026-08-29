@@ -8,7 +8,11 @@ import {
   extractDrNutritionHandle,
   extractPriceNumber,
   isArtificialFallback,
-  deduplicateStrings
+  deduplicateStrings,
+  cleanDrNutritionTitle,
+  sanitizeFlavorName,
+  extractDrNutritionImageHierarchical,
+  isInvalidDrNutritionImage
 } from './utils';
 
 export interface ExtractedProduct {
@@ -74,13 +78,21 @@ export const extractRobustProductData = (html: string, sourceUrl: string): Extra
   const $ = cheerio.load(html);
   let priceAed = 0;
   let originalPriceAed = 0;
-  let titleEn = $('h1.page-title, h1[data-ui-id="page-title-wrapper"], h1.product-title, h1').first().text().trim();
-  let brand = $('.product-brand, .brand-name, [itemprop="brand"]').first().text().trim() || 'Applied Nutrition';
-  let imageUrl = sanitizeImageUrl($('meta[property="og:image"]').attr('content') || $('meta[name="twitter:image"]').attr('content') || $('.gallery-placeholder img, [itemprop="image"], .fotorama__img').first().attr('src') || '', sourceUrl);
+  let rawTitle = $('h1.page-title, h1[data-ui-id="page-title-wrapper"], h1.product-title, h1').first().text().trim();
+  let brand = $('.product-brand, .brand-name, [itemprop="brand"]').first().text().trim() || 'Dr. Nutrition';
   const galleryImages: string[] = [];
   const flavorsSet = new Set<string>();
   const sizesSet = new Set<string>();
   let description = '';
+
+  // Extract Images using Strict 3-Tier Hierarchy (Tier 1: OpenGraph, Tier 2: JSON-LD, Tier 3: Specific DOM)
+  const imageResolution = extractDrNutritionImageHierarchical($, sourceUrl);
+  let imageUrl = imageResolution.mainImage;
+  imageResolution.galleryImages.forEach(img => {
+    if (img && !isInvalidDrNutritionImage(img) && !galleryImages.includes(img)) {
+      galleryImages.push(img);
+    }
+  });
 
   // Tier 1: Parse __NEXT_DATA__ (for Dr. Nutrition / Next.js SPA pages)
   const nextDataScript = $('#__NEXT_DATA__').html();
@@ -91,16 +103,19 @@ export const extractRobustProductData = (html: string, sourceUrl: string): Extra
       if (productNode) {
         priceAed = Number(productNode.final_price || productNode.special_price || productNode.price_range?.minimum_price?.final_price?.value || productNode.price || 0);
         originalPriceAed = Number(productNode.regular_price || productNode.price_range?.minimum_price?.regular_price?.value || productNode.price || 0);
-        titleEn = productNode.name || productNode.title || titleEn;
+        if (productNode.name || productNode.title) rawTitle = productNode.name || productNode.title;
         brand = productNode.brand || productNode.brand_name || productNode.manufacturer || brand;
         if (productNode.image?.url || productNode.image) {
           const pImg = sanitizeImageUrl(productNode.image?.url || productNode.image, sourceUrl);
-          if (pImg) imageUrl = pImg;
+          if (pImg && !isInvalidDrNutritionImage(pImg)) {
+            imageUrl = pImg;
+            if (!galleryImages.includes(pImg)) galleryImages.unshift(pImg);
+          }
         }
         if (Array.isArray(productNode.media_gallery || productNode.images)) {
           (productNode.media_gallery || productNode.images).forEach((m: any) => {
             const u = sanitizeImageUrl(m.url || m.file || m, sourceUrl);
-            if (u && !galleryImages.includes(u)) galleryImages.push(u);
+            if (u && !isInvalidDrNutritionImage(u) && !galleryImages.includes(u)) galleryImages.push(u);
           });
         }
         if (productNode.description?.html || productNode.description) {
@@ -115,8 +130,12 @@ export const extractRobustProductData = (html: string, sourceUrl: string): Extra
               opt.values.forEach((val: any) => {
                 const valLabel = String(val.label || val.store_label || '').trim();
                 if (valLabel) {
-                  if (optLabel.includes('flavor') || optLabel.includes('طعم')) flavorsSet.add(valLabel);
-                  else if (optLabel.includes('size') || optLabel.includes('weight') || optLabel.includes('حجم')) sizesSet.add(valLabel);
+                  if (optLabel.includes('flavor') || optLabel.includes('طعم') || optLabel.includes('flavour')) {
+                    const cleanFlv = sanitizeFlavorName(valLabel);
+                    if (cleanFlv) flavorsSet.add(cleanFlv);
+                  } else if (optLabel.includes('size') || optLabel.includes('weight') || optLabel.includes('حجم') || optLabel.includes('serving')) {
+                    if (!isArtificialFallback(valLabel)) sizesSet.add(valLabel);
+                  }
                 }
               });
             }
@@ -157,11 +176,14 @@ export const extractRobustProductData = (html: string, sourceUrl: string): Extra
           ? json
           : (Array.isArray(json['@graph']) ? json['@graph'].find((it: any) => it['@type'] === 'Product') : null);
         if (target) {
-          if (!titleEn && target.name) titleEn = String(target.name).trim();
+          if (target.name) rawTitle = String(target.name).trim();
           if (target.brand?.name) brand = String(target.brand.name).trim();
           if (target.image) {
             const im = Array.isArray(target.image) ? target.image[0] : (typeof target.image === 'object' ? target.image.url : target.image);
-            if (im && !imageUrl) imageUrl = sanitizeImageUrl(im, sourceUrl);
+            if (im && !imageUrl) {
+              const clean = sanitizeImageUrl(im, sourceUrl);
+              if (clean && !isInvalidDrNutritionImage(clean)) imageUrl = clean;
+            }
           }
           const offer = Array.isArray(target.offers) ? target.offers[0] : target.offers;
           if (offer && offer.price) {
@@ -174,7 +196,7 @@ export const extractRobustProductData = (html: string, sourceUrl: string): Extra
 
   // Tier 3: Parse OpenGraph & Meta Price Tags
   if (!priceAed || priceAed === 0) {
-    const metaPrice = $('meta[property="product:price:amount"]').attr('content') || $('meta[name="twitter:data1"]').attr('content');
+    const metaPrice = $('meta[property="product:price:amount"]').attr('content') || $('meta[property="og:price:amount"]').attr('content') || $('meta[name="twitter:data1"]').attr('content');
     if (metaPrice) {
       priceAed = parseFloat(metaPrice.replace(/[^\d.]/g, '')) || 0;
     }
@@ -190,18 +212,24 @@ export const extractRobustProductData = (html: string, sourceUrl: string): Extra
   }
 
   // Parse Swatches from DOM
-  $('.swatch-attribute-flavor .swatch-option, .swatch-attribute[data-attribute-code*="flavor"] .swatch-option, .flavor-item').each((_, el) => {
+  $('.swatch-attribute-flavor .swatch-option, .swatch-attribute[data-attribute-code*="flavor"] .swatch-option, .flavor-item, .swatch-opt [data-attribute-code*="flavor"] .swatch-option').each((_, el) => {
     const optText = $(el).text().trim() || $(el).attr('data-option-label') || $(el).attr('title') || '';
-    if (optText && !isOutOfStockElement($.html(el), optText)) flavorsSet.add(optText);
+    if (optText && !isOutOfStockElement($.html(el), optText)) {
+      const cleanFlv = sanitizeFlavorName(optText);
+      if (cleanFlv) flavorsSet.add(cleanFlv);
+    }
   });
-  $('.swatch-attribute-size .swatch-option, .swatch-attribute[data-attribute-code*="size"] .swatch-option, .size-item').each((_, el) => {
+  $('.swatch-attribute-size .swatch-option, .swatch-attribute[data-attribute-code*="size"] .swatch-option, .size-item, .swatch-opt [data-attribute-code*="size"] .swatch-option').each((_, el) => {
     const optText = $(el).text().trim() || $(el).attr('data-option-label') || $(el).attr('title') || '';
-    if (optText && !isOutOfStockElement($.html(el), optText)) sizesSet.add(optText);
+    if (optText && !isOutOfStockElement($.html(el), optText) && !isArtificialFallback(optText)) {
+      sizesSet.add(optText);
+    }
   });
 
-  const flavors = Array.from(flavorsSet).filter(f => f && f.length > 1 && !['default', 'standard', 'پیش‌فرض'].includes(f.toLowerCase()));
-  const sizes = Array.from(sizesSet).filter(s => s && s.length > 1 && !['default', 'standard', 'پیش‌فرض'].includes(s.toLowerCase()));
-  const cleanImage = sanitizeImageUrl(imageUrl, sourceUrl);
+  const flavors = Array.from(flavorsSet);
+  const sizes = Array.from(sizesSet);
+  const cleanImage = imageUrl || (galleryImages.length > 0 ? galleryImages[0] : '');
+  const titleEn = cleanDrNutritionTitle(rawTitle);
 
   if (cleanImage && !galleryImages.includes(cleanImage)) {
     galleryImages.unshift(cleanImage);
@@ -319,7 +347,8 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, opt
 
         if (jsonRes.data && (jsonRes.data.product || jsonRes.data.title)) {
           const product = jsonRes.data.product || jsonRes.data;
-          const titleEn = String(product.title || product.name || '').trim();
+          const rawTitle = String(product.title || product.name || '').trim();
+          const titleEn = cleanDrNutritionTitle(rawTitle);
           const brand = String(product.vendor || product.brand || 'Dr. Nutrition').trim();
           const rawVariants = Array.isArray(product.variants) ? product.variants : [];
           const v0 = rawVariants[0] || {};
@@ -348,7 +377,7 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, opt
                 const src = typeof img === 'string' ? img : (img?.src || img?.url);
                 if (src) {
                   const s = sanitizeImageUrl(src, targetUrl);
-                  if (s && !galleryImages.includes(s)) galleryImages.push(s);
+                  if (s && !isInvalidDrNutritionImage(s) && !galleryImages.includes(s)) galleryImages.push(s);
                 }
               });
             }
@@ -356,7 +385,7 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, opt
             let rawImg = product.image?.src || product.image || (galleryImages.length > 0 ? galleryImages[0] : '');
             if (typeof rawImg === 'object' && rawImg?.src) rawImg = rawImg.src;
             const mainImg = sanitizeImageUrl(String(rawImg || (galleryImages[0] || '')), targetUrl);
-            if (mainImg && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
+            if (mainImg && !isInvalidDrNutritionImage(mainImg) && !galleryImages.includes(mainImg)) galleryImages.unshift(mainImg);
 
             const flavorsList: string[] = [];
             const sizesList: string[] = [];
@@ -368,9 +397,11 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, opt
                 const values = Array.isArray(opt.values) ? opt.values : [];
                 values.forEach((val: any) => {
                   const valStr = String(val || '').trim();
-                  if (valStr && !isArtificialFallback(valStr)) {
-                    if (optName.includes('flavor') || optName.includes('طعم')) flavorsList.push(valStr);
-                    else if (optName.includes('size') || optName.includes('weight') || optName.includes('حجم')) sizesList.push(valStr);
+                  if (optName.includes('flavor') || optName.includes('طعم') || optName.includes('flavour')) {
+                    const cleanFlv = sanitizeFlavorName(valStr);
+                    if (cleanFlv && !flavorsList.includes(cleanFlv)) flavorsList.push(cleanFlv);
+                  } else if (optName.includes('size') || optName.includes('weight') || optName.includes('حجم') || optName.includes('serving')) {
+                    if (valStr && !isArtificialFallback(valStr) && !sizesList.includes(valStr)) sizesList.push(valStr);
                   }
                 });
               });
@@ -384,23 +415,24 @@ export async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, opt
                   if (vp > 1000 || (!String(v.price).includes('.') && vp >= 1000)) vp = vp / 100;
                   if (vp > 0) vPrice = vp;
                 }
-                const vTitle = String(v.title || v.option1 || '').trim();
+                const rawVTitle = String(v.title || v.option1 || '').trim();
                 const vImg = v.featured_image?.src ? sanitizeImageUrl(v.featured_image.src, targetUrl) : undefined;
 
-                if (vTitle && !isArtificialFallback(vTitle)) {
-                  const isSize = vTitle.toLowerCase().includes('kg') || vTitle.toLowerCase().includes('g') || vTitle.toLowerCase().includes('lb') || vTitle.toLowerCase().includes('serving') || vTitle.toLowerCase().includes('عددی');
+                if (rawVTitle && !isArtificialFallback(rawVTitle)) {
+                  const isSize = rawVTitle.toLowerCase().includes('kg') || rawVTitle.toLowerCase().includes('g') || rawVTitle.toLowerCase().includes('lb') || rawVTitle.toLowerCase().includes('serving') || rawVTitle.toLowerCase().includes('عددی');
                   if (isSize) {
-                    if (!sizesList.includes(vTitle)) sizesList.push(vTitle);
+                    if (!sizesList.includes(rawVTitle)) sizesList.push(rawVTitle);
                   } else {
-                    if (!flavorsList.includes(vTitle)) flavorsList.push(vTitle);
+                    const cleanFlv = sanitizeFlavorName(rawVTitle);
+                    if (cleanFlv && !flavorsList.includes(cleanFlv)) flavorsList.push(cleanFlv);
                   }
                   structuredVariants.push({
                     id: String(v.id || `var-${vIdx}`),
-                    title: vTitle,
+                    title: rawVTitle,
                     price: vPrice,
                     priceAed: vPrice,
                     priceAED: vPrice,
-                    image: vImg,
+                    image: vImg && !isInvalidDrNutritionImage(vImg) ? vImg : undefined,
                     inStock: v.available !== false
                   });
                 }

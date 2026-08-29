@@ -1,3 +1,5 @@
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../firebase';
 import type { 
   UniversalProduct, 
   VariantDimension, 
@@ -9,7 +11,7 @@ import type {
   VariantGroupsStructure
 } from '../types';
 import { generateBilingualProductTitle } from '../utils/parseLink';
-import { sanitizeVariantLabel } from '../utils/formatters';
+import { sanitizeVariantLabel, isArtificialFallback } from '../utils/formatters';
 import { GncAdapter } from './GncAdapter';
 import { DrNutritionAdapter } from './DrNutritionAdapter';
 import { GncParser } from './gncParser';
@@ -646,7 +648,114 @@ export class UniversalScraperService {
       inStock: overallInStock
     };
   }
+
+  /**
+   * Universal extractor invoking Firebase Callable Functions (`scrapeProductUrl` / `extractProductMetadata`)
+   * with seamless fallback to backend `/api/scrape-product` or `/api/parse-link`.
+   * Enforces zero mock-data invariants and throws descriptive Persian errors upon extraction failure.
+   */
+  public async extractProductMetadata(url: string, forceRefresh: boolean = false): Promise<UniversalProduct> {
+    const cleanUrl = (url || '').trim();
+    if (!cleanUrl) {
+      throw new Error('لطفاً آدرس لینک محصول را وارد نمایید.');
+    }
+
+    let rawData: any = null;
+
+    // 1. Primary Extraction: Firebase Callable Functions (`scrapeProductUrl` or `extractProductMetadata`)
+    try {
+      if (functions) {
+        try {
+          const callable = httpsCallable<{ url: string; forceRefresh?: boolean }, { success: boolean; data?: any; error?: string }>(
+            functions,
+            'scrapeProductUrl'
+          );
+          const result = await callable({ url: cleanUrl, forceRefresh });
+          if (result?.data?.success && result.data.data) {
+            rawData = result.data.data;
+          } else if (result?.data?.error) {
+            throw new Error(result.data.error);
+          }
+        } catch (fn1Err: any) {
+          if (fn1Err?.message && (fn1Err.message.includes('استخراج ناموفق') || fn1Err.message.includes('عدم دریافت') || fn1Err.message.includes('معتبر'))) {
+            throw fn1Err;
+          }
+          // Fallback to extractProductMetadata callable
+          const fallbackCallable = httpsCallable<{ url: string; forceRefresh?: boolean }, { success: boolean; data?: any; error?: string }>(
+            functions,
+            'extractProductMetadata'
+          );
+          const result2 = await fallbackCallable({ url: cleanUrl, forceRefresh });
+          if (result2?.data?.success && result2.data.data) {
+            rawData = result2.data.data;
+          } else if (result2?.data?.error) {
+            throw new Error(result2.data.error);
+          }
+        }
+      }
+    } catch (callableErr: any) {
+      console.warn('[UniversalScraperService] Firebase callable extraction warning:', callableErr?.message || callableErr);
+      if (callableErr?.message && (callableErr.message.includes('استخراج ناموفق') || callableErr.message.includes('عدم دریافت') || callableErr.message.includes('معتبر'))) {
+        throw new Error(callableErr.message);
+      }
+    }
+
+    // 2. Secondary Backend Proxy Fallback: `/api/scrape-product`
+    if (!rawData) {
+      try {
+        const res = await fetch('/api/scrape-product', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: cleanUrl, forceRefresh })
+        });
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData && (resData.success || resData.ok) && (resData.data || resData.priceAed || resData.price || resData.priceAED)) {
+            rawData = resData.data || resData;
+          }
+        }
+      } catch (_apiErr) {}
+    }
+
+    // 3. Fallback to `/api/parse-link`
+    if (!rawData) {
+      try {
+        const res = await fetch('/api/parse-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: cleanUrl })
+        });
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData && (resData.success || resData.ok) && (resData.data || resData.priceAed || resData.price || resData.priceAED)) {
+            rawData = resData.data || resData;
+          }
+        }
+      } catch (_apiErr2) {}
+    }
+
+    // 4. Strict Validation: Eradicate Mock Data
+    if (!rawData) {
+      throw new Error('خطا در استخراج اطلاعات محصول: امکان برقراری ارتباط با فروشگاه مبدا یا دریافت اطلاعات وجود ندارد.');
+    }
+
+    const price = Number(rawData.priceAed || rawData.priceAED || rawData.price || rawData.basePriceAED || 0);
+    if (!price || price <= 0) {
+      throw new Error('خطا در استخراج اطلاعات محصول: قیمت معتبری در صفحه فروشگاه یافت نشد.');
+    }
+
+    return this.normalizeScrapedProduct(rawData, cleanUrl);
+  }
+
+  /**
+   * Alias for extractProductMetadata conforming to scraperService.extract(url)
+   */
+  public async extract(url: string, forceRefresh: boolean = false): Promise<UniversalProduct> {
+    return this.extractProductMetadata(url, forceRefresh);
+  }
 }
 
 export const universalScraperService = UniversalScraperService.getInstance();
+export const scraperService = universalScraperService;
+
 

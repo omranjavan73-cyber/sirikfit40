@@ -447,22 +447,22 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       const localizedFa = data.titleFa || generatePersianTitle(rawTitleEn, brand);
 
       const extractedFlavors: string[] = Array.isArray(data.flavors) && data.flavors.length > 0
-        ? data.flavors
-        : ['شکلات (Chocolate)'];
+        ? data.flavors.filter((f: string) => f && String(f).trim())
+        : [];
       const extractedSizes: string[] = Array.isArray(data.sizes) && data.sizes.length > 0
-        ? data.sizes
-        : ['2.45 kg'];
+        ? data.sizes.filter((s: string) => s && String(s).trim())
+        : [];
 
-      const defSize = extractedSizes[0] || '2.45 kg';
-      const wt = parseWeightKg(defSize, parseFloat(data.weightKg) || 0.8);
+      const defSize = extractedSizes[0] || '';
+      const wt = defSize ? parseWeightKg(defSize, parseFloat(data.weightKg) || 0.8) : (parseFloat(data.weightKg) || 0.8);
 
       const dynamicVariants: ProductVariant[] = [];
       if (Array.isArray(data.variants) && data.variants.length > 0) {
         data.variants.forEach((v: any, idx: number) => {
           const vPrice = parseFloat(v.priceAED || v.priceAed || v.price || pAed) || pAed;
-          const vSize = v.size || defSize;
-          const vFlavor = v.flavor || extractedFlavors[0] || 'شکلات (Chocolate)';
-          const vWeight = parseWeightKg(vSize, parseFloat(v.weightKg || data.weightKg) || 0.8);
+          const vSize = v.size || defSize || undefined;
+          const vFlavor = v.flavor || undefined;
+          const vWeight = vSize ? parseWeightKg(vSize, parseFloat(v.weightKg || data.weightKg) || 0.8) : wt;
           const rawVImg = v.image || v.imageUrl || v.imageThumbnail || rawImg;
           const normVImg = normalizeProductImageUrl(rawVImg, newDealUrl.trim()) || img;
           dynamicVariants.push({
@@ -480,19 +480,24 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           });
         });
       } else {
-        dynamicVariants.push({
-          id: `var-init-${Date.now()}`,
-          size: defSize,
-          flavor: extractedFlavors[0] || 'شکلات (Chocolate)',
-          price: pAed,
-          priceAed: pAed,
-          priceAED: pAed,
-          weightKg: wt,
-          priceToman: pAed > 0 ? calcToman(pAed, defaultMargin) : 0,
-          inStock: true,
-          image: img,
-          imageUrl: img
-        });
+        // Single-variant product: only add a variant if there is genuine size or flavor info
+        const hasSingleFlavor = extractedFlavors.length > 0;
+        const hasSingleSize = extractedSizes.length > 0;
+        if (hasSingleFlavor || hasSingleSize || pAed > 0) {
+          dynamicVariants.push({
+            id: `var-init-${Date.now()}`,
+            size: extractedSizes[0] || undefined,
+            flavor: extractedFlavors[0] || undefined,
+            price: pAed,
+            priceAed: pAed,
+            priceAED: pAed,
+            weightKg: wt,
+            priceToman: pAed > 0 ? calcToman(pAed, defaultMargin) : 0,
+            inStock: true,
+            image: img,
+            imageUrl: img
+          });
+        }
       }
 
       const newDeal: FeaturedDeal = {

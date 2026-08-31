@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import type { NormalizedProduct, ProductVariant, LocalInventoryItem, FeaturedDeal, PricingRulesConfig } from '../../types';
 import { extractAttributesFromText } from '../../utils/attributeParser';
-import { toPersianDigits, formatToman, parseAndConvertSize } from '../../utils/formatters';
+import { toPersianDigits, formatToman, parseAndConvertSize, normalizeProductImageUrl } from '../../utils/formatters';
 import { calculateLandedPrice } from '../../utils/pricingCalculator';
 import { generateBilingualProductTitle } from '../../utils/parseLink';
 import { saveSingleProductWithVariants, saveIranWarehouseItems, saveSpecialDeals } from '../../services/adminService';
@@ -215,6 +215,15 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         });
         const calculatedTomanPrice = landedCalc.finalToman;
 
+        const rawMainImg = scraped.mainImage || scraped.image || scraped.imageUrl || (scraped.galleryImages && scraped.galleryImages[0]) || (scraped.images && scraped.images[0]) || '';
+        const normalizedMainImg = normalizeProductImageUrl(rawMainImg, mainUrl.trim());
+        const rawGalleryList: string[] = Array.isArray(scraped.galleryImages)
+          ? scraped.galleryImages
+          : (Array.isArray(scraped.images) ? scraped.images : []);
+        const normalizedGallery = Array.from(
+          new Set([normalizedMainImg, ...rawGalleryList.map((img: string) => normalizeProductImageUrl(img, mainUrl.trim()))].filter(Boolean))
+        );
+
         const firstVariant: ProductVariant = {
           id: `var-main-${Date.now()}`,
           size: sz || undefined,
@@ -225,7 +234,7 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           originalPrice: origAed,
           originalPriceAed: origAed,
           inStock: scraped.inStock !== false,
-          image: scraped.image || scraped.imageUrl || ''
+          image: normalizedMainImg
         };
 
         const existingVariants: ProductVariant[] = (scraped.variants && Array.isArray(scraped.variants) && scraped.variants.length > 0)
@@ -237,6 +246,8 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
                 pricingRules: pricingRules,
                 aedRate: liveAedRate
               });
+              const rawVImg = v.image || v.imageUrl || v.imageThumbnail || rawMainImg;
+              const normVImg = normalizeProductImageUrl(rawVImg, mainUrl.trim()) || normalizedMainImg;
               return {
                 id: v.id || `var-${vIdx}-${Date.now()}`,
                 size: v.size || sz || undefined,
@@ -247,7 +258,7 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
                 originalPrice: v.originalPriceAed || v.originalPriceAED || origAed,
                 originalPriceAed: v.originalPriceAed || v.originalPriceAED || origAed,
                 inStock: v.inStock !== false,
-                image: v.image || v.imageUrl || scraped.image || scraped.imageUrl || ''
+                image: normVImg
               };
             })
           : [firstVariant];
@@ -267,9 +278,9 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           priceAed: pAed || prev.priceAed,
           priceToman: calculatedTomanPrice || prev.priceToman,
           originalPriceAed: origAed,
-          image: scraped.image || scraped.imageUrl || prev.image,
-          images: scraped.images || scraped.galleryImages || prev.images,
-          galleryImages: scraped.galleryImages || scraped.images || prev.galleryImages,
+          image: normalizedMainImg || prev.image,
+          images: normalizedGallery.length > 0 ? normalizedGallery : prev.images,
+          galleryImages: normalizedGallery.length > 0 ? normalizedGallery : prev.galleryImages,
           weightKg: effectiveWeight || prev.weightKg,
           sizes: updatedSizes,
           flavors: updatedFlavors,
@@ -321,7 +332,8 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         const origAed = parseFloat(scraped.originalPriceAED || scraped.originalPriceAed || scraped.originalPrice || 0) || undefined;
         const sz = scraped.size || attr.size || (scraped.sizes && scraped.sizes[0]) || '';
         const flv = scraped.flavor || attr.flavor || (scraped.flavors && scraped.flavors[0]) || '';
-        const img = scraped.image || scraped.imageUrl || product.image || '';
+        const rawImg = scraped.image || scraped.imageUrl || product.image || '';
+        const img = normalizeProductImageUrl(rawImg, auxUrl.trim()) || product.image || '';
 
         const newVariant: ProductVariant = {
           id: `var-aux-${Date.now()}`,
@@ -823,7 +835,14 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-3">
             <div className="flex items-center gap-4 flex-1 min-w-0">
               {product.image && (
-                <img src={product.image} alt={product.title} className="w-16 h-16 object-contain rounded-xl bg-white border border-slate-200 p-1 shrink-0" />
+                <img
+                  src={product.image}
+                  alt={product.title}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
+                  className="w-16 h-16 object-contain rounded-xl bg-white border border-slate-200 p-1 shrink-0"
+                />
               )}
               <div className="flex-1 min-w-0 space-y-1">
                 <span className="text-xs font-black text-slate-900 block truncate">{product.title}</span>

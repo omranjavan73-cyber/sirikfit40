@@ -18,8 +18,8 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import firebaseConfigJson from './firebase-applet-config.json';
-import { scraperRouter } from './functions/src/routes/scraper';
-import { iherbAdapter, parseIherbHtml } from './functions/src/scrapers';
+import { scraperRouter } from './functions/src/routes/scraper.ts';
+import { iherbAdapter, parseIherbHtml } from './functions/src/scrapers/iherbAdapter.ts';
 
 // Suppress internal gRPC stream disconnect debug/info messages
 try {
@@ -93,6 +93,10 @@ const db: ReturnType<typeof getFirestore> = (firebaseConfigJson.firestoreDatabas
 
 const app = express();
 const PORT = 3000;
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
+});
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -7638,8 +7642,6 @@ export default app;
 // VITE MIDDLEWARE & STANDALONE SERVER
 // ----------------------------------------------------
 async function startServer() {
-  await getStoreData().catch(e => console.warn('Initial store hydrate warn:', e));
-
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -7657,9 +7659,12 @@ async function startServer() {
 
   if (process.env.IS_FIREBASE_FUNCTION !== 'true') {
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`OMEX Dubai Import Platform server listening on http://localhost:${PORT}`);
+      console.log(`SirikFit Dubai Import Platform server listening on http://localhost:${PORT}`);
     });
   }
+
+  // Hydrate store data asynchronously in background without blocking server startup
+  getStoreData().catch(e => console.warn('Initial store hydrate warn:', e));
 }
 
 if (process.env.IS_FIREBASE_FUNCTION !== 'true') {

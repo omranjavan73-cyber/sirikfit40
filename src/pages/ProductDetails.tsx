@@ -16,8 +16,9 @@ import {
   handleSizeChange
 } from '../utils/variantMatrixEngine';
 import { isMatchVariant, matchVariantAttr, resolveCompoundVariant, resolveVariantHeroImage } from '../utils/variantHelpers';
-import { ShoppingCart, Check, AlertCircle } from 'lucide-react';
+import { ShoppingCart, Check, AlertCircle, ExternalLink, Globe, Info, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { formatPersianSize, translateFlavor, sanitizeVariantLabel } from '../utils/supplementLocalization';
+import { getStoreBadgeTheme } from '../utils/formatters';
 
 interface ProductDetailsProps {
   product: NormalizedProduct;
@@ -52,26 +53,9 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
 
   // ── Store / Brand Badge Resolver (Rendered cleanly above title) ──────────────
   const storeBadge = useMemo(() => {
-    const s = ((product as any)?.storeName || product?.brand || '').toLowerCase();
-    if (s.includes('iherb') || s.includes('آی‌هرب') || s.includes('آی هرب')) {
-      return { name: 'iHerb', bg: 'bg-[#458500]/10 text-[#458500] border-[#458500]/30', dot: 'bg-[#458500]' };
-    }
-    if (s.includes('dr. nutrition') || s.includes('dr nutrition') || s.includes('drnutrition')) {
-      return { name: 'Dr. Nutrition', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' };
-    }
-    if (s.includes('gnc')) {
-      return { name: 'GNC Store', bg: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' };
-    }
-    if (s.includes('sporter')) {
-      return { name: 'Sporter', bg: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' };
-    }
-    if (s.includes('life pharmacy') || s.includes('lifepharmacy')) {
-      return { name: 'Life Pharmacy', bg: 'bg-cyan-50 text-cyan-700 border-cyan-200', dot: 'bg-cyan-500' };
-    }
-    if (s.includes('انبار ایران') || s.includes('iran') || (product as any)?.category === 'inventory') {
-      return { name: 'انبار ایران (تحویل فوری)', bg: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' };
-    }
-    return { name: (product as any)?.storeName || product?.brand || 'فروشگاه معتبر دبی', bg: 'bg-slate-100 text-slate-800 border-slate-200', dot: 'bg-slate-500' };
+    const rawUrl = product?.sourceUrl || product?.url || (product as any)?.originalUrl || '';
+    const isIherb = ((product as any)?.storeName || '').toLowerCase().includes('iherb') || (rawUrl || '').toLowerCase().includes('iherb');
+    return getStoreBadgeTheme(isIherb ? 'iHerb' : ((product as any)?.storeName || product?.brand));
   }, [product]);
 
   // 2. Extract active variants directly from product.variants as single source of truth
@@ -315,8 +299,14 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
           <div className="space-y-3.5">
             {/* Store / Brand Badge Cleanly Above Title */}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border shadow-2xs ${storeBadge.bg}`}>
-                <span className={`w-2 h-2 rounded-full ${storeBadge.dot} animate-pulse`} />
+              <span
+                style={storeBadge.style}
+                className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border shadow-2xs ${storeBadge.bg}`}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${storeBadge.dot} animate-pulse`}
+                  style={storeBadge.dotStyle}
+                />
                 <span>{storeBadge.name}</span>
               </span>
 
@@ -499,6 +489,74 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Additional Information & Original Product Link Section */}
+      {(() => {
+        const rawUrl = (product?.sourceUrl || product?.url || (product as any)?.originalUrl || (product as any)?.productUrl || (product as any)?.link || (product as any)?.rawItem?.sourceUrl || (product as any)?.rawItem?.url || '');
+        const hasValidUrl = typeof rawUrl === 'string' && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://'));
+
+        return (
+          <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-800 space-y-4">
+            <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3.5 text-right">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700/60 pb-3">
+                <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-extrabold text-sm">
+                  <Info className="w-4 h-4 text-slate-700 dark:text-slate-300" />
+                  <span>مشخصات تکمیلی و منبع رسمی محصول</span>
+                </div>
+                <span
+                  style={storeBadge.style}
+                  className={`text-xs font-extrabold px-3 py-1 rounded-full ${storeBadge.bg}`}
+                >
+                  {storeBadge.name}
+                </span>
+              </div>
+
+              {/* Summary Badges */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs text-slate-600 dark:text-slate-300">
+                <div className="flex items-center justify-between bg-white dark:bg-slate-800 px-3.5 py-2 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                  <span className="text-slate-400 font-medium">فروشگاه مبدأ:</span>
+                  <span className="font-bold text-slate-900 dark:text-slate-100">{storeBadge.name}</span>
+                </div>
+                {product.brand && (
+                  <div className="flex items-center justify-between bg-white dark:bg-slate-800 px-3.5 py-2 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                    <span className="text-slate-400 font-medium">برند:</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{product.brand}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between bg-white dark:bg-slate-800 px-3.5 py-2 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                  <span className="text-slate-400 font-medium">اصالت کالا:</span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>۱۰۰٪ پلمپ و اورجینال</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Clickable Original Product Link Button */}
+              {hasValidUrl && (
+                <div className="pt-2">
+                  <a
+                    href={rawUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3 px-4 bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white font-extrabold text-xs sm:text-sm flex items-center justify-between transition-all group shadow-xs cursor-pointer select-none"
+                    title="مشاهده صفحه این محصول در سایت اصلی فروشگاه"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
+                      <span>مشاهده در وبسایت رسمی {storeBadge.name}</span>
+                    </span>
+                    <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-300 font-bold group-hover:text-slate-900 dark:group-hover:text-white">
+                      <span>لینک اصلی کالا</span>
+                      <ExternalLink className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                    </span>
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

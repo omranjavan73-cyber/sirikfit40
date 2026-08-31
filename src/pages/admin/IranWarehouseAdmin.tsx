@@ -5,7 +5,7 @@ import {
   Search, Building2, Globe, Percent
 } from 'lucide-react';
 import type { LocalInventoryItem, ProductVariant, FinancialSettings } from '../../types';
-import { formatToman, toPersianDigits, getEffectiveAedRate } from '../../utils/formatters';
+import { formatToman, toPersianDigits, getEffectiveAedRate, normalizeProductImageUrl } from '../../utils/formatters';
 import {
   PRESET_FLAVORS, PRESET_SIZES, STANDARD_SIZE_OPTIONS,
   convertLbsToKg
@@ -76,6 +76,9 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
         ? String(v.size).trim()
         : 'استاندارد';
 
+      const rawVarImg = (v.image && String(v.image).trim() !== '') ? String(v.image).trim() : ((v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : '');
+      const normVarImg = normalizeProductImageUrl(rawVarImg, String(prod.url || '')) || null;
+
       const cleanVar: Record<string, any> = {
         id: String(v.id || `var-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`),
         flavor: cleanFlavor,
@@ -85,8 +88,8 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
         priceAED: vAed,
         priceToman: vToman,
         weightKg: parseWeightKg(cleanSize, Number(v.weightKg) || baseWeight),
-        image: (v.image && String(v.image).trim() !== '') ? String(v.image).trim() : ((v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : null),
-        imageUrl: (v.image && String(v.image).trim() !== '') ? String(v.image).trim() : ((v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : null),
+        image: normVarImg,
+        imageUrl: normVarImg,
         inStock: v.inStock !== false
       };
 
@@ -109,7 +112,13 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
 
   const titleFa = String(prod.titleFa || prod.title || prod.titleEn || 'بدون عنوان');
   const titleEn = String(prod.titleEn || prod.rawTitle || '');
-  const mainImage = String(prod.imageUrl || prod.image || '');
+  const rawMainImg = String(prod.imageUrl || prod.image || '');
+  const mainImage = normalizeProductImageUrl(rawMainImg, String(prod.url || ''));
+
+  const rawImages: string[] = Array.isArray(prod.images) && prod.images.length > 0 ? prod.images.filter(Boolean).map(String) : (mainImage ? [mainImage] : []);
+  const rawGallery: string[] = Array.isArray(prod.galleryImages) && prod.galleryImages.length > 0 ? prod.galleryImages.filter(Boolean).map(String) : (mainImage ? [mainImage] : []);
+  const normImages = Array.from(new Set([mainImage, ...rawImages.map((img: string) => normalizeProductImageUrl(img, String(prod.url || '')))].filter(Boolean)));
+  const normGallery = Array.from(new Set([mainImage, ...rawGallery.map((img: string) => normalizeProductImageUrl(img, String(prod.url || '')))].filter(Boolean)));
 
   return {
     id: String(prod.id || `local-${Date.now()}`),
@@ -125,8 +134,8 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
     description: String(prod.description || ''),
     imageUrl: mainImage,
     image: mainImage,
-    images: Array.isArray(prod.images) && prod.images.length > 0 ? prod.images.filter(Boolean).map(String) : (mainImage ? [mainImage] : []),
-    galleryImages: Array.isArray(prod.galleryImages) && prod.galleryImages.length > 0 ? prod.galleryImages.filter(Boolean).map(String) : (mainImage ? [mainImage] : []),
+    images: normImages,
+    galleryImages: normGallery,
     basePriceAed: baseAed,
     priceAed: Number(prod.priceAed ?? baseAed),
     originalPriceAed: Number(prod.originalPriceAed || 0),
@@ -460,10 +469,14 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
         aedToTomanRate: aedRate,
         baseShippingAed: 20
       }) : 0;
-      const img = data.mainImage || data.image || data.imageUrl || '';
-      const gallery = Array.isArray(data.galleryImages) && data.galleryImages.length > 0
+      const rawImg = data.mainImage || data.image || data.imageUrl || '';
+      const img = normalizeProductImageUrl(rawImg, newItemUrl.trim());
+      const rawGalleryList: string[] = Array.isArray(data.galleryImages) && data.galleryImages.length > 0
         ? data.galleryImages
-        : (img ? [img] : []);
+        : (Array.isArray(data.images) ? data.images : (rawImg ? [rawImg] : []));
+      const gallery = Array.from(
+        new Set([img, ...rawGalleryList.map((g: string) => normalizeProductImageUrl(g, newItemUrl.trim()))].filter(Boolean))
+      );
 
       const mainCat = newItemCategory || categoriesTree[0]?.name || 'مکمل‌های ورزشی';
       const subCat = newItemSubCategory || categoriesTree[0]?.subCategories?.[0]?.name || '';
@@ -490,6 +503,8 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
           const vSize = v.size || defSize;
           const vFlavor = v.flavor || extractedFlavors[0] || 'شکلات (Chocolate)';
           const vWeight = parseWeightKg(vSize, parseFloat(v.weightKg || data.weightKg) || 0.8);
+          const rawVImg = v.image || v.imageUrl || v.imageThumbnail || rawImg;
+          const normVImg = normalizeProductImageUrl(rawVImg, newItemUrl.trim()) || img;
           dynamicVariants.push({
             id: `var-${idx}-${Date.now()}`,
             size: vSize,
@@ -505,7 +520,7 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
               baseShippingAed: 20
             }) : 0,
             inStock: v.inStock !== false,
-            image: v.image || img
+            image: normVImg
           });
         });
       } else {

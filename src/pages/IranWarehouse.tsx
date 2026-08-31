@@ -1,11 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
+import React, { useState } from 'react';
 import type { LocalInventoryItem, FinancialSettings } from '../types';
 import type { ProductDetailModalProduct } from '../components/ProductDetailModal';
-import { fetchIranWarehouseFromFirestore } from '../services/productService';
 import { InventoryPage } from '../components/InventoryPage';
 import { ProductDetailModal } from '../components/ProductDetailModal';
+import { useProducts } from '../context/ProductContext';
 
 interface IranWarehousePageProps {
   items?: LocalInventoryItem[];
@@ -55,33 +53,13 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
   showToast,
   onOpenCart
 }) => {
-  const [itemsList, setItemsList] = useState<LocalInventoryItem[]>(initialItems || []);
+  const { warehouseItems: contextWarehouse, isLoading } = useProducts();
   const [selectedItem, setSelectedItem] = useState<LocalInventoryItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  useEffect(() => {
-    setItemsList(initialItems || []);
-  }, [initialItems]);
-
-  useEffect(() => {
-    // Initial fetch fallback
-    fetchIranWarehouseFromFirestore().then((items) => {
-      setItemsList(items || []);
-    }).catch(() => {});
-
-    // Real-time Firestore snapshot listener
-    const unsub = onSnapshot(collection(db, 'iran_warehouse'), (snap) => {
-      const loaded: LocalInventoryItem[] = [];
-      snap.forEach((docSnap) => {
-        loaded.push({ id: docSnap.id, ...docSnap.data() } as LocalInventoryItem);
-      });
-      setItemsList(loaded);
-    }, (err) => {
-      console.warn('Iran Warehouse onSnapshot notice:', err);
-    });
-
-    return () => unsub();
-  }, []);
+  // Stably resolve items: prioritize prop if non-empty, otherwise use context
+  const activeSourceItems = (initialItems && initialItems.length > 0) ? initialItems : contextWarehouse;
+  const visibleItems = activeSourceItems.filter(item => item && (item as any).isActive !== false && (item as any).isPublished !== false && (item as any).isDraft !== true);
 
   const handleSelect = (item: LocalInventoryItem) => {
     if (onSelectLocalProduct) {
@@ -92,13 +70,12 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
     }
   };
 
-  const visibleItems = itemsList.filter(item => item && (item as any).isActive !== false && (item as any).isPublished !== false && (item as any).isDraft !== true);
-
   return (
     <div className="container mx-auto px-1 sm:px-3 py-0" dir="rtl">
       <InventoryPage
         items={visibleItems}
         settings={settings}
+        isLoading={isLoading}
         onSelectLocalProduct={handleSelect}
         onAddToCart={onAddToCart}
         showToast={showToast}

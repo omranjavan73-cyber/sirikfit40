@@ -1,5 +1,8 @@
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { isMatchCategory, isMatchSubCategory, normalizeCategoryString } from '../constants/categories';
+
+export { isMatchCategory, isMatchSubCategory, normalizeCategoryString } from '../constants/categories';
 
 export interface TaxonomySubCategory {
   id: string;
@@ -175,75 +178,60 @@ export function matchProductTaxonomy(
 ): boolean {
   if (!product) return false;
 
-  const q = (searchQuery || '').trim().toLowerCase();
-  const title = (product.title || '').toLowerCase();
-  const cat = (product.category || product.categoryKey || '').toLowerCase();
-  const desc = (product.description || '').toLowerCase();
-  const brand = (product.brand || product.storeName || '').toLowerCase();
+  const q = normalizeCategoryString(searchQuery);
+  const title = normalizeCategoryString(product.title || product.titleFa || product.titleEn || product.name || '');
+  const cat = normalizeCategoryString(product.category || product.categoryKey || product.mainCategory || '');
+  const desc = normalizeCategoryString(product.description || product.caption || '');
+  const brand = normalizeCategoryString(product.brand || product.storeName || '');
+  const sub = normalizeCategoryString(product.subCategory || product.subcategory || product.subCategoryKey || '');
 
   // 1. Text Search Filter
   if (q) {
-    const matchesSearch = title.includes(q) || cat.includes(q) || desc.includes(q) || brand.includes(q);
+    const matchesSearch = title.includes(q) || cat.includes(q) || sub.includes(q) || desc.includes(q) || brand.includes(q);
     if (!matchesSearch) return false;
   }
 
   // 2. Main Category Filter
-  if (selectedMainCatId && selectedMainCatId !== 'all') {
+  if (selectedMainCatId && selectedMainCatId !== 'all' && selectedMainCatId !== 'همه' && selectedMainCatId !== 'همه موارد') {
     const mainConfig = getMainCategoryById(selectedMainCatId, taxonomyList);
-    if (mainConfig) {
-      const mainName = mainConfig.name || mainConfig.label;
-      if (product.mainCategory) {
-        if (
-          product.mainCategory !== selectedMainCatId && 
-          product.mainCategory !== mainName &&
-          product.mainCategory !== mainConfig.id &&
-          product.mainCategory !== mainConfig.slug
-        ) {
-          return false;
-        }
-      } else {
-        const subCats = mainConfig.subCategories || [];
-        const allKeywords = subCats.flatMap((s: any) => s.keywords || []);
-        const hasKeywordMatch = allKeywords.some((kw: string) => 
-          title.includes(kw) || cat.includes(kw) || desc.includes(kw)
-        );
-        const labelMatch = title.includes(mainName) || cat.includes(mainName);
+    const mainName = mainConfig?.name || mainConfig?.label || selectedMainCatId;
+    const mainSlug = mainConfig?.slug || selectedMainCatId;
 
-        if (!hasKeywordMatch && !labelMatch) {
-          if ((selectedMainCatId === 'sports_nutrition' || mainName === 'مکمل‌های ورزشی') && (cat.includes('ورزشی') || cat.includes('sport') || cat.includes('وی') || cat.includes('پروتئین') || cat.includes('protein'))) {
-            // match
-          } else if ((selectedMainCatId === 'vitamins' || mainName === 'ویتامین‌ها') && (cat.includes('ویتامین') || cat.includes('vitamin'))) {
-            // match
-          } else if ((selectedMainCatId === 'minerals' || mainName === 'مواد معدنی') && (cat.includes('معدنی') || cat.includes('mineral'))) {
-            // match
-          } else if ((selectedMainCatId === 'healthy_food' || mainName === 'تغذیه سالم') && (cat.includes('تغذیه') || cat.includes('food') || cat.includes('diet'))) {
-            // match
-          } else if ((selectedMainCatId === 'health_concerns' || mainName === 'دغدغه‌های سلامتی') && (cat.includes('سلامت') || cat.includes('health'))) {
-            // match
-          } else {
-            return false;
-          }
-        }
+    const prodCategory = product.mainCategory || product.category || product.categoryKey || '';
+
+    // Use locale-agnostic category matching
+    const matchesCat = isMatchCategory(prodCategory, selectedMainCatId) ||
+      isMatchCategory(prodCategory, mainName) ||
+      isMatchCategory(prodCategory, mainSlug);
+
+    if (!matchesCat) {
+      // Secondary check: check if any subcategory keywords appear in product text
+      const subCats = mainConfig?.subCategories || [];
+      const allKeywords = subCats.flatMap((s: any) => s.keywords || []);
+      const hasKeywordMatch = allKeywords.some((kw: string) => {
+        const normKw = normalizeCategoryString(kw);
+        return normKw && (title.includes(normKw) || cat.includes(normKw) || desc.includes(normKw));
+      });
+
+      if (!hasKeywordMatch) {
+        return false;
       }
     }
   }
 
   // 3. Sub Category Filter
-  if (selectedSubCatId && selectedSubCatId !== 'all' && selectedSubCatId !== 'همه موارد') {
-    if (product.subCategory) {
-      if (product.subCategory === selectedSubCatId) return true;
-    }
-
+  if (selectedSubCatId && selectedSubCatId !== 'all' && selectedSubCatId !== 'همه' && selectedSubCatId !== 'همه موارد') {
     const mainConfig = getMainCategoryById(selectedMainCatId, taxonomyList);
     const subConfig = (mainConfig?.subCategories || []).find((s: any) => 
       s.id === selectedSubCatId || s.name === selectedSubCatId || s.label === selectedSubCatId || s.slug === selectedSubCatId
     );
-    if (subConfig && subConfig.keywords && subConfig.keywords.length > 0) {
-      const matchesSub = subConfig.keywords.some((kw: string) => 
-        title.includes(kw) || cat.includes(kw) || desc.includes(kw)
-      );
-      if (!matchesSub) return false;
-    }
+
+    const keywords = subConfig?.keywords || [];
+    const matchesSub = isMatchSubCategory(product, selectedSubCatId, keywords) ||
+      (subConfig?.name && isMatchSubCategory(product, subConfig.name, keywords)) ||
+      (subConfig?.slug && isMatchSubCategory(product, subConfig.slug, keywords));
+
+    if (!matchesSub) return false;
   }
 
   return true;

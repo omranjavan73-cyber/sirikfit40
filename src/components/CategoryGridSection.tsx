@@ -25,7 +25,7 @@ export const CategoryGridSection: React.FC<CategoryGridSectionProps> = ({
   onSelectCategory,
   searchQuery,
   onSearchChange,
-  searchPlaceholder = '...جستجوی مکمل، برند یا دسته',
+  searchPlaceholder = 'جستجوی مکمل، پروتئین، ویتامین یا برند...',
   itemsCount
 }) => {
   const [showAllModal, setShowAllModal] = useState(false);

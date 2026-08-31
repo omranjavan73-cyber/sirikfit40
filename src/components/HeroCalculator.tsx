@@ -571,8 +571,14 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
                   {(() => {
                     const storeTheme = getStoreBadgeTheme(brandName || storeName);
                     return (
-                      <div className={`absolute top-3 right-3 z-20 ${storeTheme.bg} rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm shadow-sm pointer-events-none`}>
-                        <span className={`inline-block w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse ml-1.5 shrink-0`} />
+                      <div
+                        style={storeTheme.style}
+                        className={`absolute top-3 right-3 z-20 ${storeTheme.bg} rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm shadow-sm pointer-events-none`}
+                      >
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse ml-1.5 shrink-0`}
+                          style={storeTheme.dotStyle}
+                        />
                         <span>{storeTheme.name}</span>
                       </div>
                     );

@@ -16,7 +16,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Globe,
+  Info
 } from 'lucide-react';
 import type { FinancialSettings, ProductVariantMatrix, ProductVariantItem } from '../types';
 import { formatToman, formatAed, formatPrice, toPersianDigits, getEffectiveAedRate, deduplicateImageUrls, getStoreBadgeTheme, sanitizeVariantLabel, isArtificialFallback } from '../utils/formatters';
@@ -638,8 +640,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 const isIherb = (product.storeName || '').toLowerCase().includes('iherb') || (product.sourceUrl || product.url || '').toLowerCase().includes('iherb');
                 const storeTheme = getStoreBadgeTheme(isIherb ? 'iHerb' : (product.storeName || product.brand));
                 return (
-                  <div className={`absolute top-3 right-3 z-10 ${storeTheme.bg} rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm shadow-sm`}>
-                    <span className={`inline-block w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse ml-1.5 shrink-0`} />
+                  <div
+                    style={storeTheme.style}
+                    className={`absolute top-3 right-3 z-10 ${storeTheme.bg} rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm shadow-sm`}
+                  >
+                    <span
+                      className={`inline-block w-2 h-2 rounded-full ${storeTheme.dot} animate-pulse ml-1.5 shrink-0`}
+                      style={storeTheme.dotStyle}
+                    />
                     <span>{storeTheme.name}</span>
                   </div>
                 );
@@ -845,6 +853,50 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 پلمپ اورجینال ✅
               </span>
             </div>
+
+            {/* Additional Information & Original Product Link */}
+            {(() => {
+              const rawUrl = (product.sourceUrl || product.url || (product as any).originalUrl || (product as any).productUrl || (product as any).link || (product as any).rawItem?.sourceUrl || (product as any).rawItem?.url || '');
+              const hasValidUrl = typeof rawUrl === 'string' && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://'));
+              const isIherb = (product.storeName || '').toLowerCase().includes('iherb') || (rawUrl || '').toLowerCase().includes('iherb');
+              const storeTheme = getStoreBadgeTheme(isIherb ? 'iHerb' : (product.storeName || product.brand));
+
+              return (
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2.5 text-right">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                    <div className="flex items-center gap-1.5 text-slate-900 font-extrabold text-xs">
+                      <Info className="w-4 h-4 text-slate-700" />
+                      <span>مشخصات و لینک مستقیم کالا</span>
+                    </div>
+                    <span
+                      style={storeTheme.style}
+                      className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${storeTheme.bg}`}
+                    >
+                      {storeTheme.name}
+                    </span>
+                  </div>
+
+                  {hasValidUrl && (
+                    <a
+                      href={rawUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-2 px-3 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl text-slate-900 font-extrabold text-xs flex items-center justify-between transition-all group shadow-2xs cursor-pointer select-none"
+                      title="مشاهده در وبسایت اصلی فروشگاه"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                        <span>لینک اصلی محصول در {storeTheme.name}</span>
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px] text-slate-500 font-bold group-hover:text-slate-900">
+                        <span>مشاهده سایت اصلی</span>
+                        <ExternalLink className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                      </span>
+                    </a>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* 6. BOTTOM ACTION BAR (Quantity + Black Add to Cart Button) */}

@@ -1,7 +1,7 @@
 import { getSafeItem } from './safeStorage';
-import { extractUrlAndCaption } from './urlHelper';
+import { extractUrlAndCaption, normalizeProductImageUrl, isInvalidProductImage } from './urlHelper';
 
-export { extractUrlAndCaption } from './urlHelper';
+export { extractUrlAndCaption, normalizeProductImageUrl, isInvalidProductImage } from './urlHelper';
 
 // Helper utilities for Persian formatting and exchange rate resolution
 
@@ -354,58 +354,109 @@ export interface StoreBadgeTheme {
   bg: string;
   dot: string;
   name: string;
+  brandColor?: string;
+  textColor?: string;
+  style?: React.CSSProperties;
+  dotStyle?: React.CSSProperties;
+}
+
+export function getContrastTextColor(hexColor: string): '#ffffff' | '#0f172a' {
+  if (!hexColor) return '#ffffff';
+  let hex = hexColor.replace('#', '').trim();
+  if (hex.length === 3) {
+    hex = hex.split('').map(c => c + c).join('');
+  }
+  if (hex.length !== 6) return '#ffffff';
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return '#ffffff';
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 165 ? '#0f172a' : '#ffffff';
+}
+
+/**
+ * Resolves custom store settings from LocalStorage if customized in General Settings / Store Management
+ */
+function getCustomStoreTheme(storeNameOrBrand: string = ''): { brandColor?: string; nameFa?: string; title?: string; nameEn?: string } | null {
+  if (typeof window === 'undefined' || !storeNameOrBrand) return null;
+  try {
+    const raw = localStorage.getItem('sirikfit_stores_list');
+    if (!raw) return null;
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return null;
+
+    const s = storeNameOrBrand.toLowerCase().trim();
+    for (const store of list) {
+      const title = (store.title || '').toLowerCase();
+      const shortTitle = (store.shortTitle || '').toLowerCase();
+      const nameEn = (store.nameEn || '').toLowerCase();
+      const nameFa = (store.nameFa || '').toLowerCase();
+      const slug = (store.slug || '').toLowerCase();
+      const url = (store.url || '').toLowerCase();
+
+      if (
+        s === slug ||
+        s === title ||
+        s === shortTitle ||
+        s === nameEn ||
+        s === nameFa ||
+        (url && s.includes(url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, ''))) ||
+        title.includes(s) ||
+        nameEn.includes(s) ||
+        (s.includes('dr nutrition') && (slug.includes('dr-nutrition') || slug.includes('dnp') || nameEn.includes('doctor nutrition') || nameEn.includes('dr. nutrition'))) ||
+        (s.includes('life pharmacy') && (slug.includes('life') || nameEn.includes('life'))) ||
+        (s.includes('gnc') && (slug.includes('gnc') || nameEn.includes('gnc'))) ||
+        (s.includes('iherb') && (slug.includes('iherb') || nameEn.includes('iherb'))) ||
+        (s.includes('sporter') && (slug.includes('sporter') || nameEn.includes('sporter')))
+      ) {
+        return store;
+      }
+    }
+  } catch (_) {}
+  return null;
 }
 
 export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeTheme {
   const s = (storeNameOrBrand || '').toLowerCase().trim();
+  const customStore = getCustomStoreTheme(s);
+
+  let name = storeNameOrBrand || 'خرید مستقیم از دبی';
+  let defaultHex = '#0f172a';
+  let defaultBgClass = 'bg-slate-900 text-white ring-1 ring-slate-700 shadow-sm';
+  let defaultDotClass = 'bg-white';
 
   // 1. iHerb
   if (s.includes('iherb') || s.includes('آی‌هرب') || s.includes('آی هرب')) {
-    return {
-      bg: 'bg-[#458500] text-white ring-1 ring-emerald-600 shadow-sm',
-      dot: 'bg-emerald-300',
-      name: 'iHerb'
-    };
-  }
-
-  // 2. GNC / GNC Store / GNC MENA
-  if (s.includes('gnc')) {
-    return {
-      bg: 'bg-red-600 text-white ring-1 ring-red-400 shadow-sm',
-      dot: 'bg-white',
-      name: 'GNC Store'
-    };
-  }
-
-  // 3. Sporter
-  if (s.includes('sporter')) {
-    return {
-      bg: 'bg-amber-400 text-slate-950 font-bold ring-1 ring-amber-300 shadow-sm',
-      dot: 'bg-slate-950',
-      name: 'Sporter'
-    };
-  }
-
-  // 4. Dr. Nutrition / DrNutrition
-  if (s.includes('dr nutrition') || s.includes('drnutrition') || s.includes('dnp') || s.includes('dr.')) {
-    return {
-      bg: 'bg-blue-600 text-white ring-1 ring-blue-400 shadow-sm',
-      dot: 'bg-white',
-      name: 'Dr. Nutrition'
-    };
-  }
-
-  // 5. Life Pharmacy
-  if (s.includes('life pharmacy') || s.includes('lifepharmacy') || s.includes('life')) {
-    return {
-      bg: 'bg-teal-600 text-white ring-1 ring-teal-400 shadow-sm',
-      dot: 'bg-white',
-      name: 'Life Pharmacy'
-    };
-  }
-
-  // 6. Iran Warehouse / انبار ایران
-  if (
+    name = 'iHerb';
+    defaultHex = '#458500';
+    defaultBgClass = 'bg-[#458500] text-white ring-1 ring-emerald-600 shadow-sm';
+    defaultDotClass = 'bg-emerald-300';
+  } else if (s.includes('gnc') || s.includes('جی ان سی') || s.includes('جی‌ان‌سی')) {
+    // 2. GNC / GNC Store
+    name = 'GNC Store';
+    defaultHex = '#dc2626';
+    defaultBgClass = 'bg-red-600 text-white ring-1 ring-red-400 shadow-sm';
+    defaultDotClass = 'bg-white';
+  } else if (s.includes('sporter') || s.includes('اسپورتر')) {
+    // 3. Sporter
+    name = 'Sporter';
+    defaultHex = '#f59e0b';
+    defaultBgClass = 'bg-amber-400 text-slate-950 font-bold ring-1 ring-amber-300 shadow-sm';
+    defaultDotClass = 'bg-slate-950';
+  } else if (s.includes('dr nutrition') || s.includes('drnutrition') || s.includes('dnp') || s.includes('دکتر نوتریشن') || s.includes('dr.')) {
+    // 4. Dr. Nutrition (Purple)
+    name = 'Dr. Nutrition';
+    defaultHex = '#9333ea';
+    defaultBgClass = 'bg-purple-600 text-white ring-1 ring-purple-400 shadow-sm';
+    defaultDotClass = 'bg-white';
+  } else if (s.includes('life pharmacy') || s.includes('lifepharmacy') || s.includes('لایف') || s.includes('life')) {
+    // 5. Life Pharmacy (Blue)
+    name = 'Life Pharmacy';
+    defaultHex = '#1e40af';
+    defaultBgClass = 'bg-blue-600 text-white ring-1 ring-blue-400 shadow-sm';
+    defaultDotClass = 'bg-white';
+  } else if (
     s.includes('انبار ایران') ||
     s.includes('iranwarehouse') ||
     s.includes('iran warehouse') ||
@@ -413,17 +464,30 @@ export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeThe
     s.includes('موجودی ایران') ||
     s.includes('انبار')
   ) {
-    return {
-      bg: 'bg-emerald-600 text-white ring-1 ring-emerald-400 shadow-sm',
-      dot: 'bg-white',
-      name: 'انبار ایران'
-    };
+    // 6. Iran Warehouse
+    name = 'انبار ایران';
+    defaultHex = '#059669';
+    defaultBgClass = 'bg-emerald-600 text-white ring-1 ring-emerald-400 shadow-sm';
+    defaultDotClass = 'bg-white';
   }
 
+  const finalColor = customStore?.brandColor || defaultHex;
+  const textColor = getContrastTextColor(finalColor);
+  const dotColor = textColor === '#0f172a' ? '#0f172a' : '#ffffff';
+
   return {
-    bg: 'bg-slate-900 text-white ring-1 ring-slate-700 shadow-sm',
-    dot: 'bg-white',
-    name: storeNameOrBrand || 'خرید مستقیم از دبی'
+    bg: defaultBgClass,
+    dot: defaultDotClass,
+    name: customStore?.nameFa || customStore?.nameEn || name,
+    brandColor: finalColor,
+    textColor,
+    style: {
+      backgroundColor: finalColor,
+      color: textColor
+    },
+    dotStyle: {
+      backgroundColor: dotColor
+    }
   };
 }
 

@@ -54,26 +54,26 @@ export const SUPPORTED_STORES: Record<string, StoreConfig> = {
     id: 'drnutrition',
     name: 'Dr. Nutrition',
     nameFa: 'دکتر نوتریشن',
-    badgeBg: 'bg-blue-600',
+    badgeBg: 'bg-purple-600',
     badgeText: 'text-white',
     pulseColor: 'bg-white',
     domainPattern: /drnutrition\.com/i,
     origin: 'انبار مرکزی Dr Nutrition دبی',
     flag: '🇦🇪',
-    brandColor: '#2563eb',
+    brandColor: '#9333ea',
     defaultUrl: 'https://www.drnutrition.com/en-ae'
   },
   life: {
     id: 'life',
     name: 'Life Pharmacy',
     nameFa: 'داروخانه لایف',
-    badgeBg: 'bg-teal-600',
+    badgeBg: 'bg-blue-600',
     badgeText: 'text-white',
     pulseColor: 'bg-white',
     domainPattern: /lifepharmacy\.com|drpharmacy\.ae/i,
     origin: 'انبار داروخانه‌های لایف امارات',
     flag: '🇦🇪',
-    brandColor: '#0d9488',
+    brandColor: '#1e40af',
     defaultUrl: 'https://www.lifepharmacy.com'
   },
   sporter: {
@@ -131,39 +131,76 @@ export const SUPPORTED_STORES: Record<string, StoreConfig> = {
 
 export const STORE_LIST: StoreConfig[] = Object.values(SUPPORTED_STORES);
 
+/**
+ * Retrieves custom configured stores from LocalStorage if available
+ */
+function getCustomConfiguredStore(storeNameOrUrl: string = ''): { brandColor?: string; nameFa?: string; title?: string; nameEn?: string } | null {
+  if (typeof window === 'undefined' || !storeNameOrUrl) return null;
+  try {
+    const raw = localStorage.getItem('sirikfit_stores_list');
+    if (!raw) return null;
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return null;
+
+    const s = storeNameOrUrl.toLowerCase().trim();
+    for (const store of list) {
+      const title = (store.title || '').toLowerCase();
+      const shortTitle = (store.shortTitle || '').toLowerCase();
+      const nameEn = (store.nameEn || '').toLowerCase();
+      const nameFa = (store.nameFa || '').toLowerCase();
+      const slug = (store.slug || '').toLowerCase();
+      const url = (store.url || '').toLowerCase();
+
+      if (
+        s === slug ||
+        s === title ||
+        s === shortTitle ||
+        s === nameEn ||
+        s === nameFa ||
+        (url && s.includes(url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, ''))) ||
+        title.includes(s) ||
+        nameEn.includes(s) ||
+        (s.includes('dr nutrition') && (slug.includes('dr-nutrition') || slug.includes('dnp') || nameEn.includes('doctor nutrition') || nameEn.includes('dr. nutrition'))) ||
+        (s.includes('life pharmacy') && (slug.includes('life') || nameEn.includes('life'))) ||
+        (s.includes('gnc') && (slug.includes('gnc') || nameEn.includes('gnc'))) ||
+        (s.includes('iherb') && (slug.includes('iherb') || nameEn.includes('iherb'))) ||
+        (s.includes('sporter') && (slug.includes('sporter') || nameEn.includes('sporter')))
+      ) {
+        return store;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 export function getStoreConfig(storeNameOrUrl: string = ''): StoreConfig {
   const s = (storeNameOrUrl || '').toLowerCase().trim();
+  const customStore = getCustomConfiguredStore(s);
+
+  let baseConfig: StoreConfig;
 
   // 1. iHerb
   if (s.includes('iherb') || s.includes('آی‌هرب') || s.includes('آی هرب')) {
-    return SUPPORTED_STORES.iherb;
-  }
-  // 2. GNC
-  if (s.includes('gnc') || s.includes('جی ان سی') || s.includes('جی‌ان‌سی')) {
-    return SUPPORTED_STORES.gnc;
-  }
-  // 3. Dr Nutrition
-  if (s.includes('dr nutrition') || s.includes('drnutrition') || s.includes('dnp') || s.includes('دکتر نوتریشن') || s.includes('dr.')) {
-    return SUPPORTED_STORES.drnutrition;
-  }
-  // 4. Life Pharmacy
-  if (s.includes('life pharmacy') || s.includes('lifepharmacy') || s.includes('لایف') || s.includes('life')) {
-    return SUPPORTED_STORES.life;
-  }
-  // 5. Sporter
-  if (s.includes('sporter') || s.includes('اسپورتر')) {
-    return SUPPORTED_STORES.sporter;
-  }
-  // 6. Amazon
-  if (s.includes('amazon') || s.includes('آمازون')) {
-    return SUPPORTED_STORES.amazon;
-  }
-  // 7. Noon
-  if (s.includes('noon') || s.includes('نون')) {
-    return SUPPORTED_STORES.noon;
-  }
-  // 8. Iran Warehouse
-  if (
+    baseConfig = { ...SUPPORTED_STORES.iherb };
+  } else if (s.includes('gnc') || s.includes('جی ان سی') || s.includes('جی‌ان‌سی')) {
+    // 2. GNC
+    baseConfig = { ...SUPPORTED_STORES.gnc };
+  } else if (s.includes('dr nutrition') || s.includes('drnutrition') || s.includes('dnp') || s.includes('دکتر نوتریشن') || s.includes('dr.')) {
+    // 3. Dr Nutrition (Purple by default / configured)
+    baseConfig = { ...SUPPORTED_STORES.drnutrition };
+  } else if (s.includes('life pharmacy') || s.includes('lifepharmacy') || s.includes('لایف') || s.includes('life')) {
+    // 4. Life Pharmacy (Blue by default / configured)
+    baseConfig = { ...SUPPORTED_STORES.life };
+  } else if (s.includes('sporter') || s.includes('اسپورتر')) {
+    // 5. Sporter
+    baseConfig = { ...SUPPORTED_STORES.sporter };
+  } else if (s.includes('amazon') || s.includes('آمازون')) {
+    // 6. Amazon
+    baseConfig = { ...SUPPORTED_STORES.amazon };
+  } else if (s.includes('noon') || s.includes('نون')) {
+    // 7. Noon
+    baseConfig = { ...SUPPORTED_STORES.noon };
+  } else if (
     s.includes('انبار ایران') ||
     s.includes('iranwarehouse') ||
     s.includes('iran warehouse') ||
@@ -171,29 +208,38 @@ export function getStoreConfig(storeNameOrUrl: string = ''): StoreConfig {
     s.includes('موجودی ایران') ||
     s.includes('انبار')
   ) {
-    return SUPPORTED_STORES.iran_warehouse;
-  }
-
-  // Check URL patterns
-  for (const store of STORE_LIST) {
-    if (store.domainPattern && store.domainPattern.test(s)) {
-      return store;
+    // 8. Iran Warehouse
+    baseConfig = { ...SUPPORTED_STORES.iran_warehouse };
+  } else {
+    // Check URL patterns
+    let found: StoreConfig | null = null;
+    for (const store of STORE_LIST) {
+      if (store.domainPattern && store.domainPattern.test(s)) {
+        found = { ...store };
+        break;
+      }
     }
+
+    baseConfig = found || {
+      id: 'generic_dubai',
+      name: storeNameOrUrl || 'خرید مستقیم از دبی',
+      nameFa: storeNameOrUrl || 'فروشگاه دبی',
+      badgeBg: 'bg-slate-900',
+      badgeText: 'text-white',
+      pulseColor: 'bg-white',
+      domainPattern: /./,
+      origin: 'انبار امارات متحده عربی',
+      flag: '🇦🇪',
+      brandColor: '#0f172a'
+    };
   }
 
-  // Generic fallback
-  return {
-    id: 'generic_dubai',
-    name: storeNameOrUrl || 'خرید مستقیم از دبی',
-    nameFa: storeNameOrUrl || 'فروشگاه دبی',
-    badgeBg: 'bg-slate-900',
-    badgeText: 'text-white',
-    pulseColor: 'bg-white',
-    domainPattern: /./,
-    origin: 'انبار امارات متحده عربی',
-    flag: '🇦🇪',
-    brandColor: '#0f172a'
-  };
+  // Override brandColor with custom setting if present
+  if (customStore?.brandColor) {
+    baseConfig.brandColor = customStore.brandColor;
+  }
+
+  return baseConfig;
 }
 
 export function detectStoreFromUrl(url: string): StoreConfig | null {

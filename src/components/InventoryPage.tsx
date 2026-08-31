@@ -18,6 +18,7 @@ interface InventoryPageProps {
   categories?: any[];
   onSelectLocalProduct: (item: LocalInventoryItem) => void;
   settings?: FinancialSettings;
+  isLoading?: boolean;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onOpenCart?: () => void;
@@ -27,6 +28,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
   items = [],
   onSelectLocalProduct,
   settings,
+  isLoading = false,
   onAddToCart,
   showToast,
   onOpenCart
@@ -80,7 +82,18 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
       />
 
       {/* 2. Product Catalog List/Grid Section */}
-      {filteredItems.length === 0 ? (
+      {isLoading && visibleItems.length === 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3 pt-1">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+            <div key={n} className="bg-white rounded-2xl border border-slate-100 p-3 animate-pulse space-y-2.5 shadow-2xs">
+              <div className="w-full aspect-square bg-slate-100 rounded-xl" />
+              <div className="h-3.5 bg-slate-100 rounded-md w-3/4" />
+              <div className="h-3 bg-slate-100 rounded-md w-1/2" />
+              <div className="h-6 bg-slate-100 rounded-lg w-full mt-2" />
+            </div>
+          ))}
+        </div>
+      ) : filteredItems.length === 0 ? (
         <div className="bg-white border border-slate-200/90 rounded-3xl p-8 text-center space-y-3 my-3 shadow-2xs">
           <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
             <ShoppingBag className="w-6 h-6" />
@@ -92,6 +105,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
           <button
             type="button"
             onClick={() => {
+              setSelectedMainCat('sports_nutrition');
               setSelectedSubCat('all');
               setSearchQuery('');
               setFilterState(DEFAULT_FILTER_STATE);

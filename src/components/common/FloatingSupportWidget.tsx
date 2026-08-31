@@ -14,34 +14,34 @@ export const FloatingSupportWidget: React.FC = () => {
 
   return (
     <>
-      {/* 1. Sleek Half-Drawer / Popup Card */}
+      {/* 1. Sleek Support Popup / Modal Card */}
       <SupportPopup isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
 
-      {/* 2. Floating Support Trigger Badge (Rounded Squircle with Fixed Pulsing Neon Border) */}
-      <div className="fixed bottom-20 left-1 sm:bottom-6 sm:left-2 z-50 font-['Vazirmatn',sans-serif]">
-        <div className="relative">
-          {/* Fixed-size pulsing emerald neon ring */}
-          <div
-            className="absolute inset-0 rounded-2xl ring-2 ring-emerald-500 animate-pulse pointer-events-none"
-          />
-
-          {/* 100% Solid Opaque Squircle Button — static, always opacity-100, never fades */}
-          <button
-            id="floating-support-trigger"
-            type="button"
-            onClick={toggleDrawer}
-            aria-label="پشتیبانی و مشاوره آنلاین سیریک فیت"
-            title="پشتیبانی و مشاوره خرید سیریک فیت"
-            className="relative w-12 h-12 sm:w-13 sm:h-13 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer transition-transform active:scale-95 z-50 group opacity-100 p-1.5"
-          >
-            {/* Center Avatar Icon: Live Support Headset Chat Logo */}
-            {isDrawerOpen ? (
-              <X className="w-7 h-7 text-slate-900 dark:text-white transition-transform duration-200 rotate-90 scale-105" />
-            ) : (
-              <SupportHeadsetLogo className="w-9 h-9 sm:w-10 sm:h-10 transform group-hover:scale-105 transition-transform" />
-            )}
-          </button>
-        </div>
+      {/* 2. Floating Support Launcher - Clean, Transparent, with Self-Contained Online Status LED */}
+      <div className="fixed bottom-20 left-4 z-40 font-['Vazirmatn',sans-serif]">
+        <button
+          id="floating-support-trigger"
+          type="button"
+          onClick={toggleDrawer}
+          aria-label="پشتیبانی آنلاین"
+          title="پشتیبانی و مشاوره تخصصی سیریک فیت"
+          className="relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center p-0 bg-transparent border-0 shadow-none hover:scale-105 active:scale-95 transition-transform cursor-pointer outline-none select-none"
+        >
+          {isDrawerOpen ? (
+            <div className="w-10 h-10 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md transition-transform border border-white/20">
+              <X className="w-5 h-5" />
+            </div>
+          ) : (
+            <>
+              <SupportHeadsetLogo className="w-full h-full drop-shadow-sm" />
+              
+              {/* Localized Subtle Online Status LED */}
+              <span className="absolute top-0 right-0 w-3 h-3 flex items-center justify-center pointer-events-none">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-xs ring-1.5 ring-white dark:ring-zinc-900" />
+              </span>
+            </>
+          )}
+        </button>
       </div>
     </>
   );

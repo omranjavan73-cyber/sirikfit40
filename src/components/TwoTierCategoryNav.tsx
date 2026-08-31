@@ -24,7 +24,7 @@ export const TwoTierCategoryNav: React.FC<TwoTierCategoryNavProps> = ({
   onSelectSubCat,
   searchQuery,
   onSearchChange,
-  searchPlaceholder = '... جستجوی مکمل، برند یا ویتامین در آفرهای دبی',
+  searchPlaceholder = 'جستجوی مکمل، پروتئین، ویتامین یا برند...',
   totalCount,
   customTaxonomy,
   onOpenCart,

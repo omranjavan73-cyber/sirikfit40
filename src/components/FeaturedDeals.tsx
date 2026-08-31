@@ -18,6 +18,7 @@ interface FeaturedDealsProps {
   deals?: FeaturedDeal[];
   categories?: any[];
   settings: FinancialSettings;
+  isLoading?: boolean;
   onSelectDeal: (deal: FeaturedDeal) => void;
   onAddToCart?: (product: any, selectedFlavor?: string, selectedSize?: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -27,6 +28,7 @@ interface FeaturedDealsProps {
 export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   deals = [],
   settings,
+  isLoading = false,
   onSelectDeal,
   onAddToCart,
   showToast,
@@ -85,13 +87,24 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
         onSelectSubCat={setSelectedSubCat}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        searchPlaceholder="... جستجوی مکمل، برند یا ویتامین در آفرهای دبی"
+        searchPlaceholder="جستجوی مکمل، پروتئین، ویتامین یا برند..."
         totalCount={filteredDeals.length}
         onOpenCart={onOpenCart}
       />
 
       {/* 2. Product Catalog List/Grid Section */}
-      {filteredDeals.length === 0 ? (
+      {isLoading && activeDeals.length === 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3 pt-1">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+            <div key={n} className="bg-white rounded-2xl border border-slate-100 p-3 animate-pulse space-y-2.5 shadow-2xs">
+              <div className="w-full aspect-square bg-slate-100 rounded-xl" />
+              <div className="h-3.5 bg-slate-100 rounded-md w-3/4" />
+              <div className="h-3 bg-slate-100 rounded-md w-1/2" />
+              <div className="h-6 bg-slate-100 rounded-lg w-full mt-2" />
+            </div>
+          ))}
+        </div>
+      ) : filteredDeals.length === 0 ? (
         <div className="bg-white border border-slate-200/90 rounded-3xl p-8 text-center space-y-3 my-3 shadow-2xs">
           <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
             <ShoppingBag className="w-6 h-6" />
@@ -103,6 +116,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
           <button
             type="button"
             onClick={() => {
+              setSelectedMainCat('sports_nutrition');
               setSelectedSubCat('all');
               setSearchQuery('');
               setFilterState(DEFAULT_FILTER_STATE);

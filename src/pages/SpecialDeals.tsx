@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
 import type { FeaturedDeal, FinancialSettings } from '../types';
 import type { ProductDetailModalProduct } from '../components/ProductDetailModal';
-import { fetchSpecialDealsFromFirestore } from '../services/productService';
 import { FeaturedDeals } from '../components/FeaturedDeals';
 import { ProductDetailModal } from '../components/ProductDetailModal';
 import { calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
+import { useProducts } from '../context/ProductContext';
 
 interface SpecialDealsPageProps {
   deals?: FeaturedDeal[];
@@ -63,33 +61,13 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
   showToast,
   onOpenCart
 }) => {
-  const [dealsList, setDealsList] = useState<FeaturedDeal[]>(initialDeals || []);
+  const { deals: contextDeals, isLoading } = useProducts();
   const [selectedDeal, setSelectedDeal] = useState<FeaturedDeal | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  useEffect(() => {
-    setDealsList(initialDeals || []);
-  }, [initialDeals]);
-
-  useEffect(() => {
-    // Initial fetch fallback
-    fetchSpecialDealsFromFirestore().then((items) => {
-      setDealsList(items || []);
-    }).catch(() => {});
-
-    // Real-time Firestore snapshot listener
-    const unsub = onSnapshot(collection(db, 'special_deals'), (snap) => {
-      const loaded: FeaturedDeal[] = [];
-      snap.forEach((docSnap) => {
-        loaded.push({ id: docSnap.id, ...docSnap.data() } as FeaturedDeal);
-      });
-      setDealsList(loaded);
-    }, (err) => {
-      console.warn('Special Deals onSnapshot notice:', err);
-    });
-
-    return () => unsub();
-  }, []);
+  // Stably resolve deals: prioritize prop if non-empty, otherwise use context
+  const activeSourceDeals = (initialDeals && initialDeals.length > 0) ? initialDeals : contextDeals;
+  const visibleDeals = activeSourceDeals.filter(d => d && d.isActive !== false && (d as any).isPublished !== false && (d as any).isDraft !== true);
 
   const handleSelect = (deal: FeaturedDeal) => {
     if (onSelectDeal) {
@@ -100,13 +78,12 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
     }
   };
 
-  const visibleDeals = dealsList.filter(d => d && d.isActive !== false && (d as any).isPublished !== false && (d as any).isDraft !== true);
-
   return (
     <div className="container mx-auto px-1 sm:px-3 py-0" dir="rtl">
       <FeaturedDeals
         deals={visibleDeals}
         settings={settings}
+        isLoading={isLoading}
         onSelectDeal={handleSelect}
         onAddToCart={onAddToCart}
         showToast={showToast}

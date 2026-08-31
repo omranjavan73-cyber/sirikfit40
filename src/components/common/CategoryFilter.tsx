@@ -42,7 +42,7 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
   subCategories: customSubCategories,
   searchQuery = '',
   onSearchChange,
-  searchPlaceholder = '... جستجوی مکمل، برند یا ویتامین در محصولات',
+  searchPlaceholder = 'جستجوی مکمل، پروتئین، ویتامین یا برند...',
   showSearch = true,
   totalCount,
   className = ''

@@ -3,7 +3,7 @@ import { collection, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { FeaturedDeal, LocalInventoryItem } from '../types';
 
-interface ProductContextType {
+export interface ProductContextType {
   deals: FeaturedDeal[];
   warehouseItems: LocalInventoryItem[];
   generalProducts: any[];
@@ -14,11 +14,61 @@ interface ProductContextType {
 
 const ProductContext = createContext<ProductContextType | undefined>(undefined);
 
+// Safe localStorage cache hydration helpers
+const loadInitialDeals = (): FeaturedDeal[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('sirikfit_special_deals');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    const rawCms = localStorage.getItem('sirikfit_cms_config') || localStorage.getItem('omex_home_cms');
+    if (rawCms) {
+      const cms = JSON.parse(rawCms);
+      if (Array.isArray(cms?.deals) && cms.deals.length > 0) return cms.deals;
+    }
+  } catch (_e) {}
+  return [];
+};
+
+const loadInitialWarehouse = (): LocalInventoryItem[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('sirikfit_iran_warehouse');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    const rawCms = localStorage.getItem('sirikfit_cms_config') || localStorage.getItem('omex_home_cms');
+    if (rawCms) {
+      const cms = JSON.parse(rawCms);
+      if (Array.isArray(cms?.localInventory) && cms.localInventory.length > 0) return cms.localInventory;
+    }
+  } catch (_e) {}
+  return [];
+};
+
+const loadInitialProducts = (): any[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('sirikfit_products');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (_e) {}
+  return [];
+};
+
 export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [deals, setDeals] = useState<FeaturedDeal[]>([]);
-  const [warehouseItems, setWarehouseItems] = useState<LocalInventoryItem[]>([]);
-  const [generalProducts, setGeneralProducts] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [deals, setDeals] = useState<FeaturedDeal[]>(loadInitialDeals);
+  const [warehouseItems, setWarehouseItems] = useState<LocalInventoryItem[]>(loadInitialWarehouse);
+  const [generalProducts, setGeneralProducts] = useState<any[]>(loadInitialProducts);
+  
+  // If we have cached items from local storage, we don't start in a blocking loading state
+  const hasCache = deals.length > 0 || warehouseItems.length > 0;
+  const [isLoading, setIsLoading] = useState<boolean>(!hasCache);
 
   const refetchProducts = async () => {
     try {
@@ -29,27 +79,35 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       ]);
       const loadedDeals: FeaturedDeal[] = [];
       dealsSnap.forEach((d) => loadedDeals.push({ id: d.id, ...d.data() } as FeaturedDeal));
-      setDeals(loadedDeals);
+      if (loadedDeals.length > 0) {
+        setDeals(loadedDeals);
+        try { localStorage.setItem('sirikfit_special_deals', JSON.stringify(loadedDeals)); } catch (_) {}
+      }
 
       const loadedWh: LocalInventoryItem[] = [];
       whSnap.forEach((d) => loadedWh.push({ id: d.id, ...d.data() } as LocalInventoryItem));
-      setWarehouseItems(loadedWh);
+      if (loadedWh.length > 0) {
+        setWarehouseItems(loadedWh);
+        try { localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(loadedWh)); } catch (_) {}
+      }
 
       const loadedProd: any[] = [];
       prodSnap.forEach((d: any) => loadedProd.push({ id: d.id, ...d.data() }));
-      setGeneralProducts(loadedProd);
+      if (loadedProd.length > 0) {
+        setGeneralProducts(loadedProd);
+        try { localStorage.setItem('sirikfit_products', JSON.stringify(loadedProd)); } catch (_) {}
+      }
+      setIsLoading(false);
     } catch (err) {
       console.warn('ProductContext refetch warning:', err);
     }
   };
 
   useEffect(() => {
-    setIsLoading(true);
-    console.info('[Firebase] Connected to project: sirikfit40 (Products)');
     let loadedCount = 0;
     const checkDone = () => {
       loadedCount++;
-      if (loadedCount >= 3) setIsLoading(false);
+      if (loadedCount >= 2) setIsLoading(false);
     };
 
     const unsubDeals = onSnapshot(
@@ -60,6 +118,9 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
           loaded.push({ id: docSnap.id, ...docSnap.data() } as FeaturedDeal);
         });
         setDeals(loaded);
+        try {
+          localStorage.setItem('sirikfit_special_deals', JSON.stringify(loaded));
+        } catch (_) {}
         checkDone();
       },
       (err) => {
@@ -76,6 +137,9 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
           loaded.push({ id: docSnap.id, ...docSnap.data() } as LocalInventoryItem);
         });
         setWarehouseItems(loaded);
+        try {
+          localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(loaded));
+        } catch (_) {}
         checkDone();
       },
       (err) => {
@@ -91,12 +155,15 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
         snap.forEach((docSnap) => {
           loaded.push({ id: docSnap.id, ...docSnap.data() });
         });
-        setGeneralProducts(loaded);
-        checkDone();
+        if (loaded.length > 0) {
+          setGeneralProducts(loaded);
+          try {
+            localStorage.setItem('sirikfit_products', JSON.stringify(loaded));
+          } catch (_) {}
+        }
       },
       (err) => {
         console.warn('Products collection snapshot warning:', err);
-        checkDone();
       }
     );
 
@@ -107,16 +174,16 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
   }, []);
 
-  // Aggregate popular products across all operational collections, deduplicating by ID
-  // Aggregate popular products across all operational collections:
-  // Must be strictly: isPublished !== false && isActive !== false && isPopular === true
+  // Aggregate popular products across all operational collections, deduplicating by ID:
+  // Strictly enforces: isPublished !== false && isActive !== false && (isPopular === true || isPopularSample === true)
   const popularProducts = useMemo(() => {
     const map = new Map<string, any>();
 
     // 1. From special_deals
     deals.forEach((d: any) => {
-      const isPub = d && d.isPublished !== false && d.isActive !== false && d.isDraft !== true;
-      const isPop = d && d.isPopular !== false && (d.isPopular === true || String(d.isPopular) === 'true');
+      if (!d || !d.id) return;
+      const isPub = d.isPublished !== false && d.isActive !== false && d.isDraft !== true;
+      const isPop = d.isPopular === true || String(d.isPopular) === 'true' || d.isPopularSample === true || String(d.isPopularSample) === 'true';
       if (isPub && isPop) {
         map.set(d.id, {
           ...d,
@@ -129,8 +196,9 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // 2. From iran_warehouse
     warehouseItems.forEach((w: any) => {
-      const isPub = w && w.isPublished !== false && w.isActive !== false && w.isDraft !== true;
-      const isPop = w && w.isPopular !== false && (w.isPopular === true || String(w.isPopular) === 'true');
+      if (!w || !w.id) return;
+      const isPub = w.isPublished !== false && w.isActive !== false && w.isDraft !== true && w.inStock !== false;
+      const isPop = w.isPopular === true || String(w.isPopular) === 'true' || w.isPopularSample === true || String(w.isPopularSample) === 'true';
       if (isPub && isPop) {
         if (!map.has(w.id)) {
           map.set(w.id, {
@@ -145,8 +213,9 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // 3. From products
     generalProducts.forEach((p: any) => {
-      const isPub = p && p.isPublished !== false && p.isActive !== false && p.isDraft !== true;
-      const isPop = p && p.isPopular !== false && (p.isPopular === true || String(p.isPopular) === 'true');
+      if (!p || !p.id) return;
+      const isPub = p.isPublished !== false && p.isActive !== false && p.isDraft !== true;
+      const isPop = p.isPopular === true || String(p.isPopular) === 'true' || p.isPopularSample === true || String(p.isPopularSample) === 'true';
       if (isPub && isPop) {
         if (!map.has(p.id)) {
           map.set(p.id, {

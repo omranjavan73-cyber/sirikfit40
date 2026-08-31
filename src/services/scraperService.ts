@@ -11,7 +11,7 @@ import type {
   VariantGroupsStructure
 } from '../types';
 import { generateBilingualProductTitle } from '../utils/parseLink';
-import { sanitizeVariantLabel, isArtificialFallback } from '../utils/formatters';
+import { sanitizeVariantLabel, isArtificialFallback, normalizeProductImageUrl, isInvalidProductImage } from '../utils/formatters';
 import { GncAdapter } from './GncAdapter';
 import { DrNutritionAdapter } from './DrNutritionAdapter';
 import { GncParser } from './gncParser';
@@ -19,7 +19,7 @@ import { DrNutritionParser } from './drNutritionParser';
 import { IherbAdapter } from './IherbAdapter';
 import { IherbParser, resolveIherbHighResImage } from './iherbParser';
 
-export { GncAdapter, DrNutritionAdapter, GncParser, DrNutritionParser, IherbAdapter, IherbParser, resolveIherbHighResImage };
+export { GncAdapter, DrNutritionAdapter, GncParser, DrNutritionParser, IherbAdapter, IherbParser, resolveIherbHighResImage, normalizeProductImageUrl, isInvalidProductImage };
 
 export interface ScraperAdapter {
   storeName: string;
@@ -195,7 +195,7 @@ export class UniversalScraperService {
   /**
    * Builds flat ProductVariantItem list from raw scraped variants, flavors, sizes, or options
    */
-  public extractFlatVariants(raw: any, defaultPriceAed: number): ProductVariantItem[] {
+  public extractFlatVariants(raw: any, defaultPriceAed: number, sourceUrl: string = ''): ProductVariantItem[] {
     const flatVariants: ProductVariantItem[] = [];
     const seenKeys = new Set<string>();
 
@@ -211,6 +211,8 @@ export class UniversalScraperService {
           seenKeys.add(key);
           const p = item.priceAED !== undefined ? Number(item.priceAED) : (item.priceAed !== undefined ? Number(item.priceAed) : (item.price !== undefined ? Number(item.price) : defaultPriceAed));
           const op = item.originalPriceAED !== undefined ? Number(item.originalPriceAED) : (item.originalPriceAed !== undefined ? Number(item.originalPriceAed) : undefined);
+          const rawVarImg = item.image || item.imageThumbnail || item.imageUrl || '';
+          const normVarImg = normalizeProductImageUrl(rawVarImg, sourceUrl) || undefined;
           flatVariants.push({
             id: item.id || `matrix-var-${idx}`,
             title: itemTitle || `گزینه ${idx + 1}`,
@@ -221,8 +223,8 @@ export class UniversalScraperService {
             priceAed: p,
             originalPriceAED: op,
             originalPriceAed: op,
-            image: item.image || item.imageThumbnail || item.imageUrl,
-            imageThumbnail: item.imageThumbnail || item.image || item.imageUrl,
+            image: normVarImg,
+            imageThumbnail: normVarImg,
             inStock: item.inStock !== false && item.available !== false
           });
         }
@@ -245,6 +247,8 @@ export class UniversalScraperService {
           const isAvailable = v.inStock !== false && v.available !== false && !v.soldOut && !v.isSoldOut && v.is_available !== false;
           const p = v.priceAED !== undefined ? Number(v.priceAED) : (v.priceAed !== undefined ? Number(v.priceAed) : (v.price !== undefined ? Number(v.price) : defaultPriceAed));
           const op = v.originalPriceAED !== undefined ? Number(v.originalPriceAED) : (v.originalPriceAed !== undefined ? Number(v.originalPriceAed) : undefined);
+          const rawVarImg = v.image || v.imageThumbnail || v.imageUrl || '';
+          const normVarImg = normalizeProductImageUrl(rawVarImg, sourceUrl) || undefined;
           flatVariants.push({
             id: v.id || `variant-${idx}`,
             title: vName || `گزینه ${idx + 1}`,
@@ -256,8 +260,8 @@ export class UniversalScraperService {
             priceAed: p,
             originalPriceAED: op,
             originalPriceAed: op,
-            image: v.image || v.imageThumbnail || v.imageUrl,
-            imageThumbnail: v.imageThumbnail || v.imageUrl || v.image || undefined
+            image: normVarImg,
+            imageThumbnail: normVarImg
           });
         }
       });
@@ -277,6 +281,8 @@ export class UniversalScraperService {
             const isAvailable = opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut;
             const p = opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : defaultPriceAed));
             const op = opt.originalPriceAED !== undefined ? Number(opt.originalPriceAED) : (opt.originalPriceAed !== undefined ? Number(opt.originalPriceAed) : undefined);
+            const rawOptImg = opt.image || opt.imageUrl || opt.imageThumbnail || '';
+            const normOptImg = normalizeProductImageUrl(rawOptImg, sourceUrl) || undefined;
             flatVariants.push({
               id: opt.id || `opt-${optIdx}`,
               title: optName,
@@ -288,8 +294,8 @@ export class UniversalScraperService {
               priceAed: p,
               originalPriceAED: op,
               originalPriceAed: op,
-              image: opt.image || opt.imageUrl || undefined,
-              imageThumbnail: opt.image || opt.imageUrl || undefined
+              image: normOptImg,
+              imageThumbnail: normOptImg
             });
           }
         });
@@ -303,6 +309,8 @@ export class UniversalScraperService {
         const flvName = typeof flv === 'string' ? flv : (flv?.name || flv?.label || flv?.title || '');
         const isAvailable = typeof flv === 'object' ? (flv.inStock !== false && flv.available !== false) : true;
         const p = typeof flv === 'object' && (flv.priceAED || flv.priceAed || flv.price) ? Number(flv.priceAED || flv.priceAed || flv.price) : defaultPriceAed;
+        const rawFlvImg = typeof flv === 'object' ? (flv.image || flv.imageUrl || flv.imageThumbnail || '') : '';
+        const normFlvImg = normalizeProductImageUrl(rawFlvImg, sourceUrl) || undefined;
         const key = flvName.trim().toLowerCase();
         if (flvName && !seenKeys.has(key)) {
           seenKeys.add(key);
@@ -313,7 +321,9 @@ export class UniversalScraperService {
             flavor: flvName,
             inStock: isAvailable,
             priceAED: p,
-            priceAed: p
+            priceAed: p,
+            image: normFlvImg,
+            imageThumbnail: normFlvImg
           });
         }
       });
@@ -323,6 +333,8 @@ export class UniversalScraperService {
         const szName = typeof sz === 'string' ? sz : (sz?.name || sz?.label || sz?.title || '');
         const isAvailable = typeof sz === 'object' ? (sz.inStock !== false && sz.available !== false) : true;
         const p = typeof sz === 'object' && (sz.priceAED || sz.priceAed || sz.price) ? Number(sz.priceAED || sz.priceAed || sz.price) : defaultPriceAed;
+        const rawSzImg = typeof sz === 'object' ? (sz.image || sz.imageUrl || sz.imageThumbnail || '') : '';
+        const normSzImg = normalizeProductImageUrl(rawSzImg, sourceUrl) || undefined;
         const key = szName.trim().toLowerCase();
         if (szName && !seenKeys.has(key)) {
           seenKeys.add(key);
@@ -333,7 +345,9 @@ export class UniversalScraperService {
             size: szName,
             inStock: isAvailable,
             priceAED: p,
-            priceAed: p
+            priceAed: p,
+            image: normSzImg,
+            imageThumbnail: normSzImg
           });
         }
       });
@@ -343,6 +357,8 @@ export class UniversalScraperService {
         const optName = typeof opt === 'string' ? opt : (opt?.name || opt?.label || opt?.title || '');
         const isAvailable = typeof opt === 'object' ? (opt.inStock !== false && opt.available !== false) : true;
         const p = typeof opt === 'object' && (opt.priceAED || opt.priceAed || opt.price) ? Number(opt.priceAED || opt.priceAed || opt.price) : defaultPriceAed;
+        const rawOptImg = typeof opt === 'object' ? (opt.image || opt.imageUrl || opt.imageThumbnail || '') : '';
+        const normOptImg = normalizeProductImageUrl(rawOptImg, sourceUrl) || undefined;
         const key = optName.trim().toLowerCase();
         if (optName && !seenKeys.has(key) && !['default', 'standard', 'پیش‌فرض', 'default title'].includes(key)) {
           seenKeys.add(key);
@@ -352,7 +368,9 @@ export class UniversalScraperService {
             name: optName,
             inStock: isAvailable,
             priceAED: p,
-            priceAed: p
+            priceAed: p,
+            image: normOptImg,
+            imageThumbnail: normOptImg
           });
         }
       });
@@ -369,17 +387,18 @@ export class UniversalScraperService {
     const storeName = raw.storeName || raw.sourceStore || originInfo.storeName;
     const brand = raw.brand || storeName;
 
-    const mainImage = raw.mainImage || raw.image || raw.image_url || '';
+    const rawMainImg = raw.mainImage || raw.image || raw.image_url || '';
+    const mainImage = normalizeProductImageUrl(rawMainImg, sourceUrl);
     const rawGallery: string[] = Array.isArray(raw.galleryImages)
       ? raw.galleryImages
       : (Array.isArray(raw.images) ? raw.images : []);
 
     const galleryImages: string[] = Array.from(
-      new Set([mainImage, ...rawGallery].filter(Boolean))
+      new Set([mainImage, ...rawGallery.map(img => normalizeProductImageUrl(img, sourceUrl))].filter(Boolean))
     );
 
     const basePriceAED = Number(raw.basePriceAED || raw.priceAed || raw.price_aed || raw.price) || 0;
-    const variants = this.extractFlatVariants(raw, basePriceAED);
+    const variants = this.extractFlatVariants(raw, basePriceAED, sourceUrl);
 
     // Build structured variant groups if available
     const variantGroups: VariantGroupsStructure = {
@@ -391,17 +410,21 @@ export class UniversalScraperService {
     if (Array.isArray(raw.variantGroups)) {
       raw.variantGroups.forEach((vg: any) => {
         const gType = vg.type || (vg.id === 'sizes' ? 'size' : (vg.id === 'flavors' ? 'flavor' : 'other'));
-        const options: VariantOption[] = (vg.options || []).map((opt: any, idx: number) => ({
-          id: (typeof opt === 'object' && opt.id) ? opt.id : `${gType}-${idx}`,
-          label: typeof opt === 'string' ? opt : (opt.name || opt.label || ''),
-          name: typeof opt === 'string' ? opt : (opt.name || opt.label || ''),
-          type: gType as any,
-          inStock: typeof opt === 'object' ? (opt.inStock !== false && opt.available !== false) : true,
-          price: typeof opt === 'object' && opt.priceAed ? Number(opt.priceAed) : basePriceAED,
-          priceAed: typeof opt === 'object' && opt.priceAed ? Number(opt.priceAed) : basePriceAED,
-          imageUrl: typeof opt === 'object' ? (opt.image || opt.imageUrl) : undefined,
-          image: typeof opt === 'object' ? (opt.image || opt.imageUrl) : undefined
-        }));
+        const options: VariantOption[] = (vg.options || []).map((opt: any, idx: number) => {
+          const rawOptImg = typeof opt === 'object' ? (opt.image || opt.imageUrl) : undefined;
+          const normOptImg = normalizeProductImageUrl(rawOptImg, sourceUrl) || undefined;
+          return {
+            id: (typeof opt === 'object' && opt.id) ? opt.id : `${gType}-${idx}`,
+            label: typeof opt === 'string' ? opt : (opt.name || opt.label || ''),
+            name: typeof opt === 'string' ? opt : (opt.name || opt.label || ''),
+            type: gType as any,
+            inStock: typeof opt === 'object' ? (opt.inStock !== false && opt.available !== false) : true,
+            price: typeof opt === 'object' && opt.priceAed ? Number(opt.priceAed) : basePriceAED,
+            priceAed: typeof opt === 'object' && opt.priceAed ? Number(opt.priceAed) : basePriceAED,
+            imageUrl: normOptImg,
+            image: normOptImg
+          };
+        });
 
         if (gType === 'flavor') {
           variantGroups.flavors = [...(variantGroups.flavors || []), ...options];
@@ -461,16 +484,14 @@ export class UniversalScraperService {
     const storeName = raw.storeName || raw.sourceStore || originInfo.storeName;
     const brand = raw.brand || storeName;
 
-    let mainImage = raw.mainImage || raw.image || raw.image_url || '';
-    if (mainImage && (mainImage.toLowerCase().includes('logo') || mainImage.toLowerCase().includes('dnp') || mainImage.toLowerCase().includes('vector.svg') || mainImage.toLowerCase().includes('og-logo'))) {
-      mainImage = '';
-    }
+    const rawMainImg = raw.mainImage || raw.image || raw.image_url || '';
+    let mainImage = normalizeProductImageUrl(rawMainImg, sourceUrl);
     const rawGallery: string[] = Array.isArray(raw.galleryImages)
       ? raw.galleryImages
       : (Array.isArray(raw.images) ? raw.images : []);
 
     const galleryImages: string[] = Array.from(
-      new Set([mainImage, ...rawGallery].filter(img => img && !img.toLowerCase().includes('logo') && !img.toLowerCase().includes('dnp') && !img.toLowerCase().includes('vector.svg') && !img.toLowerCase().includes('og-logo')))
+      new Set([mainImage, ...rawGallery.map(img => normalizeProductImageUrl(img, sourceUrl))].filter(Boolean))
     );
     if (!mainImage && galleryImages.length > 0) {
       mainImage = galleryImages[0];
@@ -490,20 +511,24 @@ export class UniversalScraperService {
 
     if (Array.isArray(raw.variantGroups) && raw.variantGroups.length > 0) {
       raw.variantGroups.forEach((vg: any) => {
-        const options: VariantOption[] = (vg.options || []).map((opt: any, idx: number) => ({
-          id: opt.id || `${vg.id || 'dim'}-${idx}`,
-          label: opt.name || opt.label || String(opt),
-          name: opt.name || opt.label || String(opt),
-          nameFa: opt.nameFa,
-          type: vg.type || 'generic',
-          price: opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed)),
-          priceAed: opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed)),
-          priceAED: opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed)),
-          image: opt.image || opt.imageThumbnail || opt.imageUrl,
-          imageUrl: opt.imageUrl || opt.image || opt.imageThumbnail,
-          inStock: opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut,
-          sku: opt.sku
-        }));
+        const options: VariantOption[] = (vg.options || []).map((opt: any, idx: number) => {
+          const rawOptImg = opt.image || opt.imageThumbnail || opt.imageUrl;
+          const normOptImg = normalizeProductImageUrl(rawOptImg, sourceUrl) || undefined;
+          return {
+            id: opt.id || `${vg.id || 'dim'}-${idx}`,
+            label: opt.name || opt.label || String(opt),
+            name: opt.name || opt.label || String(opt),
+            nameFa: opt.nameFa,
+            type: vg.type || 'generic',
+            price: opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed)),
+            priceAed: opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed)),
+            priceAED: opt.priceAED !== undefined ? Number(opt.priceAED) : (opt.priceAed !== undefined ? Number(opt.priceAed) : (opt.price !== undefined ? Number(opt.price) : priceAed)),
+            image: normOptImg,
+            imageUrl: normOptImg,
+            inStock: opt.inStock !== false && opt.available !== false && !opt.soldOut && !opt.isSoldOut,
+            sku: opt.sku
+          };
+        });
 
         dimensions.push({
           id: vg.id || 'dimension',
@@ -537,6 +562,8 @@ export class UniversalScraperService {
           const fName = typeof f === 'string' ? f : (f?.name || f?.label || '');
           const isAvail = typeof f === 'object' ? (f.inStock !== false && f.available !== false) : true;
           const p = typeof f === 'object' && (f.priceAED || f.priceAed || f.price) ? Number(f.priceAED || f.priceAed || f.price) : priceAed;
+          const rawFlvImg = typeof f === 'object' ? (f.image || f.imageUrl || f.imageThumbnail) : undefined;
+          const normFlvImg = normalizeProductImageUrl(rawFlvImg, sourceUrl) || undefined;
           return {
             id: `flv-${idx}`,
             label: fName,
@@ -545,6 +572,8 @@ export class UniversalScraperService {
             price: p,
             priceAed: p,
             priceAED: p,
+            image: normFlvImg,
+            imageUrl: normFlvImg,
             inStock: isAvail
           };
         });
@@ -567,6 +596,8 @@ export class UniversalScraperService {
           const sName = typeof s === 'string' ? s : (s?.name || s?.label || '');
           const isAvail = typeof s === 'object' ? (s.inStock !== false && s.available !== false) : true;
           const p = typeof s === 'object' && (s.priceAED || s.priceAed || s.price) ? Number(s.priceAED || s.priceAed || s.price) : priceAed;
+          const rawSzImg = typeof s === 'object' ? (s.image || s.imageUrl || s.imageThumbnail) : undefined;
+          const normSzImg = normalizeProductImageUrl(rawSzImg, sourceUrl) || undefined;
           return {
             id: `sz-${idx}`,
             label: sName,
@@ -575,6 +606,8 @@ export class UniversalScraperService {
             price: p,
             priceAed: p,
             priceAED: p,
+            image: normSzImg,
+            imageUrl: normSzImg,
             inStock: isAvail
           };
         });
@@ -593,7 +626,7 @@ export class UniversalScraperService {
       }
     }
 
-    const flatVariants = this.extractFlatVariants(raw, priceAed);
+    const flatVariants = this.extractFlatVariants(raw, priceAed, sourceUrl);
 
     const titleEn = raw.title || 'Dubai Store Product';
     const titleFa = generateBilingualProductTitle(titleEn, storeName, brand);

@@ -475,7 +475,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
             weightKg: vWeight,
             priceToman: vPrice > 0 ? calcToman(vPrice, defaultMargin) : 0,
             inStock: v.inStock !== false,
-            image: normVImg
+            image: normVImg,
+            imageUrl: normVImg
           });
         });
       } else {
@@ -489,7 +490,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           weightKg: wt,
           priceToman: pAed > 0 ? calcToman(pAed, defaultMargin) : 0,
           inStock: true,
-          image: img
+          image: img,
+          imageUrl: img
         });
       }
 

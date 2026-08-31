@@ -65,9 +65,24 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
   const [selectedDeal, setSelectedDeal] = useState<FeaturedDeal | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Stably resolve deals: prioritize prop if non-empty, otherwise use context
-  const activeSourceDeals = (initialDeals && initialDeals.length > 0) ? initialDeals : contextDeals;
-  const visibleDeals = activeSourceDeals.filter(d => d && d.isActive !== false && (d as any).isPublished !== false && (d as any).isDraft !== true);
+  // Stale-While-Revalidate: retain existing products in state during background re-syncs
+  const [persistedDeals, setPersistedDeals] = useState<FeaturedDeal[]>(() => {
+    if (initialDeals && initialDeals.length > 0) return initialDeals;
+    if (contextDeals && contextDeals.length > 0) return contextDeals;
+    return [];
+  });
+
+  useEffect(() => {
+    if (initialDeals && initialDeals.length > 0) {
+      setPersistedDeals(initialDeals);
+    } else if (contextDeals && contextDeals.length > 0) {
+      setPersistedDeals(contextDeals);
+    }
+  }, [initialDeals, contextDeals]);
+
+  const visibleDeals = useMemo(() => {
+    return persistedDeals.filter(d => d && d.isActive !== false && (d as any).isPublished !== false && (d as any).isDraft !== true);
+  }, [persistedDeals]);
 
   const handleSelect = (deal: FeaturedDeal) => {
     if (onSelectDeal) {
@@ -83,7 +98,7 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
       <FeaturedDeals
         deals={visibleDeals}
         settings={settings}
-        isLoading={isLoading}
+        isLoading={isLoading && visibleDeals.length === 0}
         onSelectDeal={handleSelect}
         onAddToCart={onAddToCart}
         showToast={showToast}

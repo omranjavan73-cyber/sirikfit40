@@ -520,7 +520,8 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
               baseShippingAed: 20
             }) : 0,
             inStock: v.inStock !== false,
-            image: normVImg
+            image: normVImg,
+            imageUrl: normVImg
           });
         });
       } else {
@@ -534,7 +535,8 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
           weightKg: wt,
           priceToman: calcPriceToman,
           inStock: true,
-          image: img
+          image: img,
+          imageUrl: img
         });
       }
 

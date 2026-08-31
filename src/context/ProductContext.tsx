@@ -117,10 +117,15 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
         snap.forEach((docSnap) => {
           loaded.push({ id: docSnap.id, ...docSnap.data() } as FeaturedDeal);
         });
-        setDeals(loaded);
-        try {
-          localStorage.setItem('sirikfit_special_deals', JSON.stringify(loaded));
-        } catch (_) {}
+        setDeals((prev) => {
+          if (loaded.length === 0 && prev.length > 0) return prev;
+          return loaded;
+        });
+        if (loaded.length > 0) {
+          try {
+            localStorage.setItem('sirikfit_special_deals', JSON.stringify(loaded));
+          } catch (_) {}
+        }
         checkDone();
       },
       (err) => {
@@ -136,10 +141,15 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
         snap.forEach((docSnap) => {
           loaded.push({ id: docSnap.id, ...docSnap.data() } as LocalInventoryItem);
         });
-        setWarehouseItems(loaded);
-        try {
-          localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(loaded));
-        } catch (_) {}
+        setWarehouseItems((prev) => {
+          if (loaded.length === 0 && prev.length > 0) return prev;
+          return loaded;
+        });
+        if (loaded.length > 0) {
+          try {
+            localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(loaded));
+          } catch (_) {}
+        }
         checkDone();
       },
       (err) => {
@@ -231,17 +241,17 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
     return Array.from(map.values());
   }, [deals, warehouseItems, generalProducts]);
 
+  const contextValue = useMemo<ProductContextType>(() => ({
+    deals,
+    warehouseItems,
+    generalProducts,
+    popularProducts,
+    isLoading,
+    refetchProducts
+  }), [deals, warehouseItems, generalProducts, popularProducts, isLoading]);
+
   return (
-    <ProductContext.Provider
-      value={{
-        deals,
-        warehouseItems,
-        generalProducts,
-        popularProducts,
-        isLoading,
-        refetchProducts
-      }}
-    >
+    <ProductContext.Provider value={contextValue}>
       {children}
     </ProductContext.Provider>
   );

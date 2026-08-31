@@ -38,13 +38,14 @@ import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
 import { PricingProvider } from './context/PricingContext';
-import { ProductProvider } from './context/ProductContext';
+import { ProductProvider, useProducts } from './context/ProductContext';
 import { SupportProvider } from './context/SupportContext';
 import { CartProvider } from './context/CartContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { getSafeItem, setSafeItem } from './utils/safeStorage';
 
 function MainApp() {
+  const { deals: contextDeals, warehouseItems: contextWarehouse, isLoading: isProductsLoading } = useProducts();
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== 'undefined') {
       const p = window.location.pathname;
@@ -188,15 +189,11 @@ function MainApp() {
 
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
 
-  // CMS State initialized from LocalStorage FIRST — but strip deals & localInventory
-  // which are owned by real-time onSnapshot listeners. Stale values here cause ghost products.
+  // CMS State initialized from LocalStorage FIRST with instant cache hydration
   const [cmsConfig, setCmsConfig] = useState<CmsConfig | null>(() => {
     const saved = getSafeItem<any>('sirikfit_cms_config', null) || getSafeItem<any>('omex_home_cms', null);
     if (saved && typeof saved === 'object') {
-      const clean = { ...saved };
-      delete clean.deals;
-      delete clean.localInventory;
-      return clean;
+      return saved;
     }
     return null;
   });
@@ -615,10 +612,12 @@ function MainApp() {
         snap.forEach(docSnap => {
           loadedDeals.push({ id: docSnap.id, ...docSnap.data() });
         });
-        setCmsConfig(prev => {
-          if (!prev) return prev;
-          return { ...prev, deals: loadedDeals };
-        });
+        if (loadedDeals.length > 0) {
+          setCmsConfig(prev => {
+            if (!prev) return prev;
+            return { ...prev, deals: loadedDeals };
+          });
+        }
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore special_deals onSnapshot notice:', err);
       });
@@ -629,10 +628,12 @@ function MainApp() {
         snap.forEach(docSnap => {
           loadedLocal.push({ id: docSnap.id, ...docSnap.data() });
         });
-        setCmsConfig(prev => {
-          if (!prev) return prev;
-          return { ...prev, localInventory: loadedLocal };
-        });
+        if (loadedLocal.length > 0) {
+          setCmsConfig(prev => {
+            if (!prev) return prev;
+            return { ...prev, localInventory: loadedLocal };
+          });
+        }
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore iran_warehouse onSnapshot notice:', err);
       });
@@ -1383,9 +1384,10 @@ function MainApp() {
         {/* DEDICATED INVENTORY PAGE (صفحه اختصاصی انبار ایران) */}
         {activeTab === 'inventory' && (
           <InventoryPage
-            items={cmsConfig?.localInventory || []}
+            items={(cmsConfig?.localInventory && cmsConfig.localInventory.length > 0) ? cmsConfig.localInventory : contextWarehouse}
             categories={cmsConfig?.warehouseCategories}
             settings={settings}
+            isLoading={isProductsLoading && (!cmsConfig?.localInventory || cmsConfig.localInventory.length === 0) && contextWarehouse.length === 0}
             onAddToCart={addToCart}
             onOpenCart={() => {
               setSelectedProduct(null);
@@ -1432,9 +1434,10 @@ function MainApp() {
         {activeTab === 'deals' && (
           <div className="space-y-6">
             <FeaturedDeals
-              deals={cmsConfig?.deals}
+              deals={(cmsConfig?.deals && cmsConfig.deals.length > 0) ? cmsConfig.deals : contextDeals}
               categories={cmsConfig?.warehouseCategories}
               settings={settings}
+              isLoading={isProductsLoading && (!cmsConfig?.deals || cmsConfig.deals.length === 0) && contextDeals.length === 0}
               onSelectDeal={handleSelectDeal}
               onAddToCart={addToCart}
               onOpenCart={() => {

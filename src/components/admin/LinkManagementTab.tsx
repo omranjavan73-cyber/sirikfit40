@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { db } from '../../firebase';
 import { collection, getDocs } from 'firebase/firestore';
-import { toPersianDigits, formatToman } from '../../utils/formatters';
+import { toPersianDigits, formatToman, normalizeProductImageUrl } from '../../utils/formatters';
 import { getLinkFreshnessInfo, getLinkAgeInDays } from '../../utils/dateUtils';
 import { usePricing } from '../../context/PricingContext';
 import { useSettings } from '../../context/SettingsContext';
@@ -1030,11 +1030,14 @@ export const LinkManagementTab: React.FC<LinkManagementTabProps> = ({
                           <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
                             {item.image ? (
                               <img
-                                src={item.image}
+                                src={normalizeProductImageUrl(item.image, item.sourceUrl)}
                                 alt={item.title}
                                 className="w-full h-full object-contain p-0.5"
                                 loading="lazy"
                                 referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLElement).style.display = 'none';
+                                }}
                               />
                             ) : (
                               <Building2 className="w-4 h-4 text-slate-300" />

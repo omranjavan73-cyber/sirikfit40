@@ -36,6 +36,7 @@ import { DealsAdmin } from './DealsAdmin';
 import { AdminTaxonomyManager } from '../../components/AdminTaxonomyManager';
 import { STORE_LIST, getStoreConfig } from '../../constants/stores';
 import { detectStoreOrigin, universalScraperService } from '../../services/scraperService';
+import { ProductForm } from '../../components/admin/ProductForm';
 import { collection, onSnapshot, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
@@ -215,13 +216,13 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         });
         const calculatedTomanPrice = landedCalc.finalToman;
 
-        const rawMainImg = scraped.mainImage || scraped.image || scraped.imageUrl || (scraped.galleryImages && scraped.galleryImages[0]) || (scraped.images && scraped.images[0]) || '';
-        const normalizedMainImg = normalizeProductImageUrl(rawMainImg, mainUrl.trim());
+        const rawMainImg = scraped.imageUrl || scraped.mainImage || scraped.image || (scraped.galleryImages && scraped.galleryImages[0]) || (scraped.images && scraped.images[0]) || '';
+        const normalizedMainImg = normalizeProductImageUrl(rawMainImg, scraped.storeDomain || mainUrl.trim() || 'https://drnutrition.com');
         const rawGalleryList: string[] = Array.isArray(scraped.galleryImages)
           ? scraped.galleryImages
           : (Array.isArray(scraped.images) ? scraped.images : []);
         const normalizedGallery = Array.from(
-          new Set([normalizedMainImg, ...rawGalleryList.map((img: string) => normalizeProductImageUrl(img, mainUrl.trim()))].filter(Boolean))
+          new Set([normalizedMainImg, ...rawGalleryList.map((img: string) => normalizeProductImageUrl(img, scraped.storeDomain || mainUrl.trim() || 'https://drnutrition.com'))].filter(Boolean))
         );
 
         const firstVariant: ProductVariant = {
@@ -234,7 +235,8 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           originalPrice: origAed,
           originalPriceAed: origAed,
           inStock: scraped.inStock !== false,
-          image: normalizedMainImg
+          image: normalizedMainImg,
+          imageUrl: normalizedMainImg
         };
 
         const existingVariants: ProductVariant[] = (scraped.variants && Array.isArray(scraped.variants) && scraped.variants.length > 0)
@@ -246,8 +248,8 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
                 pricingRules: pricingRules,
                 aedRate: liveAedRate
               });
-              const rawVImg = v.image || v.imageUrl || v.imageThumbnail || rawMainImg;
-              const normVImg = normalizeProductImageUrl(rawVImg, mainUrl.trim()) || normalizedMainImg;
+              const rawVImg = v.imageUrl || v.image || v.imageThumbnail || rawMainImg;
+              const normVImg = normalizeProductImageUrl(rawVImg, scraped.storeDomain || mainUrl.trim() || 'https://drnutrition.com') || normalizedMainImg;
               return {
                 id: v.id || `var-${vIdx}-${Date.now()}`,
                 size: v.size || sz || undefined,
@@ -258,7 +260,8 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
                 originalPrice: v.originalPriceAed || v.originalPriceAED || origAed,
                 originalPriceAed: v.originalPriceAed || v.originalPriceAED || origAed,
                 inStock: v.inStock !== false,
-                image: normVImg
+                image: normVImg,
+                imageUrl: normVImg
               };
             })
           : [firstVariant];
@@ -274,11 +277,13 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           brand: scraped.brand || prev.brand,
           storeName: resolvedStore || prev.storeName || 'Dr. Nutrition',
           sourceUrl: mainUrl.trim(),
+          url: mainUrl.trim(),
           price: pAed || prev.price,
           priceAed: pAed || prev.priceAed,
           priceToman: calculatedTomanPrice || prev.priceToman,
           originalPriceAed: origAed,
           image: normalizedMainImg || prev.image,
+          imageUrl: normalizedMainImg || (prev as any).imageUrl || prev.image,
           images: normalizedGallery.length > 0 ? normalizedGallery : prev.images,
           galleryImages: normalizedGallery.length > 0 ? normalizedGallery : prev.galleryImages,
           weightKg: effectiveWeight || prev.weightKg,
@@ -332,17 +337,20 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         const origAed = parseFloat(scraped.originalPriceAED || scraped.originalPriceAed || scraped.originalPrice || 0) || undefined;
         const sz = scraped.size || attr.size || (scraped.sizes && scraped.sizes[0]) || '';
         const flv = scraped.flavor || attr.flavor || (scraped.flavors && scraped.flavors[0]) || '';
-        const rawImg = scraped.image || scraped.imageUrl || product.image || '';
-        const img = normalizeProductImageUrl(rawImg, auxUrl.trim()) || product.image || '';
+        const rawImg = scraped.imageUrl || scraped.image || product.image || '';
+        const img = normalizeProductImageUrl(rawImg, scraped.storeDomain || auxUrl.trim() || 'https://drnutrition.com') || product.image || '';
 
         const newVariant: ProductVariant = {
           id: `var-aux-${Date.now()}`,
           size: sz || undefined,
           flavor: flv || undefined,
           price: pAed,
+          priceAed: pAed,
           originalPrice: origAed,
+          originalPriceAed: origAed,
           inStock: scraped.inStock !== false,
           image: img,
+          imageUrl: img,
           url: auxUrl.trim()
         };
 
@@ -758,7 +766,7 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
                     {toPersianDigits(idx + 1)}
                   </span>
                   <img
-                    src={prod.image || prod.imageUrl || 'https://placehold.co/50x50'}
+                    src={normalizeProductImageUrl(prod.imageUrl || prod.image, prod.sourceUrl || prod.url || 'https://drnutrition.com') || 'https://placehold.co/50x50'}
                     alt={prod.title || prod.titleFa}
                     className="w-10 h-10 object-contain rounded-lg bg-white border border-slate-200"
                   />
@@ -798,6 +806,25 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
       {/* PRODUCT EDITOR TAB */}
       {activeAdminSubTab === 'editor' && (
         <div className="space-y-6">
+          {/* Cold-Start Direct Extraction Draft Form */}
+          <ProductForm
+            activeTab="deals"
+            aedRate={liveAedRate}
+            showToast={showToast}
+            onSave={async (draft) => {
+              if (draft.targetSection === 'iran_warehouse') {
+                const updated = [draft as any, ...inventoryList];
+                setInventoryList(updated);
+                await saveIranWarehouseItems(updated);
+              } else {
+                const updated = [draft as any, ...dealsList];
+                setDealsList(updated);
+                await saveSpecialDeals(updated);
+              }
+              if (showToast) showToast('محصول با موفقیت استخراج و در دیتابیس ثبت شد', 'success');
+            }}
+          />
+
           {/* Section 1: Primary Link Scraper */}
           <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
         <span className="text-xs font-black text-slate-900 flex items-center gap-2">
@@ -834,10 +861,10 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         {product.title && (
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-3">
             <div className="flex items-center gap-4 flex-1 min-w-0">
-              {product.image && (
+              {(product.imageUrl || product.image) && (
                 <img
-                  src={product.image}
-                  alt={product.title}
+                  src={normalizeProductImageUrl(product.imageUrl || product.image, mainUrl.trim() || 'https://drnutrition.com')}
+                  alt={product.titleFa || product.title}
                   onError={(e) => {
                     (e.currentTarget as HTMLElement).style.display = 'none';
                   }}

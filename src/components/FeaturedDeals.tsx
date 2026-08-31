@@ -93,7 +93,7 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
       />
 
       {/* 2. Product Catalog List/Grid Section */}
-      {isLoading && activeDeals.length === 0 ? (
+      {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3 pt-1">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
             <div key={n} className="bg-white rounded-2xl border border-slate-100 p-3 animate-pulse space-y-2.5 shadow-2xs">

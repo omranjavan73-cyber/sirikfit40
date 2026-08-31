@@ -4,6 +4,7 @@ import { sanitizePayloadForFirestore, safeParseNumeric } from '../utils/adminSav
 import { sanitizeForFirestore } from '../utils/sanitizePayload';
 import type { FeaturedDeal, LocalInventoryItem, FinancialSettings, CmsConfig, NormalizedProduct, TelegramConfig } from '../types';
 import { sanitizeProductForFirestore } from './productService';
+import { normalizeProductImageUrl } from '../utils/formatters';
 
 
 export interface BulkSaveResponse {
@@ -88,8 +89,11 @@ export async function saveIranWarehouseItems(
         brand: (p.brand || 'انبار ایران').trim(),
         category: p.category || 'sports-nutrition',
         subCategory: p.subCategory || 'all',
-        image: p.image?.trim() || '',
-        images: Array.isArray(p.images) ? p.images : (p.image ? [p.image] : []),
+        image: normalizeProductImageUrl(p.imageUrl || p.image, p.storeDomain || p.url || 'https://drnutrition.com') || '',
+        imageUrl: normalizeProductImageUrl(p.imageUrl || p.image, p.storeDomain || p.url || 'https://drnutrition.com') || '',
+        images: Array.isArray(p.images) && p.images.length > 0
+          ? p.images.map((img: string) => normalizeProductImageUrl(img, p.storeDomain || p.url || 'https://drnutrition.com')).filter(Boolean)
+          : (p.imageUrl || p.image ? [normalizeProductImageUrl(p.imageUrl || p.image, p.storeDomain || p.url || 'https://drnutrition.com')] : []),
         priceAed: Number(p.priceAed) || 0,
         priceToman: Number(p.priceToman) || 0,
         originalPriceToman: p.originalPriceToman ? Number(p.originalPriceToman) : null,
@@ -103,14 +107,19 @@ export async function saveIranWarehouseItems(
         description: p.description?.trim() || '',
         variants: (p.variants || [])
           .filter((v: any) => v && ((v.size && String(v.size).trim()) || (v.flavor && String(v.flavor).trim())))
-          .map((v: any) => ({
-            flavor: (v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__') ? String(v.flavor).trim() : 'پیش‌فرض',
-            size: (v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__') ? String(v.size).trim() : 'استاندارد',
-            priceAed: Number(v.priceAed ?? v.price ?? 0),
-            priceToman: Number(v.priceToman || 0),
-            image: (v.image && String(v.image).trim() !== '') ? String(v.image).trim() : ((v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : null),
-            inStock: v.inStock ?? true
-          })),
+          .map((v: any) => {
+            const rawVImg = (v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : ((v.image && String(v.image).trim() !== '') ? String(v.image).trim() : '');
+            const normVImg = normalizeProductImageUrl(rawVImg, p.storeDomain || p.url || 'https://drnutrition.com') || null;
+            return {
+              flavor: (v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__') ? String(v.flavor).trim() : 'پیش‌فرض',
+              size: (v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__') ? String(v.size).trim() : 'استاندارد',
+              priceAed: Number(v.priceAed ?? v.price ?? 0),
+              priceToman: Number(v.priceToman || 0),
+              image: normVImg,
+              imageUrl: normVImg,
+              inStock: v.inStock ?? true
+            };
+          }),
         flavors: Array.from(new Set((p.variants || []).map((v: any) => v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__' ? String(v.flavor).trim() : null).filter(Boolean))),
         sizes: Array.from(new Set((p.variants || []).map((v: any) => v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__' ? String(v.size).trim() : null).filter(Boolean))),
         updatedAt: new Date().toISOString()
@@ -227,8 +236,11 @@ export async function saveSpecialDeals(
         brand: (p.brand || 'GNC Store').trim(),
         category: p.category || 'sports-nutrition',
         subCategory: p.subCategory || 'all',
-        image: p.image?.trim() || '',
-        images: Array.isArray(p.images) ? p.images : (p.image ? [p.image] : []),
+        image: normalizeProductImageUrl(p.imageUrl || p.image, p.storeDomain || p.url || 'https://drnutrition.com') || '',
+        imageUrl: normalizeProductImageUrl(p.imageUrl || p.image, p.storeDomain || p.url || 'https://drnutrition.com') || '',
+        images: Array.isArray(p.images) && p.images.length > 0
+          ? p.images.map((img: string) => normalizeProductImageUrl(img, p.storeDomain || p.url || 'https://drnutrition.com')).filter(Boolean)
+          : (p.imageUrl || p.image ? [normalizeProductImageUrl(p.imageUrl || p.image, p.storeDomain || p.url || 'https://drnutrition.com')] : []),
         priceAed: Number(p.priceAed) || 0,
         priceToman: Number(p.priceToman) || 0,
         originalPriceAed: p.originalPriceAed ? Number(p.originalPriceAed) : null,
@@ -242,14 +254,19 @@ export async function saveSpecialDeals(
         description: p.description?.trim() || '',
         variants: (p.variants || [])
           .filter((v: any) => v && ((v.size && String(v.size).trim()) || (v.flavor && String(v.flavor).trim())))
-          .map((v: any) => ({
-            flavor: (v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__') ? String(v.flavor).trim() : 'پیش‌فرض',
-            size: (v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__') ? String(v.size).trim() : 'استاندارد',
-            priceAed: Number(v.priceAed ?? v.price ?? 0),
-            priceToman: Number(v.priceToman || 0),
-            image: (v.image && String(v.image).trim() !== '') ? String(v.image).trim() : ((v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : null),
-            inStock: v.inStock ?? true
-          })),
+          .map((v: any) => {
+            const rawVImg = (v.imageUrl && String(v.imageUrl).trim() !== '') ? String(v.imageUrl).trim() : ((v.image && String(v.image).trim() !== '') ? String(v.image).trim() : '');
+            const normVImg = normalizeProductImageUrl(rawVImg, p.storeDomain || p.url || 'https://drnutrition.com') || null;
+            return {
+              flavor: (v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__') ? String(v.flavor).trim() : 'پیش‌فرض',
+              size: (v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__') ? String(v.size).trim() : 'استاندارد',
+              priceAed: Number(v.priceAed ?? v.price ?? 0),
+              priceToman: Number(v.priceToman || 0),
+              image: normVImg,
+              imageUrl: normVImg,
+              inStock: v.inStock ?? true
+            };
+          }),
         flavors: Array.from(new Set((p.variants || []).map((v: any) => v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__' ? String(v.flavor).trim() : null).filter(Boolean))),
         sizes: Array.from(new Set((p.variants || []).map((v: any) => v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__' ? String(v.size).trim() : null).filter(Boolean))),
         updatedAt: new Date().toISOString()

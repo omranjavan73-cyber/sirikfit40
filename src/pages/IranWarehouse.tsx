@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { LocalInventoryItem, FinancialSettings } from '../types';
 import type { ProductDetailModalProduct } from '../components/ProductDetailModal';
 import { InventoryPage } from '../components/InventoryPage';
@@ -57,9 +57,24 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
   const [selectedItem, setSelectedItem] = useState<LocalInventoryItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Stably resolve items: prioritize prop if non-empty, otherwise use context
-  const activeSourceItems = (initialItems && initialItems.length > 0) ? initialItems : contextWarehouse;
-  const visibleItems = activeSourceItems.filter(item => item && (item as any).isActive !== false && (item as any).isPublished !== false && (item as any).isDraft !== true);
+  // Stale-While-Revalidate: retain existing items in state during background re-syncs
+  const [persistedItems, setPersistedItems] = useState<LocalInventoryItem[]>(() => {
+    if (initialItems && initialItems.length > 0) return initialItems;
+    if (contextWarehouse && contextWarehouse.length > 0) return contextWarehouse;
+    return [];
+  });
+
+  useEffect(() => {
+    if (initialItems && initialItems.length > 0) {
+      setPersistedItems(initialItems);
+    } else if (contextWarehouse && contextWarehouse.length > 0) {
+      setPersistedItems(contextWarehouse);
+    }
+  }, [initialItems, contextWarehouse]);
+
+  const visibleItems = useMemo(() => {
+    return persistedItems.filter(item => item && (item as any).isActive !== false && (item as any).isPublished !== false && (item as any).isDraft !== true);
+  }, [persistedItems]);
 
   const handleSelect = (item: LocalInventoryItem) => {
     if (onSelectLocalProduct) {
@@ -75,7 +90,7 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
       <InventoryPage
         items={visibleItems}
         settings={settings}
-        isLoading={isLoading}
+        isLoading={isLoading && visibleItems.length === 0}
         onSelectLocalProduct={handleSelect}
         onAddToCart={onAddToCart}
         showToast={showToast}

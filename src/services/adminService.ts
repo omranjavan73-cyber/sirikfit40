@@ -59,28 +59,12 @@ export async function saveIranWarehouseItems(
   let firestoreErrorMsg = '';
 
   try {
-    const currentIds = new Set(cleanList.map(item => item.id));
-
-    // A. Query existing documents in collection to delete orphaned / removed docs
-    try {
-      const existingSnap = await getDocs(collection(db, 'iran_warehouse'));
-      const deletePromises: Promise<any>[] = [];
-      existingSnap.forEach((docSnap) => {
-        if (!currentIds.has(docSnap.id)) {
-          deletePromises.push(deleteDoc(docSnap.ref));
-        }
-      });
-      if (deletePromises.length > 0) {
-        await Promise.all(deletePromises);
-      }
-    } catch (queryErr) {
-      console.warn('Could not query existing iran_warehouse docs for cleanup:', queryErr);
-    }
-
-    // B. Write or update active documents using atomic writeBatch
+    // B. Write or update active documents using atomic writeBatch (strictly upsert/append, never delete collection docs)
     const batch = writeBatch(db);
     for (const p of cleanList) {
-      const docRef = doc(db, 'iran_warehouse', p.id || doc(collection(db, 'iran_warehouse')).id);
+      const isNew = !p.id || p.id.startsWith('draft_') || p.id.startsWith('temp_');
+      const docRef = isNew ? doc(collection(db, 'iran_warehouse')) : doc(db, 'iran_warehouse', p.id);
+      const parsedCreatedAt = p.createdAt || (typeof p.id === 'string' && p.id.includes('-') && !isNaN(Number(p.id.split('-').pop())) ? new Date(Number(p.id.split('-').pop())).toISOString() : new Date().toISOString());
       const cleanProduct = sanitizeForFirestore({
         id: docRef.id,
         titleFa: (p.titleFa || p.title || '').trim(),
@@ -122,6 +106,8 @@ export async function saveIranWarehouseItems(
           }),
         flavors: Array.from(new Set((p.variants || []).map((v: any) => v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__' ? String(v.flavor).trim() : null).filter(Boolean))),
         sizes: Array.from(new Set((p.variants || []).map((v: any) => v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__' ? String(v.size).trim() : null).filter(Boolean))),
+        createdAt: parsedCreatedAt,
+        sectionAddedAt: p.sectionAddedAt || parsedCreatedAt,
         updatedAt: new Date().toISOString()
       });
       batch.set(docRef, cleanProduct, { merge: true });
@@ -206,28 +192,12 @@ export async function saveSpecialDeals(
 
   // 3. Firestore SDK Atomic Batch Persistence
   try {
-    const currentIds = new Set(cleanList.map(item => item.id));
-
-    // A. Query existing documents in collection to delete orphaned / removed docs
-    try {
-      const existingSnap = await getDocs(collection(db, 'special_deals'));
-      const deletePromises: Promise<any>[] = [];
-      existingSnap.forEach((docSnap) => {
-        if (!currentIds.has(docSnap.id)) {
-          deletePromises.push(deleteDoc(docSnap.ref));
-        }
-      });
-      if (deletePromises.length > 0) {
-        await Promise.all(deletePromises);
-      }
-    } catch (queryErr) {
-      console.warn('Could not query existing special_deals docs for cleanup:', queryErr);
-    }
-
-    // B. Write or update active documents using atomic writeBatch
+    // B. Write or update active documents using atomic writeBatch (strictly upsert/append, never delete collection docs)
     const batch = writeBatch(db);
     for (const p of cleanList) {
-      const docRef = doc(db, 'special_deals', p.id || doc(collection(db, 'special_deals')).id);
+      const isNew = !p.id || p.id.startsWith('draft_') || p.id.startsWith('temp_');
+      const docRef = isNew ? doc(collection(db, 'special_deals')) : doc(db, 'special_deals', p.id);
+      const parsedCreatedAt = p.createdAt || (typeof p.id === 'string' && p.id.includes('-') && !isNaN(Number(p.id.split('-').pop())) ? new Date(Number(p.id.split('-').pop())).toISOString() : new Date().toISOString());
       const cleanProduct = sanitizeForFirestore({
         id: docRef.id,
         titleFa: (p.titleFa || p.title || '').trim(),
@@ -269,6 +239,8 @@ export async function saveSpecialDeals(
           }),
         flavors: Array.from(new Set((p.variants || []).map((v: any) => v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__' ? String(v.flavor).trim() : null).filter(Boolean))),
         sizes: Array.from(new Set((p.variants || []).map((v: any) => v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__' ? String(v.size).trim() : null).filter(Boolean))),
+        createdAt: parsedCreatedAt,
+        sectionAddedAt: p.sectionAddedAt || parsedCreatedAt,
         updatedAt: new Date().toISOString()
       });
       batch.set(docRef, cleanProduct, { merge: true });
@@ -320,8 +292,13 @@ export async function saveSingleProductWithVariants(
     return { success: false, message: 'عنوان محصول الزامی است' };
   }
 
+  // Guaranteed Unique Firestore Auto-ID for new or draft products
+  const isNew = !product.id || product.id.startsWith('draft_') || product.id.startsWith('prod_') || product.id.startsWith('scraped-') || product.id.startsWith('temp_');
+  const targetDoc = isNew ? doc(collection(db, collectionName)) : doc(db, collectionName, product.id);
+
   const cleanDoc = sanitizeProductForFirestore({
     ...product,
+    id: targetDoc.id,
     isPublished: product.isPublished !== undefined ? Boolean(product.isPublished) : true,
     isPopular: Boolean(product.isPopular)
   });
@@ -333,9 +310,9 @@ export async function saveSingleProductWithVariants(
     } catch (_e) {}
   }
 
-  // Firestore write
+  // Firestore write (strictly upsert/append this document without overwriting other records)
   try {
-    await setDoc(doc(db, collectionName, cleanDoc.id), sanitizeForFirestore(cleanDoc), { merge: true });
+    await setDoc(targetDoc, sanitizeForFirestore(cleanDoc), { merge: true });
   } catch (fsErr: any) {
     console.warn(`Firestore save notice for ${collectionName}/${cleanDoc.id}:`, fsErr?.message || fsErr);
   }

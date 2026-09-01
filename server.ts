@@ -4013,15 +4013,20 @@ const sanitizeImageUrl = (rawImg: string, cleanUrl: string = '') => {
   // 1. Normalize protocol and relative paths
   if (str.startsWith('//')) {
     str = 'https:' + str;
-  } else if (str.startsWith('/')) {
-    try {
-      const u = new URL(cleanUrl || 'https://drnutrition.com');
-      str = `${u.protocol}//${u.host}${str}`;
-    } catch (_e) {
-      str = 'https://www.drnutrition.com' + str;
-    }
   } else if (str.startsWith('http://')) {
     str = str.replace('http://', 'https://');
+  } else if (!str.startsWith('https://')) {
+    const relPath = str.startsWith('/') ? str : `/${str}`;
+    if (relPath.startsWith('/media/')) {
+      str = 'https://media.drnutrition.com' + relPath;
+    } else {
+      try {
+        const u = new URL(cleanUrl || 'https://drnutrition.com');
+        str = `${u.protocol}//${u.host}${relPath}`;
+      } catch (_e) {
+        str = 'https://www.drnutrition.com' + relPath;
+      }
+    }
   }
 
   str = str.split('"')[0].split("'")[0].split('\\')[0].trim();
@@ -4125,9 +4130,12 @@ const cleanTitleStr = (raw: string) => {
     .replace(/^Buy\s+/i, '')
     .replace(/\s*online on Amazon\.ae.*$/i, '')
     .replace(/\s*[\-\|:]\s*Noon.*$/i, '')
-    .replace(/\s*[\-\|:]\s*Dr\.?\s*Nutrition.*$/i, '')
     .replace(/\s*[\-\|:]\s*GNC.*$/i, '')
     .replace(/\s*[\-\|:]\s*Life\s+Pharmacy.*$/i, '')
+    .replace(/\s*[\-\|:]\s*Sporter.*$/i, '')
+    .replace(/\s*[\-\|:]\s*iHerb.*$/i, '')
+    .replace(/\s*Buy\s+.*?\s+online\s+in\s+UAE\b.*$/i, '')
+    .replace(/\s*Buy\s+online\s+at\s+best\s+price\b.*$/i, '')
     .trim();
 };
 
@@ -4177,16 +4185,38 @@ const cleanDrNutritionSlugForSearch = (slug: string): string => {
 const isInvalidDrImage = (url: string) => {
   if (!url || typeof url !== 'string') return true;
   const l = url.toLowerCase().trim();
-  return l.includes('logo') || l.includes('dnp') || l.includes('placeholder') || 
-         l.includes('favicon') || l.includes('badge') || l.includes('drnutrition-logo') ||
-         l.includes('banner') || l.includes('icon') || l.includes('vector.svg') ||
-         l.includes('og-logo') || l.includes('header') || l.includes('footer') ||
+
+  // Reject SVG and data URLs
+  if (l.startsWith('data:image/svg') || l.endsWith('.svg') || l.includes('.svg?')) {
+    return true;
+  }
+
+  // Reject explicit logo keywords - check specific logo patterns, NOT generic 'dnp'
+  const isLogo = l.includes('dnp_logo') || l.includes('dnp-logo') || l.includes('drnutrition_logo') ||
+                 l.includes('drnutrition-logo') || l.includes('site-logo') || l.includes('header-logo') ||
+                 l.includes('footer-logo') || l.includes('og-logo') || l.includes('default_logo') ||
+                 l.includes('store_logo') || l.includes('/media/logo/') || l.includes('/media/logos/') ||
+                 l.includes('vector.svg');
+
+  // Check if filename is strictly the logo file
+  try {
+    const parsedPath = new URL(l.startsWith('http') ? l : `https://drnutrition.com${l.startsWith('/') ? '' : '/'}${l}`).pathname;
+    const fname = parsedPath.split('/').pop() || '';
+    if (fname === 'dnp.png' || fname === 'dnp.jpg' || fname === 'dnp.webp' || fname === 'dnp.svg' ||
+        fname === 'logo.png' || fname === 'logo.jpg' || fname === 'logo.webp' || fname === 'logo.svg' ||
+        fname.startsWith('logo_') || fname.startsWith('logo-')) {
+      return true;
+    }
+  } catch (_e) {}
+
+  return isLogo || l.includes('placeholder') || 
+         l.includes('favicon') || l.includes('badge') ||
+         l.includes('banner') || l.includes('icon') ||
          l.includes('tamara') || l.includes('tabby') || l.includes('payment') ||
          l.includes('pixel') || l.includes('1x1') || l.includes('spacer') ||
          l.includes('blank.gif') || l.includes('spinner') || l.includes('loading') ||
          l.includes('shop.png') || l.includes('express.png') || l.includes('pickup.png') ||
-         l.includes('modes/') || l.includes('flags/') || l.includes('site-logo') ||
-         l.endsWith('.svg') || l.includes('.svg?') || l.startsWith('data:image/svg');
+         l.includes('modes/') || l.includes('flags/');
 };
 
 const cleanDrTitle = (raw: string): string => {
@@ -5337,6 +5367,40 @@ function parseDrNutritionExactJson(rawHtmlText: string, targetUrl: string): Pars
     }
   }
 
+  // -------------------------------------------------------------
+  // PRIORITY 4: OpenGraph, Twitter Cards, Markdown & DOM Images
+  // -------------------------------------------------------------
+  if (galleryImages.length === 0) {
+    const metaPatterns = [
+      /<meta[^>]+(?:property|name)=["'](?:og:image|og:image:secure_url|twitter:image|product:image)["'][^>]+content=["']([^"']+)["']/gi,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|og:image:secure_url|twitter:image|product:image)["']/gi,
+      /property=["'](?:og:image|og:image:secure_url|product:image)["']\s+content=["']([^"']+)["']/gi,
+      /name=["'](?:twitter:image|twitter:image:src)["']\s+content=["']([^"']+)["']/gi
+    ];
+    for (const pat of metaPatterns) {
+      const matches = Array.from(rawHtmlText.matchAll(pat));
+      for (const m of matches) {
+        if (m && m[1]) addImage(m[1]);
+      }
+    }
+
+    // Markdown image syntax (e.g. from Jina Reader)
+    const mdMatches = Array.from(rawHtmlText.matchAll(/!\[.*?\]\((https?:\/\/[^\s\)]+)\)/gi));
+    for (const m of mdMatches) {
+      if (m && m[1] && (m[1].includes('drnutrition.com') || m[1].includes('catalog') || m[1].includes('media'))) {
+        addImage(m[1]);
+      }
+    }
+
+    // DOM img tags
+    const domImgMatches = Array.from(rawHtmlText.matchAll(/<img[^>]+(?:src|data-src|data-original)=["']([^"']+)["']/gi));
+    for (const m of domImgMatches) {
+      if (m && m[1] && (m[1].includes('drnutrition.com') || m[1].includes('catalog') || m[1].includes('media'))) {
+        addImage(m[1]);
+      }
+    }
+  }
+
   // Set primary main image
   if (galleryImages.length > 0) {
     mainImage = galleryImages[0];
@@ -5435,12 +5499,14 @@ async function fetchWithMicrolink(targetUrl: string, storeName: string): Promise
         .map(i => i.src || i.getAttribute('src'))
         .filter(s => s && typeof s === 'string' && 
           (s.includes('media') || s.includes('product') || s.includes('cdn') || s.includes('assets') || s.includes('images')) && 
-          !s.includes('logo') && !s.includes('og-logo') && !s.includes('dnp') && !s.includes('placeholder') && !s.includes('icon') && !s.includes('flag') && !s.includes('modes/') && !s.includes('.svg') &&
+          !s.includes('dnp_logo') && !s.includes('dnp-logo') && !s.includes('drnutrition_logo') && !s.includes('drnutrition-logo') &&
+          !s.includes('header-logo') && !s.includes('footer-logo') && !s.includes('site-logo') && !s.includes('og-logo') &&
+          !s.includes('placeholder') && !s.includes('icon') && !s.includes('flag') && !s.includes('modes/') && !s.includes('.svg') &&
           !s.includes('shop.png') && !s.includes('express.png') && !s.includes('pickup.png') && !s.includes('health.png')
         );
 
       // 5. Extract Variants / Options
-      const rawOptions = Array.from(document.querySelectorAll('button, div[role=\"button\"], label, span'))
+      const rawOptions = Array.from(document.querySelectorAll('button, div[role="button"], label, span'))
         .filter(el => {
           const cls = (el.className || '').toString().toLowerCase();
           return cls.includes('variant') || cls.includes('option') || cls.includes('flavor') || cls.includes('size') || cls.includes('swatch');
@@ -5487,7 +5553,15 @@ async function fetchWithMicrolink(targetUrl: string, storeName: string): Promise
       const isBadImg = (u: string) => {
         if (!u) return true;
         const l = u.toLowerCase();
-        return l.includes('logo') || l.includes('dnp') || l.includes('icon') || l.includes('badge') || l.includes('vector.svg') || l.includes('og-logo') || l.includes('header');
+        const isLogo = l.includes('dnp_logo') || l.includes('dnp-logo') || l.includes('drnutrition_logo') ||
+                       l.includes('drnutrition-logo') || l.includes('site-logo') || l.includes('header-logo') ||
+                       l.includes('footer-logo') || l.includes('og-logo') || l.includes('default_logo') ||
+                       l.includes('store_logo') || l.includes('/media/logo/') || l.includes('/media/logos/') ||
+                       l.includes('vector.svg');
+        return isLogo || l.includes('placeholder') || l.includes('favicon') || l.includes('badge') ||
+               l.includes('icon') || l.includes('tamara') || l.includes('tabby') || l.includes('payment') ||
+               l.includes('pixel') || l.includes('1x1') || l.includes('spacer') || l.includes('blank.gif') ||
+               l.includes('spinner') || l.includes('loading') || l.endsWith('.svg') || l.includes('.svg?');
       };
 
       let mainImg = isBadImg(rawImg) ? '' : rawImg;

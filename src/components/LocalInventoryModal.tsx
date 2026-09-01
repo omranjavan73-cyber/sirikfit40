@@ -5,6 +5,8 @@ import { formatToman, formatPrice, getEffectiveAedRate } from '../utils/formatte
 import { useSettings } from '../context/SettingsContext';
 import { ProductDetailModal } from './ProductDetailModal';
 
+import { sortNewestFirst } from '../context/ProductContext';
+
 interface LocalInventoryModalProps {
   items: LocalInventoryItem[];
   isOpen: boolean;
@@ -38,7 +40,7 @@ export const LocalInventoryModal: React.FC<LocalInventoryModalProps> = ({
 
   if (!isOpen) return null;
 
-  const safeItems = items || [];
+  const safeItems = sortNewestFirst(items || []);
   const categories = ['همه', ...Array.from(new Set(safeItems.map(i => i?.category || 'عمومی')))];
 
   const filteredItems = safeItems.filter(item => {

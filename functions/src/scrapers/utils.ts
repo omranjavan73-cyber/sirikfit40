@@ -171,7 +171,6 @@ export const isInvalidDrNutritionImage = (rawUrl: string): boolean => {
 
   // Reject explicit logo, branding, and placeholder keywords
   const invalidKeywords = [
-    'logo',
     'dnp_logo',
     'dnp-logo',
     'dnp.png',
@@ -186,14 +185,13 @@ export const isInvalidDrNutritionImage = (rawUrl: string): boolean => {
     'drnutrition-logo',
     '/media/logo/',
     '/media/logos/',
-    '/stores/1/dnp',
+    '/logo/',
+    '_logo.',
+    '-logo.',
     'placeholder',
     'default_logo',
     'store_logo',
     'favicon',
-    'badge',
-    'icon',
-    'banner',
     'header-logo',
     'footer-logo',
     'site-logo',
@@ -213,7 +211,6 @@ export const isInvalidDrNutritionImage = (rawUrl: string): boolean => {
 
   for (const kw of invalidKeywords) {
     if (lower.includes(kw)) {
-      // If it contains logo or placeholder, reject immediately even if in catalog
       return true;
     }
   }
@@ -223,14 +220,23 @@ export const isInvalidDrNutritionImage = (rawUrl: string): boolean => {
     const urlObj = new URL(lower.startsWith('http') ? lower : `https://drnutrition.com${lower.startsWith('/') ? '' : '/'}${lower}`);
     const pathname = urlObj.pathname;
     const filename = pathname.split('/').pop() || '';
+    const fnameNoExt = filename.replace(/\.[^.]+$/, '');
 
     if (
-      filename.includes('logo') ||
-      filename.includes('dnp') ||
-      filename.includes('placeholder') ||
-      filename.includes('icon') ||
-      filename.includes('badge') ||
-      filename.includes('banner')
+      fnameNoExt === 'logo' ||
+      fnameNoExt.startsWith('logo_') ||
+      fnameNoExt.startsWith('logo-') ||
+      fnameNoExt.endsWith('_logo') ||
+      fnameNoExt.endsWith('-logo') ||
+      fnameNoExt === 'dnp' ||
+      fnameNoExt === 'dnp_logo' ||
+      fnameNoExt === 'dnp-logo' ||
+      fnameNoExt === 'icon' ||
+      fnameNoExt.startsWith('icon_') ||
+      fnameNoExt.startsWith('icon-') ||
+      fnameNoExt.endsWith('_icon') ||
+      fnameNoExt.endsWith('-icon') ||
+      fnameNoExt.includes('placeholder')
     ) {
       return true;
     }
@@ -752,7 +758,13 @@ export const generateBilingualProductTitle = (englishTitle: string, brand?: stri
   const lower = cleanEng.toLowerCase();
 
   let faPrefix = '';
-  if (lower.includes('creatine monohydrate') || lower.includes('creatine powder')) {
+  if (lower.includes('protein bar') || lower.includes('protein bars') || lower.includes('energy bar') || lower.includes('snack bar')) {
+    faPrefix = 'شکلات پروتئینی و پروتئین بار';
+  } else if (lower.includes('salmon oil')) {
+    faPrefix = 'روغن سالمون خالص';
+  } else if (lower.includes('krill oil')) {
+    faPrefix = 'روغن کریل اصل';
+  } else if (lower.includes('creatine monohydrate') || lower.includes('creatine powder')) {
     faPrefix = 'پودر کراتین مونوهیدرات';
   } else if (lower.includes('creatine')) {
     faPrefix = 'کراتین ورزشی خالص';
@@ -778,8 +790,20 @@ export const generateBilingualProductTitle = (englishTitle: string, brand?: stri
     faPrefix = 'مولتی‌ویتامین و مینرال کامل روزانه';
   } else if (lower.includes('glutamine')) {
     faPrefix = 'پودر گلوتامین ریکاوری عضلات';
+  } else if (lower.includes('magnesium')) {
+    faPrefix = 'مکمل تخصصی منیزیم';
+  } else if (lower.includes('zinc')) {
+    faPrefix = 'مکمل تخصصی زینک روی';
+  } else if (lower.includes('vitamin c')) {
+    faPrefix = 'ویتامین C خالص';
+  } else if (lower.includes('vitamin d')) {
+    faPrefix = 'ویتامین D3';
   } else {
     faPrefix = translateTitleToFa(cleanEng, brand || '');
+  }
+
+  if (!faPrefix || faPrefix === 'مکمل اورجینال') {
+    faPrefix = brand ? `محصول تخصصی ${brand}` : 'محصول تخصصی سلامت و ورزش';
   }
 
   return `${faPrefix} (${cleanEng})`;

@@ -93,16 +93,34 @@ export class DrNutritionParser {
   public static isInvalidImage(url: string): boolean {
     if (!url || typeof url !== 'string') return true;
     const lower = url.toLowerCase().trim();
-    return lower.includes('logo') ||
-           lower.includes('dnp') ||
+
+    if (lower.startsWith('data:image/svg') || lower.endsWith('.svg') || lower.includes('.svg?')) {
+      return true;
+    }
+
+    const isLogo = lower.includes('dnp_logo') || lower.includes('dnp-logo') || lower.includes('drnutrition_logo') ||
+                   lower.includes('drnutrition-logo') || lower.includes('site-logo') || lower.includes('header-logo') ||
+                   lower.includes('footer-logo') || lower.includes('og-logo') || lower.includes('default_logo') ||
+                   lower.includes('store_logo') || lower.includes('/media/logo/') || lower.includes('/media/logos/') ||
+                   lower.includes('vector.svg');
+
+    try {
+      const parsedPath = new URL(lower.startsWith('http') ? lower : `https://drnutrition.com${lower.startsWith('/') ? '' : '/'}${lower}`).pathname;
+      const fname = parsedPath.split('/').pop() || '';
+      if (fname === 'dnp.png' || fname === 'dnp.jpg' || fname === 'dnp.webp' || fname === 'dnp.svg' ||
+          fname === 'logo.png' || fname === 'logo.jpg' || fname === 'logo.webp' || fname === 'logo.svg' ||
+          fname.startsWith('logo_') || fname.startsWith('logo-')) {
+        return true;
+      }
+    } catch (_e) {}
+
+    return isLogo ||
            lower.includes('icon') ||
            lower.includes('header') ||
            lower.includes('badge') ||
            lower.includes('banner') ||
            lower.includes('avatar') ||
            lower.includes('payment') ||
-           lower.includes('og-logo') ||
-           lower.includes('vector.svg') ||
            lower.includes('placeholder') ||
            lower.includes('footer') ||
            lower.includes('tamara') ||
@@ -114,11 +132,7 @@ export class DrNutritionParser {
            lower.includes('express.png') ||
            lower.includes('pickup.png') ||
            lower.includes('modes/') ||
-           lower.includes('flags/') ||
-           lower.includes('site-logo') ||
-           lower.endsWith('.svg') ||
-           lower.includes('.svg?') ||
-           lower.startsWith('data:image/svg');
+           lower.includes('flags/');
   }
 
   public static cleanTitle(raw: string): string {

@@ -797,9 +797,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         },
         customerName: customerName.trim(),
         phoneNumber: cleanIranianMobile(phoneNumber),
+        customerPhone: cleanIranianMobile(phoneNumber),
         postalCode: cleanPostalCode(postalCode),
         deliveryAddress: deliveryAddress.trim(),
         notes: notes ? notes.trim() : "",
+        totalPrice: Number(effectiveTotalToman),
+        status: "PENDING_UAE_PURCHASE",
         productTitle: orderProductTitle,
         productUrl: orderProductUrl,
         productImage: orderProductImage,
@@ -1622,64 +1625,32 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                   </span>
                 </div>
 
-                {/* Additional Information & Original Product Link (توضیحات تکمیلی و لینک اصلی محصول) */}
+                {/* Original Product Link on Brand/Vendor Site */}
                 {(() => {
                   const prod = product as any;
-                  const rawUrl = (prod?.sourceUrl || prod?.url || prod?.originalUrl || prod?.productUrl || prod?.link || prod?.rawItem?.sourceUrl || prod?.rawItem?.url || '');
-                  const hasValidUrl = typeof rawUrl === 'string' && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://'));
-                  const isIherb = (product?.storeName || '').toLowerCase().includes('iherb') || (rawUrl || '').toLowerCase().includes('iherb');
-                  const storeTheme = getStoreBadgeTheme(isIherb ? 'iHerb' : (product?.brand || (product as any)?.storeName));
+                  const targetUrl = prod?.sourceUrl || prod?.url || prod?.originalUrl || prod?.productUrl || prod?.link || prod?.rawItem?.sourceUrl || prod?.rawItem?.url;
+                  if (!targetUrl || typeof targetUrl !== 'string' || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) return null;
+                  const isIherb = (product?.storeName || '').toLowerCase().includes('iherb') || targetUrl.toLowerCase().includes('iherb');
+                  const storeName = isIherb ? 'iHerb' : (product?.storeName || product?.brand || 'سایت مبدأ');
 
                   return (
-                    <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3 text-right">
-                      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-                        <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-black text-xs sm:text-sm">
-                          <Info className="w-4 h-4 text-slate-700 dark:text-slate-300" />
-                          <span>توضیحات تکمیلی و منبع کالا</span>
-                        </div>
-                        <span
-                          style={storeTheme.style}
-                          className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${storeTheme.bg}`}
-                        >
-                          {storeTheme.name}
+                    <div className="pt-2 w-full">
+                      <a
+                        href={targetUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-white rounded-xl font-bold text-xs flex items-center justify-between transition-all group shadow-sm cursor-pointer select-none"
+                        title="مشاهده صفحه اختصاصی این محصول در وبسایت رسمی مبدأ"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Globe className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+                          <span>لینک اصلی محصول در {storeName}</span>
                         </span>
-                      </div>
-
-                      {/* Summary Specs */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300">
-                        {product?.brand && (
-                          <div className="flex items-center justify-between bg-white dark:bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-100 dark:border-slate-700/60">
-                            <span className="text-slate-400 font-medium">برند سازنده:</span>
-                            <span className="font-bold text-slate-900 dark:text-slate-100">{product.brand}</span>
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between bg-white dark:bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-100 dark:border-slate-700/60">
-                          <span className="text-slate-400 font-medium">مبدأ تأمین:</span>
-                          <span className="font-bold text-slate-900 dark:text-slate-100">دبی و امارات متحده عربی 🇦🇪</span>
-                        </div>
-                      </div>
-
-                      {/* Clickable Original Product Link Button */}
-                      {hasValidUrl && (
-                        <div className="pt-1">
-                          <a
-                            href={rawUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full py-2.5 px-4 bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white font-extrabold text-xs flex items-center justify-between transition-all group shadow-xs cursor-pointer select-none"
-                            title="مشاهده صفحه اختصاصی این محصول در وبسایت رسمی مبدأ"
-                          >
-                            <span className="flex items-center gap-2">
-                              <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
-                              <span>لینک اصلی محصول در {storeTheme.name}</span>
-                            </span>
-                            <span className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-300 font-bold group-hover:text-slate-900 dark:group-hover:text-white">
-                              <span>مشاهده در سایت اصلی</span>
-                              <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                            </span>
-                          </a>
-                        </div>
-                      )}
+                        <span className="flex items-center gap-1.5 text-[11px] text-slate-300 font-bold group-hover:text-white">
+                          <span>مشاهده در سایت اصلی</span>
+                          <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                        </span>
+                      </a>
                     </div>
                   );
                 })()}

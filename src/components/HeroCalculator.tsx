@@ -203,6 +203,7 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
     setSuccessMessage('');
     setIsParsing(true);
 
+    console.log('[Scraper Engine] Initiating extraction from caller: HeroCalculator', { targetUrl });
     const savedKeys = getEffectiveGeminiKeysList(cms?.apiConfig?.geminiApiKeys || cms?.apiConfig?.geminiApiKey);
 
     try {

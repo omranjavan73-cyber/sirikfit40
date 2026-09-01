@@ -107,11 +107,70 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
         }
       }
 
-      // HTML fallback
-      let title = $('h1').first().text().trim() || $('meta[property="og:title"]').attr('content') || '';
-      title = title.replace(/\s*\|\s*Life\s*Pharmacy.*$/i, '').trim();
+      // 2. TIER 2: JSON-LD EXTRACTION
+      let ldProduct: any = null;
+      $('script[type="application/ld+json"]').each((_, el) => {
+        try {
+          const content = $(el).html();
+          if (!content) return;
+          const ld = JSON.parse(content);
+          const items = Array.isArray(ld) ? ld : (ld['@graph'] ? ld['@graph'] : [ld]);
+          for (const item of items) {
+            if (item && (item['@type'] === 'Product' || item.name)) {
+              const ldTitle = String(item.name || item.headline || '')
+                .replace(/\s*\|\s*Life\s*Pharmacy.*$/i, '')
+                .trim();
+              const offerPrice = item.offers?.price ?? item.offers?.lowPrice ?? item.offers?.highPrice;
+              const ldPrice = extractPriceNumber(offerPrice);
+              const ldBrand = item.brand?.name || item.brand || 'Life Pharmacy';
+              const rawImg = Array.isArray(item.image) ? item.image[0] : (item.image?.url || item.image);
+              const ldImg = sanitizeImageUrl(rawImg || '', targetUrl);
+
+              if (ldTitle && ldPrice > 0) {
+                ldProduct = {
+                  title: ldTitle,
+                  brand: ldBrand,
+                  price: ldPrice,
+                  image: ldImg
+                };
+                break;
+              }
+            }
+          }
+        } catch (_e) {}
+      });
+
+      if (ldProduct) {
+        return {
+          ok: true,
+          success: true,
+          title: ldProduct.title,
+          titleFa: generateBilingualProductTitle(ldProduct.title, ldProduct.brand),
+          price: ldProduct.price,
+          priceAED: ldProduct.price,
+          originalPriceAED: ldProduct.price,
+          currency: "AED",
+          image: ldProduct.image || '',
+          imageUrl: ldProduct.image || '',
+          galleryImages: ldProduct.image ? [ldProduct.image] : [],
+          images: ldProduct.image ? [ldProduct.image] : [],
+          brand: ldProduct.brand,
+          storeName,
+          store: storeName,
+          sourceUrl: targetUrl,
+          weightKg: 0.5
+        };
+      }
+
+      // 3. TIER 3: HTML FALLBACK (h1, og:title, meta tags)
+      let rawTitle = $('h1.product-title, h1[itemprop="name"], h1').first().text().trim() || 
+                     $('meta[property="og:title"]').attr('content') || 
+                     $('meta[name="twitter:title"]').attr('content') || 
+                     '';
+      let title = rawTitle.replace(/\s*\|\s*Life\s*Pharmacy.*$/i, '').trim();
+      const brand = $('[itemprop="brand"], .product-brand').first().text().trim() || 'Life Pharmacy';
       const mainImage = sanitizeImageUrl($('meta[property="og:image"]').attr('content') || '', targetUrl);
-      const priceText = $('.price, [data-price]').first().text();
+      const priceText = $('.price, [data-price], .offer-price, .special-price').first().text();
       const priceAED = extractPriceNumber(priceText);
 
       if (title && priceAED > 0) {
@@ -119,7 +178,7 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
           ok: true,
           success: true,
           title,
-          titleFa: generateBilingualProductTitle(title, 'Life Pharmacy'),
+          titleFa: generateBilingualProductTitle(title, brand),
           price: priceAED,
           priceAED: priceAED,
           originalPriceAED: priceAED,
@@ -128,7 +187,7 @@ export async function lifePharmacyAdapter(targetUrl: string, cmsConfig?: any): P
           imageUrl: mainImage || '',
           galleryImages: mainImage ? [mainImage] : [],
           images: mainImage ? [mainImage] : [],
-          brand: 'Life Pharmacy',
+          brand,
           storeName,
           store: storeName,
           sourceUrl: targetUrl,

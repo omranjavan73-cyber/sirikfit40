@@ -38,7 +38,7 @@ import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
 import { PricingProvider } from './context/PricingContext';
-import { ProductProvider, useProducts } from './context/ProductContext';
+import { ProductProvider, useProducts, sortNewestFirst } from './context/ProductContext';
 import { SupportProvider } from './context/SupportContext';
 import { CartProvider } from './context/CartContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -355,22 +355,23 @@ function MainApp() {
         }
 
         if (detail?.cmsConfig) {
-          const incomingCms = { ...detail.cmsConfig };
-          delete incomingCms.deals;
-          delete incomingCms.localInventory;
           setCmsConfig(prev => ({
             ...(prev || {}),
-            ...incomingCms
+            ...detail.cmsConfig,
+            deals: (detail.cmsConfig.deals && detail.cmsConfig.deals.length > 0) ? detail.cmsConfig.deals : prev?.deals,
+            localInventory: (detail.cmsConfig.localInventory && detail.cmsConfig.localInventory.length > 0) ? detail.cmsConfig.localInventory : prev?.localInventory
           }));
         } else {
           const savedCms = localStorage.getItem('sirikfit_cms_config');
           if (savedCms) {
             const parsedCms = JSON.parse(savedCms);
             if (parsedCms) {
-              const cleanCms = { ...parsedCms };
-              delete cleanCms.deals;
-              delete cleanCms.localInventory;
-              setCmsConfig(cleanCms);
+              setCmsConfig(prev => ({
+                ...(prev || {}),
+                ...parsedCms,
+                deals: (parsedCms.deals && parsedCms.deals.length > 0) ? parsedCms.deals : prev?.deals,
+                localInventory: (parsedCms.localInventory && parsedCms.localInventory.length > 0) ? parsedCms.localInventory : prev?.localInventory
+              }));
             }
           }
         }
@@ -535,6 +536,13 @@ function MainApp() {
                   minOrderLimitEnabled: prev.pricingRules.minOrderLimitEnabled
                 } as any;
               }
+              // Preserve active deals and localInventory if cmsData has empty or missing ones
+              if (prev?.deals && prev.deals.length > 0 && (!cmsData.deals || cmsData.deals.length === 0)) {
+                merged.deals = prev.deals;
+              }
+              if (prev?.localInventory && prev.localInventory.length > 0 && (!cmsData.localInventory || cmsData.localInventory.length === 0)) {
+                merged.localInventory = prev.localInventory;
+              }
               return merged;
             });
             try {
@@ -606,32 +614,34 @@ function MainApp() {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore landing settings onSnapshot notice:', err);
       });
 
-      // 8. Real-time collection sync for special_deals
+      // 8. Real-time collection sync for special_deals (sorted newest-first)
       unsubSpecialDeals = onSnapshot(collection(db, 'special_deals'), (snap) => {
         const loadedDeals: any[] = [];
         snap.forEach(docSnap => {
           loadedDeals.push({ id: docSnap.id, ...docSnap.data() });
         });
-        if (loadedDeals.length > 0) {
+        const sorted = sortNewestFirst(loadedDeals);
+        if (sorted.length > 0) {
           setCmsConfig(prev => {
             if (!prev) return prev;
-            return { ...prev, deals: loadedDeals };
+            return { ...prev, deals: sorted };
           });
         }
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore special_deals onSnapshot notice:', err);
       });
 
-      // 9. Real-time collection sync for iran_warehouse
+      // 9. Real-time collection sync for iran_warehouse (sorted newest-first)
       unsubIranWarehouse = onSnapshot(collection(db, 'iran_warehouse'), (snap) => {
         const loadedLocal: any[] = [];
         snap.forEach(docSnap => {
           loadedLocal.push({ id: docSnap.id, ...docSnap.data() });
         });
-        if (loadedLocal.length > 0) {
+        const sorted = sortNewestFirst(loadedLocal);
+        if (sorted.length > 0) {
           setCmsConfig(prev => {
             if (!prev) return prev;
-            return { ...prev, localInventory: loadedLocal };
+            return { ...prev, localInventory: sorted };
           });
         }
       }, (err) => {
@@ -1148,8 +1158,11 @@ function MainApp() {
 
             {/* Popular Samples Section (نمونه‌های محبوب) */}
             {(() => {
-              const popularDeals = (cmsConfig?.deals || []).filter(d => d && d.isActive === true && (d.isPopular === true || d.isPopularSample === true));
-              const popularLocal = (cmsConfig?.localInventory || []).filter(i => i && i.isActive === true && i.inStock !== false && (i.isPopular === true || i.isPopularSample === true));
+              const dealsSource = (contextDeals && contextDeals.length > 0) ? contextDeals : (cmsConfig?.deals || []);
+              const localSource = (contextWarehouse && contextWarehouse.length > 0) ? contextWarehouse : (cmsConfig?.localInventory || []);
+
+              const popularDeals = dealsSource.filter(d => d && d.isActive !== false && (d.isPopular === true || String(d.isPopular) === 'true' || d.isPopularSample === true || String(d.isPopularSample) === 'true'));
+              const popularLocal = localSource.filter(i => i && i.isActive !== false && i.inStock !== false && (i.isPopular === true || String(i.isPopular) === 'true' || i.isPopularSample === true || String(i.isPopularSample) === 'true'));
 
               let popularList: PopularProductItem[] = [
                 ...popularLocal.map(item => ({
@@ -1168,27 +1181,53 @@ function MainApp() {
                 }))
               ];
 
+              if (isProductsLoading && popularList.length === 0) {
+                return (
+                  <div className="w-full bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-4 space-y-3 animate-pulse shadow-2xs my-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 bg-slate-200 dark:bg-slate-700 rounded-full" />
+                      <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-24" />
+                    </div>
+                    <div className="flex gap-4 overflow-hidden">
+                      {[1, 2, 3, 4].map(n => (
+                        <div key={n} className="w-28 sm:w-36 shrink-0 space-y-2">
+                          <div className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-2xl" />
+                          <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded w-3/4" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+
               if (popularList.length === 0) {
                 return null;
               }
 
-              const popularOrder = (cmsConfig as any)?.popularSamplesOrder || [];
-              if (popularOrder.length > 0) {
-                popularList.sort((a, b) => {
-                  const rawIdA = a.rawItem ? a.rawItem.id : a.id;
-                  const rawIdB = b.rawItem ? b.rawItem.id : b.id;
+              popularList.sort((a, b) => {
+                const rawIdA = a.rawItem ? a.rawItem.id : a.id;
+                const rawIdB = b.rawItem ? b.rawItem.id : b.id;
 
-                  const idxA = popularOrder.indexOf(a.id) !== -1
-                    ? popularOrder.indexOf(a.id)
-                    : (popularOrder.indexOf(rawIdA) !== -1 ? popularOrder.indexOf(rawIdA) : 999);
+                const itemOrderA = typeof (a as any).popularOrder === 'number' ? (a as any).popularOrder : (typeof (a as any).rawItem?.popularOrder === 'number' ? (a as any).rawItem.popularOrder : undefined);
+                const itemOrderB = typeof (b as any).popularOrder === 'number' ? (b as any).popularOrder : (typeof (b as any).rawItem?.popularOrder === 'number' ? (b as any).rawItem.popularOrder : undefined);
 
-                  const idxB = popularOrder.indexOf(b.id) !== -1
-                    ? popularOrder.indexOf(b.id)
-                    : (popularOrder.indexOf(rawIdB) !== -1 ? popularOrder.indexOf(rawIdB) : 999);
+                if (itemOrderA !== undefined && itemOrderB !== undefined) {
+                  return itemOrderA - itemOrderB;
+                }
+                if (itemOrderA !== undefined) return -1;
+                if (itemOrderB !== undefined) return 1;
 
-                  return idxA - idxB;
-                });
-              }
+                const popularOrder = (cmsConfig as any)?.popularSamplesOrder || [];
+                const idxA = popularOrder.indexOf(a.id) !== -1
+                  ? popularOrder.indexOf(a.id)
+                  : (popularOrder.indexOf(rawIdA) !== -1 ? popularOrder.indexOf(rawIdA) : 999);
+
+                const idxB = popularOrder.indexOf(b.id) !== -1
+                  ? popularOrder.indexOf(b.id)
+                  : (popularOrder.indexOf(rawIdB) !== -1 ? popularOrder.indexOf(rawIdB) : 999);
+
+                return idxA - idxB;
+              });
 
               return (
                 <PopularProductsCarousel

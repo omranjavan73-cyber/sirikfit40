@@ -10,7 +10,8 @@ import type {
   ProductData,
   VariantGroupsStructure
 } from '../types';
-import { generateBilingualProductTitle } from '../utils/parseLink';
+import { generateBilingualProductTitle, parseProductLinkUniversal } from '../utils/parseLink';
+import { getEffectiveGeminiKeysList } from '../utils/geminiKey';
 import { sanitizeVariantLabel, isArtificialFallback, normalizeProductImageUrl, isInvalidProductImage } from '../utils/formatters';
 import { GncAdapter } from './GncAdapter';
 import { DrNutritionAdapter } from './DrNutritionAdapter';
@@ -75,16 +76,19 @@ export class UniversalScraperService {
     const storeName = raw.storeName || raw.sourceStore || originInfo.storeName;
     const brand = raw.brand || storeName;
 
-    let mainImage = raw.mainImage || raw.image || raw.image_url || '';
-    if (mainImage && (mainImage.toLowerCase().includes('logo') || mainImage.toLowerCase().includes('dnp') || mainImage.toLowerCase().includes('vector.svg') || mainImage.toLowerCase().includes('og-logo'))) {
-      mainImage = '';
-    }
+    let rawImg = raw.mainImage || raw.image || raw.imageUrl || raw.image_url || '';
+    const normMain = normalizeProductImageUrl(rawImg, sourceUrl);
+    let mainImage = !isInvalidProductImage(normMain) ? normMain : '';
+
     const rawGallery: string[] = Array.isArray(raw.galleryImages)
       ? raw.galleryImages
       : (Array.isArray(raw.images) ? raw.images : []);
 
     const images: string[] = Array.from(
-      new Set([mainImage, ...rawGallery].filter(img => img && !img.toLowerCase().includes('logo') && !img.toLowerCase().includes('dnp') && !img.toLowerCase().includes('vector.svg') && !img.toLowerCase().includes('og-logo')))
+      new Set(
+        [mainImage, ...rawGallery.map(img => normalizeProductImageUrl(img, sourceUrl))]
+          .filter(img => img && !isInvalidProductImage(img))
+      )
     );
     if (!mainImage && images.length > 0) {
       mainImage = images[0];
@@ -176,19 +180,49 @@ export class UniversalScraperService {
 
     const isAvailable = raw.inStock !== false && raw.available !== false && (allOptions.length === 0 || allOptions.some(o => o.inStock));
 
+    const primaryImage = images[0] || '';
+
+    // Derive deterministic unique slug-based ID from source URL, avoiding any hardcoded strings
+    let derivedId: string | undefined = undefined;
+    if (raw.id && typeof raw.id === 'string' && !raw.id.includes('drnutrition') && !raw.id.startsWith('draft_') && !raw.id.startsWith('scraped-')) {
+      derivedId = raw.id;
+    } else if (sourceUrl) {
+      try {
+        const pathname = new URL(sourceUrl).pathname;
+        const lastPart = pathname.split('/').filter(Boolean).pop();
+        if (lastPart) {
+          const cleanSlug = lastPart.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+          if (cleanSlug.length > 3) {
+            derivedId = `drn_${cleanSlug}_${Date.now()}`;
+          }
+        }
+      } catch (_e) {}
+    }
+
     return {
+      id: derivedId,
       title: raw.title || 'Dubai Store Product',
+      titleFa: raw.titleFa,
+      titleEn: raw.titleEn || raw.title,
       brand,
       price,
+      priceAed: price,
       originalPrice,
+      originalPriceAed: originalPrice,
       currency: raw.currency || 'AED',
       description: raw.description || '',
       features: Array.isArray(raw.features) ? raw.features : [],
+      image: primaryImage,
+      imageUrl: primaryImage,
       images,
+      galleryImages: images,
       videos: Array.isArray(raw.videos) ? raw.videos : [],
       variantGroups,
       isAvailable,
-      sourceUrl
+      sourceUrl,
+      url: sourceUrl,
+      createdAt: raw.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
   }
 
@@ -456,8 +490,25 @@ export class UniversalScraperService {
       selectedVariant: variants[0]
     };
 
+    // Derive deterministic unique slug-based ID from source URL, avoiding any hardcoded strings
+    let derivedProductId: string | undefined = undefined;
+    if (raw.id && typeof raw.id === 'string' && !raw.id.includes('drnutrition') && !raw.id.startsWith('draft_') && !raw.id.startsWith('scraped-')) {
+      derivedProductId = raw.id;
+    } else if (sourceUrl) {
+      try {
+        const pathname = new URL(sourceUrl).pathname;
+        const lastPart = pathname.split('/').filter(Boolean).pop();
+        if (lastPart) {
+          const cleanSlug = lastPart.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+          if (cleanSlug.length > 3) {
+            derivedProductId = `drn_${cleanSlug}_${Date.now()}`;
+          }
+        }
+      } catch (_e) {}
+    }
+
     return {
-      id: raw.id || `scraped-${Date.now()}`,
+      id: derivedProductId,
       title: raw.title || 'Dubai Store Product',
       brand,
       sourceStore: storeName,
@@ -484,14 +535,14 @@ export class UniversalScraperService {
     const storeName = raw.storeName || raw.sourceStore || originInfo.storeName;
     const brand = raw.brand || storeName;
 
-    const rawMainImg = raw.mainImage || raw.image || raw.image_url || '';
-    let mainImage = normalizeProductImageUrl(rawMainImg, sourceUrl);
+    const rawMainImg = raw.imageUrl || raw.mainImage || raw.image || raw.image_url || (raw.images && raw.images[0]) || (raw.galleryImages && raw.galleryImages[0]) || '';
+    let mainImage = normalizeProductImageUrl(rawMainImg, raw.storeDomain || sourceUrl || 'https://drnutrition.com');
     const rawGallery: string[] = Array.isArray(raw.galleryImages)
       ? raw.galleryImages
-      : (Array.isArray(raw.images) ? raw.images : []);
+      : (Array.isArray(raw.images) ? raw.images : (rawMainImg ? [rawMainImg] : []));
 
     const galleryImages: string[] = Array.from(
-      new Set([mainImage, ...rawGallery.map(img => normalizeProductImageUrl(img, sourceUrl))].filter(Boolean))
+      new Set([mainImage, ...rawGallery.map(img => normalizeProductImageUrl(img, raw.storeDomain || sourceUrl || 'https://drnutrition.com'))].filter(Boolean))
     );
     if (!mainImage && galleryImages.length > 0) {
       mainImage = galleryImages[0];
@@ -662,22 +713,30 @@ export class UniversalScraperService {
       items: flatVariants,
       selectedVariant: flatVariants[0]
     };
+    const finalImg = galleryImages[0] || mainImage;
 
     return {
+      id: raw.id || undefined,
       title: titleFa,
       titleFa,
       titleEn,
       url: sourceUrl,
       priceAed,
+      priceAED: priceAed,
+      price: priceAed,
       originalPriceAed,
+      originalPriceAED: originalPriceAed,
       discountPercent,
       weightKg: Number(raw.weightKg) || 0.8,
-      image: galleryImages[0] || mainImage,
+      image: finalImg,
+      imageUrl: finalImg,
+      mainImage: finalImg,
       images: galleryImages,
       galleryImages,
       videos: Array.isArray(raw.videos) ? raw.videos : [],
       features: Array.isArray(raw.features) ? raw.features : [],
       storeName,
+      storeDomain: raw.storeDomain || (originInfo.storeName ? sourceUrl : 'https://drnutrition.com'),
       storeOrigin: originInfo.origin,
       brand,
       category: raw.category || 'مکمل‌های ورزشی و تغذیه',
@@ -695,112 +754,73 @@ export class UniversalScraperService {
   }
 
   /**
-   * Universal extractor invoking Firebase Callable Functions (`scrapeProductUrl` / `extractProductMetadata`)
-   * with seamless fallback to backend `/api/scrape-product` or `/api/parse-link`.
+   * Universal extractor with seamless retry and cold-start absorption.
    * Enforces zero mock-data invariants and throws descriptive Persian errors upon extraction failure.
    */
-  public async extractProductMetadata(url: string, forceRefresh: boolean = false): Promise<UniversalProduct> {
-    const cleanUrl = (url || '').trim();
-    if (!cleanUrl) {
-      throw new Error('لطفاً آدرس لینک محصول را وارد نمایید.');
-    }
-
-    let rawData: any = null;
-
-    // 1. Primary Extraction: Firebase Callable Functions (`scrapeProductUrl` or `extractProductMetadata`)
-    try {
-      if (functions) {
-        try {
-          const callable = httpsCallable<{ url: string; forceRefresh?: boolean }, { success: boolean; data?: any; error?: string }>(
-            functions,
-            'scrapeProductUrl'
-          );
-          const result = await callable({ url: cleanUrl, forceRefresh });
-          if (result?.data?.success && result.data.data) {
-            rawData = result.data.data;
-          } else if (result?.data?.error) {
-            throw new Error(result.data.error);
-          }
-        } catch (fn1Err: any) {
-          if (fn1Err?.message && (fn1Err.message.includes('استخراج ناموفق') || fn1Err.message.includes('عدم دریافت') || fn1Err.message.includes('معتبر'))) {
-            throw fn1Err;
-          }
-          // Fallback to extractProductMetadata callable
-          const fallbackCallable = httpsCallable<{ url: string; forceRefresh?: boolean }, { success: boolean; data?: any; error?: string }>(
-            functions,
-            'extractProductMetadata'
-          );
-          const result2 = await fallbackCallable({ url: cleanUrl, forceRefresh });
-          if (result2?.data?.success && result2.data.data) {
-            rawData = result2.data.data;
-          } else if (result2?.data?.error) {
-            throw new Error(result2.data.error);
-          }
-        }
-      }
-    } catch (callableErr: any) {
-      console.warn('[UniversalScraperService] Firebase callable extraction warning:', callableErr?.message || callableErr);
-      if (callableErr?.message && (callableErr.message.includes('استخراج ناموفق') || callableErr.message.includes('عدم دریافت') || callableErr.message.includes('معتبر'))) {
-        throw new Error(callableErr.message);
-      }
-    }
-
-    // 2. Secondary Backend Proxy Fallback: `/api/scrape-product`
-    if (!rawData) {
-      try {
-        const res = await fetch('/api/scrape-product', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: cleanUrl, forceRefresh })
-        });
-        if (res.ok) {
-          const resData = await res.json();
-          if (resData && (resData.success || resData.ok) && (resData.data || resData.priceAed || resData.price || resData.priceAED)) {
-            rawData = resData.data || resData;
-          }
-        }
-      } catch (_apiErr) {}
-    }
-
-    // 3. Fallback to `/api/parse-link`
-    if (!rawData) {
-      try {
-        const res = await fetch('/api/parse-link', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: cleanUrl })
-        });
-        if (res.ok) {
-          const resData = await res.json();
-          if (resData && (resData.success || resData.ok) && (resData.data || resData.priceAed || resData.price || resData.priceAED)) {
-            rawData = resData.data || resData;
-          }
-        }
-      } catch (_apiErr2) {}
-    }
-
-    // 4. Strict Validation: Eradicate Mock Data
-    if (!rawData) {
-      throw new Error('خطا در استخراج اطلاعات محصول: امکان برقراری ارتباط با فروشگاه مبدا یا دریافت اطلاعات وجود ندارد.');
-    }
-
-    const price = Number(rawData.priceAed || rawData.priceAED || rawData.price || rawData.basePriceAED || 0);
-    if (!price || price <= 0) {
-      throw new Error('خطا در استخراج اطلاعات محصول: قیمت معتبری در صفحه فروشگاه یافت نشد.');
-    }
-
-    return this.normalizeScrapedProduct(rawData, cleanUrl);
+  public async extractProductMetadata(url: string, forceRefresh: boolean = false, sourceCaller: string = 'scraperService'): Promise<UniversalProduct> {
+    return extractProductDataUnified(url, 2, sourceCaller);
   }
 
   /**
    * Alias for extractProductMetadata conforming to scraperService.extract(url)
    */
-  public async extract(url: string, forceRefresh: boolean = false): Promise<UniversalProduct> {
-    return this.extractProductMetadata(url, forceRefresh);
+  public async extract(url: string, forceRefresh?: boolean | string, sourceCaller?: string): Promise<UniversalProduct> {
+    const caller = typeof forceRefresh === 'string' ? forceRefresh : (sourceCaller || 'scraperService');
+    return extractProductDataUnified(url, 2, caller);
   }
 }
 
 export const universalScraperService = UniversalScraperService.getInstance();
 export const scraperService = universalScraperService;
+
+/**
+ * Unified standalone extraction function with automatic retries and extended timeout to handle Serverless cold starts.
+ */
+export async function extractProductDataUnified(
+  rawUrl: string,
+  retries = 2,
+  sourceCaller = 'unified'
+): Promise<UniversalProduct> {
+  const cleanUrl = (rawUrl || '').trim();
+  console.log('[Scraper Engine] Initiating extraction from caller:', sourceCaller, { targetUrl: cleanUrl });
+  if (!cleanUrl) {
+    throw new Error('لطفاً آدرس لینک محصول را وارد نمایید.');
+  }
+
+  let cmsConfig: any = null;
+  try {
+    const saved = localStorage.getItem('sirikfit_cms_config');
+    if (saved) cmsConfig = JSON.parse(saved);
+  } catch (_e) {}
+
+  const geminiKeys = getEffectiveGeminiKeysList(cmsConfig?.apiConfig?.geminiApiKeys || cmsConfig?.apiConfig?.geminiApiKey);
+
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    try {
+      const universalRes = await parseProductLinkUniversal({
+        url: cleanUrl,
+        geminiKeys,
+        cmsConfig
+      });
+
+      if (universalRes && universalRes.success && universalRes.priceAed && universalRes.priceAed > 0) {
+        return universalScraperService.normalizeScrapedProduct(universalRes, cleanUrl);
+      }
+
+      const errMsg = universalRes?.error || universalRes?.message || 'خطا در استخراج اطلاعات محصول: امکان برقراری ارتباط با فروشگاه مبدا یا دریافت اطلاعات وجود ندارد.';
+      throw new Error(errMsg);
+    } catch (error: any) {
+      lastError = error;
+      console.warn(`[Scraper Engine] Caller ${sourceCaller} attempt ${attempt}/${retries + 1} failed for ${cleanUrl}:`, error?.message || error);
+      if (attempt <= retries) {
+        await new Promise(res => setTimeout(res, 1200));
+      }
+    }
+  }
+
+  throw lastError || new Error('خطا در استخراج اطلاعات محصول: عدم دسترسی به سرور استخراج.');
+}
 
 

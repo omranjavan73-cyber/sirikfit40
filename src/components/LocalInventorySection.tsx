@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { LocalInventoryItem, FinancialSettings } from '../types';
 import { formatToman, formatPrice, getEffectiveAedRate } from '../utils/formatters';
 import { ProductDetailModal } from './ProductDetailModal';
+import { sortNewestFirst } from '../context/ProductContext';
 
 interface LocalInventorySectionProps {
   items?: LocalInventoryItem[];
@@ -19,7 +20,7 @@ export const LocalInventorySection: React.FC<LocalInventorySectionProps> = ({
   onAddToCart
 }) => {
   const [selectedLocalForModal, setSelectedLocalForModal] = useState<LocalInventoryItem | null>(null);
-  const visibleItems = (items || []).filter(item => item && item.isActive !== false && item.inStock !== false);
+  const visibleItems = sortNewestFirst((items || []).filter(item => item && item.isActive !== false && item.inStock !== false));
 
   if (visibleItems.length === 0) {
     return null;

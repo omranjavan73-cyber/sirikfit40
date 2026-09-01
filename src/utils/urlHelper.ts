@@ -44,7 +44,6 @@ export function isInvalidProductImage(rawUrl: string): boolean {
   }
 
   const invalidKeywords = [
-    'logo',
     'dnp_logo',
     'dnp-logo',
     'dnp.png',
@@ -59,13 +58,14 @@ export function isInvalidProductImage(rawUrl: string): boolean {
     'drnutrition-logo',
     '/media/logo/',
     '/media/logos/',
+    '/logo/',
+    '_logo.',
+    '-logo.',
     '/stores/1/dnp',
     'placeholder',
     'default_logo',
     'store_logo',
     'favicon',
-    'badge',
-    'banner',
     'header-logo',
     'footer-logo',
     'site-logo',
@@ -93,19 +93,23 @@ export function isInvalidProductImage(rawUrl: string): boolean {
     const urlObj = new URL(lower.startsWith('http') ? lower : `https://drnutrition.com${lower.startsWith('/') ? '' : '/'}${lower}`);
     const pathname = urlObj.pathname;
     const filename = pathname.split('/').pop() || '';
+    const fnameNoExt = filename.replace(/\.[^.]+$/, '');
 
     if (
-      filename.includes('logo') ||
-      filename.includes('dnp_logo') ||
-      filename.includes('dnp-logo') ||
-      filename === 'dnp.png' ||
-      filename === 'dnp.jpg' ||
-      filename === 'dnp.webp' ||
-      filename === 'dnp.svg' ||
-      filename.includes('placeholder') ||
-      filename.includes('icon') ||
-      filename.includes('badge') ||
-      filename.includes('banner')
+      fnameNoExt === 'logo' ||
+      fnameNoExt.startsWith('logo_') ||
+      fnameNoExt.startsWith('logo-') ||
+      fnameNoExt.endsWith('_logo') ||
+      fnameNoExt.endsWith('-logo') ||
+      fnameNoExt === 'dnp' ||
+      fnameNoExt === 'dnp_logo' ||
+      fnameNoExt === 'dnp-logo' ||
+      fnameNoExt === 'icon' ||
+      fnameNoExt.startsWith('icon_') ||
+      fnameNoExt.startsWith('icon-') ||
+      fnameNoExt.endsWith('_icon') ||
+      fnameNoExt.endsWith('-icon') ||
+      fnameNoExt.includes('placeholder')
     ) {
       return true;
     }
@@ -119,51 +123,31 @@ export function isInvalidProductImage(rawUrl: string): boolean {
  * Enforces strict absolute HTTPS URLs, handles protocol-relative and domain-relative paths,
  * strips CDN downscaling params, and upgrades e-commerce thumbnails to high-res master images.
  */
-export function normalizeProductImageUrl(rawUrl?: string | null, storeDomain = 'https://drnutrition.com'): string {
+export function normalizeProductImageUrl(rawUrl?: string | null, defaultDomain = 'https://drnutrition.com'): string {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
-  let str = String(rawUrl).trim().replace(/&amp;/g, '&').replace(/^["']|["']$/g, '').trim();
-  if (!str) return '';
-
-  if (str.startsWith('data:image')) return str;
-  if (str.startsWith('//')) return `https:${str}`;
-  if (str.startsWith('http://')) {
-    str = str.replace('http://', 'https://');
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return '';
+  
+  if (trimmed.startsWith('data:image')) return trimmed;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    const upgraded = trimmed.startsWith('http://') ? trimmed.replace('http://', 'https://') : trimmed;
+    if (isInvalidProductImage(upgraded)) return '';
+    return upgraded;
   }
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
 
-  // Resolve base domain cleanly even if a full product URL was passed in storeDomain
-  let domain = (storeDomain && typeof storeDomain === 'string' && storeDomain.trim())
-    ? storeDomain.trim()
-    : 'https://drnutrition.com';
+  const cleanDomain = (defaultDomain || 'https://drnutrition.com').replace(/\/+$/, '');
+  const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  let resolvedUrl = `${cleanDomain}${cleanPath}`;
 
-  try {
-    if (domain.startsWith('http://') || domain.startsWith('https://')) {
-      const u = new URL(domain);
-      domain = `${u.protocol}//${u.host}`;
-    } else if (domain.startsWith('//')) {
-      domain = 'https:' + domain;
-      const u = new URL(domain);
-      domain = `${u.protocol}//${u.host}`;
-    } else {
-      domain = 'https://' + domain.replace(/^\/+/, '');
-      const u = new URL(domain);
-      domain = `${u.protocol}//${u.host}`;
-    }
-  } catch (_e) {
-    domain = 'https://drnutrition.com';
+  // If pointing to Dr Nutrition media relative path, map to media CDN
+  if (cleanPath.startsWith('/media/') && (cleanDomain.includes('drnutrition.com') || !cleanDomain.startsWith('http'))) {
+    resolvedUrl = `https://media.drnutrition.com${cleanPath}`;
   }
-
-  const cleanDomain = domain.replace(/\/+$/, '');
-
-  if (!str.startsWith('https://')) {
-    const cleanPath = str.startsWith('/') ? str : `/${str}`;
-    str = `${cleanDomain}${cleanPath}`;
-  }
-
-  str = str.split('"')[0].split("'")[0].split('\\')[0].trim();
 
   // Syntax validation & CDN query cleanup
   try {
-    const parsed = new URL(str);
+    const parsed = new URL(resolvedUrl);
     if (
       parsed.hostname.includes('drnutrition.com') ||
       parsed.hostname.includes('cdn.shopify.com') ||
@@ -174,18 +158,15 @@ export function normalizeProductImageUrl(rawUrl?: string | null, storeDomain = '
       parsed.searchParams.delete('height');
       parsed.searchParams.delete('crop');
     }
-    str = parsed.toString();
+    resolvedUrl = parsed.toString();
   } catch (_urlErr) {
+    // Keep resolvedUrl as is
+  }
+
+  if (isInvalidProductImage(resolvedUrl)) {
     return '';
   }
 
-  // Logo / SVG / Placeholder guard
-  if (isInvalidProductImage(str)) {
-    return '';
-  }
-
-  // Upgrade e-commerce thumbnail sizes to high-res (1024x1024 / master)
-  str = str.replace(/_(?:small|compact|thumb|medium|100x100|150x150|200x200|240x240|300x300)\.(jpe?g|png|webp|avif)/gi, '_1024x1024.$1');
-
-  return str;
+  return resolvedUrl;
 }
+

@@ -28,6 +28,22 @@ export function useProductsBySection(activeTab: 'deals' | 'iran_warehouse' | str
 
   const [isLoading, setIsLoading] = useState<boolean>(products.length === 0);
 
+  // Stale-While-Revalidate: load cached section data on tab switch without dropping to []
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(`sirikfit_section_${targetSectionKey}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setProducts(parsed);
+          setIsLoading(false);
+          return;
+        }
+      }
+    } catch (_e) {}
+    setIsLoading(true);
+  }, [targetSectionKey]);
+
   const stableQuery = useMemo(() => {
     return query(
       collection(db, 'products'),
@@ -38,28 +54,27 @@ export function useProductsBySection(activeTab: 'deals' | 'iran_warehouse' | str
   }, [targetSectionKey]);
 
   useEffect(() => {
-    if (products.length === 0) {
-      setIsLoading(true);
-    }
+    setIsLoading(true);
     const unsubscribe = onSnapshot(
       stableQuery,
       (snapshot) => {
-        const prods = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Product));
-        if (prods.length > 0) {
-          setProducts(prods);
+        const fetchedProducts = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Product));
+        // Instantly swaps state without dropping to [] first
+        setProducts(fetchedProducts);
+        if (fetchedProducts.length > 0) {
           try {
-            localStorage.setItem(`sirikfit_section_${targetSectionKey}`, JSON.stringify(prods));
+            localStorage.setItem(`sirikfit_section_${targetSectionKey}`, JSON.stringify(fetchedProducts));
           } catch (_e) {}
         }
         setIsLoading(false);
       },
-      (err) => {
-        console.error('Firestore subscription error:', err);
+      (error) => {
+        console.error('Firestore sync error:', error);
         setIsLoading(false);
       }
     );
     return () => unsubscribe();
-  }, [stableQuery, targetSectionKey]);
+  }, [stableQuery]);
 
   return { products, isLoading, setProducts };
 }

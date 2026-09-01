@@ -14,6 +14,34 @@ export interface ProductContextType {
 
 const ProductContext = createContext<ProductContextType | undefined>(undefined);
 
+export const sortNewestFirst = <T extends any>(arr: T[]): T[] => {
+  if (!Array.isArray(arr) || arr.length <= 1) return arr;
+  return [...arr].sort((a: any, b: any) => {
+    const getTime = (item: any): number => {
+      if (!item) return 0;
+      const candidate = item.sectionAddedAt || item.createdAt || item.updatedAt;
+      if (candidate) {
+        if (typeof candidate === 'number' && !isNaN(candidate) && candidate > 0) return candidate;
+        if (typeof candidate === 'object' && candidate !== null) {
+          if (typeof candidate.toMillis === 'function') return candidate.toMillis();
+          if (typeof candidate.seconds === 'number') return candidate.seconds * 1000;
+        }
+        const parsed = new Date(candidate).getTime();
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+      if (typeof item.id === 'string') {
+        const idParts = item.id.split(/[-_]/);
+        for (let i = idParts.length - 1; i >= 0; i--) {
+          const num = Number(idParts[i]);
+          if (!isNaN(num) && num > 1600000000000 && num < 2500000000000) return num;
+        }
+      }
+      return 0;
+    };
+    return getTime(b) - getTime(a);
+  });
+};
+
 // Safe localStorage cache hydration helpers
 const loadInitialDeals = (): FeaturedDeal[] => {
   if (typeof window === 'undefined') return [];
@@ -21,12 +49,12 @@ const loadInitialDeals = (): FeaturedDeal[] => {
     const raw = localStorage.getItem('sirikfit_special_deals');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return sortNewestFirst(parsed);
     }
     const rawCms = localStorage.getItem('sirikfit_cms_config') || localStorage.getItem('omex_home_cms');
     if (rawCms) {
       const cms = JSON.parse(rawCms);
-      if (Array.isArray(cms?.deals) && cms.deals.length > 0) return cms.deals;
+      if (Array.isArray(cms?.deals) && cms.deals.length > 0) return sortNewestFirst(cms.deals);
     }
   } catch (_e) {}
   return [];
@@ -38,12 +66,12 @@ const loadInitialWarehouse = (): LocalInventoryItem[] => {
     const raw = localStorage.getItem('sirikfit_iran_warehouse');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return sortNewestFirst(parsed);
     }
     const rawCms = localStorage.getItem('sirikfit_cms_config') || localStorage.getItem('omex_home_cms');
     if (rawCms) {
       const cms = JSON.parse(rawCms);
-      if (Array.isArray(cms?.localInventory) && cms.localInventory.length > 0) return cms.localInventory;
+      if (Array.isArray(cms?.localInventory) && cms.localInventory.length > 0) return sortNewestFirst(cms.localInventory);
     }
   } catch (_e) {}
   return [];
@@ -55,7 +83,7 @@ const loadInitialProducts = (): any[] => {
     const raw = localStorage.getItem('sirikfit_products');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return sortNewestFirst(parsed);
     }
   } catch (_e) {}
   return [];
@@ -79,23 +107,26 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       ]);
       const loadedDeals: FeaturedDeal[] = [];
       dealsSnap.forEach((d) => loadedDeals.push({ id: d.id, ...d.data() } as FeaturedDeal));
-      if (loadedDeals.length > 0) {
-        setDeals(loadedDeals);
-        try { localStorage.setItem('sirikfit_special_deals', JSON.stringify(loadedDeals)); } catch (_) {}
+      const sortedDeals = sortNewestFirst(loadedDeals);
+      if (sortedDeals.length > 0) {
+        setDeals(sortedDeals);
+        try { localStorage.setItem('sirikfit_special_deals', JSON.stringify(sortedDeals)); } catch (_) {}
       }
 
       const loadedWh: LocalInventoryItem[] = [];
       whSnap.forEach((d) => loadedWh.push({ id: d.id, ...d.data() } as LocalInventoryItem));
-      if (loadedWh.length > 0) {
-        setWarehouseItems(loadedWh);
-        try { localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(loadedWh)); } catch (_) {}
+      const sortedWh = sortNewestFirst(loadedWh);
+      if (sortedWh.length > 0) {
+        setWarehouseItems(sortedWh);
+        try { localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(sortedWh)); } catch (_) {}
       }
 
       const loadedProd: any[] = [];
       prodSnap.forEach((d: any) => loadedProd.push({ id: d.id, ...d.data() }));
-      if (loadedProd.length > 0) {
-        setGeneralProducts(loadedProd);
-        try { localStorage.setItem('sirikfit_products', JSON.stringify(loadedProd)); } catch (_) {}
+      const sortedProd = sortNewestFirst(loadedProd);
+      if (sortedProd.length > 0) {
+        setGeneralProducts(sortedProd);
+        try { localStorage.setItem('sirikfit_products', JSON.stringify(sortedProd)); } catch (_) {}
       }
       setIsLoading(false);
     } catch (err) {
@@ -117,13 +148,14 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
         snap.forEach((docSnap) => {
           loaded.push({ id: docSnap.id, ...docSnap.data() } as FeaturedDeal);
         });
+        const sorted = sortNewestFirst(loaded);
         setDeals((prev) => {
-          if (loaded.length === 0 && prev.length > 0) return prev;
-          return loaded;
+          if (sorted.length === 0 && prev.length > 0) return prev;
+          return sorted;
         });
-        if (loaded.length > 0) {
+        if (sorted.length > 0) {
           try {
-            localStorage.setItem('sirikfit_special_deals', JSON.stringify(loaded));
+            localStorage.setItem('sirikfit_special_deals', JSON.stringify(sorted));
           } catch (_) {}
         }
         checkDone();
@@ -141,13 +173,14 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
         snap.forEach((docSnap) => {
           loaded.push({ id: docSnap.id, ...docSnap.data() } as LocalInventoryItem);
         });
+        const sorted = sortNewestFirst(loaded);
         setWarehouseItems((prev) => {
-          if (loaded.length === 0 && prev.length > 0) return prev;
-          return loaded;
+          if (sorted.length === 0 && prev.length > 0) return prev;
+          return sorted;
         });
-        if (loaded.length > 0) {
+        if (sorted.length > 0) {
           try {
-            localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(loaded));
+            localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(sorted));
           } catch (_) {}
         }
         checkDone();

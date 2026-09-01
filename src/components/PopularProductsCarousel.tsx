@@ -22,6 +22,8 @@ export interface PopularProductItem {
   profitMargin?: number;
   marginPercent?: number;
   weightKg?: number;
+  popularOrder?: number;
+  isPopular?: boolean;
 }
 
 
@@ -54,7 +56,12 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
     }
   };
 
-  const list = items || products || [];
+  const rawList = items || products || [];
+  const list = [...rawList].sort((a: any, b: any) => {
+    const orderA = typeof a.popularOrder === 'number' ? a.popularOrder : 9999;
+    const orderB = typeof b.popularOrder === 'number' ? b.popularOrder : 9999;
+    return orderA - orderB;
+  });
 
   if (!list || list.length === 0) {
     return null;

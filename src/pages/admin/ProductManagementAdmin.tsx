@@ -33,12 +33,15 @@ import { AdminDiscounts } from '../../components/AdminDiscounts';
 import { LinkManagementTab } from '../../components/admin/LinkManagementTab';
 import { IranWarehouseAdmin } from './IranWarehouseAdmin';
 import { DealsAdmin } from './DealsAdmin';
+import { PopularOrderAdmin } from './PopularOrderAdmin';
 import { AdminTaxonomyManager } from '../../components/AdminTaxonomyManager';
 import { STORE_LIST, getStoreConfig } from '../../constants/stores';
-import { detectStoreOrigin, universalScraperService } from '../../services/scraperService';
+import { detectStoreOrigin, universalScraperService, scraperService, extractProductDataUnified } from '../../services/scraperService';
 import { ProductForm } from '../../components/admin/ProductForm';
 import { collection, onSnapshot, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
+
+import { sortNewestFirst } from '../../context/ProductContext';
 
 interface ProductManagementAdminProps {
   initialProduct?: Partial<NormalizedProduct>;
@@ -59,21 +62,43 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
     'inventory' | 'deals' | 'popularSamples' | 'categories' | 'discounts' | 'links' | 'editor'
   >('links');
   const [linksAlertCount, setLinksAlertCount] = useState<number>(0);
-  const [inventoryList, setInventoryList] = useState<LocalInventoryItem[]>(propInventory || []);
-  const [dealsList, setDealsList] = useState<FeaturedDeal[]>(propDeals || []);
+  const [inventoryList, setInventoryList] = useState<LocalInventoryItem[]>(() => {
+    if (propInventory && propInventory.length > 0) return sortNewestFirst(propInventory);
+    try {
+      const raw = localStorage.getItem('sirikfit_iran_warehouse');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return sortNewestFirst(parsed);
+      }
+    } catch (_e) {}
+    return [];
+  });
+  const [dealsList, setDealsList] = useState<FeaturedDeal[]>(() => {
+    if (propDeals && propDeals.length > 0) return sortNewestFirst(propDeals);
+    try {
+      const raw = localStorage.getItem('sirikfit_special_deals');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return sortNewestFirst(parsed);
+      }
+    } catch (_e) {}
+    return [];
+  });
   const [popularSamplesOrder, setPopularSamplesOrder] = useState<string[]>([]);
   const [isSavingPopular, setIsSavingPopular] = useState<boolean>(false);
 
   // Firestore listeners for inventory & deals if not passed as props
   useEffect(() => {
     if (propInventory && propInventory.length > 0) {
-      setInventoryList(propInventory);
+      setInventoryList(sortNewestFirst(propInventory));
       return;
     }
     const unsubInv = onSnapshot(collection(db, 'iran_warehouse'), (snap) => {
       const items: LocalInventoryItem[] = [];
       snap.forEach((d) => items.push({ id: d.id, ...d.data() } as LocalInventoryItem));
-      setInventoryList(items);
+      const sorted = sortNewestFirst(items);
+      setInventoryList(sorted);
+      try { localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(sorted)); } catch (_e) {}
     }, (err) => console.warn('Could not listen to iran_warehouse:', err));
 
     return () => unsubInv();
@@ -81,13 +106,15 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
 
   useEffect(() => {
     if (propDeals && propDeals.length > 0) {
-      setDealsList(propDeals);
+      setDealsList(sortNewestFirst(propDeals));
       return;
     }
     const unsubDeals = onSnapshot(collection(db, 'special_deals'), (snap) => {
       const items: FeaturedDeal[] = [];
       snap.forEach((d) => items.push({ id: d.id, ...d.data() } as FeaturedDeal));
-      setDealsList(items);
+      const sorted = sortNewestFirst(items);
+      setDealsList(sorted);
+      try { localStorage.setItem('sirikfit_special_deals', JSON.stringify(sorted)); } catch (_e) {}
     }, (err) => console.warn('Could not listen to special_deals:', err));
 
     return () => unsubDeals();
@@ -142,6 +169,11 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   const [product, setProduct] = useState<NormalizedProduct>(() => {
+    const rawInitImg = initialProduct?.image || initialProduct?.imageUrl || '';
+    const normInitImg = normalizeProductImageUrl(rawInitImg, initialProduct?.sourceUrl || initialProduct?.url || 'https://drnutrition.com');
+    const normImages = (initialProduct?.images || []).map((img: string) => normalizeProductImageUrl(img, initialProduct?.sourceUrl || initialProduct?.url || 'https://drnutrition.com')).filter(Boolean);
+    const normGallery = (initialProduct?.galleryImages || []).map((img: string) => normalizeProductImageUrl(img, initialProduct?.sourceUrl || initialProduct?.url || 'https://drnutrition.com')).filter(Boolean);
+
     return {
       title: initialProduct?.title || '',
       titleFa: initialProduct?.titleFa || '',
@@ -152,9 +184,10 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
       priceAed: initialProduct?.priceAed || initialProduct?.price || 0,
       originalPriceAed: initialProduct?.originalPriceAed,
       currency: initialProduct?.currency || 'AED',
-      image: initialProduct?.image || initialProduct?.imageUrl || '',
-      images: initialProduct?.images || [],
-      galleryImages: initialProduct?.galleryImages || [],
+      image: normInitImg,
+      imageUrl: normInitImg,
+      images: normImages.length > 0 ? normImages : (normInitImg ? [normInitImg] : []),
+      galleryImages: normGallery.length > 0 ? normGallery : (normInitImg ? [normInitImg] : []),
       weightKg: initialProduct?.weightKg || 0.8,
       sizes: initialProduct?.sizes || [],
       flavors: initialProduct?.flavors || [],
@@ -170,32 +203,13 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
     }
     setIsScrapingMain(true);
     try {
-      let data: any = null;
-      try {
-        const extracted = await universalScraperService.extractProductMetadata(mainUrl.trim());
-        if (extracted && (extracted.priceAed || extracted.title)) {
-          data = extracted;
-        }
-      } catch (_extractErr) {
-        console.warn('Direct scraper failed, attempting backend proxy fallback:', _extractErr);
-      }
+      console.log('[Scraper Engine] Initiating extraction from caller: ProductManagementAdmin', { targetUrl: mainUrl.trim() });
+      const scraped = await scraperService.extract(mainUrl.trim(), false, 'ProductManagementAdmin');
 
-      if (!data) {
-        const res = await fetch('/api/scrape-product', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: mainUrl.trim() })
-        });
-        if (res.ok) {
-          data = await res.json();
-        }
-      }
-
-      if (data && (data.title || data.priceAED || data.priceAed || data.price)) {
-        const scraped = data;
+      if (scraped && (scraped.title || scraped.priceAed || (scraped as any).price)) {
         const attr = extractAttributesFromText(scraped.title || scraped.titleEn || '', mainUrl);
-        const pAed = parseFloat(scraped.priceAED || scraped.priceAed || scraped.price || 0);
-        const origAed = parseFloat(scraped.originalPriceAED || scraped.originalPriceAed || scraped.originalPrice || 0) || undefined;
+        const pAed = parseFloat(String(scraped.priceAed || (scraped as any).priceAED || (scraped as any).price || 0));
+        const origAed = parseFloat(String(scraped.originalPriceAed || (scraped as any).originalPriceAED || (scraped as any).originalPrice || 0)) || undefined;
         const sz = attr.size || (scraped.sizes && scraped.sizes[0]) || '';
         const flv = attr.flavor || (scraped.flavors && scraped.flavors[0]) || '';
 
@@ -217,12 +231,21 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         const calculatedTomanPrice = landedCalc.finalToman;
 
         const rawMainImg = scraped.imageUrl || scraped.mainImage || scraped.image || (scraped.galleryImages && scraped.galleryImages[0]) || (scraped.images && scraped.images[0]) || '';
-        const normalizedMainImg = normalizeProductImageUrl(rawMainImg, scraped.storeDomain || mainUrl.trim() || 'https://drnutrition.com');
+        const cleanDomain = (scraped.storeDomain || (originInfo as any)?.baseUrl || (mainUrl.toLowerCase().includes('drnutrition') ? 'https://drnutrition.com' : '')).replace(/\/+$/, '');
+        const resolvedImageUrl = rawMainImg.startsWith('http') ? rawMainImg : (cleanDomain ? `${cleanDomain}/${rawMainImg.replace(/^\/+/, '')}` : rawMainImg);
+        const normalizedMainImg = normalizeProductImageUrl(resolvedImageUrl, cleanDomain || 'https://drnutrition.com');
+
         const rawGalleryList: string[] = Array.isArray(scraped.galleryImages)
           ? scraped.galleryImages
           : (Array.isArray(scraped.images) ? scraped.images : []);
         const normalizedGallery = Array.from(
-          new Set([normalizedMainImg, ...rawGalleryList.map((img: string) => normalizeProductImageUrl(img, scraped.storeDomain || mainUrl.trim() || 'https://drnutrition.com'))].filter(Boolean))
+          new Set([
+            normalizedMainImg,
+            ...rawGalleryList.map((img: string) => {
+              const resImg = img.startsWith('http') ? img : (cleanDomain ? `${cleanDomain}/${img.replace(/^\/+/, '')}` : img);
+              return normalizeProductImageUrl(resImg, cleanDomain || 'https://drnutrition.com');
+            })
+          ].filter(Boolean))
         );
 
         const firstVariant: ProductVariant = {
@@ -447,15 +470,21 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           };
         });
 
+      const isNew = !product.id || product.id.startsWith('draft_') || product.id.startsWith('prod_') || product.id.startsWith('scraped-') || product.id.startsWith('temp_');
+      const uniqueId = isNew ? doc(collection(db, 'products')).id : product.id;
+
       const sanitizedProduct = {
         ...product,
+        id: uniqueId,
         priceToman: Number(product.priceToman) || 0,
         priceAed: Number(product.priceAed) || 0,
         isPublished: product.isPublished !== false,
         isPopular: Boolean(product.isPopular),
+        popularOrder: product.isPopular ? (typeof product.popularOrder === 'number' ? product.popularOrder : 0) : 9999,
         variants: sanitizedVariants,
         flavors: Array.from(new Set(sanitizedVariants.map(v => v.flavor))),
         sizes: Array.from(new Set(sanitizedVariants.map(v => v.size))),
+        createdAt: isNew ? (product.createdAt || new Date().toISOString()) : (product.createdAt || new Date().toISOString()),
         updatedAt: new Date().toISOString()
       };
 
@@ -723,67 +752,15 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
 
       {/* 3. POPULAR SAMPLES TAB */}
       {activeAdminSubTab === 'popularSamples' && (
-        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-black">
-                <Flame className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-black text-slate-900">ترتیب نمایش محصولات پرطرفدار</h3>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">مشخص کردن ترتیب اولویت در صفحه اصلی</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={async () => {
-                setIsSavingPopular(true);
-                try {
-                  await setDoc(doc(db, 'settings', 'cms'), { popularSamplesOrder }, { merge: true });
-                  if (showToast) showToast('ترتیب پرطرفدارها با موفقیت ذخیره شد', 'success');
-                } catch (e: any) {
-                  if (showToast) showToast(`خطا در ذخیره ترتیب: ${e.message}`, 'error');
-                } finally {
-                  setIsSavingPopular(false);
-                }
-              }}
-              disabled={isSavingPopular}
-              className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-black rounded-xl transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {isSavingPopular ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 text-emerald-400" />}
-              <span>ذخیره ترتیب</span>
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {[...dealsList, ...inventoryList].map((prod: any, idx) => (
-              <div
-                key={prod.id ? `prod-sample-${prod.id}-${idx}` : `prod-sample-idx-${idx}`}
-                className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-2xl"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 text-xs font-black flex items-center justify-center">
-                    {toPersianDigits(idx + 1)}
-                  </span>
-                  <img
-                    src={normalizeProductImageUrl(prod.imageUrl || prod.image, prod.sourceUrl || prod.url || 'https://drnutrition.com') || 'https://placehold.co/50x50'}
-                    alt={prod.title || prod.titleFa}
-                    className="w-10 h-10 object-contain rounded-lg bg-white border border-slate-200"
-                  />
-                  <div>
-                    <h4 className="text-xs font-black text-slate-900">{prod.titleFa || prod.title}</h4>
-                    <p className="text-[11px] text-slate-500 dir-ltr text-right font-medium">{prod.title || prod.brand}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-black text-emerald-700">
-                    {prod.priceAed ? `${toPersianDigits(prod.priceAed)} AED` : ''}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <PopularOrderAdmin
+          products={[...dealsList, ...inventoryList] as any}
+          onOrderSaved={(updated) => {
+            const updatedMap = new Map(updated.map(p => [p.id, p]));
+            setDealsList(prev => prev.map(d => updatedMap.has(d.id) ? { ...d, ...updatedMap.get(d.id) } : d));
+            setInventoryList(prev => prev.map(i => updatedMap.has(i.id) ? { ...i, ...updatedMap.get(i.id) } : i));
+          }}
+          showToast={showToast}
+        />
       )}
 
       {/* 4. CATEGORIES TAB */}
@@ -812,16 +789,23 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
             aedRate={liveAedRate}
             showToast={showToast}
             onSave={async (draft) => {
+              const nowIso = new Date().toISOString();
+              const itemDraft = {
+                ...draft,
+                createdAt: (draft as any).createdAt || nowIso,
+                sectionAddedAt: nowIso,
+                updatedAt: nowIso
+              };
               if (draft.targetSection === 'iran_warehouse') {
-                const updated = [draft as any, ...inventoryList];
+                const updated = [itemDraft as any, ...inventoryList.filter(p => p.id !== draft.id)];
                 setInventoryList(updated);
                 await saveIranWarehouseItems(updated);
               } else {
-                const updated = [draft as any, ...dealsList];
+                const updated = [itemDraft as any, ...dealsList.filter(p => p.id !== draft.id)];
                 setDealsList(updated);
                 await saveSpecialDeals(updated);
               }
-              if (showToast) showToast('محصول با موفقیت استخراج و در دیتابیس ثبت شد', 'success');
+              if (showToast) showToast('محصول با موفقیت استخراج و در ابتدای لیست ثبت شد', 'success');
             }}
           />
 
@@ -861,16 +845,23 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         {product.title && (
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-3">
             <div className="flex items-center gap-4 flex-1 min-w-0">
-              {(product.imageUrl || product.image) && (
-                <img
-                  src={normalizeProductImageUrl(product.imageUrl || product.image, mainUrl.trim() || 'https://drnutrition.com')}
-                  alt={product.titleFa || product.title}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLElement).style.display = 'none';
-                  }}
-                  className="w-16 h-16 object-contain rounded-xl bg-white border border-slate-200 p-1 shrink-0"
-                />
-              )}
+              <div className="w-12 h-12 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden shrink-0">
+                {(product.imageUrl || product.image) ? (
+                  <img
+                    src={normalizeProductImageUrl(product.imageUrl || product.image, mainUrl.trim() || 'https://drnutrition.com')}
+                    alt={product.titleEn || product.titleFa || product.title}
+                    className="w-full h-full object-contain p-0.5"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = '/placeholder-product.png';
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-slate-100 text-[9px] text-slate-400">
+                    بدون تصویر
+                  </div>
+                )}
+              </div>
               <div className="flex-1 min-w-0 space-y-1">
                 <span className="text-xs font-black text-slate-900 block truncate">{product.title}</span>
                 <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 font-bold">

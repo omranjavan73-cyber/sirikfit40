@@ -38,12 +38,33 @@ export const SupportProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setSupportConfig((prev) => ({ ...prev, ...cfg }));
     });
 
-    // 2. Real-time listener on settings/support_config
-    let unsubscribe: (() => void) | null = null;
+    // 2. Real-time listener on settings/support (Primary) and settings/support_config
+    let unsubscribeSupport: (() => void) | null = null;
+    let unsubscribeConfig: (() => void) | null = null;
     try {
       if (db) {
+        // Primary: settings/support
+        const supportRef = doc(db, 'settings', 'support');
+        unsubscribeSupport = onSnapshot(
+          supportRef,
+          (docSnap) => {
+            if (docSnap.exists()) {
+              const data = docSnap.data();
+              if (data?.whatsappNumber) {
+                setSupportConfig((prev) => ({
+                  ...prev,
+                  whatsappNumber: data.whatsappNumber,
+                  whatsappDefaultMessage: data.whatsappDefaultMessage || prev.whatsappDefaultMessage
+                }));
+              }
+            }
+          },
+          () => {}
+        );
+
+        // Fallback: settings/support_config
         const docRef = doc(db, 'settings', 'support_config');
-        unsubscribe = onSnapshot(
+        unsubscribeConfig = onSnapshot(
           docRef,
           (docSnap) => {
             if (docSnap.exists()) {
@@ -73,7 +94,8 @@ export const SupportProvider: React.FC<{ children: React.ReactNode }> = ({ child
     window.addEventListener('supportConfigUpdated', handleConfigUpdate);
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (unsubscribeSupport) unsubscribeSupport();
+      if (unsubscribeConfig) unsubscribeConfig();
       window.removeEventListener('supportConfigUpdated', handleConfigUpdate);
     };
   }, []);

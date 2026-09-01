@@ -181,6 +181,7 @@ export interface FeaturedDeal {
   isFeaturedInCalculator?: boolean;
   isPopularSample?: boolean;
   isPopular?: boolean;
+  popularOrder?: number;
   isPublished?: boolean;
   isActive: boolean;
   inStock?: boolean;
@@ -215,6 +216,7 @@ export interface LocalInventoryItem {
   isLocalInventory?: boolean;
   isPopularSample?: boolean;
   isPopular?: boolean;
+  popularOrder?: number;
   isPublished?: boolean;
   priceAed?: number;
   weightKg?: number;
@@ -848,18 +850,29 @@ export interface VariantGroupsStructure {
 }
 
 export interface ProductData {
+  id?: string;
   title: string;
+  titleFa?: string;
+  titleEn?: string;
   brand?: string;
   price: number;
+  priceAed?: number;
   originalPrice?: number;
+  originalPriceAed?: number;
   currency: string;
   description: string;
   features?: string[];
+  image?: string;
+  imageUrl?: string;
   images: string[];
+  galleryImages?: string[];
   videos?: string[];
   variantGroups: VariantGroupsStructure;
   isAvailable: boolean;
   sourceUrl: string;
+  url?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface VariantDimension {
@@ -870,20 +883,27 @@ export interface VariantDimension {
 }
 
 export interface UniversalProduct {
+  id?: string;
   title: string;
   titleFa?: string;
   titleEn?: string;
   url: string;
   priceAed: number;
+  priceAED?: number;
+  price?: number;
   originalPriceAed?: number;
+  originalPriceAED?: number;
   discountPercent?: number;
   weightKg: number;
   image: string;
+  imageUrl?: string;
+  mainImage?: string;
   images: string[];
   galleryImages: string[];
   videos?: string[];
   features?: string[];
   storeName: string;
+  storeDomain?: string;
   storeOrigin?: string;
   brand?: string;
   category?: string;
@@ -899,6 +919,8 @@ export interface UniversalProduct {
   flavors?: string[];
   sizes?: string[];
   inStock?: boolean;
+  isPopular?: boolean;
+  popularOrder?: number;
   selectedVariants?: Record<string, VariantOption>;
   rawSpecs?: Record<string, string>;
 }
@@ -1034,6 +1056,10 @@ export interface NormalizedProduct {
   flavors: string[];
   variants: ProductVariant[];
   selectedVariant?: { size?: string; flavor?: string };
+  targetSection?: string;
+  popularOrder?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface CartItem {
@@ -1161,5 +1187,8 @@ export interface TelegramConfig {
   topicId?: string;
   updatedAt?: string;
 }
+
+export * from './types/settings';
+
 
 

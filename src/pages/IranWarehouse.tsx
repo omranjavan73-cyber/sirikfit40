@@ -3,7 +3,7 @@ import type { LocalInventoryItem, FinancialSettings } from '../types';
 import type { ProductDetailModalProduct } from '../components/ProductDetailModal';
 import { InventoryPage } from '../components/InventoryPage';
 import { ProductDetailModal } from '../components/ProductDetailModal';
-import { useProducts } from '../context/ProductContext';
+import { useProducts, sortNewestFirst } from '../context/ProductContext';
 
 interface IranWarehousePageProps {
   items?: LocalInventoryItem[];
@@ -73,7 +73,8 @@ export const IranWarehouse: React.FC<IranWarehousePageProps> = ({
   }, [initialItems, contextWarehouse]);
 
   const visibleItems = useMemo(() => {
-    return persistedItems.filter(item => item && (item as any).isActive !== false && (item as any).isPublished !== false && (item as any).isDraft !== true);
+    const filtered = persistedItems.filter(item => item && (item as any).isActive !== false && (item as any).isPublished !== false && (item as any).isDraft !== true);
+    return sortNewestFirst(filtered);
   }, [persistedItems]);
 
   const handleSelect = (item: LocalInventoryItem) => {

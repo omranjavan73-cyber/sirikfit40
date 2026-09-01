@@ -248,7 +248,27 @@ export async function saveUserProfileToFirestore(userData: {
 // ----------------------------------------------------
 export async function saveOrderToFirestore(orderData: any) {
   const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
-  const payload = sanitizePayloadForFirestore({ ...orderData, id: orderId, orderId, updatedAt: new Date().toISOString() });
+  const rawPhone = orderData.customerPhone || orderData.phoneNumber || orderData.customer?.phone || '';
+  let cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+  if (cleanPhone.startsWith('0098')) cleanPhone = '0' + cleanPhone.slice(4);
+  else if (cleanPhone.startsWith('98') && cleanPhone.length >= 12) cleanPhone = '0' + cleanPhone.slice(2);
+  else if (cleanPhone.startsWith('9') && cleanPhone.length === 10) cleanPhone = '0' + cleanPhone;
+
+  const totalPrice = Number(orderData.totalPrice || orderData.totalAmountToman || orderData.calculatedToman || orderData.totalToman || 0);
+
+  const payload = sanitizePayloadForFirestore({
+    ...orderData,
+    id: orderId,
+    orderId,
+    customerPhone: cleanPhone || orderData.customerPhone || '',
+    phoneNumber: cleanPhone || orderData.phoneNumber || '',
+    totalPrice,
+    totalAmountToman: totalPrice,
+    calculatedToman: totalPrice,
+    status: orderData.status || orderData.orderStatus || 'PENDING_UAE_PURCHASE',
+    createdAt: orderData.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
   
   try {
     // 1. Direct write to Firestore
@@ -284,13 +304,35 @@ export async function saveOrderToFirestore(orderData: any) {
 }
 
 export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: string) {
+  let normUserPhone = userPhone ? userPhone.replace(/[^0-9]/g, '') : '';
+  if (normUserPhone.startsWith('0098')) normUserPhone = '0' + normUserPhone.slice(4);
+  else if (normUserPhone.startsWith('98') && normUserPhone.length >= 12) normUserPhone = '0' + normUserPhone.slice(2);
+  else if (normUserPhone.startsWith('9') && normUserPhone.length === 10) normUserPhone = '0' + normUserPhone;
+
+  const matchesUser = (o: any) => {
+    if (userId && o.userId === userId) return true;
+    if (normUserPhone) {
+      const p1 = (o.customerPhone || '').replace(/[^0-9]/g, '').replace(/^(?:0098|98)/, '0');
+      const p2 = (o.phoneNumber || '').replace(/[^0-9]/g, '').replace(/^(?:0098|98)/, '0');
+      const p3 = (o.userPhone || '').replace(/[^0-9]/g, '').replace(/^(?:0098|98)/, '0');
+      const p4 = (o.customer?.phone || '').replace(/[^0-9]/g, '').replace(/^(?:0098|98)/, '0');
+      const normP1 = p1.startsWith('9') && p1.length === 10 ? '0' + p1 : p1;
+      const normP2 = p2.startsWith('9') && p2.length === 10 ? '0' + p2 : p2;
+      const normP3 = p3.startsWith('9') && p3.length === 10 ? '0' + p3 : p3;
+      const normP4 = p4.startsWith('9') && p4.length === 10 ? '0' + p4 : p4;
+      return normP1 === normUserPhone || normP2 === normUserPhone || normP3 === normUserPhone || normP4 === normUserPhone;
+    }
+    return false;
+  };
+
   try {
     // Query Firestore
     const ordersRef = collection(db, 'orders');
     const snap = await getDocs(ordersRef);
     if (!snap.empty) {
       const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const userOrders = orders.filter((o: any) => o.userId === userId || (userPhone && (o.userPhone === userPhone || o.phoneNumber === userPhone)));
+      const userOrders = orders.filter(matchesUser);
+      userOrders.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       if (typeof window !== 'undefined') {
         localStorage.setItem('sirikfit_orders', JSON.stringify(orders));
       }
@@ -305,7 +347,9 @@ export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: s
     if (typeof window !== 'undefined') {
       const existingStr = localStorage.getItem('sirikfit_orders') || '[]';
       const existing: any[] = JSON.parse(existingStr);
-      return existing.filter((o) => o.userId === userId || (userPhone && (o.userPhone === userPhone || o.phoneNumber === userPhone)));
+      const userOrders = existing.filter(matchesUser);
+      userOrders.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      return userOrders;
     }
   } catch (_e) {}
   return [];

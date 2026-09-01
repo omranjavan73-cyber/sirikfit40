@@ -58,19 +58,19 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       const extractedData: any = await scraperService.extract(inputUrl.trim());
 
       const rawImg = extractedData.imageUrl || extractedData.image || (extractedData.images && extractedData.images[0]) || '';
-      const resolvedImage = normalizeProductImageUrl(rawImg, extractedData.storeDomain || inputUrl.trim() || 'https://drnutrition.com');
+      const resolvedImg = normalizeProductImageUrl(rawImg, extractedData.storeDomain || 'https://drnutrition.com');
       const resolvedPriceAed = Number(extractedData.priceAed || extractedData.price || 0);
       const computedToman = Math.round((resolvedPriceAed + 20) * (1 + 0.20) * aedRate);
 
-      const newProductDraft: Product = {
-        id: extractedData.id || `prod_${Date.now()}`,
+      const draftPayload: Product = {
+        id: (extractedData.id && !extractedData.id.startsWith('scraped-')) ? extractedData.id : `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         titleFa: extractedData.titleFa || extractedData.title || '',
         titleEn: extractedData.titleEn || extractedData.title || '',
         title: extractedData.titleFa || extractedData.title || '',
-        imageUrl: resolvedImage,
-        image: resolvedImage,
-        images: resolvedImage ? [resolvedImage] : [],
-        galleryImages: resolvedImage ? [resolvedImage] : [],
+        imageUrl: resolvedImg,
+        image: resolvedImg,
+        images: resolvedImg ? [resolvedImg] : [],
+        galleryImages: resolvedImg ? [resolvedImg] : [],
         priceAed: resolvedPriceAed,
         price: resolvedPriceAed,
         priceToman: computedToman,
@@ -88,11 +88,11 @@ export const ProductForm: React.FC<ProductFormProps> = ({
         sourceUrl: inputUrl.trim()
       };
 
-      setProductDraft(newProductDraft);
-      if (showToast) showToast('اطلاعات محصول و پیش‌نویس با موفقیت استخراج شد', 'success');
+      setProductDraft(draftPayload);
+      if (showToast) showToast('اطلاعات محصول با موفقیت استخراج شد', 'success');
     } catch (err: any) {
       console.error('Extraction error:', err);
-      if (showToast) showToast('خطا در استخراج اطلاعات: ' + (err?.message || 'لینک نامعتبر'), 'error');
+      if (showToast) showToast('خطا در استخراج مستقیم محصول', 'error');
     } finally {
       setIsExtracting(false);
     }
@@ -166,15 +166,21 @@ export const ProductForm: React.FC<ProductFormProps> = ({
 
       {/* Thumbnail & Title Preview Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-        <div className="w-20 h-20 bg-white border border-slate-200 rounded-2xl p-1 shrink-0 flex items-center justify-center overflow-hidden">
-          {(productDraft.imageUrl || productDraft.image) ? (
+        <div className="w-12 h-12 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden shrink-0">
+          {productDraft.imageUrl ? (
             <img
-              src={productDraft.imageUrl || productDraft.image}
-              alt={productDraft.titleFa || 'Product thumbnail'}
-              className="w-full h-full object-contain"
+              src={productDraft.imageUrl}
+              alt={productDraft.titleEn || productDraft.titleFa || 'Product thumbnail'}
+              className="w-full h-full object-contain p-0.5"
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src = '/placeholder-product.png';
+              }}
             />
           ) : (
-            <ImageIcon className="w-8 h-8 text-slate-300" />
+            <div className="w-full h-full flex items-center justify-center bg-slate-100 text-[9px] text-slate-400">
+              بدون تصویر
+            </div>
           )}
         </div>
         <div className="flex-1 min-w-0 space-y-1.5">

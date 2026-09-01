@@ -23,6 +23,7 @@ export interface Product {
   isPublished?: boolean;
   isDraft?: boolean;
   isPopular?: boolean;
+  popularOrder?: number;
   profitMargin?: number;
   shippingFeeAed?: number;
   category?: string;

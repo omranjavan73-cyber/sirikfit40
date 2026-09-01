@@ -118,6 +118,7 @@ import { AbandonedCartsTab } from './admin/AbandonedCartsTab';
 import { AnalyticsAdmin } from '../pages/admin/AnalyticsAdmin';
 import { CustomersAdmin } from '../pages/admin/CustomersAdmin';
 import { safeParseNumeric, sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
+import { saveIranWarehouseItems, saveSpecialDeals } from '../services/adminService';
 import { 
   STORE_TAXONOMY, 
   DEFAULT_TAXONOMY, 
@@ -435,13 +436,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     cms?.stores && cms.stores.length > 0 ? cms.stores : DEFAULT_STORES
   );
   const [activeColorPickerStoreId, setActiveColorPickerStoreId] = useState<string | null>(null);
-  const [dealsList, setDealsList] = useState<FeaturedDeal[]>(cms?.deals || []);
+  const [dealsList, setDealsList] = useState<FeaturedDeal[]>(() => {
+    if (cms?.deals && cms.deals.length > 0) return cms.deals;
+    try {
+      const raw = localStorage.getItem('sirikfit_special_deals');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_e) {}
+    return [];
+  });
   const [showLocalInventory, setShowLocalInventory] = useState<boolean>(cms?.features?.showLocalInventory ?? cms?.showLocalInventory ?? true);
   const [warehouseBannerTitle, setWarehouseBannerTitle] = useState(cms?.warehouseBannerTitle || 'کالاهای موجود در انبار ایران (ارسال فوری)');
   const [warehouseBannerSubtitle, setWarehouseBannerSubtitle] = useState(cms?.warehouseBannerSubtitle || 'تحویل ۱ تا ۲ روزه در سراسر کشور • کالاها پلمپ و اورجینال');
   const [warehouseBannerTheme, setWarehouseBannerTheme] = useState<'light' | 'dark' | 'emerald' | 'amber'>(cms?.warehouseBannerTheme || 'light');
   const [warehouseBannerButtonText, setWarehouseBannerButtonText] = useState(cms?.warehouseBannerButtonText || 'جستجو و مشاهده همه');
-  const [localInventoryList, setLocalInventoryList] = useState<LocalInventoryItem[]>(cms?.localInventory || []);
+  const [localInventoryList, setLocalInventoryList] = useState<LocalInventoryItem[]>(() => {
+    if (cms?.localInventory && cms.localInventory.length > 0) return cms.localInventory;
+    try {
+      const raw = localStorage.getItem('sirikfit_iran_warehouse');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_e) {}
+    return [];
+  });
   const [warehouseCategories, setWarehouseCategories] = useState<WarehouseCategory[]>(
     cms?.warehouseCategories?.length ? cms.warehouseCategories : DEFAULT_WAREHOUSE_CATEGORIES
   );
@@ -449,6 +470,56 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newCatEnglishLabel, setNewCatEnglishLabel] = useState<string>('');
   const [newCatFilterKey, setNewCatFilterKey] = useState<string>('');
   const [newCatIconUrl, setNewCatIconUrl] = useState<string>('');
+  const [isLoadingAdminProducts, setIsLoadingAdminProducts] = useState<boolean>(dealsList.length === 0 && localInventoryList.length === 0);
+
+  // Sync state if cms props arrive with non-empty lists
+  useEffect(() => {
+    if (cms?.deals && cms.deals.length > 0) {
+      setDealsList(cms.deals);
+    }
+  }, [cms?.deals]);
+
+  useEffect(() => {
+    if (cms?.localInventory && cms.localInventory.length > 0) {
+      setLocalInventoryList(cms.localInventory);
+    }
+  }, [cms?.localInventory]);
+
+  // Direct real-time collection sync for Admin Panel (Single Source of Truth)
+  useEffect(() => {
+    let unsubs: (() => void)[] = [];
+    try {
+      const unsubWh = onSnapshot(collection(db, 'iran_warehouse'), (snap) => {
+        const items: LocalInventoryItem[] = [];
+        snap.forEach((d) => items.push({ id: d.id, ...d.data() } as LocalInventoryItem));
+        setLocalInventoryList(items);
+        try { localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(items)); } catch (_e) {}
+        setIsLoadingAdminProducts(false);
+      }, (err) => {
+        console.warn('AdminPanel iran_warehouse snapshot warning:', err);
+        setIsLoadingAdminProducts(false);
+      });
+      unsubs.push(unsubWh);
+
+      const unsubDeals = onSnapshot(collection(db, 'special_deals'), (snap) => {
+        const items: FeaturedDeal[] = [];
+        snap.forEach((d) => items.push({ id: d.id, ...d.data() } as FeaturedDeal));
+        setDealsList(items);
+        try { localStorage.setItem('sirikfit_special_deals', JSON.stringify(items)); } catch (_e) {}
+        setIsLoadingAdminProducts(false);
+      }, (err) => {
+        console.warn('AdminPanel special_deals snapshot warning:', err);
+        setIsLoadingAdminProducts(false);
+      });
+      unsubs.push(unsubDeals);
+    } catch (_err) {
+      setIsLoadingAdminProducts(false);
+    }
+
+    return () => {
+      unsubs.forEach(u => u());
+    };
+  }, []);
   const DEFAULT_BANNER_SLOGANS = [
     '⚡ ارسال مستقیم و تضمینی کالا از دبی تا درب منزل',
     '💯 تضمین ۱۰۰٪ اصالت مکملها و ضمانت بازگشت',
@@ -1499,14 +1570,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setHeroSubtitle(cms.heroSubtitle);
       setHeroNotice(cms.heroNotice);
       setHeroImage(cms.heroImage);
-      setStoresList(cms.stores && cms.stores.length > 0 ? cms.stores : DEFAULT_STORES);
-      setDealsList(cms.deals || []);
+      if (Array.isArray(cms.deals) && cms.deals.length > 0) {
+        setDealsList(cms.deals);
+      }
       setShowLocalInventory(cms.features?.showLocalInventory ?? cms.showLocalInventory ?? true);
       setWarehouseBannerTitle(cms.warehouseBannerTitle || 'کالاهای موجود در انبار ایران (ارسال فوری)');
       setWarehouseBannerSubtitle(cms.warehouseBannerSubtitle || 'تحویل ۱ تا ۲ روزه در سراسر کشور • کالاها پلمپ و اورجینال');
       setWarehouseBannerTheme(cms.warehouseBannerTheme || 'light');
       setWarehouseBannerButtonText(cms.warehouseBannerButtonText || 'جستجو و مشاهده همه');
-      setLocalInventoryList(cms.localInventory || []);
+      if (Array.isArray(cms.localInventory) && cms.localInventory.length > 0) {
+        setLocalInventoryList(cms.localInventory);
+      }
       if (cms.warehouseCategories && cms.warehouseCategories.length) {
         setWarehouseCategories(cms.warehouseCategories);
       }
@@ -2155,6 +2229,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       try {
         await Promise.all([
+          saveIranWarehouseItems(localInventoryList),
+          saveSpecialDeals(dealsList),
           setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
           setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore({ showLocalInventory: Boolean(showLocalInventory) }), { merge: true }),
           setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
@@ -3463,7 +3539,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     مدیریت محصولات
                   </h4>
                   <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 shrink-0">
-                    {toPersianDigits(localInventoryList.length + dealsList.length)}
+                    {isLoadingAdminProducts ? '...' : toPersianDigits(localInventoryList.length + dealsList.length)}
                   </span>
                 </div>
               </button>
@@ -4870,7 +4946,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
                   activeProductSubTab === 'inventory' ? 'bg-amber-500 text-slate-950' : 'bg-slate-200 text-slate-700'
                 }`}>
-                  {toPersianDigits(localInventoryList.length)}
+                  {isLoadingAdminProducts ? '...' : toPersianDigits(localInventoryList.length)}
                 </span>
               </button>
 
@@ -4888,7 +4964,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
                   activeProductSubTab === 'deals' ? 'bg-amber-500 text-slate-950' : 'bg-slate-200 text-slate-700'
                 }`}>
-                  {toPersianDigits(dealsList.length)}
+                  {isLoadingAdminProducts ? '...' : toPersianDigits(dealsList.length)}
                 </span>
               </button>
 
@@ -4983,6 +5059,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 }
                 onUpdateCms(updatedCms as any);
                 await Promise.all([
+                  saveIranWarehouseItems(updatedItems),
                   setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
                   setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
                 ]);
@@ -5681,6 +5758,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 }
                 onUpdateCms(updatedCms as any);
                 await Promise.all([
+                  saveSpecialDeals(updatedDeals),
                   setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
                   setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
                 ]);

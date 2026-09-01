@@ -56,6 +56,8 @@ export interface StandardProductDoc {
     inStock: boolean;
     url?: string;
   }>;
+  createdAt?: string;
+  sectionAddedAt?: string;
   updatedAt: string;
 }
 
@@ -153,6 +155,8 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
     allowedSizes: cleanSizes,
     sizes: cleanSizes,
     variants: cleanVariants,
+    createdAt: prod.createdAt || (typeof prod.id === 'string' && prod.id.includes('-') && !isNaN(Number(prod.id.split('-').pop())) ? new Date(Number(prod.id.split('-').pop())).toISOString() : new Date().toISOString()),
+    sectionAddedAt: prod.sectionAddedAt || prod.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
 };
@@ -193,21 +197,8 @@ export async function saveAllAdminProducts(
     } catch (_e) {}
   }
 
-  // 2. Direct Firestore SDK writes (atomic cleanup & save)
+  // 2. Direct Firestore SDK writes (strictly upsert/append, never delete collection docs)
   try {
-    const currentIds = new Set(cleanList.map(item => item.id));
-
-    // A. Query existing documents in collection to delete orphaned / removed docs
-    try {
-      const existingSnap = await getDocs(collection(db, collectionName));
-      for (const docSnap of existingSnap.docs) {
-        if (!currentIds.has(docSnap.id)) {
-          await deleteDoc(docSnap.ref);
-        }
-      }
-    } catch (queryErr) {
-      console.warn(`Could not query existing ${collectionName} docs for cleanup:`, queryErr);
-    }
 
     // B. Write or update active documents
     for (const cleanDoc of cleanList) {

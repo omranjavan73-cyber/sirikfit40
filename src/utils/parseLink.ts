@@ -1,7 +1,15 @@
 import { getEffectiveGeminiKeysList, callGeminiApiWithKeyRotation } from './geminiKey';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase';
+import { normalizeProductImageUrl, isInvalidProductImage } from './formatters';
 import type { ProductVariantGroup, ProductVariantOption, ProductVariantMatrix, ProductVariantItem } from '../types';
+import { 
+  cleanProductTitle, 
+  translateTitleToFa, 
+  generateBilingualProductTitle as translateBilingualTitle 
+} from './titleTranslator';
+
+export { cleanProductTitle, translateTitleToFa };
 
 export interface ParsedProductResult {
   success: boolean;
@@ -13,6 +21,7 @@ export interface ParsedProductResult {
   originalPriceAed?: number;
   discountPercent?: number;
   image?: string;
+  imageUrl?: string;
   mainImage?: string;
   images?: string[];
   galleryImages?: string[];
@@ -20,6 +29,7 @@ export interface ParsedProductResult {
   features?: string[];
   weightKg?: number;
   storeName?: string;
+  storeDomain?: string;
   sourceStore?: string;
   sourceUrl?: string;
   brand?: string;
@@ -50,168 +60,7 @@ export function toPersianDigits(str: string): string {
  * [معادل و ویژگی‌های اصلی به فارسی] (Original English Title)
  */
 export function generateBilingualProductTitle(rawTitle: string, storeName?: string, brand?: string): string {
-  if (!rawTitle) return 'مکمل اورجینال امارات';
-
-  const cleanTitle = rawTitle.replace(/\s+/g, ' ').trim();
-  if (!cleanTitle) return 'مکمل اورجینال امارات';
-
-  // If already bilingual (e.g., contains Persian text followed by English in parentheses)
-  if (/[\u0600-\u06FF]/.test(cleanTitle) && /\([A-Za-z0-9\s.,%&+\-/'"]+\)/.test(cleanTitle)) {
-    return cleanTitle;
-  }
-
-  // If the title is purely Persian without English letters
-  if (/[\u0600-\u06FF]/.test(cleanTitle) && !/[a-zA-Z]{3,}/.test(cleanTitle)) {
-    return cleanTitle;
-  }
-
-  try {
-    const lower = cleanTitle.toLowerCase();
-    const parts: string[] = [];
-
-    // 1. Form / Package Type
-    let formPrefix = '';
-    if (/\bcapsules?\b|\bcaps?\b/i.test(cleanTitle)) {
-      formPrefix = 'کپسول';
-    } else if (/\btablets?\b|\btabs?\b/i.test(cleanTitle)) {
-      formPrefix = 'قرص';
-    } else if (/\bsoftgels?\b|\bsoftgel\b/i.test(cleanTitle)) {
-      formPrefix = 'کپسول ژله‌ای';
-    } else if (/\bgummies\b|\bgummy\b/i.test(cleanTitle)) {
-      formPrefix = 'پاستیل';
-    } else if (/\bpowders?\b/i.test(cleanTitle)) {
-      formPrefix = 'پودر';
-    } else if (/\bliquid\b/i.test(cleanTitle)) {
-      formPrefix = 'شربت و مایع';
-    }
-
-    // 2. Main Supplement / Product Category
-    let categoryPersian = '';
-    if (/whey\s+isolate/i.test(lower)) {
-      categoryPersian = 'پروتئین وی ایزوله';
-    } else if (/whey/i.test(lower)) {
-      categoryPersian = 'پروتئین وی';
-    } else if (/creatine\s+monohydrate/i.test(lower)) {
-      categoryPersian = 'پودر کراتین مونوهیدرات';
-    } else if (/creatine/i.test(lower)) {
-      categoryPersian = 'پودر کراتین';
-    } else if (/bcaa/i.test(lower)) {
-      categoryPersian = 'مکمل بیسیایای (BCAA)';
-    } else if (/amino/i.test(lower)) {
-      categoryPersian = 'مکمل آمینو اسید';
-    } else if (/glutamine/i.test(lower)) {
-      categoryPersian = 'پودر گلوتامین';
-    } else if (/gainer|mass/i.test(lower)) {
-      categoryPersian = 'مکمل گینر افزایش وزن';
-    } else if (/pre\s*-\s*workout|preworkout/i.test(lower)) {
-      categoryPersian = 'پمپ و مکمل قبل از تمرین';
-    } else if (/carnitine|l-carnitine/i.test(lower)) {
-      categoryPersian = 'مکمل ال‌کارنیتین';
-    } else if (/fat\s+burner|burner/i.test(lower)) {
-      categoryPersian = 'مکمل چربی‌سوز';
-    } else if (/prenatal/i.test(lower)) {
-      categoryPersian = 'مکمل بارداری و پریناتال';
-    } else if (/omega\s*3|fish\s+oil/i.test(lower)) {
-      categoryPersian = 'روغن ماهی امگا ۳';
-    } else if (/multivitamin|multi\s*vitamin|multi/i.test(lower)) {
-      categoryPersian = 'مکمل مولتی‌ویتامین';
-    } else if (/collagen/i.test(lower)) {
-      categoryPersian = 'پودر و مکمل کلاژن';
-    } else if (/ashwagandha/i.test(lower)) {
-      categoryPersian = 'مکمل گیاهی آشواگاندا';
-    } else if (/magnesium/i.test(lower)) {
-      categoryPersian = 'مکمل منیزیم';
-    } else if (/zinc/i.test(lower)) {
-      categoryPersian = 'مکمل زینک';
-    } else if (/vitamin\s+c/i.test(lower)) {
-      categoryPersian = 'ویتامین C';
-    } else if (/vitamin\s+d/i.test(lower)) {
-      categoryPersian = 'ویتامین D3';
-    } else if (/biotin/i.test(lower)) {
-      categoryPersian = 'مکمل بیوتین';
-    } else if (/peanut\s+butter/i.test(lower)) {
-      categoryPersian = 'کره بادام زمینی';
-    } else if (/shaker/i.test(lower)) {
-      categoryPersian = 'شیکر و قمقمه ورزشی';
-    }
-
-    if (formPrefix && categoryPersian.startsWith(formPrefix)) {
-      formPrefix = '';
-    }
-
-    if (formPrefix) parts.push(formPrefix);
-    if (categoryPersian) parts.push(categoryPersian);
-
-    // 3. Gender / Attributes
-    if (/women|female/i.test(lower) && !parts.some(p => p.includes('پریناتال') || p.includes('زنانه'))) {
-      parts.push('زنانه');
-    } else if (/men|male/i.test(lower) && !parts.some(p => p.includes('مردانه'))) {
-      parts.push('مردانه');
-    }
-
-    if (/100%/i.test(lower) && !parts.some(p => p.includes('۱۰۰٪'))) {
-      parts.push('۱۰۰٪');
-    }
-
-    if (/gold\s+standard/i.test(lower) && !parts.some(p => p.includes('گلد استاندارد'))) {
-      parts.push('گلد استاندارد');
-    }
-
-    if (/organic/i.test(lower) && !parts.some(p => p.includes('ارگانیک'))) {
-      parts.push('ارگانیک');
-    }
-
-    // 4. Weight / Size / Quantity
-    const kgMatch = cleanTitle.match(/(\d+(?:\.\d+)?)\s*(?:kg|kilos|kilogram)/i);
-    if (kgMatch && kgMatch[1]) {
-      const pNum = toPersianDigits(kgMatch[1]);
-      parts.push(`${pNum} کیلوگرمی`);
-    } else {
-      const lbsMatch = cleanTitle.match(/(\d+(?:\.\d+)?)\s*(?:lbs|lb)/i);
-      if (lbsMatch && lbsMatch[1]) {
-        const lbsVal = parseFloat(lbsMatch[1]);
-        if (lbsVal === 5) {
-          parts.push('۲.۲ کیلوگرمی');
-        } else {
-          const pNum = toPersianDigits(lbsMatch[1]);
-          parts.push(`${pNum} پوندی`);
-        }
-      } else {
-        const gMatch = cleanTitle.match(/(\d+)\s*(?:g|gram|grams)\b/i);
-        if (gMatch && gMatch[1] && parseInt(gMatch[1], 10) >= 30) {
-          const pNum = toPersianDigits(gMatch[1]);
-          parts.push(`${pNum} گرمی`);
-        }
-      }
-    }
-
-    const countMatch = cleanTitle.match(/(\d+)\s*(?:capsules?|caps?|tablets?|tabs?|softgels?|gummies|count)\b/i);
-    if (countMatch && countMatch[1]) {
-      const pNum = toPersianDigits(countMatch[1]);
-      parts.push(`${pNum} عددی`);
-    } else {
-      const servMatch = cleanTitle.match(/(\d+)\s*(?:servings?|serv)\b/i);
-      if (servMatch && servMatch[1]) {
-        const pNum = toPersianDigits(servMatch[1]);
-        parts.push(`${pNum} سروینگ`);
-      }
-    }
-
-    let persianPrefix = parts.join(' ').trim();
-
-    if (!persianPrefix) {
-      if (brand || storeName) {
-        persianPrefix = `مکمل اورجینال ${brand || storeName}`;
-      } else {
-        persianPrefix = 'مکمل تخصصی و اورجینال';
-      }
-    }
-
-    return `${persianPrefix} (${cleanTitle})`;
-  } catch (err) {
-    console.warn('[LinkParser] Error generating bilingual title, falling back to original English title:', err);
-    return cleanTitle;
-  }
+  return translateBilingualTitle(rawTitle, storeName, brand);
 }
 
 /**
@@ -975,64 +824,14 @@ export async function parseProductLinkUniversal(params: {
 
   const defaultErrorMsg = "در حال حاضر امکان استخراج خودکار اطلاعات این لینک وجود ندارد. لطفاً چند لحظه بعد مجدداً تلاش فرمایید.";
 
-  // 1. Primary: Firebase Callable Function `extractProductMetadata`
-  try {
-    if (functions) {
-      const callable = httpsCallable<{ url: string; forceRefresh?: boolean }, { success: boolean; data?: any; error?: string }>(
-        functions,
-        'extractProductMetadata'
-      );
-      const callableRes = await callable({ url: targetUrl });
-      if (callableRes?.data?.success && callableRes.data.data) {
-        const d = callableRes.data.data;
-        const pAed = Number(d.priceAed || d.priceAED || 0);
-        if (pAed > 0 && (d.titleEn || d.titleFa || d.title)) {
-          const rawT = d.titleEn || d.title || d.titleFa;
-          const storeName = d.retailer || d.storeName || 'دبی';
-          const brandName = d.brand || storeName;
-          const formattedTitle = d.titleFa || generateBilingualProductTitle(rawT, storeName, brandName);
-          let mainImg = d.image || (Array.isArray(d.galleryImages) && d.galleryImages[0]) || '';
-          if (mainImg && (mainImg.toLowerCase().includes('logo') || mainImg.toLowerCase().includes('dnp') || mainImg.toLowerCase().includes('vector.svg') || mainImg.toLowerCase().includes('og-logo'))) {
-            mainImg = '';
-          }
-          const galleryImages = Array.from(new Set([mainImg, ...(Array.isArray(d.galleryImages) ? d.galleryImages : [])].filter(img => img && !img.toLowerCase().includes('logo') && !img.toLowerCase().includes('dnp') && !img.toLowerCase().includes('vector.svg') && !img.toLowerCase().includes('og-logo'))));
-          if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
-          
-          return {
-            success: true,
-            id: `scraped-${Date.now()}`,
-            title: formattedTitle,
-            priceAed: pAed,
-            basePriceAED: pAed,
-            originalPriceAed: d.originalPriceAed,
-            discountPercent: d.discountPercent,
-            storeName,
-            sourceStore: storeName,
-            sourceUrl: targetUrl,
-            brand: brandName,
-            category: '💊 مکمل‌های ورزشی',
-            image: mainImg,
-            mainImage: mainImg,
-            images: galleryImages,
-            galleryImages,
-            weightKg: Number(d.weightKg) || 0.8,
-            description: d.description,
-            inStock: d.inStock !== false,
-            variants: d.variants || [],
-            flavors: d.flavors || [],
-            sizes: d.sizes || []
-          };
-        }
-      }
-    }
-  } catch (callableErr) {
-    console.warn('[parseProductLinkUniversal] Firebase callable warning:', callableErr);
-  }
+  const effectiveGeminiKeys = (geminiKeys && geminiKeys.length > 0)
+    ? geminiKeys
+    : getEffectiveGeminiKeysList(cmsConfig?.apiConfig?.geminiApiKeys || cmsConfig?.apiConfig?.geminiApiKey);
 
-  // 2. Call backend /api/parse-link Microservice
+  // Call backend /api/parse-link Microservice with generous 25s cold-start timeout
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     const res = await fetch('/api/parse-link', {
       method: 'POST',
@@ -1041,8 +840,8 @@ export async function parseProductLinkUniversal(params: {
         url: targetUrl,
         apiKey: scraperKeyVal,
         scraperApiKey: scraperKeyVal,
-        geminiApiKeys: geminiKeys,
-        geminiApiKey: geminiKeys?.[0] || ''
+        geminiApiKeys: effectiveGeminiKeys,
+        geminiApiKey: effectiveGeminiKeys?.[0] || ''
       }),
       signal: controller.signal
     });
@@ -1056,14 +855,20 @@ export async function parseProductLinkUniversal(params: {
       const brandName = data.brand || storeName;
       const formattedTitle = generateBilingualProductTitle(data.title, storeName, brandName);
 
-      let mainImg = data.image || data.mainImage || data.image_url || '';
-      if (mainImg && (mainImg.toLowerCase().includes('logo') || mainImg.toLowerCase().includes('dnp') || mainImg.toLowerCase().includes('vector.svg') || mainImg.toLowerCase().includes('og-logo'))) {
-        mainImg = '';
-      }
+      const storeDomain = data.storeDomain || (targetUrl.includes('drnutrition') ? 'https://drnutrition.com' : targetUrl);
+      let rawImg = data.image || data.mainImage || data.image_url || data.imageUrl || (Array.isArray(data.galleryImages) && data.galleryImages[0]) || (Array.isArray(data.images) && data.images[0]) || '';
+      let mainImg = normalizeProductImageUrl(rawImg, storeDomain);
+      if (isInvalidProductImage(mainImg)) mainImg = '';
+
       const rawGallery = Array.isArray(data.galleryImages) 
         ? data.galleryImages 
         : (Array.isArray(data.images) ? data.images : []);
-      const galleryImages = Array.from(new Set([mainImg, ...rawGallery].filter(img => img && !img.toLowerCase().includes('logo') && !img.toLowerCase().includes('dnp') && !img.toLowerCase().includes('vector.svg') && !img.toLowerCase().includes('og-logo'))));
+      const galleryImages = Array.from(
+        new Set(
+          [mainImg, ...rawGallery.map((g: string) => normalizeProductImageUrl(g, storeDomain))]
+            .filter(img => img && !isInvalidProductImage(img))
+        )
+      );
       if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
 
       // Process variant groups
@@ -1115,9 +920,11 @@ export async function parseProductLinkUniversal(params: {
         brand: brandName,
         category: data.category || '💊 مکمل‌های ورزشی',
         image: mainImg,
+        imageUrl: mainImg,
         mainImage: mainImg,
         images: galleryImages,
         galleryImages,
+        storeDomain,
         weightKg: Number(data.weightKg) || 0.8,
         description: data.description,
         inStock: data.inStock !== false,

@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { FeaturedDeal, FinancialSettings } from '../types';
 import type { ProductDetailModalProduct } from '../components/ProductDetailModal';
 import { FeaturedDeals } from '../components/FeaturedDeals';
 import { ProductDetailModal } from '../components/ProductDetailModal';
 import { calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
-import { useProducts } from '../context/ProductContext';
+import { useProducts, sortNewestFirst } from '../context/ProductContext';
 
 interface SpecialDealsPageProps {
   deals?: FeaturedDeal[];
@@ -81,7 +81,8 @@ export const SpecialDeals: React.FC<SpecialDealsPageProps> = ({
   }, [initialDeals, contextDeals]);
 
   const visibleDeals = useMemo(() => {
-    return persistedDeals.filter(d => d && d.isActive !== false && (d as any).isPublished !== false && (d as any).isDraft !== true);
+    const filtered = persistedDeals.filter(d => d && d.isActive !== false && (d as any).isPublished !== false && (d as any).isDraft !== true);
+    return sortNewestFirst(filtered);
   }, [persistedDeals]);
 
   const handleSelect = (deal: FeaturedDeal) => {

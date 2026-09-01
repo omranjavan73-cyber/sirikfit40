@@ -106,7 +106,9 @@ export function parseDrNutritionJinaMarkdown(
     }
     const sanitized = sanitizeImageUrlFn(imgUrl, sourceUrl);
     if (sanitized && !galleryImages.includes(sanitized) &&
-        !sanitized.includes('logo') && !sanitized.includes('og-logo') && !sanitized.includes('dnp') &&
+        !sanitized.includes('dnp_logo') && !sanitized.includes('dnp-logo') && !sanitized.includes('drnutrition_logo') &&
+        !sanitized.includes('drnutrition-logo') && !sanitized.includes('og-logo') && !sanitized.includes('site-logo') &&
+        !sanitized.includes('header-logo') && !sanitized.includes('footer-logo') &&
         !sanitized.includes('placeholder') && !sanitized.includes('icon') && !sanitized.includes('.svg') &&
         !sanitized.includes('flag') && !sanitized.includes('banner') && !sanitized.includes('mode')) {
       galleryImages.push(sanitized);

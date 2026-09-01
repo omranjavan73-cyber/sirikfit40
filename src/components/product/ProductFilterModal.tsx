@@ -175,10 +175,34 @@ export function applyMultiVariableFilter<T extends any>(
       const popB = b.isPopular === true || b.isPopularSample === true ? 1 : 0;
       return popB - popA;
     }
-    // 'newest' default
-    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return dateB - dateA;
+    // 'newest' default (Newest-first descending order)
+    const getTime = (item: any): number => {
+      if (!item) return 0;
+      const candidate = item.sectionAddedAt || item.createdAt || item.updatedAt;
+      if (candidate) {
+        if (typeof candidate === 'number' && !isNaN(candidate) && candidate > 0) return candidate;
+        if (typeof candidate === 'object' && candidate !== null) {
+          if (typeof candidate.toMillis === 'function') return candidate.toMillis();
+          if (typeof candidate.seconds === 'number') return candidate.seconds * 1000;
+        }
+        const parsed = new Date(candidate).getTime();
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+      if (typeof item.id === 'string') {
+        const idParts = item.id.split(/[-_]/);
+        for (let i = idParts.length - 1; i >= 0; i--) {
+          const num = Number(idParts[i]);
+          if (!isNaN(num) && num > 1600000000000 && num < 2500000000000) {
+            return num;
+          }
+        }
+      }
+      return 0;
+    };
+
+    const timeA = getTime(a);
+    const timeB = getTime(b);
+    return timeB - timeA;
   });
 
   return sorted;

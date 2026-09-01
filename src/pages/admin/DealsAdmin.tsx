@@ -20,6 +20,7 @@ import { deleteDoc, doc, setDoc, updateDoc, getDocs, collection } from 'firebase
 import { db } from '../../firebase';
 import { parseWeightKg, calculateProductTomanPrice } from '../../utils/pricingCalculator';
 import { saveSpecialDeals } from '../../services/adminService';
+import { universalScraperService } from '../../services/scraperService';
 
 interface DealsAdminProps {
   deals: FeaturedDeal[];
@@ -250,12 +251,21 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
     const target = deals.find(d => d.id === productId);
     const nextPop = !Boolean((target as any)?.isPopular);
     setDeals((prev) =>
-      prev.map((d) => (d.id === productId ? { ...d, isPopular: nextPop, isFeatured: nextPop } : d))
+      prev.map((d) => {
+        if (d.id === productId) {
+          return { ...d, isPopular: nextPop, isFeatured: nextPop, popularOrder: nextPop ? 0 : 9999 };
+        }
+        if (nextPop && d.isPopular && typeof d.popularOrder === 'number') {
+          return { ...d, popularOrder: d.popularOrder + 1 };
+        }
+        return d;
+      })
     );
     try {
       updateDoc(doc(db, COLLECTION_NAME, productId), {
         isPopular: nextPop,
         isFeatured: nextPop,
+        popularOrder: nextPop ? 0 : 9999,
         updatedAt: new Date().toISOString()
       }).catch((e) => console.warn('Instant popular toggle notice:', e));
     } catch (_e) {}
@@ -422,21 +432,18 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
     if (!newDealUrl.trim()) { if (showToast) showToast('لینک وارد کنید', 'error'); return; }
     setIsExtracting(true);
     try {
-      const res = await fetch('/api/scrape-product', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: newDealUrl.trim() })
-      });
-      const data = await res.json();
-      if (!data?.title && !data?.priceAED && !data?.price) throw new Error('استخراج ناموفق');
+      const data = await universalScraperService.extract(newDealUrl.trim());
 
-      const pAed = parseFloat(data.priceAed || data.priceAED || data.price) || 0;
-      const rawImg = data.mainImage || data.image || data.imageUrl || '';
-      const img = normalizeProductImageUrl(rawImg, newDealUrl.trim());
+      if (!data?.title && !data?.priceAED && !data?.price && !data?.priceAed) throw new Error('استخراج ناموفق');
+
+      const pAed = Number(data.priceAed || data.priceAED || data.price) || 0;
+      const rawImg = data.imageUrl || data.image || data.mainImage || (data.images && data.images[0]) || (data.galleryImages && data.galleryImages[0]) || '';
+      const img = normalizeProductImageUrl(rawImg, data.storeDomain || newDealUrl.trim() || 'https://drnutrition.com');
       const rawGalleryList: string[] = Array.isArray(data.galleryImages) && data.galleryImages.length > 0
         ? data.galleryImages
         : (Array.isArray(data.images) ? data.images : (rawImg ? [rawImg] : []));
       const gallery = Array.from(
-        new Set([img, ...rawGalleryList.map((g: string) => normalizeProductImageUrl(g, newDealUrl.trim()))].filter(Boolean))
+        new Set([img, ...rawGalleryList.map((g: string) => normalizeProductImageUrl(g, data.storeDomain || newDealUrl.trim() || 'https://drnutrition.com'))].filter(Boolean))
       );
 
       const mainCat = newDealCategory || categoriesTree[0]?.name || 'مکمل‌های ورزشی';
@@ -454,7 +461,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         : [];
 
       const defSize = extractedSizes[0] || '';
-      const wt = defSize ? parseWeightKg(defSize, parseFloat(data.weightKg) || 0.8) : (parseFloat(data.weightKg) || 0.8);
+      const wt = defSize ? parseWeightKg(defSize, Number(data.weightKg) || 0.8) : (Number(data.weightKg) || 0.8);
 
       const dynamicVariants: ProductVariant[] = [];
       if (Array.isArray(data.variants) && data.variants.length > 0) {
@@ -501,7 +508,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       }
 
       const newDeal: FeaturedDeal = {
-        id: `deal-${Date.now()}`,
+        id: data.id && !data.id.startsWith('scraped-') ? data.id : `deal-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         title: localizedFa || rawTitleEn,
         titleFa: localizedFa,
         titleEn: rawTitleEn,
@@ -513,7 +520,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         priceAed: pAed,
         basePriceAed: pAed,
         profitMargin: defaultMargin,
-        originalPriceAed: parseFloat(data.originalPriceAed || data.originalPriceAED || 0) || 0,
+        originalPriceAed: Number(data.originalPriceAed || data.originalPriceAED || 0) || 0,
         weightKg: wt,
         priceToman: pAed > 0 ? calcToman(pAed, defaultMargin) : 0,
         originalPriceToman: 0,
@@ -533,7 +540,9 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         allowedFlavors: extractedFlavors as any,
         sizes: extractedSizes as any,
         allowedSizes: extractedSizes as any,
-        variants: dynamicVariants
+        variants: dynamicVariants,
+        createdAt: (data as any).createdAt || new Date().toISOString(),
+        sectionAddedAt: new Date().toISOString()
       };
 
       setDeals(prev => [newDeal, ...prev]);
@@ -774,13 +783,23 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                   {toPersianDigits(idx + 1)}
                 </span>
 
-                {(deal.image || deal.imageUrl) && (
-                  <img
-                    src={deal.image || deal.imageUrl}
-                    alt={deal.title}
-                    className="w-10 h-10 object-contain rounded-xl border border-slate-200 bg-white p-0.5 shrink-0"
-                  />
-                )}
+                <div className="w-12 h-12 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden shrink-0">
+                  {normalizeProductImageUrl(deal.imageUrl || deal.image, deal.url || 'https://drnutrition.com') ? (
+                    <img
+                      src={normalizeProductImageUrl(deal.imageUrl || deal.image, deal.url || 'https://drnutrition.com')}
+                      alt={(deal as any).titleEn || (deal as any).titleFa || deal.title}
+                      className="w-full h-full object-contain p-0.5"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = '/placeholder-product.png';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-100 text-[9px] text-slate-400">
+                      بدون تصویر
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-black text-slate-900 truncate">{deal.title}</p>

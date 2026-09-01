@@ -854,31 +854,30 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               </span>
             </div>
 
-            {/* Direct Vendor Link CTA */}
+            {/* Original Product Link on Brand/Vendor Site */}
             {(() => {
-              const rawUrl = (product.sourceUrl || product.url || (product as any).originalUrl || (product as any).productUrl || (product as any).link || (product as any).rawItem?.sourceUrl || (product as any).rawItem?.url || '');
-              const hasValidUrl = typeof rawUrl === 'string' && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://'));
-              if (!hasValidUrl) return null;
+              const targetUrl = product.sourceUrl || product.url || (product as any).originalUrl || (product as any).productUrl || (product as any).link || (product as any).rawItem?.sourceUrl || (product as any).rawItem?.url;
+              if (!targetUrl || typeof targetUrl !== 'string' || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) return null;
+              const isIherb = (product.storeName || '').toLowerCase().includes('iherb') || targetUrl.toLowerCase().includes('iherb');
+              const storeName = isIherb ? 'iHerb' : (product.storeName || product.brand || 'سایت مبدأ');
+
               return (
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-zinc-800">
+                <div className="pt-2 w-full">
                   <a
-                    href={rawUrl}
+                    href={targetUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-900 dark:bg-zinc-800 text-white hover:bg-slate-800 dark:hover:bg-zinc-700 transition-colors shadow-sm cursor-pointer"
+                    className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-white rounded-xl font-bold text-xs flex items-center justify-between transition-all group shadow-sm cursor-pointer select-none"
+                    title="مشاهده صفحه اختصاصی این محصول در وبسایت رسمی مبدأ"
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                      <span className="text-xs font-bold">
-                        لینک اصلی محصول در {product.storeName || 'سایت مبدأ'}
-                      </span>
-                    </div>
-                    <div className="inline-flex items-center gap-1.5 text-xs text-slate-300 shrink-0">
+                    <span className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+                      <span>لینک اصلی محصول در {storeName}</span>
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[11px] text-slate-300 font-bold group-hover:text-white">
                       <span>مشاهده در سایت اصلی</span>
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
-                    </div>
+                      <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                    </span>
                   </a>
                 </div>
               );

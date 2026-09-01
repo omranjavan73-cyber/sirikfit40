@@ -1,7 +1,13 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Clock, ShieldCheck, ExternalLink } from 'lucide-react';
 import { useSupport } from '../../context/SupportContext';
 import { SupportHeadsetLogo } from './SupportHeadsetLogo';
+import { 
+  formatWhatsAppUrl, 
+  getSupportSettings, 
+  subscribeToSupportSettings 
+} from '../../services/settingsService';
+import type { SupportFirestoreDoc } from '../../types/settings';
 
 interface SupportPopupProps {
   isOpen: boolean;
@@ -11,27 +17,46 @@ interface SupportPopupProps {
 export const SupportPopup: React.FC<SupportPopupProps> = ({ isOpen, onClose }) => {
   const { supportConfig } = useSupport();
   const popupRef = useRef<HTMLDivElement>(null);
+  const [supportDoc, setSupportDoc] = useState<SupportFirestoreDoc>({});
 
-  // Format WhatsApp deep link URL safely
+  useEffect(() => {
+    getSupportSettings().then(setSupportDoc);
+    const unsub = subscribeToSupportSettings((updated) => {
+      setSupportDoc(updated);
+    });
+    return () => unsub();
+  }, []);
+
+  const activeWhatsappNumber = 
+    supportDoc.whatsappNumber || 
+    supportConfig.whatsappNumber || 
+    '+971501234567';
+
+  const activeWhatsappMessage = 
+    supportDoc.whatsappDefaultMessage || 
+    supportConfig.whatsappDefaultMessage || 
+    'سلام، در رابطه با خرید از سیریک فیت راهنمایی میخواستم';
+
+  // Format WhatsApp URL with api.whatsapp.com standard
   const getWhatsAppUrl = () => {
-    let cleaned = (supportConfig.whatsappNumber || '+971501234567').replace(/[^0-9]/g, '');
-    if (cleaned.startsWith('09')) {
-      cleaned = '98' + cleaned.slice(1);
-    }
-    const defaultMsg =
-      supportConfig.whatsappDefaultMessage || 'سلام، در رابطه با خرید از سیریک فیت راهنمایی میخواستم';
-    return `https://wa.me/${cleaned}?text=${encodeURIComponent(defaultMsg)}`;
+    return formatWhatsAppUrl(activeWhatsappNumber, activeWhatsappMessage);
   };
 
   // Format Telegram deep link URL safely
   const getTelegramUrl = () => {
-    const username = (supportConfig.telegramBotUsername || 'SIRIK_FIT_Support_bot')
-      .replace(/^@/, '')
-      .trim();
+    const username = (
+      supportDoc.telegramBotUsername || 
+      supportConfig.telegramBotUsername || 
+      'SIRIK_FIT_Support_bot'
+    ).replace(/^@/, '').trim();
     return `https://t.me/${username || 'SIRIK_FIT_Support_bot'}`;
   };
 
-  const telegramHandle = (supportConfig.telegramBotUsername || 'SIRIK_FIT_Support_bot').replace(/^@/, '');
+  const telegramHandle = (
+    supportDoc.telegramBotUsername || 
+    supportConfig.telegramBotUsername || 
+    'SIRIK_FIT_Support_bot'
+  ).replace(/^@/, '');
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

@@ -20,6 +20,7 @@ import { deleteDoc, doc, setDoc, updateDoc, getDocs, collection } from 'firebase
 import { db } from '../../firebase';
 import { calculateProductTomanPrice, parseWeightKg, computeVariantToman } from '../../utils/pricingCalculator';
 import { saveIranWarehouseItems } from '../../services/adminService';
+import { universalScraperService } from '../../services/scraperService';
 
 interface IranWarehouseAdminProps {
   items: LocalInventoryItem[];
@@ -261,12 +262,21 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
     const target = items.find(i => i.id === productId);
     const nextPop = !Boolean((target as any)?.isPopular);
     setItems((prev) =>
-      prev.map((p) => (p.id === productId ? { ...p, isPopular: nextPop, isFeatured: nextPop } : p))
+      prev.map((p) => {
+        if (p.id === productId) {
+          return { ...p, isPopular: nextPop, isFeatured: nextPop, popularOrder: nextPop ? 0 : 9999 };
+        }
+        if (nextPop && p.isPopular && typeof p.popularOrder === 'number') {
+          return { ...p, popularOrder: p.popularOrder + 1 };
+        }
+        return p;
+      })
     );
     try {
       updateDoc(doc(db, COLLECTION_NAME, productId), {
         isPopular: nextPop,
         isFeatured: nextPop,
+        popularOrder: nextPop ? 0 : 9999,
         updatedAt: new Date().toISOString()
       }).catch((e) => console.warn('Instant popular toggle notice:', e));
     } catch (_e) {}
@@ -454,14 +464,11 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
     if (!newItemUrl.trim()) { if (showToast) showToast('لینک وارد کنید', 'error'); return; }
     setIsExtracting(true);
     try {
-      const res = await fetch('/api/scrape-product', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: newItemUrl.trim() })
-      });
-      const data = await res.json();
-      if (!data?.title && !data?.priceAED && !data?.price) throw new Error('استخراج ناموفق');
+      const data = await universalScraperService.extract(newItemUrl.trim());
 
-      const pAed = parseFloat(data.priceAed || data.priceAED || data.price) || 0;
+      if (!data?.title && !data?.priceAED && !data?.price && !data?.priceAed) throw new Error('استخراج ناموفق');
+
+      const pAed = Number(data.priceAed || data.priceAED || data.price) || 0;
       const defMargin = 20;
       const calcPriceToman = pAed > 0 ? calculateProductTomanPrice({
         priceAed: pAed,
@@ -469,13 +476,13 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
         aedToTomanRate: aedRate,
         baseShippingAed: 20
       }) : 0;
-      const rawImg = data.mainImage || data.image || data.imageUrl || '';
-      const img = normalizeProductImageUrl(rawImg, newItemUrl.trim());
+      const rawImg = data.imageUrl || data.image || data.mainImage || (data.images && data.images[0]) || (data.galleryImages && data.galleryImages[0]) || '';
+      const img = normalizeProductImageUrl(rawImg, data.storeDomain || newItemUrl.trim() || 'https://drnutrition.com');
       const rawGalleryList: string[] = Array.isArray(data.galleryImages) && data.galleryImages.length > 0
         ? data.galleryImages
         : (Array.isArray(data.images) ? data.images : (rawImg ? [rawImg] : []));
       const gallery = Array.from(
-        new Set([img, ...rawGalleryList.map((g: string) => normalizeProductImageUrl(g, newItemUrl.trim()))].filter(Boolean))
+        new Set([img, ...rawGalleryList.map((g: string) => normalizeProductImageUrl(g, data.storeDomain || newItemUrl.trim() || 'https://drnutrition.com'))].filter(Boolean))
       );
 
       const mainCat = newItemCategory || categoriesTree[0]?.name || 'مکمل‌های ورزشی';
@@ -493,7 +500,7 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
         : [];
 
       const defSize = extractedSizes[0] || '';
-      const wt = defSize ? parseWeightKg(defSize, parseFloat(data.weightKg) || 0.8) : (parseFloat(data.weightKg) || 0.8);
+      const wt = defSize ? parseWeightKg(defSize, Number(data.weightKg) || 0.8) : (Number(data.weightKg) || 0.8);
 
       // Build populated variants from extracted data
       const dynamicVariants: ProductVariant[] = [];
@@ -546,7 +553,7 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
       }
 
       const newItem: LocalInventoryItem = {
-        id: `local-${Date.now()}`,
+        id: data.id && !data.id.startsWith('scraped-') ? data.id : `local-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         title: localizedFa || rawTitleEn,
         titleFa: localizedFa,
         titleEn: rawTitleEn,
@@ -557,7 +564,7 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
         subCategory: subCat,
         priceAed: pAed,
         basePriceAed: pAed,
-        originalPriceAed: parseFloat(data.originalPriceAed || data.originalPriceAED || 0) || 0,
+        originalPriceAed: Number(data.originalPriceAed || data.originalPriceAED || 0) || 0,
         profitMargin: defMargin,
         weightKg: wt,
         priceToman: calcPriceToman,
@@ -578,7 +585,9 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
         allowedFlavors: extractedFlavors as any,
         sizes: extractedSizes as any,
         allowedSizes: extractedSizes as any,
-        variants: dynamicVariants
+        variants: dynamicVariants,
+        createdAt: (data as any).createdAt || new Date().toISOString(),
+        sectionAddedAt: new Date().toISOString()
       };
 
       setItems(prev => [newItem, ...prev]);
@@ -824,13 +833,23 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                   {toPersianDigits(idx + 1)}
                 </span>
 
-                {(item.image || item.imageUrl) && (
-                  <img
-                    src={item.image || item.imageUrl}
-                    alt={item.title}
-                    className="w-10 h-10 object-contain rounded-xl border border-slate-200 bg-white p-0.5 shrink-0"
-                  />
-                )}
+                <div className="w-12 h-12 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden shrink-0">
+                  {normalizeProductImageUrl(item.imageUrl || item.image, item.url || 'https://drnutrition.com') ? (
+                    <img
+                      src={normalizeProductImageUrl(item.imageUrl || item.image, item.url || 'https://drnutrition.com')}
+                      alt={(item as any).titleEn || (item as any).titleFa || item.title}
+                      className="w-full h-full object-contain p-0.5"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = '/placeholder-product.png';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-100 text-[9px] text-slate-400">
+                      بدون تصویر
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-black text-slate-900 truncate">{item.title}</p>

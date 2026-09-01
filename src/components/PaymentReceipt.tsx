@@ -18,6 +18,7 @@ import {
   MessageCircle
 } from 'lucide-react';
 import { formatToman, toPersianDigits } from '../utils/formatters';
+import { formatWhatsAppUrl, getSupportSettings, DEFAULT_WHATSAPP_NUMBER } from '../services/settingsService';
 import type { Order, CmsConfig } from '../types';
 
 interface PaymentReceiptProps {
@@ -193,12 +194,20 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
     window.print();
   };
 
-  const handleContactSupport = () => {
-    const phone = (cms?.homeContent?.whatsappPhone || '09121234567').replace(/\D/g, '');
-    const message = encodeURIComponent(
-      `سلام و درود، درباره سفارش کد ${displayTrackingCode} در فروشگاه اینترنتی سیریک فیت سوال داشتم.`
-    );
-    window.open(`https://wa.me/98${phone.startsWith('0') ? phone.slice(1) : phone}?text=${message}`, '_blank');
+  const handleContactSupport = async () => {
+    const defaultPhone = cms?.homeContent?.whatsappPhone;
+    let targetPhone = defaultPhone;
+    if (!targetPhone) {
+      try {
+        const supportDoc = await getSupportSettings();
+        targetPhone = supportDoc.whatsappNumber;
+      } catch (_) {}
+    }
+    const message = `سلام و درود، درباره سفارش کد ${displayTrackingCode} در فروشگاه اینترنتی سیریک فیت سوال داشتم.`;
+    const waUrl = formatWhatsAppUrl(targetPhone || DEFAULT_WHATSAPP_NUMBER, message);
+    if (waUrl) {
+      window.open(waUrl, '_blank');
+    }
   };
 
   return (

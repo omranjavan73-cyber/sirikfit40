@@ -243,8 +243,10 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
         };
 
         localStorage.setItem('omex_current_user', JSON.stringify(verifiedUser));
+        localStorage.setItem('sirikfit_current_user', JSON.stringify(verifiedUser));
         if (res.token) {
           localStorage.setItem('omex_auth_token', res.token);
+          localStorage.setItem('sirikfit_auth_token', res.token);
         }
 
         await saveUserProfileToFirestore(verifiedUser).catch(() => {});

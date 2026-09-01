@@ -266,6 +266,7 @@ export interface CmsConfig {
   localInventory?: LocalInventoryItem[];
   whitelistedDomains?: WhitelistedDomain[];
   warehouseCategories?: WarehouseCategory[];
+  popularSamplesOrder?: string[];
   homeContent?: HomePageSettings;
   paymentGateway?: PaymentGatewayConfig;
   apiConfig: {
@@ -920,7 +921,8 @@ app.post('/api/cms', async (req, res) => {
     paymentGateway,
     apiConfig,
     whitelistedDomains,
-    warehouseCategories
+    warehouseCategories,
+    popularSamplesOrder
   } = req.body;
   const store = readStore();
 
@@ -943,6 +945,7 @@ app.post('/api/cms', async (req, res) => {
   if (Array.isArray(localInventory)) store.cms.localInventory = localInventory;
   if (Array.isArray(whitelistedDomains)) store.cms.whitelistedDomains = whitelistedDomains;
   if (Array.isArray(warehouseCategories)) store.cms.warehouseCategories = warehouseCategories;
+  if (Array.isArray(popularSamplesOrder)) store.cms.popularSamplesOrder = popularSamplesOrder;
   if (homeContent && typeof homeContent === 'object') {
     store.cms.homeContent = { ...store.cms.homeContent, ...homeContent };
   }
@@ -4198,20 +4201,20 @@ const isInvalidDrImage = (url: string) => {
                  l.includes('store_logo') || l.includes('/media/logo/') || l.includes('/media/logos/') ||
                  l.includes('vector.svg');
 
-  // Check if filename is strictly the logo file
+  // Check if filename is strictly a logo or dummy file
   try {
     const parsedPath = new URL(l.startsWith('http') ? l : `https://drnutrition.com${l.startsWith('/') ? '' : '/'}${l}`).pathname;
     const fname = parsedPath.split('/').pop() || '';
     if (fname === 'dnp.png' || fname === 'dnp.jpg' || fname === 'dnp.webp' || fname === 'dnp.svg' ||
         fname === 'logo.png' || fname === 'logo.jpg' || fname === 'logo.webp' || fname === 'logo.svg' ||
-        fname.startsWith('logo_') || fname.startsWith('logo-')) {
+        fname.startsWith('logo_') || fname.startsWith('logo-') ||
+        fname === 'icon.png' || fname === 'icon.svg' || fname.startsWith('icon_') || fname.startsWith('icon-')) {
       return true;
     }
   } catch (_e) {}
 
   return isLogo || l.includes('placeholder') || 
-         l.includes('favicon') || l.includes('badge') ||
-         l.includes('banner') || l.includes('icon') ||
+         l.includes('favicon') || l.includes('/icons/') ||
          l.includes('tamara') || l.includes('tabby') || l.includes('payment') ||
          l.includes('pixel') || l.includes('1x1') || l.includes('spacer') ||
          l.includes('blank.gif') || l.includes('spinner') || l.includes('loading') ||
@@ -5737,17 +5740,39 @@ function parseDrNutritionApiProduct(prod: any, targetUrl: string): ParseAdapterR
   const finalOrig = origP > pAed ? origP : undefined;
   const discountPercent = prod.discount || (finalOrig ? Math.round(((finalOrig - pAed) / finalOrig) * 100) : undefined);
 
-  let mainImg = sanitizeImageUrl(prod.original_image || prod.image || prod.base_image, targetUrl);
+  const rawCandidateImg = prod.original_image || prod.image || prod.base_image || 
+                          prod.thumbnail || prod.thumbnail_url || prod.image_url || prod.photo ||
+                          (Array.isArray(prod.images) ? (typeof prod.images[0] === 'string' ? prod.images[0] : prod.images[0]?.url || prod.images[0]?.src) : '') ||
+                          (Array.isArray(prod.media) ? (typeof prod.media[0] === 'string' ? prod.media[0] : prod.media[0]?.url || prod.media[0]?.src) : '') ||
+                          (Array.isArray(prod.media_gallery) ? (typeof prod.media_gallery[0] === 'string' ? prod.media_gallery[0] : prod.media_gallery[0]?.url || prod.media_gallery[0]?.src) : '');
+
+  let mainImg = sanitizeImageUrl(rawCandidateImg, targetUrl);
   if (isInvalidDrImage(mainImg)) mainImg = '';
 
   const galleryImages: string[] = [];
   if (mainImg) galleryImages.push(mainImg);
-  if (Array.isArray(prod.additional_images)) {
-    prod.additional_images.forEach((img: any) => {
-      const s = sanitizeImageUrl(img, targetUrl);
-      if (s && !isInvalidDrImage(s) && !galleryImages.includes(s)) galleryImages.push(s);
-    });
-  }
+
+  const addImgSources = [
+    prod.additional_images,
+    prod.images,
+    prod.media,
+    prod.media_gallery,
+    prod.gallery,
+    prod.photos
+  ];
+
+  addImgSources.forEach((list) => {
+    if (Array.isArray(list)) {
+      list.forEach((img: any) => {
+        const rawUrl = typeof img === 'string' ? img : (img?.url || img?.src || img?.image || img?.file || '');
+        const s = sanitizeImageUrl(rawUrl, targetUrl);
+        if (s && !isInvalidDrImage(s) && !galleryImages.includes(s)) {
+          galleryImages.push(s);
+        }
+      });
+    }
+  });
+
   if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
 
   const flavors: string[] = [];
@@ -5940,11 +5965,29 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, customUser
         }
       }
     } catch (_searchErr) {}
+    // 1D. Direct Product Endpoint Lookup
+    try {
+      const productApiUrl = `https://data.drnutrition.com/api/v1/products/${encodeURIComponent(normalizedSlug)}`;
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 6000);
+      const productRes = await fetch(productApiUrl, { headers: apiHeaders, signal: controller.signal });
+      clearTimeout(tId);
+
+      if (productRes.ok) {
+        const productJson: any = await productRes.json();
+        const prod = productJson?.data?.product || productJson?.data;
+        if (prod) {
+          const res = parseDrNutritionApiProduct(prod, targetUrl);
+          if (res) return res;
+        }
+      }
+    } catch (_prodErr) {}
   }
 
   // -------------------------------------------------------------
   // STRATEGY 2: Direct HTTP Fetch (Fast check for unblocked requests)
   // -------------------------------------------------------------
+  let htmlSnippetForAi = '';
   for (const fetchUrl of [enAeUrl, cleanOriginal]) {
     try {
       const controller = new AbortController();
@@ -5955,6 +5998,7 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, customUser
       if (directRes.ok && directRes.status !== 403) {
         const html = await directRes.text();
         if (html && html.length > 500) {
+          htmlSnippetForAi = html.slice(0, 16000);
           const parsed = parseDrNutritionExactJson(html, fetchUrl);
           if (parsed && parsed.price && parsed.price > 0 && parsed.title && parsed.title !== 'Dr. Nutrition') {
             return parsed;
@@ -5985,6 +6029,7 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, customUser
     if (jinaRes.ok) {
       const jinaHtml = await jinaRes.text();
       if (jinaHtml && jinaHtml.length > 500) {
+        if (!htmlSnippetForAi) htmlSnippetForAi = jinaHtml.slice(0, 16000);
         const parsed = parseDrNutritionExactJson(jinaHtml, enAeUrl);
         if (parsed && parsed.price && parsed.price > 0 && parsed.title && parsed.title !== 'Dr. Nutrition') {
           return parsed;
@@ -5992,6 +6037,145 @@ async function drNutritionAdapter(targetUrl: string, cmsConfig?: any, customUser
       }
     }
   } catch (_jinaErr) {}
+
+  // -------------------------------------------------------------
+  // STRATEGY 4: ScraperAPI Proxy Fallback
+  // -------------------------------------------------------------
+  const scraperApiKey = (cmsConfig?.apiConfig as any)?.scraperApiKey || process.env.SCRAPER_API_KEY || process.env.SCRAPERAPI_KEY || "a67220b28858f356c2b0f0ea7878c6f8";
+  if (scraperApiKey) {
+    try {
+      const scraperApiUrl = `http://api.scraperapi.com?api_key=${encodeURIComponent(scraperApiKey)}&url=${encodeURIComponent(enAeUrl)}`;
+      const controller = new AbortController();
+      const tId = setTimeout(() => controller.abort(), 8000);
+      const scraperRes = await fetch(scraperApiUrl, { signal: controller.signal });
+      clearTimeout(tId);
+
+      if (scraperRes.ok) {
+        const scraperHtml = await scraperRes.text();
+        if (scraperHtml && scraperHtml.length > 200) {
+          if (!htmlSnippetForAi) htmlSnippetForAi = scraperHtml.slice(0, 16000);
+          const parsed = parseDrNutritionExactJson(scraperHtml, enAeUrl);
+          if (parsed && parsed.price && parsed.price > 0 && parsed.title && parsed.title !== 'Dr. Nutrition') {
+            return parsed;
+          }
+          const genericParsed = parseHtmlEngine(scraperHtml, enAeUrl);
+          if (genericParsed.title && genericParsed.price > 0) {
+            return {
+              ok: true,
+              title: genericParsed.title,
+              price: genericParsed.price,
+              currency: "AED",
+              image: sanitizeImageUrl(genericParsed.image, enAeUrl),
+              galleryImages: genericParsed.galleryImages,
+              images: genericParsed.galleryImages,
+              variantGroups: genericParsed.variantGroups,
+              flavors: genericParsed.flavors,
+              sizes: genericParsed.sizes,
+              options: genericParsed.options,
+              storeName,
+              description: genericParsed.description
+            };
+          }
+        }
+      }
+    } catch (_sErr) {}
+  }
+
+  // -------------------------------------------------------------
+  // STRATEGY 5: Microlink OpenGraph Fallback
+  // -------------------------------------------------------------
+  try {
+    const microlinkResult = await fetchWithMicrolink(enAeUrl, storeName);
+    if (microlinkResult && microlinkResult.price && microlinkResult.price > 0) {
+      return microlinkResult;
+    }
+  } catch (_mErr) {}
+
+  // -------------------------------------------------------------
+  // STRATEGY 6: Gemini Flash AI Fallback
+  // -------------------------------------------------------------
+  if (htmlSnippetForAi && htmlSnippetForAi.length > 50) {
+    const serverGeminiKeys: string[] = [];
+    const addKey = (k?: any) => {
+      if (k && typeof k === 'string' && k.trim() !== '' && k !== '******') {
+        if (!serverGeminiKeys.includes(k.trim())) serverGeminiKeys.push(k.trim());
+      }
+    };
+    addKey(cmsConfig?.apiConfig?.geminiApiKey);
+    if (Array.isArray(cmsConfig?.apiConfig?.geminiApiKeys)) {
+      cmsConfig.apiConfig.geminiApiKeys.forEach((k: string) => addKey(k));
+    }
+    addKey(process.env.GEMINI_API_KEY);
+
+    if (serverGeminiKeys.length > 0) {
+      const cleanSnippet = htmlSnippetForAi
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+        .replace(/\s+/g, ' ')
+        .slice(0, 8000);
+
+      const aiPrompt = `Extract Dr. Nutrition product title, main image URL, gallery images, variants, and AED price.
+URL: "${targetUrl}"
+Snippet:
+"${cleanSnippet}"
+
+Strict JSON:
+{
+  "title": string,
+  "price": number,
+  "image": string,
+  "galleryImages": string[],
+  "currency": "AED"
+}`;
+
+      for (const apiKey of serverGeminiKeys) {
+        for (const modelName of ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash']) {
+          try {
+            const controller = new AbortController();
+            const tId = setTimeout(() => controller.abort(), 4000);
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
+            const aiRes = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contents: [{ parts: [{ text: aiPrompt }] }] }),
+              signal: controller.signal
+            });
+            clearTimeout(tId);
+
+            if (aiRes.ok) {
+              const aiData = await aiRes.json();
+              const text = aiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text) {
+                const cleanJson = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+                const parsed = JSON.parse(cleanJson);
+                if (parsed && (parsed.title || parsed.price > 0)) {
+                  const p = Number(parsed.price);
+                  if (p > 0) {
+                    const mainImg = sanitizeImageUrl(parsed.image || '', targetUrl);
+                    const gallery = Array.isArray(parsed.galleryImages)
+                      ? parsed.galleryImages.map((g: string) => sanitizeImageUrl(g, targetUrl)).filter(Boolean)
+                      : (mainImg ? [mainImg] : []);
+                    if (mainImg && !gallery.includes(mainImg)) gallery.unshift(mainImg);
+
+                    return {
+                      ok: true,
+                      title: cleanTitleStr(parsed.title || ''),
+                      price: p,
+                      currency: "AED",
+                      image: mainImg,
+                      galleryImages: gallery,
+                      images: gallery,
+                      storeName
+                    };
+                  }
+                }
+              }
+            }
+          } catch (_e) {}
+        }
+      }
+    }
+  }
 
   // -------------------------------------------------------------
   // STRATEGY 4: Structured Failure (NO FAKE DEFAULTS, NO AED 100, NO LOGO)

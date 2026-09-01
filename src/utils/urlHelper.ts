@@ -61,7 +61,6 @@ export function isInvalidProductImage(rawUrl: string): boolean {
     '/logo/',
     '_logo.',
     '-logo.',
-    '/stores/1/dnp',
     'placeholder',
     'default_logo',
     'store_logo',
@@ -129,14 +128,27 @@ export function normalizeProductImageUrl(rawUrl?: string | null, defaultDomain =
   if (!trimmed) return '';
   
   if (trimmed.startsWith('data:image')) return trimmed;
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
     const upgraded = trimmed.startsWith('http://') ? trimmed.replace('http://', 'https://') : trimmed;
     if (isInvalidProductImage(upgraded)) return '';
     return upgraded;
   }
-  if (trimmed.startsWith('//')) return `https:${trimmed}`;
 
-  const cleanDomain = (defaultDomain || 'https://drnutrition.com').replace(/\/+$/, '');
+  let cleanDomain = (defaultDomain || 'https://drnutrition.com').trim();
+  if (cleanDomain.startsWith('http://') || cleanDomain.startsWith('https://')) {
+    try {
+      cleanDomain = new URL(cleanDomain).origin;
+    } catch (_e) {
+      cleanDomain = cleanDomain.replace(/\/+$/, '');
+    }
+  } else {
+    cleanDomain = cleanDomain.replace(/\/+$/, '');
+    if (!cleanDomain.startsWith('http')) {
+      cleanDomain = `https://${cleanDomain}`;
+    }
+  }
+
   const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
   let resolvedUrl = `${cleanDomain}${cleanPath}`;
 

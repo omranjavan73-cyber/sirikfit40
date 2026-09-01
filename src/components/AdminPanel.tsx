@@ -2203,11 +2203,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setSaveProductsSuccess(false);
 
     try {
+      const effectiveOrderIds = popularSamplesOrder.length > 0 ? popularSamplesOrder : getPopularSamplesList().map(i => i.id);
+      const orderMap = new Map<string, number>();
+      effectiveOrderIds.forEach((id, idx) => {
+        orderMap.set(id, idx);
+        const rawId = id.replace(/^(local|deal)-/, '');
+        orderMap.set(rawId, idx);
+        orderMap.set(`local-${rawId}`, idx);
+        orderMap.set(`deal-${rawId}`, idx);
+      });
+
+      const updatedLocalList = localInventoryList.map(item => {
+        const isPop = item && (item.isPopular === true || (item as any).isPopularSample === true);
+        const rawId = item.id;
+        const prefId = `local-${item.id}`;
+        const assignedOrder = orderMap.has(prefId) ? orderMap.get(prefId) : (orderMap.has(rawId) ? orderMap.get(rawId) : (typeof item.popularOrder === 'number' ? item.popularOrder : 9999));
+        return {
+          ...item,
+          isPopular: isPop,
+          popularOrder: isPop ? assignedOrder : 9999
+        };
+      });
+
+      const updatedDealsList = dealsList.map(deal => {
+        const isPop = deal && (deal.isPopular === true || (deal as any).isPopularSample === true);
+        const rawId = deal.id;
+        const prefId = `deal-${deal.id}`;
+        const assignedOrder = orderMap.has(prefId) ? orderMap.get(prefId) : (orderMap.has(rawId) ? orderMap.get(rawId) : (typeof deal.popularOrder === 'number' ? deal.popularOrder : 9999));
+        return {
+          ...deal,
+          isPopular: isPop,
+          popularOrder: isPop ? assignedOrder : 9999
+        };
+      });
+
       const updatedCms = {
         ...(cms || {}),
-        localInventory: localInventoryList,
-        deals: dealsList,
-        popularSamplesOrder: popularSamplesOrder.length > 0 ? popularSamplesOrder : getPopularSamplesList().map(i => i.id),
+        localInventory: updatedLocalList,
+        deals: updatedDealsList,
+        popularSamplesOrder: effectiveOrderIds,
         warehouseCategories,
         showLocalInventory: Boolean(showLocalInventory),
         features: {
@@ -2220,17 +2254,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (typeof window !== 'undefined') {
         localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
         localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
+        localStorage.setItem('sirikfit_local_inventory', JSON.stringify(updatedLocalList));
+        localStorage.setItem('sirikfit_special_deals', JSON.stringify(updatedDealsList));
         localStorage.setItem('sirikfit_features_config', JSON.stringify({ showLocalInventory: Boolean(showLocalInventory) }));
         window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
         window.dispatchEvent(new Event('storage'));
       }
 
+      setLocalInventoryList(updatedLocalList);
+      setDealsList(updatedDealsList);
       onUpdateCms(updatedCms as any);
 
       try {
         await Promise.all([
-          saveIranWarehouseItems(localInventoryList),
-          saveSpecialDeals(dealsList),
+          saveIranWarehouseItems(updatedLocalList),
+          saveSpecialDeals(updatedDealsList),
           setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
           setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore({ showLocalInventory: Boolean(showLocalInventory) }), { merge: true }),
           setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
@@ -2245,9 +2283,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            localInventory: localInventoryList,
-            deals: dealsList,
+            localInventory: updatedLocalList,
+            deals: updatedDealsList,
             warehouseCategories,
+            popularSamplesOrder: effectiveOrderIds,
             showLocalInventory: Boolean(showLocalInventory)
           })
         }).catch(() => {});

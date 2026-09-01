@@ -7,7 +7,9 @@ import {
   saveSupportSettings, 
   getGeneralSettings, 
   saveGeneralSettings, 
-  formatWhatsAppUrl 
+  formatWhatsAppUrl,
+  DEFAULT_WHATSAPP_NUMBER,
+  DEFAULT_WHATSAPP_MESSAGE
 } from '../../services/settingsService';
 
 interface SettingsAdminProps {
@@ -21,8 +23,8 @@ export const SettingsAdmin: React.FC<SettingsAdminProps> = ({
   onUpdateCms,
   showToast
 }) => {
-  const [whatsappPhone, setWhatsappPhone] = useState('+971501234567');
-  const [whatsappMsg, setWhatsappMsg] = useState('سلام، در رابطه با خرید از سیریک فیت راهنمایی میخواستم');
+  const [whatsappPhone, setWhatsappPhone] = useState(DEFAULT_WHATSAPP_NUMBER);
+  const [whatsappMsg, setWhatsappMsg] = useState(DEFAULT_WHATSAPP_MESSAGE);
   const [isSavingWa, setIsSavingWa] = useState(false);
   const [waSavedSuccess, setWaSavedSuccess] = useState(false);
 
@@ -50,6 +52,22 @@ export const SettingsAdmin: React.FC<SettingsAdminProps> = ({
         whatsappNumber: cleanPhone,
         whatsappDefaultMessage: cleanMsg
       });
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('supportConfigUpdated', {
+          detail: { whatsappNumber: cleanPhone, whatsappDefaultMessage: cleanMsg }
+        }));
+      }
+
+      if (cms && onUpdateCms) {
+        onUpdateCms({
+          ...cms,
+          homeContent: {
+            ...cms.homeContent,
+            whatsappPhone: cleanPhone
+          }
+        });
+      }
 
       if (ok) {
         setWaSavedSuccess(true);
@@ -104,7 +122,7 @@ export const SettingsAdmin: React.FC<SettingsAdminProps> = ({
                 type="text"
                 value={whatsappPhone}
                 onChange={(e) => setWhatsappPhone(e.target.value)}
-                placeholder="+971501234567 یا 09121234567"
+                placeholder="+989914984801 یا 09914984801"
                 className="w-full bg-slate-50 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 text-slate-900 dark:text-white text-xs px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-emerald-600 font-mono dir-ltr text-left font-bold"
                 required
               />

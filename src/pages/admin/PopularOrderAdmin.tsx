@@ -37,7 +37,10 @@ export const PopularOrderAdmin: React.FC<PopularOrderAdminProps> = ({
     popularOnly.sort((a, b) => {
       const orderA = typeof a.popularOrder === 'number' ? a.popularOrder : 9999;
       const orderB = typeof b.popularOrder === 'number' ? b.popularOrder : 9999;
-      return orderA - orderB;
+      if (orderA !== orderB) return orderA - orderB;
+      const dateA = a.updatedAt || a.createdAt || '';
+      const dateB = b.updatedAt || b.createdAt || '';
+      return dateB.localeCompare(dateA);
     });
     setPopularList(popularOnly);
   }, [products]);
@@ -74,11 +77,24 @@ export const PopularOrderAdmin: React.FC<PopularOrderAdminProps> = ({
     try {
       const prod = popularList.find(p => p.id === prodId);
       if (prod && db) {
+        const isWarehouse = prod.targetSection === 'iran_warehouse' || 
+          prod.id.startsWith('local-') || 
+          prod.id.startsWith('iran-') || 
+          (prod as any).section === 'iran_warehouse' || 
+          (prod as any).type === 'local' ||
+          (prod as any).storeName?.includes('انبار') ||
+          (prod as any).category === 'موجودی ایران';
+        const col = isWarehouse ? 'iran_warehouse' : 'special_deals';
+        
         const batch = writeBatch(db);
-        const col = prod.targetSection === 'iran_warehouse' ? 'iran_warehouse' : 'special_deals';
-        batch.update(doc(db, col, prod.id), { isPopular: false, popularOrder: 9999 });
-        batch.update(doc(db, 'products', prod.id), { isPopular: false, popularOrder: 9999 });
+        batch.set(doc(db, col, prod.id), { isPopular: false, isPopularSample: false, popularOrder: 9999, updatedAt: new Date().toISOString() }, { merge: true });
+        batch.set(doc(db, 'products', prod.id), { isPopular: false, isPopularSample: false, popularOrder: 9999, updatedAt: new Date().toISOString() }, { merge: true });
         await batch.commit();
+
+        const idList = updated.map(p => p.id);
+        const { setDoc } = await import('firebase/firestore');
+        await setDoc(doc(db, 'settings', 'cms'), { popularSamplesOrder: idList }, { merge: true });
+        await setDoc(doc(db, 'cms', 'app'), { popularSamplesOrder: idList }, { merge: true });
       }
       if (showToast) showToast('محصول از لیست پرطرفدارها حذف شد', 'info');
     } catch (_e) {}
@@ -99,38 +115,120 @@ export const PopularOrderAdmin: React.FC<PopularOrderAdminProps> = ({
         const batch = writeBatch(db);
 
         popularList.forEach((prod, index) => {
-          const colName = prod.targetSection === 'iran_warehouse' ? 'iran_warehouse' : 'special_deals';
+          const isWarehouse = prod.targetSection === 'iran_warehouse' || 
+            prod.id.startsWith('local-') || 
+            prod.id.startsWith('iran-') || 
+            (prod as any).section === 'iran_warehouse' || 
+            (prod as any).type === 'local' ||
+            (prod as any).storeName?.includes('انبار') ||
+            (prod as any).category === 'موجودی ایران';
+          const colName = isWarehouse ? 'iran_warehouse' : 'special_deals';
           
           // 1. Primary target section collection
           const primaryDocRef = doc(db, colName, prod.id);
-          batch.update(primaryDocRef, {
+          batch.set(primaryDocRef, {
             popularOrder: index,
-            isPopular: true
-          });
+            isPopular: true,
+            isPopularSample: true,
+            isFeatured: true,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
 
-          // 2. Global products collection (if maintained)
+          // 2. Global products collection
           const globalDocRef = doc(db, 'products', prod.id);
-          batch.update(globalDocRef, {
+          batch.set(globalDocRef, {
             popularOrder: index,
-            isPopular: true
-          });
+            isPopular: true,
+            isPopularSample: true,
+            isFeatured: true,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
         });
 
         await batch.commit();
       }
 
-      // Also persist to settings/cms popularSamplesOrder for full backwards-compatibility
+      // Also persist to settings/cms and cms/app popularSamplesOrder for full backwards-compatibility
+      const idList = popularList.map(p => p.id);
       if (db) {
-        const idList = popularList.map(p => p.id);
         const { setDoc } = await import('firebase/firestore');
-        await setDoc(doc(db, 'settings', 'cms'), { popularSamplesOrder: idList }, { merge: true });
+        await Promise.all([
+          setDoc(doc(db, 'settings', 'cms'), { popularSamplesOrder: idList }, { merge: true }).catch(() => {}),
+          setDoc(doc(db, 'cms', 'app'), { popularSamplesOrder: idList }, { merge: true }).catch(() => {})
+        ]);
       }
 
-      // Update local storage and dispatch event
-      const enriched = popularList.map((p, idx) => ({ ...p, popularOrder: idx, isPopular: true }));
+      // Sync backend REST API
+      try {
+        await fetch('/api/cms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ popularSamplesOrder: idList })
+        }).catch(() => {});
+      } catch (_apiErr) {}
+
+      // Update local storage caches for special deals and local inventory
+      if (typeof window !== 'undefined') {
+        const orderMap = new Map<string, number>();
+        popularList.forEach((p, idx) => {
+          orderMap.set(p.id, idx);
+          orderMap.set(p.id.replace(/^(local|deal)-/, ''), idx);
+          orderMap.set(`local-${p.id.replace(/^(local|deal)-/, '')}`, idx);
+          orderMap.set(`deal-${p.id.replace(/^(local|deal)-/, '')}`, idx);
+        });
+        
+        try {
+          const rawDeals = localStorage.getItem('sirikfit_special_deals');
+          if (rawDeals) {
+            const dealsArr = JSON.parse(rawDeals);
+            if (Array.isArray(dealsArr)) {
+              dealsArr.forEach((d: any) => {
+                if (orderMap.has(d.id)) {
+                  d.popularOrder = orderMap.get(d.id);
+                  d.isPopular = true;
+                  d.isPopularSample = true;
+                }
+              });
+              localStorage.setItem('sirikfit_special_deals', JSON.stringify(dealsArr));
+            }
+          }
+        } catch (_e) {}
+
+        try {
+          const rawLocal = localStorage.getItem('sirikfit_local_inventory');
+          if (rawLocal) {
+            const localArr = JSON.parse(rawLocal);
+            if (Array.isArray(localArr)) {
+              localArr.forEach((item: any) => {
+                if (orderMap.has(item.id)) {
+                  item.popularOrder = orderMap.get(item.id);
+                  item.isPopular = true;
+                  item.isPopularSample = true;
+                }
+              });
+              localStorage.setItem('sirikfit_local_inventory', JSON.stringify(localArr));
+            }
+          }
+        } catch (_e) {}
+
+        try {
+          const rawCms = localStorage.getItem('sirikfit_cms_config');
+          if (rawCms) {
+            const parsedCms = JSON.parse(rawCms);
+            parsedCms.popularSamplesOrder = idList;
+            localStorage.setItem('sirikfit_cms_config', JSON.stringify(parsedCms));
+            localStorage.setItem('omex_home_cms', JSON.stringify(parsedCms));
+          }
+        } catch (_e) {}
+      }
+
+      // Update local storage and dispatch events
+      const enriched = popularList.map((p, idx) => ({ ...p, popularOrder: idx, isPopular: true, isPopularSample: true }));
       if (typeof window !== 'undefined') {
         localStorage.setItem('sirikfit_popular_order', JSON.stringify(enriched));
         window.dispatchEvent(new CustomEvent('popularOrderUpdated', { detail: enriched }));
+        window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { popularSamplesOrder: idList } }));
+        window.dispatchEvent(new Event('storage'));
       }
 
       if (onOrderSaved) {

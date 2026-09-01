@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Sparkles, RefreshCw, Save, Image as ImageIcon, Link as LinkIcon, DollarSign, Layers } from 'lucide-react';
 import type { Product } from '../../types/product';
-import { scraperService, normalizeProductImageUrl } from '../../services/scraperService';
-import { formatToman, toPersianDigits } from '../../utils/formatters';
+import { extractCleanUrl, deduplicateImageUrls, formatToman, toPersianDigits } from '../../utils/formatters';
+import { parseProductLinkUniversal } from '../../utils/parseLink';
+import { getEffectiveGeminiKeysList } from '../../utils/geminiKey';
+import { normalizeProductImageUrl } from '../../utils/urlHelper';
 
 export interface ProductFormProps {
   initialProduct?: Partial<Product>;
@@ -48,51 +50,82 @@ export const ProductForm: React.FC<ProductFormProps> = ({
   }));
 
   const handleExtractDraft = async () => {
-    if (!inputUrl.trim()) {
+    const targetUrl = extractCleanUrl(inputUrl);
+    if (!targetUrl || !targetUrl.trim()) {
       if (showToast) showToast('لطفاً لینک معتبر محصول را وارد کنید', 'error');
       return;
     }
+    setInputUrl(targetUrl);
 
     setIsExtracting(true);
     try {
-      const extractedData: any = await scraperService.extract(inputUrl.trim());
+      let cmsConfig: any = null;
+      try {
+        const saved = localStorage.getItem('sirikfit_cms_config');
+        if (saved) cmsConfig = JSON.parse(saved);
+      } catch (_e) {}
 
-      const rawImg = extractedData.imageUrl || extractedData.image || (extractedData.images && extractedData.images[0]) || '';
-      const resolvedImg = normalizeProductImageUrl(rawImg, extractedData.storeDomain || 'https://drnutrition.com');
-      const resolvedPriceAed = Number(extractedData.priceAed || extractedData.price || 0);
-      const computedToman = Math.round((resolvedPriceAed + 20) * (1 + 0.20) * aedRate);
+      const savedKeys = getEffectiveGeminiKeysList(cmsConfig?.apiConfig?.geminiApiKeys || cmsConfig?.apiConfig?.geminiApiKey);
 
-      const draftPayload: Product = {
-        id: (extractedData.id && !extractedData.id.startsWith('scraped-')) ? extractedData.id : `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        titleFa: extractedData.titleFa || extractedData.title || '',
-        titleEn: extractedData.titleEn || extractedData.title || '',
-        title: extractedData.titleFa || extractedData.title || '',
-        imageUrl: resolvedImg,
-        image: resolvedImg,
-        images: resolvedImg ? [resolvedImg] : [],
-        galleryImages: resolvedImg ? [resolvedImg] : [],
-        priceAed: resolvedPriceAed,
-        price: resolvedPriceAed,
-        priceToman: computedToman,
-        storeName: extractedData.storeName || 'Dr. Nutrition',
-        targetSection: activeTab === 'deals' ? 'deals' : 'iran_warehouse',
-        isActive: true,
-        isDraft: false,
-        profitMargin: 20,
-        shippingFeeAed: 20,
-        category: extractedData.category || productDraft.category || 'supplements',
-        subCategory: productDraft.subCategory || 'all',
-        variants: extractedData.variants || [],
-        createdAt: new Date().toISOString(),
-        url: inputUrl.trim(),
-        sourceUrl: inputUrl.trim()
-      };
+      console.log('[Scraper Engine] Initiating extraction from caller: ProductForm', { targetUrl });
+      const result = await parseProductLinkUniversal({
+        url: targetUrl,
+        geminiKeys: savedKeys,
+        cmsConfig: cmsConfig
+      });
 
-      setProductDraft(draftPayload);
-      if (showToast) showToast('اطلاعات محصول با موفقیت استخراج شد', 'success');
+      if (result.success && result.priceAed && result.priceAed > 0) {
+        const resolvedPriceAed = Number(result.priceAed || 0);
+        const computedToman = Math.round((resolvedPriceAed + 20) * (1 + 0.20) * aedRate);
+
+        const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
+        const mainImg = result.image || result.imageUrl || result.mainImage || cmsConfig?.heroImage || fallbackImage;
+        const rawList = (result.images && result.images.length > 0) ? result.images : (result.galleryImages || [mainImg]);
+        const galleryList = deduplicateImageUrls([mainImg, ...rawList], mainImg);
+
+        const draftPayload: Product = {
+          id: (result.id && !result.id.startsWith('scraped-')) ? result.id : `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          titleFa: result.title || '',
+          titleEn: (result as any).titleEn || result.title || '',
+          title: result.title || '',
+          imageUrl: mainImg,
+          image: mainImg,
+          images: galleryList.length > 0 ? galleryList : (mainImg ? [mainImg] : []),
+          galleryImages: galleryList.length > 0 ? galleryList : (mainImg ? [mainImg] : []),
+          priceAed: resolvedPriceAed,
+          price: resolvedPriceAed,
+          priceToman: computedToman,
+          storeName: result.storeName || (targetUrl.includes('drnutrition.com') ? 'Dr. Nutrition' : (targetUrl.includes('sporter.com') ? 'Sporter' : 'iHerb')),
+          targetSection: activeTab === 'deals' ? 'deals' : 'iran_warehouse',
+          isActive: true,
+          isDraft: false,
+          profitMargin: 20,
+          shippingFeeAed: 20,
+          category: result.category || productDraft.category || 'supplements',
+          subCategory: productDraft.subCategory || 'all',
+          variants: (result.variants || []).map((v: any) => {
+            const rawVImg = v.imageUrl || v.image || v.imageThumbnail || mainImg;
+            const normVImg = normalizeProductImageUrl(rawVImg, result.storeDomain || targetUrl || 'https://drnutrition.com') || mainImg;
+            return {
+              ...v,
+              imageUrl: normVImg,
+              image: normVImg
+            };
+          }),
+          createdAt: new Date().toISOString(),
+          url: targetUrl,
+          sourceUrl: targetUrl
+        };
+
+        setProductDraft(draftPayload);
+        if (showToast) showToast('اطلاعات محصول با موفقیت استخراج شد', 'success');
+      } else {
+        const errMsg = result.error || result.message || 'عدم توانایی در استخراج اطلاعات از لینک';
+        if (showToast) showToast(errMsg, 'error');
+      }
     } catch (err: any) {
       console.error('Extraction error:', err);
-      if (showToast) showToast('خطا در استخراج مستقیم محصول', 'error');
+      if (showToast) showToast('خطا در استخراج محصول: ' + (err?.message || err), 'error');
     } finally {
       setIsExtracting(false);
     }

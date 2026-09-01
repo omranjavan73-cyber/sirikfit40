@@ -5,7 +5,8 @@ import { SupportHeadsetLogo } from './SupportHeadsetLogo';
 import { 
   formatWhatsAppUrl, 
   getSupportSettings, 
-  subscribeToSupportSettings 
+  subscribeToSupportSettings,
+  DEFAULT_WHATSAPP_NUMBER
 } from '../../services/settingsService';
 import type { SupportFirestoreDoc } from '../../types/settings';
 
@@ -24,13 +25,27 @@ export const SupportPopup: React.FC<SupportPopupProps> = ({ isOpen, onClose }) =
     const unsub = subscribeToSupportSettings((updated) => {
       setSupportDoc(updated);
     });
-    return () => unsub();
+
+    const handleConfigEvent = (e: any) => {
+      if (e.detail) {
+        setSupportDoc((prev) => ({ ...prev, ...e.detail }));
+      }
+    };
+
+    window.addEventListener('supportSettingsUpdated', handleConfigEvent);
+    window.addEventListener('supportConfigUpdated', handleConfigEvent);
+
+    return () => {
+      unsub();
+      window.removeEventListener('supportSettingsUpdated', handleConfigEvent);
+      window.removeEventListener('supportConfigUpdated', handleConfigEvent);
+    };
   }, []);
 
   const activeWhatsappNumber = 
     supportDoc.whatsappNumber || 
     supportConfig.whatsappNumber || 
-    '+971501234567';
+    DEFAULT_WHATSAPP_NUMBER;
 
   const activeWhatsappMessage = 
     supportDoc.whatsappDefaultMessage || 

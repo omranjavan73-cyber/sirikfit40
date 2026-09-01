@@ -58,9 +58,10 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
 
   const rawList = items || products || [];
   const list = [...rawList].sort((a: any, b: any) => {
-    const orderA = typeof a.popularOrder === 'number' ? a.popularOrder : 9999;
-    const orderB = typeof b.popularOrder === 'number' ? b.popularOrder : 9999;
-    return orderA - orderB;
+    const orderA = typeof a.popularOrder === 'number' && a.popularOrder < 9000 ? a.popularOrder : (typeof a.rawItem?.popularOrder === 'number' && a.rawItem.popularOrder < 9000 ? a.rawItem.popularOrder : 9999);
+    const orderB = typeof b.popularOrder === 'number' && b.popularOrder < 9000 ? b.popularOrder : (typeof b.rawItem?.popularOrder === 'number' && b.rawItem.popularOrder < 9000 ? b.rawItem.popularOrder : 9999);
+    if (orderA !== orderB) return orderA - orderB;
+    return 0;
   });
 
   if (!list || list.length === 0) {

@@ -48,7 +48,10 @@ export const PopularProducts: React.FC<PopularProductsProps> = ({
             fetched.sort((a: any, b: any) => {
               const orderA = typeof a.popularOrder === 'number' ? a.popularOrder : 9999;
               const orderB = typeof b.popularOrder === 'number' ? b.popularOrder : 9999;
-              return orderA - orderB;
+              if (orderA !== orderB) return orderA - orderB;
+              const dateA = a.updatedAt || a.createdAt || '';
+              const dateB = b.updatedAt || b.createdAt || '';
+              return dateB.localeCompare(dateA);
             });
             setPopularItems(fetched);
           }
@@ -67,7 +70,10 @@ export const PopularProducts: React.FC<PopularProductsProps> = ({
       const sorted = [...initialItems].sort((a: any, b: any) => {
         const orderA = typeof a.popularOrder === 'number' ? a.popularOrder : 9999;
         const orderB = typeof b.popularOrder === 'number' ? b.popularOrder : 9999;
-        return orderA - orderB;
+        if (orderA !== orderB) return orderA - orderB;
+        const dateA = a.updatedAt || a.createdAt || '';
+        const dateB = b.updatedAt || b.createdAt || '';
+        return dateB.localeCompare(dateA);
       });
       setPopularItems(sorted);
     }

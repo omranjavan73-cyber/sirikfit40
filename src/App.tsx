@@ -1170,6 +1170,10 @@ function MainApp() {
                   title: item.title,
                   image: item.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
                   rawItem: item,
+                  popularOrder: typeof item.popularOrder === 'number' ? item.popularOrder : undefined,
+                  isPopular: Boolean(item.isPopular),
+                  priceToman: item.priceToman,
+                  priceAed: item.priceAed,
                   type: 'local' as const
                 })),
                 ...popularDeals.map(deal => ({
@@ -1177,6 +1181,11 @@ function MainApp() {
                   title: deal.title,
                   image: deal.image || 'https://images.unsplash.com/photo-1546483875-ad9014c88eba?w=500&auto=format&fit=crop&q=80',
                   rawItem: deal,
+                  popularOrder: typeof deal.popularOrder === 'number' ? deal.popularOrder : undefined,
+                  isPopular: Boolean(deal.isPopular),
+                  priceToman: deal.priceToman,
+                  priceAed: deal.priceAED || deal.priceAed,
+                  samplePriceAed: deal.priceAED || deal.priceAed,
                   type: 'deal' as const
                 }))
               ];
@@ -1204,29 +1213,37 @@ function MainApp() {
                 return null;
               }
 
-              popularList.sort((a, b) => {
-                const rawIdA = a.rawItem ? a.rawItem.id : a.id;
-                const rawIdB = b.rawItem ? b.rawItem.id : b.id;
+              const popularOrderList = (cmsConfig as any)?.popularSamplesOrder || [];
 
-                const itemOrderA = typeof (a as any).popularOrder === 'number' ? (a as any).popularOrder : (typeof (a as any).rawItem?.popularOrder === 'number' ? (a as any).rawItem.popularOrder : undefined);
-                const itemOrderB = typeof (b as any).popularOrder === 'number' ? (b as any).popularOrder : (typeof (b as any).rawItem?.popularOrder === 'number' ? (b as any).rawItem.popularOrder : undefined);
-
-                if (itemOrderA !== undefined && itemOrderB !== undefined) {
-                  return itemOrderA - itemOrderB;
+              const getItemRank = (item: PopularProductItem): number => {
+                const raw = (item as any).rawItem || {};
+                if (typeof item.popularOrder === 'number' && item.popularOrder < 9000) {
+                  return item.popularOrder;
                 }
-                if (itemOrderA !== undefined) return -1;
-                if (itemOrderB !== undefined) return 1;
+                if (typeof raw.popularOrder === 'number' && raw.popularOrder < 9000) {
+                  return raw.popularOrder;
+                }
+                const id = String(item.id || '');
+                const rawId = raw.id ? String(raw.id) : id.replace(/^(local|deal)-/, '');
+                if (popularOrderList && popularOrderList.length > 0) {
+                  const idx = popularOrderList.findIndex((entry: string) =>
+                    entry === id ||
+                    entry === rawId ||
+                    entry === `local-${rawId}` ||
+                    entry === `deal-${rawId}`
+                  );
+                  if (idx !== -1) return idx;
+                }
+                return typeof item.popularOrder === 'number' ? item.popularOrder : (typeof raw.popularOrder === 'number' ? raw.popularOrder : 9999);
+              };
 
-                const popularOrder = (cmsConfig as any)?.popularSamplesOrder || [];
-                const idxA = popularOrder.indexOf(a.id) !== -1
-                  ? popularOrder.indexOf(a.id)
-                  : (popularOrder.indexOf(rawIdA) !== -1 ? popularOrder.indexOf(rawIdA) : 999);
-
-                const idxB = popularOrder.indexOf(b.id) !== -1
-                  ? popularOrder.indexOf(b.id)
-                  : (popularOrder.indexOf(rawIdB) !== -1 ? popularOrder.indexOf(rawIdB) : 999);
-
-                return idxA - idxB;
+              popularList.sort((a, b) => {
+                const rankA = getItemRank(a);
+                const rankB = getItemRank(b);
+                if (rankA !== rankB) return rankA - rankB;
+                const tA = new Date((a.rawItem as any)?.sectionAddedAt || (a.rawItem as any)?.createdAt || (a.rawItem as any)?.updatedAt || 0).getTime();
+                const tB = new Date((b.rawItem as any)?.sectionAddedAt || (b.rawItem as any)?.createdAt || (b.rawItem as any)?.updatedAt || 0).getTime();
+                return tB - tA;
               });
 
               return (

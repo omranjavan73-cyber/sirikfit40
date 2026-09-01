@@ -22,9 +22,10 @@ import {
 } from 'lucide-react';
 import type { NormalizedProduct, ProductVariant, LocalInventoryItem, FeaturedDeal, PricingRulesConfig } from '../../types';
 import { extractAttributesFromText } from '../../utils/attributeParser';
-import { toPersianDigits, formatToman, parseAndConvertSize, normalizeProductImageUrl } from '../../utils/formatters';
+import { toPersianDigits, formatToman, parseAndConvertSize, normalizeProductImageUrl, extractCleanUrl, deduplicateImageUrls, isArtificialFallback } from '../../utils/formatters';
 import { calculateLandedPrice } from '../../utils/pricingCalculator';
-import { generateBilingualProductTitle } from '../../utils/parseLink';
+import { generateBilingualProductTitle, parseProductLinkUniversal } from '../../utils/parseLink';
+import { getEffectiveGeminiKeysList } from '../../utils/geminiKey';
 import { saveSingleProductWithVariants, saveIranWarehouseItems, saveSpecialDeals } from '../../services/adminService';
 import { VariantMatrixTable, STANDARD_SIZES_PRESET } from '../../components/admin/VariantMatrixTable';
 import { PRESET_FLAVORS } from '../../utils/variantPresets';
@@ -195,33 +196,48 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
     };
   });
 
-  // 1. Scrape Primary URL
-  const handleScrapeMain = async () => {
-    if (!mainUrl.trim()) {
+  // 1. Scrape Primary URL / Extract Draft
+  const handleExtractDraft = async (urlToExtract?: string) => {
+    const rawTarget = urlToExtract || mainUrl;
+    const targetUrl = extractCleanUrl(rawTarget);
+    if (!targetUrl || !targetUrl.trim()) {
       if (showToast) showToast('لطفاً لینک اصلی محصول را وارد کنید', 'error');
       return;
     }
+    setMainUrl(targetUrl);
     setIsScrapingMain(true);
     try {
-      console.log('[Scraper Engine] Initiating extraction from caller: ProductManagementAdmin', { targetUrl: mainUrl.trim() });
-      const scraped = await scraperService.extract(mainUrl.trim(), false, 'ProductManagementAdmin');
+      let cmsConfig: any = null;
+      try {
+        const saved = localStorage.getItem('sirikfit_cms_config');
+        if (saved) cmsConfig = JSON.parse(saved);
+      } catch (_e) {}
 
-      if (scraped && (scraped.title || scraped.priceAed || (scraped as any).price)) {
-        const attr = extractAttributesFromText(scraped.title || scraped.titleEn || '', mainUrl);
-        const pAed = parseFloat(String(scraped.priceAed || (scraped as any).priceAED || (scraped as any).price || 0));
-        const origAed = parseFloat(String(scraped.originalPriceAed || (scraped as any).originalPriceAED || (scraped as any).originalPrice || 0)) || undefined;
-        const sz = attr.size || (scraped.sizes && scraped.sizes[0]) || '';
-        const flv = attr.flavor || (scraped.flavors && scraped.flavors[0]) || '';
+      const savedKeys = getEffectiveGeminiKeysList(cmsConfig?.apiConfig?.geminiApiKeys || cmsConfig?.apiConfig?.geminiApiKey);
 
-        const originInfo = detectStoreOrigin(mainUrl.trim());
-        const isIherbLink = mainUrl.toLowerCase().includes('iherb.com') || mainUrl.toLowerCase().includes('ae.iherb.com');
-        const resolvedStore = isIherbLink ? 'iHerb' : (scraped.storeName || originInfo?.storeName || 'Dr. Nutrition');
+      console.log('[Scraper Engine] Initiating extraction from caller: ProductManagementAdmin', { targetUrl });
+      const result = await parseProductLinkUniversal({
+        url: targetUrl,
+        geminiKeys: savedKeys,
+        cmsConfig: cmsConfig
+      });
 
-        const titleEn = scraped.titleEn || scraped.title || '';
-        const titleFa = scraped.titleFa || generateBilingualProductTitle(titleEn, resolvedStore, scraped.brand);
+      if (result && (result.title || result.priceAed || (result as any).price)) {
+        const attr = extractAttributesFromText(result.title || (result as any).titleEn || '', targetUrl);
+        const pAed = parseFloat(String(result.priceAed || (result as any).priceAED || (result as any).price || 0));
+        const origAed = parseFloat(String(result.originalPriceAed || (result as any).originalPriceAED || (result as any).originalPrice || 0)) || undefined;
+        const sz = attr.size || (result.sizes && result.sizes[0]) || '';
+        const flv = attr.flavor || (result.flavors && result.flavors[0]) || '';
+
+        const originInfo = detectStoreOrigin(targetUrl);
+        const isIherbLink = targetUrl.toLowerCase().includes('iherb.com') || targetUrl.toLowerCase().includes('ae.iherb.com');
+        const resolvedStore = isIherbLink ? 'iHerb' : (result.storeName || originInfo?.storeName || 'Dr. Nutrition');
+
+        const titleEn = (result as any).titleEn || result.title || '';
+        const titleFa = (result as any).titleFa || result.title || generateBilingualProductTitle(titleEn, resolvedStore, result.brand);
 
         // Auto-calculate base Toman price using live Dirham exchange rate from settings/pricing_rules
-        const effectiveWeight = scraped.weightKg || attr.weightKg || 0.8;
+        const effectiveWeight = result.weightKg || attr.weightKg || 0.8;
         const landedCalc = calculateLandedPrice({
           priceAed: pAed,
           weightKg: effectiveWeight,
@@ -230,23 +246,11 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
         });
         const calculatedTomanPrice = landedCalc.finalToman;
 
-        const rawMainImg = scraped.imageUrl || scraped.mainImage || scraped.image || (scraped.galleryImages && scraped.galleryImages[0]) || (scraped.images && scraped.images[0]) || '';
-        const cleanDomain = (scraped.storeDomain || (originInfo as any)?.baseUrl || (mainUrl.toLowerCase().includes('drnutrition') ? 'https://drnutrition.com' : '')).replace(/\/+$/, '');
-        const resolvedImageUrl = rawMainImg.startsWith('http') ? rawMainImg : (cleanDomain ? `${cleanDomain}/${rawMainImg.replace(/^\/+/, '')}` : rawMainImg);
-        const normalizedMainImg = normalizeProductImageUrl(resolvedImageUrl, cleanDomain || 'https://drnutrition.com');
-
-        const rawGalleryList: string[] = Array.isArray(scraped.galleryImages)
-          ? scraped.galleryImages
-          : (Array.isArray(scraped.images) ? scraped.images : []);
-        const normalizedGallery = Array.from(
-          new Set([
-            normalizedMainImg,
-            ...rawGalleryList.map((img: string) => {
-              const resImg = img.startsWith('http') ? img : (cleanDomain ? `${cleanDomain}/${img.replace(/^\/+/, '')}` : img);
-              return normalizeProductImageUrl(resImg, cleanDomain || 'https://drnutrition.com');
-            })
-          ].filter(Boolean))
-        );
+        const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
+        const mainImg = result.image || (result as any).imageUrl || (result as any).mainImage || cmsConfig?.heroImage || fallbackImage;
+        const rawList = (result.images && result.images.length > 0) ? result.images : (result.galleryImages || [mainImg]);
+        const galleryList = deduplicateImageUrls([mainImg, ...rawList], mainImg);
+        const effectiveMainImg = mainImg || (galleryList.length > 0 ? galleryList[0] : '');
 
         const firstVariant: ProductVariant = {
           id: `var-main-${Date.now()}`,
@@ -257,13 +261,13 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           priceToman: calculatedTomanPrice,
           originalPrice: origAed,
           originalPriceAed: origAed,
-          inStock: scraped.inStock !== false,
-          image: normalizedMainImg,
-          imageUrl: normalizedMainImg
+          inStock: result.inStock !== false,
+          image: effectiveMainImg,
+          imageUrl: effectiveMainImg
         };
 
-        const existingVariants: ProductVariant[] = (scraped.variants && Array.isArray(scraped.variants) && scraped.variants.length > 0)
-          ? scraped.variants.map((v: any, vIdx: number) => {
+        const existingVariants: ProductVariant[] = (result.variants && Array.isArray(result.variants) && result.variants.length > 0)
+          ? result.variants.map((v: any, vIdx: number) => {
               const vPriceAed = parseFloat(v.priceAed || v.priceAED || v.price || pAed);
               const vLanded = calculateLandedPrice({
                 priceAed: vPriceAed,
@@ -271,8 +275,8 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
                 pricingRules: pricingRules,
                 aedRate: liveAedRate
               });
-              const rawVImg = v.imageUrl || v.image || v.imageThumbnail || rawMainImg;
-              const normVImg = normalizeProductImageUrl(rawVImg, scraped.storeDomain || mainUrl.trim() || 'https://drnutrition.com') || normalizedMainImg;
+              const rawVImg = v.imageUrl || v.image || v.imageThumbnail || effectiveMainImg;
+              const normVImg = normalizeProductImageUrl(rawVImg, result.storeDomain || targetUrl || 'https://drnutrition.com') || effectiveMainImg;
               return {
                 id: v.id || `var-${vIdx}-${Date.now()}`,
                 size: v.size || sz || undefined,
@@ -289,26 +293,26 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
             })
           : [firstVariant];
 
-        const updatedSizes = Array.from(new Set([...(scraped.sizes || []), sz].filter(Boolean)));
-        const updatedFlavors = Array.from(new Set([...(scraped.flavors || []), flv].filter(Boolean)));
+        const updatedSizes = Array.from(new Set([...(result.sizes || []), sz].filter(Boolean)));
+        const updatedFlavors = Array.from(new Set([...(result.flavors || []), flv].filter(Boolean)));
 
         setProduct(prev => ({
           ...prev,
           title: titleFa || titleEn || prev.title,
           titleFa: titleFa || prev.titleFa,
           titleEn: titleEn || prev.titleEn,
-          brand: scraped.brand || prev.brand,
+          brand: result.brand || prev.brand,
           storeName: resolvedStore || prev.storeName || 'Dr. Nutrition',
-          sourceUrl: mainUrl.trim(),
-          url: mainUrl.trim(),
+          sourceUrl: targetUrl,
+          url: targetUrl,
           price: pAed || prev.price,
           priceAed: pAed || prev.priceAed,
           priceToman: calculatedTomanPrice || prev.priceToman,
           originalPriceAed: origAed,
-          image: normalizedMainImg || prev.image,
-          imageUrl: normalizedMainImg || (prev as any).imageUrl || prev.image,
-          images: normalizedGallery.length > 0 ? normalizedGallery : prev.images,
-          galleryImages: normalizedGallery.length > 0 ? normalizedGallery : prev.galleryImages,
+          image: effectiveMainImg || prev.image,
+          imageUrl: effectiveMainImg || (prev as any).imageUrl || prev.image,
+          images: galleryList.length > 0 ? galleryList : (effectiveMainImg ? [effectiveMainImg] : prev.images),
+          galleryImages: galleryList.length > 0 ? galleryList : (effectiveMainImg ? [effectiveMainImg] : prev.galleryImages),
           weightKg: effectiveWeight || prev.weightKg,
           sizes: updatedSizes,
           flavors: updatedFlavors,
@@ -325,6 +329,8 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
       setIsScrapingMain(false);
     }
   };
+
+  const handleScrapeMain = () => handleExtractDraft();
 
   // 2. Scrape Auxiliary Variant URL
   const handleScrapeAuxiliary = async () => {
@@ -505,15 +511,30 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
 
   const handleTogglePopular = (productId?: string) => {
     const nextPop = !Boolean(product.isPopular);
-    setProduct((prev) => ({ ...prev, isPopular: nextPop, isFeatured: nextPop }));
+    const nextOrder = nextPop ? 0 : 9999;
+    setProduct((prev) => ({
+      ...prev,
+      isPopular: nextPop,
+      isFeatured: nextPop,
+      popularOrder: nextOrder
+    }));
     const idToUpdate = productId || product.id;
-    if (idToUpdate) {
+    if (idToUpdate && db) {
       try {
-        updateDoc(doc(db, 'products', idToUpdate), {
+        const docRef = doc(db, 'products', idToUpdate);
+        updateDoc(docRef, {
           isPopular: nextPop,
           isFeatured: nextPop,
+          popularOrder: nextOrder,
           updatedAt: new Date().toISOString()
-        }).catch(() => {});
+        }).catch(() => {
+          setDoc(docRef, {
+            isPopular: nextPop,
+            isFeatured: nextPop,
+            popularOrder: nextOrder,
+            updatedAt: new Date().toISOString()
+          }, { merge: true }).catch(() => {});
+        });
       } catch (_e) {}
     }
   };
@@ -753,11 +774,22 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
       {/* 3. POPULAR SAMPLES TAB */}
       {activeAdminSubTab === 'popularSamples' && (
         <PopularOrderAdmin
-          products={[...dealsList, ...inventoryList] as any}
-          onOrderSaved={(updated) => {
+          products={[
+            ...dealsList.map(d => ({ ...d, targetSection: 'special_deals' })),
+            ...inventoryList.map(i => ({ ...i, targetSection: 'iran_warehouse' }))
+          ] as any}
+          onOrderSaved={async (updated) => {
             const updatedMap = new Map(updated.map(p => [p.id, p]));
-            setDealsList(prev => prev.map(d => updatedMap.has(d.id) ? { ...d, ...updatedMap.get(d.id) } : d));
-            setInventoryList(prev => prev.map(i => updatedMap.has(i.id) ? { ...i, ...updatedMap.get(i.id) } : i));
+            const newDeals = dealsList.map(d => updatedMap.has(d.id) ? { ...d, ...updatedMap.get(d.id) } : d);
+            const newInv = inventoryList.map(i => updatedMap.has(i.id) ? { ...i, ...updatedMap.get(i.id) } : i);
+            setDealsList(newDeals);
+            setInventoryList(newInv);
+            try {
+              await Promise.all([
+                saveSpecialDeals(newDeals),
+                saveIranWarehouseItems(newInv)
+              ]);
+            } catch (_err) {}
           }}
           showToast={showToast}
         />
@@ -846,14 +878,14 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-3">
             <div className="flex items-center gap-4 flex-1 min-w-0">
               <div className="w-12 h-12 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden shrink-0">
-                {(product.imageUrl || product.image) ? (
+                {(product.image || product.imageUrl || (product.galleryImages && product.galleryImages[0]) || (product.images && product.images[0])) ? (
                   <img
-                    src={normalizeProductImageUrl(product.imageUrl || product.image, mainUrl.trim() || 'https://drnutrition.com')}
+                    src={product.image || product.imageUrl || (product.galleryImages && product.galleryImages[0]) || (product.images && product.images[0])}
                     alt={product.titleEn || product.titleFa || product.title}
                     className="w-full h-full object-contain p-0.5"
                     onError={(e) => {
                       e.currentTarget.onerror = null;
-                      e.currentTarget.src = '/placeholder-product.png';
+                      e.currentTarget.src = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
                     }}
                   />
                 ) : (

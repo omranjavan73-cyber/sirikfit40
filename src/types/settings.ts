@@ -31,9 +31,12 @@ export interface SupportSettings {
   updatedAt?: string;
 }
 
+export const DEFAULT_WHATSAPP_NUMBER = '+989914984801';
+export const DEFAULT_WHATSAPP_MESSAGE = 'سلام، در رابطه با خرید از سیریک فیت راهنمایی میخواستم';
+
 export const DEFAULT_GENERAL_SUPPORT_SETTINGS: SupportSettings = {
-  whatsappNumber: '+971501234567',
-  whatsappDefaultMessage: 'سلام، در رابطه با خرید از سیریک فیت راهنمایی میخواستم',
+  whatsappNumber: DEFAULT_WHATSAPP_NUMBER,
+  whatsappDefaultMessage: DEFAULT_WHATSAPP_MESSAGE,
   telegramBotUsername: 'SIRIK_FIT_Support_bot',
   isFloatingWidgetEnabled: true,
   supportHours: '۹ صبح الی ۲۴ شب (پاسخگویی سریع)',

@@ -83,6 +83,7 @@ export async function saveIranWarehouseItems(
         originalPriceToman: p.originalPriceToman ? Number(p.originalPriceToman) : null,
         isPopular: Boolean(p.isPopular),
         isFeatured: Boolean(p.isPopular),
+        popularOrder: typeof p.popularOrder === 'number' ? p.popularOrder : (p.isPopular ? 0 : 9999),
         isPublished: p.isPublished !== undefined ? Boolean(p.isPublished) : true,
         isActive: p.isPublished !== undefined ? Boolean(p.isPublished) : (p.isActive !== undefined ? Boolean(p.isActive) : true),
         inStock: p.inStock ?? true,
@@ -216,6 +217,7 @@ export async function saveSpecialDeals(
         originalPriceAed: p.originalPriceAed ? Number(p.originalPriceAed) : null,
         isPopular: Boolean(p.isPopular),
         isFeatured: Boolean(p.isPopular),
+        popularOrder: typeof p.popularOrder === 'number' ? p.popularOrder : (p.isPopular ? 0 : 9999),
         isPublished: p.isPublished !== undefined ? Boolean(p.isPublished) : true,
         isActive: p.isPublished !== undefined ? Boolean(p.isPublished) : (p.isActive !== undefined ? Boolean(p.isActive) : true),
         inStock: p.inStock ?? true,
@@ -669,11 +671,21 @@ export async function saveSupportConfigToFirestore(
     } catch (_e) {}
   }
 
-  // 2. Firestore document update: settings/support_config
+  // 2. Firestore document update: settings/support, settings/support_config, settings/general
   try {
     if (db) {
-      const docRef = doc(db, 'settings', 'support_config');
-      await setDoc(docRef, sanitizePayloadForFirestore(cleanPayload), { merge: true });
+      const sanitized = sanitizePayloadForFirestore(cleanPayload);
+      await setDoc(doc(db, 'settings', 'support_config'), sanitized, { merge: true });
+      await setDoc(doc(db, 'settings', 'support'), sanitized, { merge: true });
+      if (cleanPayload.whatsappNumber) {
+        await setDoc(doc(db, 'settings', 'general'), {
+          whatsappNumber: cleanPayload.whatsappNumber,
+          whatsappSupportNumber: cleanPayload.whatsappNumber,
+          whatsappDefaultMessage: cleanPayload.whatsappDefaultMessage,
+          telegramBotUsername: cleanPayload.telegramBotUsername,
+          updatedAt: cleanPayload.updatedAt
+        }, { merge: true });
+      }
     }
   } catch (err: any) {
     console.warn('Firestore write notice (Support Config):', err?.message || err);

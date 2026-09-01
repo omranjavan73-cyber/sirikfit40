@@ -156,20 +156,23 @@ export const saveLandingSettings = async (data: Partial<LandingSettings>): Promi
   }
 };
 
+export const DEFAULT_WHATSAPP_NUMBER = '+989914984801';
+export const DEFAULT_WHATSAPP_MESSAGE = 'سلام، در رابطه با خرید از سیریک فیت راهنمایی میخواستم';
+
 /**
  * Normalizes any Iranian (09... / 98...) or UAE (+971... / 971...) mobile number
  * and constructs a clean WhatsApp deep link URL using the standard api.whatsapp.com endpoint.
  */
-export function formatWhatsAppUrl(rawPhone?: string, defaultMessage = 'سلام، در رابطه با خرید از سیریک فیت راهنمایی میخواستم'): string {
-  if (!rawPhone || !rawPhone.trim()) return '';
+export function formatWhatsAppUrl(rawPhone = DEFAULT_WHATSAPP_NUMBER, defaultMessage = DEFAULT_WHATSAPP_MESSAGE): string {
+  if (!rawPhone || !rawPhone.trim()) rawPhone = DEFAULT_WHATSAPP_NUMBER;
   let clean = rawPhone.replace(/[^0-9]/g, '');
   if (clean.startsWith('09')) clean = '98' + clean.substring(1);
   if (clean.startsWith('00')) clean = clean.substring(2);
-  if (!clean) clean = '971501234567';
+  if (!clean) clean = '989914984801';
   return `https://api.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(defaultMessage)}`;
 }
 
-export function formatWhatsAppLink(phone: string, text = 'سلام، در رابطه با خرید از سیریک فیت راهنمایی میخواستم'): string {
+export function formatWhatsAppLink(phone = DEFAULT_WHATSAPP_NUMBER, text = DEFAULT_WHATSAPP_MESSAGE): string {
   return formatWhatsAppUrl(phone, text);
 }
 
@@ -204,8 +207,8 @@ export const getGeneralSettings = async (): Promise<GeneralSettingsDoc> => {
   }
 
   return {
-    whatsappNumber: '+971501234567',
-    whatsappDefaultMessage: 'سلام، درخواست راهنمایی و پشتیبانی دارم'
+    whatsappNumber: DEFAULT_WHATSAPP_NUMBER,
+    whatsappDefaultMessage: DEFAULT_WHATSAPP_MESSAGE
   };
 };
 
@@ -307,8 +310,8 @@ export const getSupportSettings = async (): Promise<SupportFirestoreDoc> => {
   }
 
   return {
-    whatsappNumber: '+971501234567',
-    whatsappDefaultMessage: 'سلام، در رابطه با خرید از سیریک فیت راهنمایی میخواستم'
+    whatsappNumber: DEFAULT_WHATSAPP_NUMBER,
+    whatsappDefaultMessage: DEFAULT_WHATSAPP_MESSAGE
   };
 };
 
@@ -319,6 +322,8 @@ export const getSupportSettings = async (): Promise<SupportFirestoreDoc> => {
 export const saveSupportSettings = async (data: Partial<SupportFirestoreDoc>): Promise<boolean> => {
   const payload = {
     ...data,
+    whatsappNumber: data.whatsappNumber || DEFAULT_WHATSAPP_NUMBER,
+    whatsappDefaultMessage: data.whatsappDefaultMessage || DEFAULT_WHATSAPP_MESSAGE,
     updatedAt: new Date().toISOString()
   };
 
@@ -328,6 +333,7 @@ export const saveSupportSettings = async (data: Partial<SupportFirestoreDoc>): P
       const merged = existing ? { ...JSON.parse(existing), ...payload } : payload;
       localStorage.setItem('sirikfit_support_settings', JSON.stringify(merged));
       window.dispatchEvent(new CustomEvent('supportSettingsUpdated', { detail: merged }));
+      window.dispatchEvent(new CustomEvent('supportConfigUpdated', { detail: merged }));
     } catch (_e) {}
   }
 

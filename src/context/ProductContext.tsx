@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
-import { collection, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, doc, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { FeaturedDeal, LocalInventoryItem } from '../types';
 
@@ -93,6 +93,17 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [deals, setDeals] = useState<FeaturedDeal[]>(loadInitialDeals);
   const [warehouseItems, setWarehouseItems] = useState<LocalInventoryItem[]>(loadInitialWarehouse);
   const [generalProducts, setGeneralProducts] = useState<any[]>(loadInitialProducts);
+  const [popularSamplesOrder, setPopularSamplesOrder] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const cached = localStorage.getItem('sirikfit_cms_config');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed?.popularSamplesOrder)) return parsed.popularSamplesOrder;
+      }
+    } catch (_) {}
+    return [];
+  });
   
   // If we have cached items from local storage, we don't start in a blocking loading state
   const hasCache = deals.length > 0 || warehouseItems.length > 0;
@@ -210,10 +221,42 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     );
 
+    const unsubCms = onSnapshot(
+      doc(db, 'settings', 'cms'),
+      (snap) => {
+        if (snap.exists()) {
+          const cmsData = snap.data();
+          if (Array.isArray(cmsData?.popularSamplesOrder)) {
+            setPopularSamplesOrder(cmsData.popularSamplesOrder);
+          }
+        }
+      },
+      (err) => console.warn('CMS settings snapshot warning:', err)
+    );
+
+    const handlePopularOrderUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (Array.isArray(customEvent.detail)) {
+        setPopularSamplesOrder(customEvent.detail.map((p: any) => p.id));
+      } else if (Array.isArray(customEvent.detail?.popularSamplesOrder)) {
+        setPopularSamplesOrder(customEvent.detail.popularSamplesOrder);
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('popularOrderUpdated', handlePopularOrderUpdate);
+      window.addEventListener('settingsUpdated', handlePopularOrderUpdate);
+    }
+
     return () => {
       unsubDeals();
       unsubWh();
       unsubProd();
+      unsubCms();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('popularOrderUpdated', handlePopularOrderUpdate);
+        window.removeEventListener('settingsUpdated', handlePopularOrderUpdate);
+      }
     };
   }, []);
 
@@ -271,8 +314,33 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     });
 
-    return Array.from(map.values());
-  }, [deals, warehouseItems, generalProducts]);
+    const getRank = (item: any): number => {
+      if (typeof item.popularOrder === 'number' && item.popularOrder < 9000) {
+        return item.popularOrder;
+      }
+      const id = String(item.id || '');
+      const rawId = id.replace(/^(local|deal)-/, '');
+      if (popularSamplesOrder && popularSamplesOrder.length > 0) {
+        const idx = popularSamplesOrder.findIndex(entry => 
+          entry === id || 
+          entry === rawId || 
+          entry === `local-${rawId}` || 
+          entry === `deal-${rawId}`
+        );
+        if (idx !== -1) return idx;
+      }
+      return typeof item.popularOrder === 'number' ? item.popularOrder : 9999;
+    };
+
+    return Array.from(map.values()).sort((a: any, b: any) => {
+      const orderA = getRank(a);
+      const orderB = getRank(b);
+      if (orderA !== orderB) return orderA - orderB;
+      const tA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
+      const tB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+      return tB - tA;
+    });
+  }, [deals, warehouseItems, generalProducts, popularSamplesOrder]);
 
   const contextValue = useMemo<ProductContextType>(() => ({
     deals,

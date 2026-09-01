@@ -121,7 +121,7 @@ export const SupportAdmin: React.FC<SupportAdminProps> = ({ showToast }) => {
                 type="text"
                 value={formData.whatsappNumber}
                 onChange={(e) => setFormData({ ...formData, whatsappNumber: e.target.value })}
-                placeholder="+971501234567 یا 09171234567"
+                placeholder="+989914984801 یا 09914984801"
                 dir="ltr"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 text-slate-900 dark:text-white font-mono text-sm focus:outline-none focus:border-emerald-500 transition"
               />

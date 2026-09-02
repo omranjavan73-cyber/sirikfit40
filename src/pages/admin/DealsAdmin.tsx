@@ -21,6 +21,10 @@ import { db } from '../../firebase';
 import { parseWeightKg, calculateProductTomanPrice } from '../../utils/pricingCalculator';
 import { saveSpecialDeals } from '../../services/adminService';
 import { universalScraperService } from '../../services/scraperService';
+import { 
+  addPopularProductToBeginning, 
+  removePopularProduct 
+} from '../../services/popularProductsService';
 
 interface DealsAdminProps {
   deals: FeaturedDeal[];
@@ -247,7 +251,7 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   const toggleExpand = (id: string) =>
     setExpandedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  const handleTogglePopular = (productId: string) => {
+  const handleTogglePopular = async (productId: string) => {
     const target = deals.find(d => d.id === productId);
     const nextPop = !Boolean((target as any)?.isPopular);
     setDeals((prev) =>
@@ -262,13 +266,14 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       })
     );
     try {
-      updateDoc(doc(db, COLLECTION_NAME, productId), {
-        isPopular: nextPop,
-        isFeatured: nextPop,
-        popularOrder: nextPop ? 0 : 9999,
-        updatedAt: new Date().toISOString()
-      }).catch((e) => console.warn('Instant popular toggle notice:', e));
-    } catch (_e) {}
+      if (nextPop) {
+        await addPopularProductToBeginning(productId, COLLECTION_NAME);
+      } else {
+        await removePopularProduct(productId, COLLECTION_NAME);
+      }
+    } catch (err) {
+      console.warn('Instant popular toggle error:', err);
+    }
   };
 
   const handleTogglePublished = (productId: string) => {

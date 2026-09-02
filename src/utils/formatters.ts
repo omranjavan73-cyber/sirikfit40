@@ -24,11 +24,14 @@ export function normalizeToEnglishDigits(str: string | number): string {
 }
 
 export function cleanIranianMobile(phone: string | number | null | undefined): string {
-  if (!phone) return '';
-  let clean = normalizeToEnglishDigits(String(phone)).replace(/[^0-9+]/g, '');
-  if (clean.startsWith('+98')) {
-    clean = '0' + clean.slice(3);
-  } else if (clean.startsWith('98') && clean.length === 12) {
+  if (phone === null || phone === undefined) return '';
+  let str = normalizeToEnglishDigits(String(phone)).trim();
+  if (!str) return '';
+
+  let clean = str.replace(/[^0-9]/g, '');
+  if (clean.startsWith('0098')) {
+    clean = '0' + clean.slice(4);
+  } else if (clean.startsWith('98') && clean.length >= 12) {
     clean = '0' + clean.slice(2);
   } else if (clean.startsWith('9') && clean.length === 10) {
     clean = '0' + clean;

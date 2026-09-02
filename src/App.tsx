@@ -45,7 +45,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { getSafeItem, setSafeItem } from './utils/safeStorage';
 
 function MainApp() {
-  const { deals: contextDeals, warehouseItems: contextWarehouse, isLoading: isProductsLoading } = useProducts();
+  const { deals: contextDeals, warehouseItems: contextWarehouse, generalProducts: contextProducts, popularProducts, isLoading: isProductsLoading } = useProducts();
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== 'undefined') {
       const p = window.location.pathname;
@@ -1158,39 +1158,7 @@ function MainApp() {
 
             {/* Popular Samples Section (نمونه‌های محبوب) */}
             {(() => {
-              const dealsSource = (contextDeals && contextDeals.length > 0) ? contextDeals : (cmsConfig?.deals || []);
-              const localSource = (contextWarehouse && contextWarehouse.length > 0) ? contextWarehouse : (cmsConfig?.localInventory || []);
-
-              const popularDeals = dealsSource.filter(d => d && d.isActive !== false && (d.isPopular === true || String(d.isPopular) === 'true' || d.isPopularSample === true || String(d.isPopularSample) === 'true'));
-              const popularLocal = localSource.filter(i => i && i.isActive !== false && i.inStock !== false && (i.isPopular === true || String(i.isPopular) === 'true' || i.isPopularSample === true || String(i.isPopularSample) === 'true'));
-
-              let popularList: PopularProductItem[] = [
-                ...popularLocal.map(item => ({
-                  id: `local-${item.id}`,
-                  title: item.title,
-                  image: item.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
-                  rawItem: item,
-                  popularOrder: typeof item.popularOrder === 'number' ? item.popularOrder : undefined,
-                  isPopular: Boolean(item.isPopular),
-                  priceToman: item.priceToman,
-                  priceAed: item.priceAed,
-                  type: 'local' as const
-                })),
-                ...popularDeals.map(deal => ({
-                  id: `deal-${deal.id}`,
-                  title: deal.title,
-                  image: deal.image || 'https://images.unsplash.com/photo-1546483875-ad9014c88eba?w=500&auto=format&fit=crop&q=80',
-                  rawItem: deal,
-                  popularOrder: typeof deal.popularOrder === 'number' ? deal.popularOrder : undefined,
-                  isPopular: Boolean(deal.isPopular),
-                  priceToman: deal.priceToman,
-                  priceAed: deal.priceAED || deal.priceAed,
-                  samplePriceAed: deal.priceAED || deal.priceAed,
-                  type: 'deal' as const
-                }))
-              ];
-
-              if (isProductsLoading && popularList.length === 0) {
+              if (isProductsLoading && (!popularProducts || popularProducts.length === 0)) {
                 return (
                   <div className="w-full bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 p-4 space-y-3 animate-pulse shadow-2xs my-2">
                     <div className="flex items-center gap-2">
@@ -1209,46 +1177,31 @@ function MainApp() {
                 );
               }
 
-              if (popularList.length === 0) {
+              if (!popularProducts || popularProducts.length === 0) {
                 return null;
               }
 
-              const popularOrderList = (cmsConfig as any)?.popularSamplesOrder || [];
-
-              const getItemRank = (item: PopularProductItem): number => {
-                const raw = (item as any).rawItem || {};
-                if (typeof item.popularOrder === 'number' && item.popularOrder < 9000) {
-                  return item.popularOrder;
-                }
-                if (typeof raw.popularOrder === 'number' && raw.popularOrder < 9000) {
-                  return raw.popularOrder;
-                }
-                const id = String(item.id || '');
-                const rawId = raw.id ? String(raw.id) : id.replace(/^(local|deal)-/, '');
-                if (popularOrderList && popularOrderList.length > 0) {
-                  const idx = popularOrderList.findIndex((entry: string) =>
-                    entry === id ||
-                    entry === rawId ||
-                    entry === `local-${rawId}` ||
-                    entry === `deal-${rawId}`
-                  );
-                  if (idx !== -1) return idx;
-                }
-                return typeof item.popularOrder === 'number' ? item.popularOrder : (typeof raw.popularOrder === 'number' ? raw.popularOrder : 9999);
-              };
-
-              popularList.sort((a, b) => {
-                const rankA = getItemRank(a);
-                const rankB = getItemRank(b);
-                if (rankA !== rankB) return rankA - rankB;
-                const tA = new Date((a.rawItem as any)?.sectionAddedAt || (a.rawItem as any)?.createdAt || (a.rawItem as any)?.updatedAt || 0).getTime();
-                const tB = new Date((b.rawItem as any)?.sectionAddedAt || (b.rawItem as any)?.createdAt || (b.rawItem as any)?.updatedAt || 0).getTime();
-                return tB - tA;
-              });
+              // Transform context's canonical sorted popularProducts to PopularProductItem format
+              // The items are ALREADY sorted by the single source of truth in ProductContext
+              const carouselItems: PopularProductItem[] = popularProducts.map(p => ({
+                id: p.id,
+                title: p.titleFa || p.title || 'محصول پرطرفدار',
+                titleFa: p.titleFa || p.title,
+                image: p.image || p.imageUrl || (p.galleryImages && p.galleryImages[0]) || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
+                imageUrl: p.imageUrl || p.image,
+                galleryImages: p.galleryImages || p.images,
+                rawItem: p.rawItem || p,
+                popularOrder: p.popularOrder,
+                isPopular: true,
+                priceToman: p.priceToman,
+                priceAed: p.priceAed || p.priceAED || p.samplePriceAed,
+                samplePriceAed: p.samplePriceAed || p.priceAed || p.priceAED,
+                type: (p.type === 'local' || p.targetSection === 'iran_warehouse' || p.id?.startsWith('local-') || p.id?.startsWith('iran-')) ? 'local' : 'deal'
+              }));
 
               return (
                 <PopularProductsCarousel
-                  items={popularList}
+                  items={carouselItems}
                   settings={settings}
                   onAddToCart={addToCart}
                   onSelectProduct={(item) => {

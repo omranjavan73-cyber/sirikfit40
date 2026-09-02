@@ -2,12 +2,14 @@ import React, { createContext, useContext, useState, useEffect, useMemo, ReactNo
 import { collection, doc, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { FeaturedDeal, LocalInventoryItem } from '../types';
+import { sortPopularProducts, normalizeProductId } from '../services/popularProductsService';
 
 export interface ProductContextType {
   deals: FeaturedDeal[];
   warehouseItems: LocalInventoryItem[];
   generalProducts: any[];
   popularProducts: any[];
+  popularSamplesOrder: string[];
   isLoading: boolean;
   refetchProducts: () => Promise<void>;
 }
@@ -262,84 +264,44 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Aggregate popular products across all operational collections, deduplicating by ID:
   // Strictly enforces: isPublished !== false && isActive !== false && (isPopular === true || isPopularSample === true)
+  // Ordered strictly by the canonical popularSamplesOrder or displayOrder
   const popularProducts = useMemo(() => {
-    const map = new Map<string, any>();
+    const candidateList: any[] = [];
 
     // 1. From special_deals
     deals.forEach((d: any) => {
       if (!d || !d.id) return;
-      const isPub = d.isPublished !== false && d.isActive !== false && d.isDraft !== true;
-      const isPop = d.isPopular === true || String(d.isPopular) === 'true' || d.isPopularSample === true || String(d.isPopularSample) === 'true';
-      if (isPub && isPop) {
-        map.set(d.id, {
-          ...d,
-          isPublished: true,
-          isPopular: true,
-          type: 'deal'
-        });
-      }
+      candidateList.push({
+        ...d,
+        rawItem: d,
+        type: 'deal',
+        targetSection: 'special_deals'
+      });
     });
 
     // 2. From iran_warehouse
     warehouseItems.forEach((w: any) => {
       if (!w || !w.id) return;
-      const isPub = w.isPublished !== false && w.isActive !== false && w.isDraft !== true && w.inStock !== false;
-      const isPop = w.isPopular === true || String(w.isPopular) === 'true' || w.isPopularSample === true || String(w.isPopularSample) === 'true';
-      if (isPub && isPop) {
-        if (!map.has(w.id)) {
-          map.set(w.id, {
-            ...w,
-            isPublished: true,
-            isPopular: true,
-            type: 'local'
-          });
-        }
-      }
+      candidateList.push({
+        ...w,
+        rawItem: w,
+        type: 'local',
+        targetSection: 'iran_warehouse'
+      });
     });
 
-    // 3. From products
+    // 3. From general products collection
     generalProducts.forEach((p: any) => {
       if (!p || !p.id) return;
-      const isPub = p.isPublished !== false && p.isActive !== false && p.isDraft !== true;
-      const isPop = p.isPopular === true || String(p.isPopular) === 'true' || p.isPopularSample === true || String(p.isPopularSample) === 'true';
-      if (isPub && isPop) {
-        if (!map.has(p.id)) {
-          map.set(p.id, {
-            ...p,
-            isPublished: true,
-            isPopular: true,
-            type: 'custom'
-          });
-        }
-      }
+      candidateList.push({
+        ...p,
+        rawItem: p,
+        type: p.type || 'custom',
+        targetSection: p.targetSection || 'products'
+      });
     });
 
-    const getRank = (item: any): number => {
-      if (typeof item.popularOrder === 'number' && item.popularOrder < 9000) {
-        return item.popularOrder;
-      }
-      const id = String(item.id || '');
-      const rawId = id.replace(/^(local|deal)-/, '');
-      if (popularSamplesOrder && popularSamplesOrder.length > 0) {
-        const idx = popularSamplesOrder.findIndex(entry => 
-          entry === id || 
-          entry === rawId || 
-          entry === `local-${rawId}` || 
-          entry === `deal-${rawId}`
-        );
-        if (idx !== -1) return idx;
-      }
-      return typeof item.popularOrder === 'number' ? item.popularOrder : 9999;
-    };
-
-    return Array.from(map.values()).sort((a: any, b: any) => {
-      const orderA = getRank(a);
-      const orderB = getRank(b);
-      if (orderA !== orderB) return orderA - orderB;
-      const tA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
-      const tB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
-      return tB - tA;
-    });
+    return sortPopularProducts(candidateList, popularSamplesOrder);
   }, [deals, warehouseItems, generalProducts, popularSamplesOrder]);
 
   const contextValue = useMemo<ProductContextType>(() => ({
@@ -347,9 +309,10 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
     warehouseItems,
     generalProducts,
     popularProducts,
+    popularSamplesOrder,
     isLoading,
     refetchProducts
-  }), [deals, warehouseItems, generalProducts, popularProducts, isLoading]);
+  }), [deals, warehouseItems, generalProducts, popularProducts, popularSamplesOrder, isLoading]);
 
   return (
     <ProductContext.Provider value={contextValue}>

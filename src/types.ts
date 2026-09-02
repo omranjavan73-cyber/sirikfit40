@@ -83,8 +83,11 @@ export interface User {
   phoneNumber: string;
   email?: string;
   address?: string;
+  deliveryAddress?: string;
   postalCode?: string;
+  role?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface FinancialSettings {
@@ -460,6 +463,8 @@ export interface LandingSettings {
   // 1.1 Granular Contact Channel Toggles
   showTelegram?: boolean;
   telegramActionText?: string;
+  showWhatsapp?: boolean;
+  whatsappActionText?: string;
   showEmail?: boolean;
   emailActionText?: string;
   showPhone?: boolean;
@@ -475,6 +480,7 @@ export interface LandingSettings {
 
   // 3. Contact & Support (Consolidated from General Settings)
   telegramId: string;
+  whatsappNumber?: string;
   supportEmail: string;
   supportPhone: string;
   supportHours: string;

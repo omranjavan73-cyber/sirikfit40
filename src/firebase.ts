@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { safeFetchJson } from './utils/apiHelper';
 import { dispatchOrderToGoogleSheets } from './utils/googleSheetsSync';
+import { normalizeCustomerPhone, findOrCreateCustomerByPhone } from './services/customerService';
 import firebaseConfigJson from '../firebase-applet-config.json';
 import {
   app as centralizedApp,
@@ -249,10 +250,29 @@ export async function saveUserProfileToFirestore(userData: {
 export async function saveOrderToFirestore(orderData: any) {
   const orderId = orderData.id || orderData.orderId || 'ord-' + Date.now();
   const rawPhone = orderData.customerPhone || orderData.phoneNumber || orderData.customer?.phone || '';
-  let cleanPhone = rawPhone.replace(/[^0-9]/g, '');
-  if (cleanPhone.startsWith('0098')) cleanPhone = '0' + cleanPhone.slice(4);
-  else if (cleanPhone.startsWith('98') && cleanPhone.length >= 12) cleanPhone = '0' + cleanPhone.slice(2);
-  else if (cleanPhone.startsWith('9') && cleanPhone.length === 10) cleanPhone = '0' + cleanPhone;
+  const cleanPhone = normalizeCustomerPhone(rawPhone);
+
+  const customerName = orderData.customerName || orderData.customer?.fullName || '';
+  const deliveryAddress = orderData.deliveryAddress || orderData.customer?.fullAddress || '';
+  const postalCode = orderData.postalCode || orderData.customer?.postalCode || '';
+
+  let linkedUserId = orderData.userId;
+
+  // Guarantee single customer account is created or updated in 'users' collection
+  if (cleanPhone) {
+    try {
+      const customer = await findOrCreateCustomerByPhone(cleanPhone, {
+        name: customerName,
+        deliveryAddress,
+        postalCode
+      });
+      if (customer?.id) {
+        linkedUserId = customer.id;
+      }
+    } catch (_custErr) {
+      console.warn('[firebase] Notice ensuring customer account:', _custErr);
+    }
+  }
 
   const totalPrice = Number(orderData.totalPrice || orderData.totalAmountToman || orderData.calculatedToman || orderData.totalToman || 0);
 
@@ -260,8 +280,18 @@ export async function saveOrderToFirestore(orderData: any) {
     ...orderData,
     id: orderId,
     orderId,
+    userId: linkedUserId || (cleanPhone ? `usr-${cleanPhone}` : undefined),
     customerPhone: cleanPhone || orderData.customerPhone || '',
     phoneNumber: cleanPhone || orderData.phoneNumber || '',
+    customerName: customerName || orderData.customerName || '',
+    deliveryAddress: deliveryAddress || orderData.deliveryAddress || '',
+    customer: {
+      fullName: customerName,
+      phone: cleanPhone,
+      fullAddress: deliveryAddress,
+      postalCode: postalCode,
+      notes: orderData.notes || orderData.customer?.notes || ''
+    },
     totalPrice,
     totalAmountToman: totalPrice,
     calculatedToman: totalPrice,
@@ -304,23 +334,16 @@ export async function saveOrderToFirestore(orderData: any) {
 }
 
 export async function fetchUserOrdersFromFirestore(userId: string, userPhone?: string) {
-  let normUserPhone = userPhone ? userPhone.replace(/[^0-9]/g, '') : '';
-  if (normUserPhone.startsWith('0098')) normUserPhone = '0' + normUserPhone.slice(4);
-  else if (normUserPhone.startsWith('98') && normUserPhone.length >= 12) normUserPhone = '0' + normUserPhone.slice(2);
-  else if (normUserPhone.startsWith('9') && normUserPhone.length === 10) normUserPhone = '0' + normUserPhone;
+  const normUserPhone = normalizeCustomerPhone(userPhone);
 
   const matchesUser = (o: any) => {
     if (userId && o.userId === userId) return true;
     if (normUserPhone) {
-      const p1 = (o.customerPhone || '').replace(/[^0-9]/g, '').replace(/^(?:0098|98)/, '0');
-      const p2 = (o.phoneNumber || '').replace(/[^0-9]/g, '').replace(/^(?:0098|98)/, '0');
-      const p3 = (o.userPhone || '').replace(/[^0-9]/g, '').replace(/^(?:0098|98)/, '0');
-      const p4 = (o.customer?.phone || '').replace(/[^0-9]/g, '').replace(/^(?:0098|98)/, '0');
-      const normP1 = p1.startsWith('9') && p1.length === 10 ? '0' + p1 : p1;
-      const normP2 = p2.startsWith('9') && p2.length === 10 ? '0' + p2 : p2;
-      const normP3 = p3.startsWith('9') && p3.length === 10 ? '0' + p3 : p3;
-      const normP4 = p4.startsWith('9') && p4.length === 10 ? '0' + p4 : p4;
-      return normP1 === normUserPhone || normP2 === normUserPhone || normP3 === normUserPhone || normP4 === normUserPhone;
+      const p1 = normalizeCustomerPhone(o.customerPhone);
+      const p2 = normalizeCustomerPhone(o.phoneNumber);
+      const p3 = normalizeCustomerPhone(o.userPhone);
+      const p4 = normalizeCustomerPhone(o.customer?.phone);
+      return p1 === normUserPhone || p2 === normUserPhone || p3 === normUserPhone || p4 === normUserPhone || (o.userId === `usr-${normUserPhone}`);
     }
     return false;
   };

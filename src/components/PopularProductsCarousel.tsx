@@ -56,13 +56,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
     }
   };
 
-  const rawList = items || products || [];
-  const list = [...rawList].sort((a: any, b: any) => {
-    const orderA = typeof a.popularOrder === 'number' && a.popularOrder < 9000 ? a.popularOrder : (typeof a.rawItem?.popularOrder === 'number' && a.rawItem.popularOrder < 9000 ? a.rawItem.popularOrder : 9999);
-    const orderB = typeof b.popularOrder === 'number' && b.popularOrder < 9000 ? b.popularOrder : (typeof b.rawItem?.popularOrder === 'number' && b.rawItem.popularOrder < 9000 ? b.rawItem.popularOrder : 9999);
-    if (orderA !== orderB) return orderA - orderB;
-    return 0;
-  });
+  const list = items || products || [];
 
   if (!list || list.length === 0) {
     return null;
@@ -85,7 +79,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
   return (
     <div id="popular-products-carousel" className="w-full font-['Vazirmatn',sans-serif] mt-2 mb-1 py-0.5 group/carousel relative">
       {/* Title Header with Four-Dot Icon (Right-Aligned) */}
-      <div className="flex items-center justify-start gap-1.5 mb-1.5 px-2 text-right pr-2 dir-rtl">
+      <div dir="rtl" className="flex items-center justify-start gap-1.5 mb-1.5 px-2 text-right pr-2">
         <div className="grid grid-cols-2 gap-0.5 w-3.5 h-3.5 shrink-0 text-slate-900">
           <span className="w-1.5 h-1.5 rounded-full bg-slate-900"></span>
           <span className="w-1.5 h-1.5 rounded-full bg-slate-900"></span>
@@ -112,7 +106,8 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
         {/* Scrollable Container with Generous Safe Horizontal Gap */}
         <div
           ref={scrollRef}
-          className="flex gap-4 md:gap-6 overflow-x-auto no-scrollbar py-3 px-4 dir-rtl scroll-smooth w-full items-start"
+          dir="rtl"
+          className="flex gap-4 md:gap-6 overflow-x-auto no-scrollbar py-3 px-4 scroll-smooth w-full items-start"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {list.map((prod) => {

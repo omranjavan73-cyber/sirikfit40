@@ -26,6 +26,7 @@ import { formatToman, formatPersianDate, toPersianDigits } from '../utils/format
 import { UserSupportTickets } from './UserSupportTickets';
 import { fetchUserOrdersFromFirestore, saveUserProfileToFirestore } from '../firebase';
 import { fetchOrdersByCustomerPhone, subscribeToOrdersByCustomerPhone } from '../services/orderService';
+import { normalizeCustomerPhone, getCustomerByPhone } from '../services/customerService';
 import { sendOtp, verifyOtp } from '../services/smsService';
 
 interface CustomerAccountViewProps {
@@ -131,19 +132,9 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
     setAuthError('');
     setAuthSuccess('');
 
-    const cleanMobile = phone.replace(/[^0-9]/g, '');
-    let formattedMobile = cleanMobile;
-    if (formattedMobile.startsWith('98')) formattedMobile = '0' + formattedMobile.substring(2);
-    if (!formattedMobile.startsWith('0')) formattedMobile = '0' + formattedMobile;
+    const formattedMobile = normalizeCustomerPhone(phone);
 
-    if (!name.trim()) {
-      const msg = 'لطفاً نام و نام خانوادگی خود را وارد کنید';
-      setAuthError(msg);
-      if (showToast) showToast(msg, 'error');
-      return;
-    }
-
-    if (!/^09\d{9}$/.test(formattedMobile)) {
+    if (!formattedMobile || !/^09\d{9}$/.test(formattedMobile)) {
       const msg = 'لطفاً شماره موبایل معتبر ۱۱ رقمی وارد نمایید (مثال: 09121234567)';
       setAuthError(msg);
       if (showToast) showToast(msg, 'error');
@@ -152,7 +143,19 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
 
     setIsSubmitting(true);
     try {
-      const res = await sendOtp(formattedMobile, name);
+      // Check if customer already exists to pre-populate name
+      let customerName = name.trim();
+      if (!customerName) {
+        try {
+          const existing = await getCustomerByPhone(formattedMobile);
+          if (existing && existing.name && existing.name !== 'کاربر گرامی') {
+            customerName = existing.name;
+            setName(existing.name);
+          }
+        } catch (_e) {}
+      }
+
+      const res = await sendOtp(formattedMobile, customerName || undefined);
       if (res.success) {
         setPhone(formattedMobile);
         setStep(2);
@@ -235,10 +238,12 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
 
       if (res.success && res.user) {
         const verifiedUser: User = {
-          id: res.user.id || 'usr-' + Date.now(),
-          name: name.trim() || res.user.name || 'کاربر گرامی',
+          id: res.user.id || `usr-${phone}`,
+          name: res.user.name || name.trim() || 'کاربر گرامی',
           phoneNumber: phone,
-          email: email.trim() || res.user.email || undefined,
+          deliveryAddress: res.user.deliveryAddress || undefined,
+          postalCode: res.user.postalCode || undefined,
+          email: res.user.email || email.trim() || undefined,
           createdAt: res.user.createdAt || new Date().toISOString()
         };
 
@@ -476,10 +481,10 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
               </span>
             </div>
 
-            {/* Field 2: Name (Required) */}
+            {/* Field 2: Name (Optional for returning customers) */}
             <div>
               <label className="font-extrabold text-slate-900 block mb-1.5 text-right">
-                نام و نام خانوادگی <span className="text-rose-600 font-extrabold">* (الزامی)</span>
+                نام و نام خانوادگی <span className="text-slate-400 font-semibold">(اختیاری برای کاربران عضو)</span>
               </label>
               <div className="relative">
                 <input
@@ -487,7 +492,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="مثال: علیرضا حسینی"
-                  required
                   className="w-full bg-[#F8FAFC] border border-slate-300 focus:border-[#111111] focus:bg-white text-slate-900 text-xs font-bold p-3.5 pr-10 rounded-xl focus:outline-none transition"
                 />
                 <UserIcon className="w-4 h-4 text-slate-400 absolute right-3 top-4" />

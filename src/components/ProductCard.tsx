@@ -62,12 +62,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       dir="rtl"
     >
       {/* Product Image Section */}
-      <div className="relative w-full aspect-square bg-gray-50 rounded-xl p-2 flex items-center justify-center overflow-hidden mb-2">
+      <div className="relative w-full aspect-square bg-gray-50/80 rounded-xl overflow-hidden mb-2">
         {/* Store Badge (Top-Right) */}
         <div className="absolute top-1.5 right-1.5 z-10">
           <span
             style={storeTheme.style}
-            className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full shadow-sm ${storeTheme.bg}`}
+            className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full shadow-xs ${storeTheme.bg}`}
           >
             <span
               className={`w-1.5 h-1.5 rounded-full animate-pulse ${storeTheme.dot}`}
@@ -86,19 +86,22 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           </div>
         ) : effectiveBadge ? (
           <div className="absolute top-1.5 left-1.5 z-10">
-            <span className="inline-flex items-center gap-1 bg-red-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-sm">
+            <span className="inline-flex items-center gap-1 bg-red-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs">
               {effectiveBadge}
             </span>
           </div>
         ) : null}
 
-        <img
-          src={imageUrl}
-          alt={title}
-          loading="lazy"
-          className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
-          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-        />
+        {/* Product Image with dedicated top clearance for the badge */}
+        <div className="w-full h-full flex items-center justify-center pt-7 pb-2 px-2.5">
+          <img
+            src={imageUrl}
+            alt={title}
+            loading="lazy"
+            className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+            onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+          />
+        </div>
       </div>
 
       {/* Product Title */}

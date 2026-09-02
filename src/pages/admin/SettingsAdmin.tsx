@@ -70,11 +70,15 @@ export const SettingsAdmin: React.FC<SettingsAdminProps> = ({
       }
 
       if (ok) {
+        const reloaded = await getSupportSettings();
+        if (reloaded.whatsappNumber) {
+          setWhatsappPhone(reloaded.whatsappNumber);
+        }
         setWaSavedSuccess(true);
-        if (showToast) showToast('شماره واتساپ پشتیبانی با موفقیت در دیتابیس (settings/support) ذخیره شد.', 'success');
+        if (showToast) showToast('شماره واتساپ پشتیبانی با موفقیت در دیتابیس (settings/support) ذخیره و راستی‌آزمایی شد.', 'success');
         setTimeout(() => setWaSavedSuccess(false), 3500);
       } else {
-        if (showToast) showToast('خطا در ذخیره شماره واتساپ.', 'error');
+        if (showToast) showToast('خطا در ذخیره شماره واتساپ در دیتابیس.', 'error');
       }
     } catch (err: any) {
       if (showToast) showToast(err?.message || 'خطا در برقراری ارتباط با فایراستور', 'error');

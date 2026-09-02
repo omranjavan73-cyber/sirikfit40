@@ -13,6 +13,7 @@ import {
   Headphones,
   Sparkles,
   Send,
+  MessageCircle,
   Mail,
   Phone,
   Clock,
@@ -27,7 +28,7 @@ import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import type { LandingSettings, LandingBenefitItem, LandingFaqItem, LandingRuleItem } from '../../types';
 import { defaultLandingSettings, ENAMAD_CONFIG } from '../../types';
-import { getLandingSettings, saveLandingSettings } from '../../services/settingsService';
+import { getLandingSettings, saveLandingSettings, getSupportSettings, saveSupportSettings } from '../../services/settingsService';
 import { ENamadBadge } from '../../components/ENamadBadge';
 
 interface LandingSettingsAdminProps {
@@ -52,11 +53,15 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
   // 1. Robust Firestore fetch on load
   useEffect(() => {
     let isMounted = true;
-    getLandingSettings().then((fetched) => {
-      if (isMounted && fetched) {
+    Promise.all([
+      getLandingSettings(),
+      getSupportSettings().catch(() => null)
+    ]).then(([fetched, support]) => {
+      if (isMounted) {
         setSettings(prev => ({
           ...prev,
-          ...fetched
+          ...(fetched || {}),
+          whatsappNumber: support?.whatsappNumber || (fetched as any)?.whatsappNumber || prev.whatsappNumber
         }));
       }
     });
@@ -172,7 +177,14 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
     try {
       console.log('SAVING_PAYLOAD:', settings);
       await saveLandingSettings(settings);
-      setStatusMessage('تنظیمات لندینگ با موفقیت ذخیره شد');
+
+      if (settings.whatsappNumber && settings.whatsappNumber.trim()) {
+        await saveSupportSettings({
+          whatsappNumber: settings.whatsappNumber.trim()
+        });
+      }
+
+      setStatusMessage('تنظیمات لندینگ با موفقیت در پایگاه داده ذخیره و تایید شد');
       if (onSaved) onSaved(settings);
     } catch (err: any) {
       console.error('Save failed:', err);
@@ -372,6 +384,32 @@ export const LandingSettingsAdmin: React.FC<LandingSettingsAdminProps> = ({ onSa
                   className="w-4 h-4 rounded text-sky-600 cursor-pointer"
                 />
                 <span>نمایش؟</span>
+              </label>
+            </div>
+
+            {/* 1.5. WhatsApp Support */}
+            <div className="flex items-center justify-between p-3.5 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 gap-3">
+              <div className="flex-1 flex flex-col gap-1">
+                <span className="text-xs font-black text-emerald-800 flex items-center gap-1.5">
+                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>شماره واتساپ پشتیبانی (دکمه شناور و درگاه خرید):</span>
+                </span>
+                <input
+                  type="text"
+                  value={settings.whatsappNumber || ''}
+                  onChange={(e) => setSettings(prev => ({ ...prev, whatsappNumber: e.target.value }))}
+                  placeholder="+989914984801 یا +971501234567"
+                  className="w-full text-xs p-2.5 rounded-xl border border-emerald-300 bg-white dir-ltr text-right font-bold font-mono"
+                />
+              </div>
+              <label className="flex items-center gap-1.5 cursor-pointer font-bold text-xs select-none pt-4 text-emerald-800">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.showWhatsapp !== false)}
+                  onChange={(e) => setSettings(prev => ({ ...prev, showWhatsapp: e.target.checked }))}
+                  className="w-4 h-4 rounded text-emerald-600 cursor-pointer"
+                />
+                <span>فعال؟</span>
               </label>
             </div>
 

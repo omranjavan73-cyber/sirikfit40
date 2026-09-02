@@ -178,6 +178,10 @@ import { IranWarehouseAdmin } from '../pages/admin/IranWarehouseAdmin';
 import { HomePageSettingsAdmin } from '../pages/admin/HomePageSettingsAdmin';
 import { SeoAdmin } from '../pages/admin/SeoAdmin';
 import { LinkManagementTab } from './admin/LinkManagementTab';
+import { 
+  normalizeProductId, 
+  sortPopularProducts 
+} from '../services/popularProductsService';
 
 const DEFAULT_WAREHOUSE_CATEGORIES: WarehouseCategory[] = [
   {
@@ -801,8 +805,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const [telegramHandle, setTelegramHandle] = useState(cms?.homeContent?.telegramHandle || '@SIRIK_FIT_Support');
   const [telegramLink, setTelegramLink] = useState(cms?.homeContent?.telegramLink || 'https://t.me/SIRIK_FIT_Support');
-  const [whatsappPhone, setWhatsappPhone] = useState(cms?.homeContent?.whatsappPhone || 'پاسخگویی سریع ۲۴ ساعته');
-  const [whatsappLink, setWhatsappLink] = useState(cms?.homeContent?.whatsappLink || 'https://wa.me/989120000000');
+  const [whatsappPhone, setWhatsappPhone] = useState(cms?.homeContent?.whatsappPhone || '');
+  const [whatsappLink, setWhatsappLink] = useState(cms?.homeContent?.whatsappLink || '');
   const [showWhatsappCard, setShowWhatsappCard] = useState<boolean>(cms?.homeContent?.showWhatsappCard ?? true);
   const [officePhone, setOfficePhone] = useState(cms?.homeContent?.officePhone || '021-91000000');
   const [dubaiPhone, setDubaiPhone] = useState(cms?.homeContent?.dubaiPhone || '+971-500000000');
@@ -1660,8 +1664,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setCalcScheduleBadge(cms.homeContent.calcScheduleBadge || '📅 ارسال هر دوشنبه و پنجشنبه');
         setTelegramHandle(cms.homeContent.telegramHandle || '@SIRIK_FIT_Support');
         setTelegramLink(cms.homeContent.telegramLink || 'https://t.me/SIRIK_FIT_Support');
-        setWhatsappPhone(cms.homeContent.whatsappPhone || 'پاسخگویی سریع ۲۴ ساعته');
-        setWhatsappLink(cms.homeContent.whatsappLink || 'https://wa.me/989120000000');
+        setWhatsappPhone(cms.homeContent.whatsappPhone || '');
+        setWhatsappLink(cms.homeContent.whatsappLink || '');
         setShowWhatsappCard(cms.homeContent.showWhatsappCard ?? true);
         setOfficePhone(cms.homeContent.officePhone || '021-91000000');
         setDubaiPhone(cms.homeContent.dubaiPhone || '+971-500000000');
@@ -2203,7 +2207,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setSaveProductsSuccess(false);
 
     try {
-      const effectiveOrderIds = popularSamplesOrder.length > 0 ? popularSamplesOrder : getPopularSamplesList().map(i => i.id);
+      const effectiveOrderIds = (popularSamplesOrder.length > 0 ? popularSamplesOrder : getPopularSamplesList().map(i => i.id)).map(normalizeProductId).filter(Boolean);
       const orderMap = new Map<string, number>();
       effectiveOrderIds.forEach((id, idx) => {
         orderMap.set(id, idx);
@@ -2544,13 +2548,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const getPopularSamplesList = () => {
+  interface PopularSampleItem {
+    id: string;
+    originalId: string;
+    title: string;
+    image: string;
+    typeLabel: string;
+    type: 'local' | 'deal';
+    popularOrder?: number;
+    isPopular?: boolean;
+    isPopularSample?: boolean;
+    createdAt?: string;
+    updatedAt?: string;
+    sectionAddedAt?: string;
+  }
+
+  const getPopularSamplesList = (): PopularSampleItem[] => {
     const popularDeals = (dealsList || []).filter(d => d && (d.isPopular === true || d.isPopularSample === true) && d.isActive !== false);
     const popularLocal = (localInventoryList || []).filter(i => i && (i.isPopular === true || i.isPopularSample === true) && i.inStock !== false);
 
-    let items = [
+    const items: PopularSampleItem[] = [
       ...popularLocal.map(item => ({
-        id: `local-${item.id}`,
+        ...item,
+        id: normalizeProductId(item.id),
         originalId: item.id,
         title: item.title,
         image: item.image || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
@@ -2558,7 +2578,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         type: 'local' as const
       })),
       ...popularDeals.map(deal => ({
-        id: `deal-${deal.id}`,
+        ...deal,
+        id: normalizeProductId(deal.id),
         originalId: deal.id,
         title: deal.title,
         image: deal.image || 'https://images.unsplash.com/photo-1546483875-ad9014c88eba?w=500&auto=format&fit=crop&q=80',
@@ -2567,15 +2588,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }))
     ];
 
-    if (popularSamplesOrder.length > 0) {
-      items.sort((a, b) => {
-        const idxA = popularSamplesOrder.indexOf(a.id) !== -1 ? popularSamplesOrder.indexOf(a.id) : (popularSamplesOrder.indexOf(a.originalId) !== -1 ? popularSamplesOrder.indexOf(a.originalId) : 999);
-        const idxB = popularSamplesOrder.indexOf(b.id) !== -1 ? popularSamplesOrder.indexOf(b.id) : (popularSamplesOrder.indexOf(b.originalId) !== -1 ? popularSamplesOrder.indexOf(b.originalId) : 999);
-        return idxA - idxB;
-      });
-    }
-
-    return items;
+    return sortPopularProducts<PopularSampleItem>(items, popularSamplesOrder);
   };
 
   const handleMovePopularSample = (index: number, direction: 'up' | 'down') => {
@@ -2588,17 +2601,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const [moved] = newItems.splice(index, 1);
     newItems.splice(targetIndex, 0, moved);
 
-    const newOrderIds = newItems.map(item => item.id);
+    const newOrderIds = newItems.map(item => normalizeProductId(item.id));
     setPopularSamplesOrder(newOrderIds);
   };
 
   const handleRemovePopularSample = async (sample: { id: string; originalId: string; type: 'local' | 'deal' }) => {
     let updatedLocalList = [...localInventoryList];
     let updatedDealsList = [...dealsList];
+    const normSampleId = normalizeProductId(sample.id);
 
     if (sample.type === 'local') {
       updatedLocalList = updatedLocalList.map(item => {
-        if (item.id === sample.originalId || `local-${item.id}` === sample.id) {
+        if (normalizeProductId(item.id) === normSampleId) {
           return { ...item, isPopular: false, isPopularSample: false };
         }
         return item;
@@ -2606,7 +2620,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setLocalInventoryList(updatedLocalList);
     } else if (sample.type === 'deal') {
       updatedDealsList = updatedDealsList.map(deal => {
-        if (deal.id === sample.originalId || `deal-${deal.id}` === sample.id) {
+        if (normalizeProductId(deal.id) === normSampleId) {
           return { ...deal, isPopular: false, isPopularSample: false, isFeaturedInCalculator: false };
         }
         return deal;
@@ -2614,7 +2628,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setDealsList(updatedDealsList);
     }
 
-    const updatedOrder = popularSamplesOrder.filter(id => id !== sample.id && id !== sample.originalId);
+    const updatedOrder = popularSamplesOrder.map(normalizeProductId).filter(id => id !== normSampleId);
     setPopularSamplesOrder(updatedOrder);
 
     // Immediate state synchronization & persistence
@@ -2700,8 +2714,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (field === 'isPopular' || field === 'isPopularSample') {
         updated.isPopular = Boolean(value);
         updated.isPopularSample = Boolean(value);
+        const normId = normalizeProductId(id);
         if (Boolean(value)) {
-          setPopularSamplesOrder(prev => [`deal-${id}`, ...prev.filter(x => x !== `deal-${id}` && x !== id)]);
+          setPopularSamplesOrder(prev => [normId, ...prev.map(normalizeProductId).filter(x => x !== normId)]);
+        } else {
+          setPopularSamplesOrder(prev => prev.map(normalizeProductId).filter(x => x !== normId));
         }
       }
 
@@ -2785,8 +2802,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         if (field === 'isPopular' || field === 'isPopularSample') {
           updated.isPopular = Boolean(value);
           updated.isPopularSample = Boolean(value);
+          const normId = normalizeProductId(id);
           if (Boolean(value)) {
-            setPopularSamplesOrder(prev => [`local-${id}`, ...prev.filter(x => x !== `local-${id}` && x !== id)]);
+            setPopularSamplesOrder(prev => [normId, ...prev.map(normalizeProductId).filter(x => x !== normId)]);
+          } else {
+            setPopularSamplesOrder(prev => prev.map(normalizeProductId).filter(x => x !== normId));
           }
         }
 

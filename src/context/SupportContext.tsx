@@ -49,17 +49,27 @@ export const SupportProvider: React.FC<{ children: React.ReactNode }> = ({ child
           supportRef,
           (docSnap) => {
             if (docSnap.exists()) {
-              const data = docSnap.data();
-              if (data?.whatsappNumber) {
-                setSupportConfig((prev) => ({
-                  ...prev,
-                  whatsappNumber: data.whatsappNumber,
-                  whatsappDefaultMessage: data.whatsappDefaultMessage || prev.whatsappDefaultMessage
-                }));
+              const data = docSnap.data() as Partial<SupportConfig>;
+              if (data) {
+                setSupportConfig((prev) => {
+                  const merged: SupportConfig = {
+                    ...prev,
+                    ...data,
+                    whatsappNumber: data.whatsappNumber || prev.whatsappNumber,
+                    whatsappDefaultMessage: data.whatsappDefaultMessage || prev.whatsappDefaultMessage
+                  };
+                  try {
+                    localStorage.setItem('sirikfit_support_config', JSON.stringify(merged));
+                    localStorage.setItem('sirikfit_support_settings', JSON.stringify(merged));
+                  } catch (_e) {}
+                  return merged;
+                });
               }
             }
           },
-          () => {}
+          (err) => {
+            console.warn('[SupportContext] support snapshot notice:', err);
+          }
         );
 
         // Fallback: settings/support_config
@@ -73,6 +83,7 @@ export const SupportProvider: React.FC<{ children: React.ReactNode }> = ({ child
               setSupportConfig(merged);
               try {
                 localStorage.setItem('sirikfit_support_config', JSON.stringify(merged));
+                localStorage.setItem('sirikfit_support_settings', JSON.stringify(merged));
               } catch (_e) {}
             }
           },
@@ -85,18 +96,20 @@ export const SupportProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.warn('[SupportContext] onSnapshot setup error:', e);
     }
 
-    // 3. Custom event listener
+    // 3. Custom event listeners (instant cross-component communication)
     const handleConfigUpdate = (e: any) => {
       if (e.detail) {
         setSupportConfig((prev) => ({ ...prev, ...e.detail }));
       }
     };
     window.addEventListener('supportConfigUpdated', handleConfigUpdate);
+    window.addEventListener('supportSettingsUpdated', handleConfigUpdate);
 
     return () => {
       if (unsubscribeSupport) unsubscribeSupport();
       if (unsubscribeConfig) unsubscribeConfig();
       window.removeEventListener('supportConfigUpdated', handleConfigUpdate);
+      window.removeEventListener('supportSettingsUpdated', handleConfigUpdate);
     };
   }, []);
 

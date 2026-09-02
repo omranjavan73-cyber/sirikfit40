@@ -21,6 +21,10 @@ import { db } from '../../firebase';
 import { calculateProductTomanPrice, parseWeightKg, computeVariantToman } from '../../utils/pricingCalculator';
 import { saveIranWarehouseItems } from '../../services/adminService';
 import { universalScraperService } from '../../services/scraperService';
+import { 
+  addPopularProductToBeginning, 
+  removePopularProduct 
+} from '../../services/popularProductsService';
 
 interface IranWarehouseAdminProps {
   items: LocalInventoryItem[];
@@ -258,7 +262,7 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
       return next;
     });
 
-  const handleTogglePopular = (productId: string) => {
+  const handleTogglePopular = async (productId: string) => {
     const target = items.find(i => i.id === productId);
     const nextPop = !Boolean((target as any)?.isPopular);
     setItems((prev) =>
@@ -273,13 +277,14 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
       })
     );
     try {
-      updateDoc(doc(db, COLLECTION_NAME, productId), {
-        isPopular: nextPop,
-        isFeatured: nextPop,
-        popularOrder: nextPop ? 0 : 9999,
-        updatedAt: new Date().toISOString()
-      }).catch((e) => console.warn('Instant popular toggle notice:', e));
-    } catch (_e) {}
+      if (nextPop) {
+        await addPopularProductToBeginning(productId, COLLECTION_NAME);
+      } else {
+        await removePopularProduct(productId, COLLECTION_NAME);
+      }
+    } catch (err) {
+      console.warn('Instant popular toggle error:', err);
+    }
   };
 
   const handleTogglePublished = (productId: string) => {

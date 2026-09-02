@@ -270,16 +270,29 @@ export const subscribeToGeneralSettings = (callback: (settings: GeneralSettingsD
 };
 
 /**
- * Single source of truth: Fetches support configuration from settings/support with fallback to settings/general
+ * Single source of truth: Fetches support configuration from settings/support with fallback to settings/support_config and settings/general
  */
 export const getSupportSettings = async (): Promise<SupportFirestoreDoc> => {
   try {
     if (db) {
+      // 1. Primary: settings/support
       const snap = await getDoc(doc(db, 'settings', 'support'));
       if (snap.exists()) {
         const data = snap.data() as SupportFirestoreDoc;
         if (typeof window !== 'undefined') {
           localStorage.setItem('sirikfit_support_settings', JSON.stringify(data));
+          localStorage.setItem('sirikfit_support_config', JSON.stringify(data));
+        }
+        return data;
+      }
+
+      // 2. Secondary fallback: settings/support_config
+      const snapConfig = await getDoc(doc(db, 'settings', 'support_config'));
+      if (snapConfig.exists()) {
+        const data = snapConfig.data() as SupportFirestoreDoc;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sirikfit_support_settings', JSON.stringify(data));
+          localStorage.setItem('sirikfit_support_config', JSON.stringify(data));
         }
         return data;
       }
@@ -290,18 +303,24 @@ export const getSupportSettings = async (): Promise<SupportFirestoreDoc> => {
     }
   }
 
-  // Fallback to settings/general or localStorage
-  const general = await getGeneralSettings();
-  if (general.whatsappNumber || general.whatsappSupportNumber) {
-    return {
-      whatsappNumber: general.whatsappNumber || general.whatsappSupportNumber,
-      whatsappDefaultMessage: general.whatsappDefaultMessage,
-      telegramBotUsername: general.telegramBotUsername
-    };
-  }
+  // 3. Fallback to settings/general
+  try {
+    const general = await getGeneralSettings();
+    if (general.whatsappNumber || general.whatsappSupportNumber) {
+      return {
+        whatsappNumber: general.whatsappNumber || general.whatsappSupportNumber,
+        whatsappDefaultMessage: general.whatsappDefaultMessage,
+        telegramBotUsername: general.telegramBotUsername,
+        isFloatingWidgetEnabled: general.isFloatingWidgetEnabled ?? true,
+        supportHours: general.supportHours,
+        responseTimeText: general.responseTimeText
+      };
+    }
+  } catch (_) {}
 
+  // 4. Offline / LocalStorage fallback
   if (typeof window !== 'undefined') {
-    const cached = localStorage.getItem('sirikfit_support_settings');
+    const cached = localStorage.getItem('sirikfit_support_settings') || localStorage.getItem('sirikfit_support_config');
     if (cached) {
       try {
         return JSON.parse(cached);
@@ -311,57 +330,72 @@ export const getSupportSettings = async (): Promise<SupportFirestoreDoc> => {
 
   return {
     whatsappNumber: DEFAULT_WHATSAPP_NUMBER,
-    whatsappDefaultMessage: DEFAULT_WHATSAPP_MESSAGE
+    whatsappDefaultMessage: DEFAULT_WHATSAPP_MESSAGE,
+    telegramBotUsername: 'SIRIK_FIT_Support_bot',
+    isFloatingWidgetEnabled: true
   };
 };
 
 /**
  * Saves support configuration to settings/support as single source of truth,
  * and synchronizes settings/general and settings/support_config for backward compatibility.
+ * Verifies the database write with read-back before acknowledging success.
  */
 export const saveSupportSettings = async (data: Partial<SupportFirestoreDoc>): Promise<boolean> => {
-  const payload = {
+  const cleanPhone = (data.whatsappNumber && data.whatsappNumber.trim()) ? data.whatsappNumber.trim() : DEFAULT_WHATSAPP_NUMBER;
+  const cleanMsg = (data.whatsappDefaultMessage && data.whatsappDefaultMessage.trim()) ? data.whatsappDefaultMessage.trim() : DEFAULT_WHATSAPP_MESSAGE;
+
+  const payload: SupportFirestoreDoc = {
     ...data,
-    whatsappNumber: data.whatsappNumber || DEFAULT_WHATSAPP_NUMBER,
-    whatsappDefaultMessage: data.whatsappDefaultMessage || DEFAULT_WHATSAPP_MESSAGE,
+    whatsappNumber: cleanPhone,
+    whatsappDefaultMessage: cleanMsg,
     updatedAt: new Date().toISOString()
   };
 
-  if (typeof window !== 'undefined') {
-    try {
-      const existing = localStorage.getItem('sirikfit_support_settings');
-      const merged = existing ? { ...JSON.parse(existing), ...payload } : payload;
-      localStorage.setItem('sirikfit_support_settings', JSON.stringify(merged));
-      window.dispatchEvent(new CustomEvent('supportSettingsUpdated', { detail: merged }));
-      window.dispatchEvent(new CustomEvent('supportConfigUpdated', { detail: merged }));
-    } catch (_e) {}
+  if (!db) {
+    console.error('Firestore not initialized');
+    return false;
   }
 
   try {
-    if (db) {
-      // 1. Primary write to settings/support
-      await setDoc(doc(db, 'settings', 'support'), payload, { merge: true });
+    // 1. Primary write to settings/support
+    await setDoc(doc(db, 'settings', 'support'), payload, { merge: true });
 
-      // 2. Mirror to settings/general
-      await setDoc(doc(db, 'settings', 'general'), {
+    // 2. Mirror to settings/support_config and settings/general in parallel
+    await Promise.all([
+      setDoc(doc(db, 'settings', 'support_config'), payload, { merge: true }),
+      setDoc(doc(db, 'settings', 'general'), {
         whatsappNumber: payload.whatsappNumber,
         whatsappSupportNumber: payload.whatsappNumber,
         whatsappDefaultMessage: payload.whatsappDefaultMessage,
+        telegramBotUsername: payload.telegramBotUsername || 'SIRIK_FIT_Support_bot',
+        isFloatingWidgetEnabled: payload.isFloatingWidgetEnabled ?? true,
+        supportHours: payload.supportHours,
+        responseTimeText: payload.responseTimeText,
         updatedAt: payload.updatedAt
-      }, { merge: true });
+      }, { merge: true })
+    ]);
 
-      // 3. Mirror to settings/support_config
-      await setDoc(doc(db, 'settings', 'support_config'), {
-        whatsappNumber: payload.whatsappNumber,
-        whatsappDefaultMessage: payload.whatsappDefaultMessage,
-        updatedAt: payload.updatedAt
-      }, { merge: true });
+    // 3. Verification step: Read-back confirmation
+    const verifySnap = await getDoc(doc(db, 'settings', 'support'));
+    if (!verifySnap.exists() || verifySnap.data()?.whatsappNumber !== payload.whatsappNumber) {
+      throw new Error('تایید نوشتن در دیتابیس settings/support ناموفق بود.');
     }
+
+    // 4. Update local caches and broadcast reactive events
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('sirikfit_support_settings', JSON.stringify(payload));
+        localStorage.setItem('sirikfit_support_config', JSON.stringify(payload));
+        window.dispatchEvent(new CustomEvent('supportSettingsUpdated', { detail: payload }));
+        window.dispatchEvent(new CustomEvent('supportConfigUpdated', { detail: payload }));
+        window.dispatchEvent(new Event('storage'));
+      } catch (_e) {}
+    }
+
     return true;
   } catch (err) {
-    if (!isFirestoreGrpcNoise(err)) {
-      console.warn('Notice saving to settings/support in Firestore:', err);
-    }
+    console.error('Failed to save support settings to Firestore:', err);
     return false;
   }
 };

@@ -12,33 +12,40 @@ import {
 import { db } from '../config/firebase';
 import { isFirestoreGrpcNoise, sanitizePayloadForFirestore } from '../firebase';
 import type { Order } from '../types';
+import { normalizeCustomerPhone, findOrCreateCustomerByPhone } from './customerService';
 
-/**
- * Normalizes customer phone numbers to a standardized 11-digit format (09121234567)
- * or a clean digit string for international UAE numbers.
- */
-export function normalizeCustomerPhone(rawPhone: string): string {
-  if (!rawPhone || typeof rawPhone !== 'string') return '';
-  let clean = rawPhone.replace(/[^0-9]/g, '');
-
-  if (clean.startsWith('0098')) {
-    clean = '0' + clean.slice(4);
-  } else if (clean.startsWith('98') && clean.length >= 12) {
-    clean = '0' + clean.slice(2);
-  } else if (clean.startsWith('9') && clean.length === 10) {
-    clean = '0' + clean;
-  }
-
-  return clean;
-}
+export { normalizeCustomerPhone };
 
 /**
  * Saves or updates an order in Firestore 'orders' collection
- * Enforces standardized customerPhone, createdAt, items, totalPrice, and status.
+ * Enforces standardized customerPhone, createdAt, items, totalPrice, status,
+ * and guarantees the customer account is created/linked in the 'users' collection.
  */
 export async function saveOrder(orderData: Partial<Order>): Promise<string> {
   const rawPhone = orderData.customerPhone || orderData.phoneNumber || orderData.customer?.phone || '';
   const customerPhone = normalizeCustomerPhone(rawPhone);
+
+  const customerName = orderData.customerName || orderData.customer?.fullName || '';
+  const deliveryAddress = orderData.deliveryAddress || orderData.customer?.fullAddress || '';
+  const postalCode = orderData.postalCode || orderData.customer?.postalCode || '';
+
+  let linkedUserId = orderData.userId;
+
+  // Ensure persistent unified customer account exists in 'users' collection
+  if (customerPhone) {
+    try {
+      const customer = await findOrCreateCustomerByPhone(customerPhone, {
+        name: customerName,
+        deliveryAddress,
+        postalCode
+      });
+      if (customer?.id) {
+        linkedUserId = customer.id;
+      }
+    } catch (_custErr) {
+      console.warn('[orderService] Notice ensuring customer account:', _custErr);
+    }
+  }
 
   const trackingCode = orderData.trackingCode || orderData.id || `SF-${Date.now().toString().slice(-6)}`;
   const orderId = orderData.id || orderData.orderId || trackingCode;
@@ -52,8 +59,18 @@ export async function saveOrder(orderData: Partial<Order>): Promise<string> {
     orderId,
     orderNumber: orderId,
     trackingCode,
+    userId: linkedUserId || (customerPhone ? `usr-${customerPhone}` : undefined),
     customerPhone,
     phoneNumber: customerPhone || orderData.phoneNumber || '',
+    customerName: customerName || orderData.customerName || '',
+    deliveryAddress: deliveryAddress || orderData.deliveryAddress || '',
+    customer: {
+      fullName: customerName,
+      phone: customerPhone,
+      fullAddress: deliveryAddress,
+      postalCode: postalCode,
+      notes: orderData.notes || orderData.customer?.notes || ''
+    },
     totalPrice,
     totalAmountToman: totalPrice,
     calculatedToman: totalPrice,
@@ -85,6 +102,22 @@ export async function saveOrder(orderData: Partial<Order>): Promise<string> {
         localStorage.setItem('sirikfit_orders', JSON.stringify(cached));
       } catch (_e) {}
     }
+
+    // Also background sync to server REST API
+    fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        userId: payload.userId,
+        customerName: payload.customerName,
+        phoneNumber: payload.customerPhone || payload.phoneNumber,
+        deliveryAddress: payload.deliveryAddress,
+        productTitle: payload.productTitle || (payload.items?.[0]?.title) || 'سفارش آنلاین',
+        priceAed: payload.priceAed || payload.items?.reduce((s: number, i: any) => s + (i.priceAED || i.priceAed || 0), 0) || 100,
+        calculatedToman: payload.calculatedToman
+      })
+    }).catch(() => {});
   } catch (err) {
     if (!isFirestoreGrpcNoise(err)) {
       console.warn('[orderService] Notice saving order to Firestore:', err);
@@ -163,7 +196,25 @@ export async function fetchOrdersByCustomerPhone(phone: string): Promise<Order[]
     }
   }
 
-  // 4. Fallback to localStorage cached orders
+  // 4. Check REST API /api/orders
+  try {
+    const res = await fetch(`/api/orders?phone=${normalizedPhone}`);
+    if (res.ok) {
+      const apiOrders = await res.json();
+      if (Array.isArray(apiOrders)) {
+        apiOrders.forEach((item: any) => {
+          const p1 = normalizeCustomerPhone(item.customerPhone || '');
+          const p2 = normalizeCustomerPhone(item.phoneNumber || '');
+          const p3 = normalizeCustomerPhone(item.customer?.phone || '');
+          if (p1 === normalizedPhone || p2 === normalizedPhone || p3 === normalizedPhone || item.userId === `usr-${normalizedPhone}`) {
+            addUnique(item);
+          }
+        });
+      }
+    }
+  } catch (_e) {}
+
+  // 5. Fallback to localStorage cached orders
   if (typeof window !== 'undefined') {
     try {
       const cachedStr = localStorage.getItem('sirikfit_orders');
@@ -174,7 +225,7 @@ export async function fetchOrdersByCustomerPhone(phone: string): Promise<Order[]
             const p1 = normalizeCustomerPhone(item.customerPhone || '');
             const p2 = normalizeCustomerPhone(item.phoneNumber || '');
             const p3 = normalizeCustomerPhone(item.customer?.phone || '');
-            if (p1 === normalizedPhone || p2 === normalizedPhone || p3 === normalizedPhone) {
+            if (p1 === normalizedPhone || p2 === normalizedPhone || p3 === normalizedPhone || item.userId === `usr-${normalizedPhone}`) {
               addUnique(item);
             }
           });

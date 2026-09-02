@@ -10,14 +10,17 @@ import {
   ShieldCheck,
   RefreshCw,
   ExternalLink,
-  Sparkles
+  Sparkles,
+  AlertCircle
 } from 'lucide-react';
 import { SupportHeadsetLogo } from '../../components/common/SupportHeadsetLogo';
 import { useSupport } from '../../context/SupportContext';
 import { SupportConfig, DEFAULT_SUPPORT_CONFIG } from '../../types/support';
+import { fetchSupportConfigFromFirestore } from '../../services/adminService';
+import { formatWhatsAppUrl } from '../../services/settingsService';
 
 interface SupportAdminProps {
-  showToast?: (message: string, type?: 'success' | 'error') => void;
+  showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const SupportAdmin: React.FC<SupportAdminProps> = ({ showToast }) => {
@@ -26,6 +29,7 @@ export const SupportAdmin: React.FC<SupportAdminProps> = ({ showToast }) => {
   const [formData, setFormData] = useState<SupportConfig>(supportConfig || DEFAULT_SUPPORT_CONFIG);
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (supportConfig) {
@@ -37,25 +41,41 @@ export const SupportAdmin: React.FC<SupportAdminProps> = ({ showToast }) => {
     e.preventDefault();
     setIsSaving(true);
     setSavedSuccess(false);
+    setErrorMessage(null);
 
     try {
-      const success = await updateSupportConfig(formData);
+      const cleanPhone = (formData.whatsappNumber || '').trim();
+      const payload: SupportConfig = {
+        ...formData,
+        whatsappNumber: cleanPhone,
+        whatsappDefaultMessage: (formData.whatsappDefaultMessage || '').trim()
+      };
+
+      const success = await updateSupportConfig(payload);
       if (success) {
+        // Requirement 11: Reload the settings from database and verify
+        const reloaded = await fetchSupportConfigFromFirestore();
+        if (reloaded && reloaded.whatsappNumber) {
+          setFormData(reloaded);
+        }
         setSavedSuccess(true);
-        if (showToast) showToast('تنظیمات درگاه‌های پشتیبانی و تماس با موفقیت در دیتابیس ذخیره شد.', 'success');
-        setTimeout(() => setSavedSuccess(false), 4000);
+        if (showToast) showToast('تنظیمات شماره واتساپ و درگاه‌های پشتیبانی با موفقیت در دیتابیس ذخیره و تایید شد.', 'success');
+        setTimeout(() => setSavedSuccess(false), 5000);
       } else {
-        if (showToast) showToast('خطا در ذخیره تنظیمات پشتیبانی', 'error');
+        const errText = 'خطا در ثبت تغییرات در پایگاه داده. لطفاً اتصال را بررسی و مجدداً تلاش کنید.';
+        setErrorMessage(errText);
+        if (showToast) showToast(errText, 'error');
       }
     } catch (err: any) {
-      if (showToast) showToast(err?.message || 'خطا در برقراری ارتباط با دیتابیس', 'error');
+      const errText = err?.message || 'خطا در برقراری ارتباط با پایگاه داده فایراستور';
+      setErrorMessage(errText);
+      if (showToast) showToast(errText, 'error');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const cleanWhatsapp = (formData.whatsappNumber || '').replace(/[^0-9]/g, '');
-  const previewWaUrl = `https://wa.me/${cleanWhatsapp.startsWith('09') ? '98' + cleanWhatsapp.slice(1) : cleanWhatsapp}?text=${encodeURIComponent(formData.whatsappDefaultMessage || '')}`;
+  const previewWaUrl = formatWhatsAppUrl(formData.whatsappNumber, formData.whatsappDefaultMessage);
   const previewTgUrl = `https://t.me/${(formData.telegramBotUsername || 'SIRIK_FIT_Support_bot').replace(/^@/, '')}`;
 
   return (
@@ -260,15 +280,20 @@ export const SupportAdmin: React.FC<SupportAdminProps> = ({ showToast }) => {
         </div>
 
         {/* Save Bar */}
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
           {savedSuccess ? (
-            <div className="flex items-center gap-2 text-emerald-600 font-bold text-xs bg-emerald-50 px-4 py-2.5 rounded-2xl border border-emerald-200 animate-in fade-in duration-200">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>تغییرات با موفقیت در Firestore (سند settings/support_config) ذخیره شدند.</span>
+            <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-bold text-xs bg-emerald-50 dark:bg-emerald-950/40 px-4 py-2.5 rounded-2xl border border-emerald-200 dark:border-emerald-800 animate-in fade-in duration-200">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>تنظیمات شماره واتساپ با موفقیت در دیتابیس (settings/support) ذخیره و راستی‌آزمایی شد.</span>
+            </div>
+          ) : errorMessage ? (
+            <div className="flex items-center gap-2 text-rose-700 dark:text-rose-300 font-bold text-xs bg-rose-50 dark:bg-rose-950/40 px-4 py-2.5 rounded-2xl border border-rose-200 dark:border-rose-800 animate-in fade-in duration-200">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{errorMessage}</span>
             </div>
           ) : (
-            <div className="text-xs text-slate-500">
-              تغییرات بلافاصله به صورت ریل‌تایم روی دکمه شناور مشتریان اعمال خواهد شد.
+            <div className="text-xs text-slate-500 dark:text-zinc-400">
+              تغییرات شماره واتساپ بلافاصله به صورت زنده در دکمه‌های پشتیبانی و صفحات خرید اعمال می‌گردد.
             </div>
           )}
 

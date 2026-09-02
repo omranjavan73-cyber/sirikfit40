@@ -109,7 +109,26 @@ export const Checkout: React.FC<CheckoutProps> = ({
       const createdId = await saveOrder(orderPayload);
       const createdOrder: Order = { ...orderPayload, id: createdId } as Order;
 
-      if (showToast) showToast('س his سفارش با موفقیت ثبت شد و به حساب شما متصل گردید.', 'success');
+      // Auto-establish persistent customer session if not already logged in
+      if (typeof window !== 'undefined') {
+        try {
+          const userStr = localStorage.getItem('omex_current_user');
+          if (!userStr) {
+            const customerObj = {
+              id: `usr-${normalizedPhone}`,
+              name: customerName.trim(),
+              phoneNumber: normalizedPhone,
+              deliveryAddress: address.trim(),
+              postalCode: postalCode.trim(),
+              role: 'customer'
+            };
+            localStorage.setItem('omex_current_user', JSON.stringify(customerObj));
+            window.dispatchEvent(new Event('storage'));
+          }
+        } catch (_e) {}
+      }
+
+      if (showToast) showToast('سفارش با موفقیت ثبت شد و به حساب کاربری شما متصل گردید.', 'success');
       if (onOrderCreated) onOrderCreated(createdOrder);
     } catch (err: any) {
       setErrorMessage(err?.message || 'خطا در ثبت سفارش.');

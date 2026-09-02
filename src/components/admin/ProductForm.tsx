@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Sparkles, RefreshCw, Save, Image as ImageIcon, Link as LinkIcon, DollarSign, Layers } from 'lucide-react';
 import type { Product } from '../../types/product';
 import { extractCleanUrl, deduplicateImageUrls, formatToman, toPersianDigits } from '../../utils/formatters';
-import { parseProductLinkUniversal } from '../../utils/parseLink';
+import { parseProductLinkUniversal, generateBilingualProductTitle } from '../../utils/parseLink';
 import { getEffectiveGeminiKeysList } from '../../utils/geminiKey';
 import { normalizeProductImageUrl } from '../../utils/urlHelper';
+import { universalScraperService } from '../../services/scraperService';
 
 export interface ProductFormProps {
   initialProduct?: Partial<Product>;
@@ -59,43 +60,39 @@ export const ProductForm: React.FC<ProductFormProps> = ({
 
     setIsExtracting(true);
     try {
-      let cmsConfig: any = null;
-      try {
-        const saved = localStorage.getItem('sirikfit_cms_config');
-        if (saved) cmsConfig = JSON.parse(saved);
-      } catch (_e) {}
-
-      const savedKeys = getEffectiveGeminiKeysList(cmsConfig?.apiConfig?.geminiApiKeys || cmsConfig?.apiConfig?.geminiApiKey);
-
       console.log('[Scraper Engine] Initiating extraction from caller: ProductForm', { targetUrl });
-      const result = await parseProductLinkUniversal({
-        url: targetUrl,
-        geminiKeys: savedKeys,
-        cmsConfig: cmsConfig
-      });
+      const result = await universalScraperService.extract(targetUrl);
 
-      if (result.success && result.priceAed && result.priceAed > 0) {
-        const resolvedPriceAed = Number(result.priceAed || 0);
+      if (result && (result.priceAed || (result as any).priceAED || (result as any).price)) {
+        const resolvedPriceAed = Number(result.priceAed || (result as any).priceAED || (result as any).price || 0);
         const computedToman = Math.round((resolvedPriceAed + 20) * (1 + 0.20) * aedRate);
 
         const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
-        const mainImg = result.image || result.imageUrl || result.mainImage || cmsConfig?.heroImage || fallbackImage;
-        const rawList = (result.images && result.images.length > 0) ? result.images : (result.galleryImages || [mainImg]);
-        const galleryList = deduplicateImageUrls([mainImg, ...rawList], mainImg);
+        const isDrNutritionLink = targetUrl.toLowerCase().includes('drnutrition.com');
+        const storeDomain = result.storeDomain || (isDrNutritionLink ? 'https://drnutrition.com' : targetUrl);
+        const rawImg = result.image || (result as any).imageUrl || (result as any).mainImage || (result.images && result.images[0]) || (result.galleryImages && result.galleryImages[0]) || '';
+        const mainImg = normalizeProductImageUrl(rawImg, storeDomain) || fallbackImage;
+        const rawList = (result.images && result.images.length > 0) ? result.images : (result.galleryImages || (mainImg ? [mainImg] : []));
+        const galleryList = deduplicateImageUrls([mainImg, ...rawList.map((img: string) => normalizeProductImageUrl(img, storeDomain))], mainImg);
+        const effectiveMainImg = mainImg || (galleryList.length > 0 ? galleryList[0] : '');
+
+        const resolvedStore = isDrNutritionLink ? 'Dr. Nutrition' : (result.storeName || (targetUrl.includes('sporter.com') ? 'Sporter' : 'iHerb'));
+        const titleEn = (result as any).titleEn || result.title || '';
+        const titleFa = result.titleFa || generateBilingualProductTitle(titleEn || result.title, resolvedStore, result.brand);
 
         const draftPayload: Product = {
           id: (result.id && !result.id.startsWith('scraped-')) ? result.id : `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-          titleFa: result.title || '',
-          titleEn: (result as any).titleEn || result.title || '',
-          title: result.title || '',
-          imageUrl: mainImg,
-          image: mainImg,
-          images: galleryList.length > 0 ? galleryList : (mainImg ? [mainImg] : []),
-          galleryImages: galleryList.length > 0 ? galleryList : (mainImg ? [mainImg] : []),
+          titleFa: titleFa || result.title || '',
+          titleEn: titleEn || result.title || '',
+          title: titleFa || result.title || '',
+          imageUrl: effectiveMainImg,
+          image: effectiveMainImg,
+          images: galleryList.length > 0 ? galleryList : (effectiveMainImg ? [effectiveMainImg] : []),
+          galleryImages: galleryList.length > 0 ? galleryList : (effectiveMainImg ? [effectiveMainImg] : []),
           priceAed: resolvedPriceAed,
           price: resolvedPriceAed,
           priceToman: computedToman,
-          storeName: result.storeName || (targetUrl.includes('drnutrition.com') ? 'Dr. Nutrition' : (targetUrl.includes('sporter.com') ? 'Sporter' : 'iHerb')),
+          storeName: resolvedStore,
           targetSection: activeTab === 'deals' ? 'deals' : 'iran_warehouse',
           isActive: true,
           isDraft: false,
@@ -104,8 +101,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({
           category: result.category || productDraft.category || 'supplements',
           subCategory: productDraft.subCategory || 'all',
           variants: (result.variants || []).map((v: any) => {
-            const rawVImg = v.imageUrl || v.image || v.imageThumbnail || mainImg;
-            const normVImg = normalizeProductImageUrl(rawVImg, result.storeDomain || targetUrl || 'https://drnutrition.com') || mainImg;
+            const rawVImg = v.imageUrl || v.image || v.imageThumbnail || effectiveMainImg;
+            const normVImg = normalizeProductImageUrl(rawVImg, storeDomain) || effectiveMainImg;
             return {
               ...v,
               imageUrl: normVImg,
@@ -120,7 +117,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
         setProductDraft(draftPayload);
         if (showToast) showToast('اطلاعات محصول با موفقیت استخراج شد', 'success');
       } else {
-        const errMsg = result.error || result.message || 'عدم توانایی در استخراج اطلاعات از لینک';
+        const errMsg = (result as any)?.error || (result as any)?.message || 'عدم توانایی در استخراج اطلاعات از لینک';
         if (showToast) showToast(errMsg, 'error');
       }
     } catch (err: any) {
@@ -200,9 +197,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       {/* Thumbnail & Title Preview Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
         <div className="w-12 h-12 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden shrink-0">
-          {productDraft.imageUrl ? (
+          {(productDraft.imageUrl || productDraft.image) ? (
             <img
-              src={productDraft.imageUrl}
+              src={productDraft.imageUrl || productDraft.image}
               alt={productDraft.titleEn || productDraft.titleFa || 'Product thumbnail'}
               className="w-full h-full object-contain p-0.5"
               onError={(e) => {

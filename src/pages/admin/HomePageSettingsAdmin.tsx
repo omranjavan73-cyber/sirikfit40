@@ -123,22 +123,48 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       const fileExt = file.name.split('.').pop() || 'png';
       const cleanExt = fileExt.toLowerCase().replace(/[^a-z0-9]/g, '');
       const storageRef = ref(storage, `branding/site_logo_${Date.now()}.${cleanExt || 'png'}`);
-      const uploadResult = await uploadBytes(storageRef, file, {
-        contentType: file.type || 'image/png'
-      });
-      const downloadUrl = await getDownloadURL(uploadResult.ref);
+      
+      // Safety timeout promise to prevent infinite hanging if Firebase Storage is unreachable/blocked
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('زمان آپلود به پایان رسید (Timeout 8s)')), 8000)
+      );
 
-      // Save to state
+      const uploadPromise = uploadBytes(storageRef, file, {
+        contentType: file.type || 'image/png'
+      }).then(uploadResult => getDownloadURL(uploadResult.ref));
+
+      const downloadUrl = await Promise.race([uploadPromise, timeoutPromise]);
+
+      // Save uploaded URL to state
       setLogoUrl(downloadUrl);
       setPreviewUrl(downloadUrl);
       if (showToast) showToast('تصویر لوگو با موفقیت بارگذاری شد', 'success');
     } catch (err: any) {
-      console.error('[Firebase Storage Upload Error]:', err);
-      if (showToast) showToast(`خطا در آپلود فایل: ${err.message || 'مشکل در دسترسی به مخزن ذخیره‌سازی'}`, 'error');
-      // Revert preview if failed
-      setPreviewUrl(logoUrl || '');
+      console.warn('[Firebase Storage Upload Error or Timeout, attempting Base64 fallback]:', err);
+      
+      // Fallback: Read file as Data URL (Base64) so user is never blocked even if Storage fails
+      try {
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = (error) => reject(error);
+          reader.readAsDataURL(file);
+        });
+        
+        if (base64Data) {
+          setLogoUrl(base64Data);
+          setPreviewUrl(base64Data);
+          if (showToast) showToast('تصویر به صورت مستقیم بارگذاری شد (مخزن ذخیره‌سازی در دسترس نبود)', 'info');
+        } else {
+          setPreviewUrl(logoUrl || '');
+        }
+      } catch (fallbackErr) {
+        console.error('[Base64 Fallback Error]:', fallbackErr);
+        if (showToast) showToast(`خطا در پردازش تصویر: ${err.message || 'مشکل در بارگذاری فایل'}`, 'error');
+        setPreviewUrl(logoUrl || '');
+      }
     } finally {
-      setIsUploadingLogo(false); // Guarantees the spinner stops immediately
+      setIsUploadingLogo(false); // Guarantees the spinner stops immediately in 100% of cases
       if (e.target) {
         e.target.value = '';
       }
@@ -472,7 +498,7 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
                   </label>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <input
-                      type="url"
+                      type="text"
                       value={logoUrl}
                       onChange={(e) => {
                         const val = e.target.value;

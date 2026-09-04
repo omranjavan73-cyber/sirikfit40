@@ -3,7 +3,7 @@ import {
   Sparkles, Zap, Plus, Trash2, RefreshCw, Save, Layers,
   Check, Scale, Eye, EyeOff, ChevronDown, ChevronUp,
   Search, Building2, Globe, Percent, Upload, Image as ImageIcon, Star,
-  CheckSquare, Square, ArrowUpDown, X
+  CheckSquare, Square, ArrowUpDown, X, Package
 } from 'lucide-react';
 import type { LocalInventoryItem, ProductVariant, FinancialSettings } from '../../types';
 import { formatToman, toPersianDigits, getEffectiveAedRate, normalizeProductImageUrl, extractCleanUrl, deduplicateImageUrls, getNormalizedTime } from '../../utils/formatters';

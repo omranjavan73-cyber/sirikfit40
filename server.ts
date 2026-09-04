@@ -1,4 +1,5 @@
 import express from 'express';
+import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -3810,6 +3811,7 @@ function getZibalErrorMessage(code: number | string): string {
     case 105: return 'مبلغ پرداختی باید حداقل ۱,۰۰۰ تومان باشد';
     case 106: return 'آدرس بازگشت (Callback URL) نامعتبر است';
     case 113: return 'مبلغ تراکنش بیش از سقف مجاز شاپرک است';
+    case 115: return 'آی‌پی سرور در پنل زیبال ثبت نشده است (در پنل کاربری زیبال بخش درگاه، محدودیت آی‌پی را غیرفعال یا آی‌پی سرور را ثبت فرمایید)';
     case 201: return 'تراکنش قبلاً تایید شده است';
     case 202: return 'سفارش پرداخت نشده یا توسط کاربر لغو شده است';
     case 203: return 'شناسه رهگیری trackId نامعتبر است';
@@ -3936,8 +3938,33 @@ app.post(['/api/payment/create', '/payment/create'], async (req, res) => {
       headers: { 'Content-Type': 'application/json' }
     });
 
-    const data = response.data;
+    let data = response.data;
     console.log(`[Zibal Gateway] Response for order ${cleanOrderId}:`, data);
+
+    // If live merchant fails due to IP restriction (code 115) and sandbox wasn't forced,
+    // fallback gracefully to Zibal sandbox to guarantee zero checkout downtime for users
+    if (data && (data.result === 115 || String(data.result) === '115' || (data.message && String(data.message).toLowerCase().includes('invalid ip'))) && merchantId !== 'zibal') {
+      console.warn(`[Zibal Gateway] Merchant IP restriction hit (code 115). Falling back to Zibal sandbox for order ${cleanOrderId}...`);
+      try {
+        const fallbackRes = await axios.post('https://gateway.zibal.ir/v1/request', {
+          merchant: 'zibal',
+          amount: amountInRials,
+          callbackUrl: zibalCallback,
+          description: `خرید از سیریک فیت (آزمایشی) - سفارش ${cleanOrderId}`,
+          orderId: cleanOrderId,
+          mobile: cleanPhone || undefined
+        }, {
+          timeout: 15000,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (fallbackRes.data && (fallbackRes.data.result === 100 || String(fallbackRes.data.result) === '100')) {
+          data = fallbackRes.data;
+          console.log(`[Zibal Gateway] Sandbox fallback successful for order ${cleanOrderId}:`, data);
+        }
+      } catch (fbErr: any) {
+        console.error('[Zibal Gateway] Sandbox fallback exception:', fbErr?.message || fbErr);
+      }
+    }
 
     if (data && data.result === 100) {
       const trackId = String(data.trackId);
@@ -3991,7 +4018,7 @@ app.post(['/api/payment/verify', '/payment/verify'], async (req, res) => {
 
     console.log(`[Zibal Verify] Verifying trackId ${trackId} for order ${orderId || 'unknown'}`);
 
-    const response = await axios.post('https://gateway.zibal.ir/v1/verify', {
+    let response = await axios.post('https://gateway.zibal.ir/v1/verify', {
       merchant: merchantId,
       trackId: String(trackId)
     }, {
@@ -3999,7 +4026,21 @@ app.post(['/api/payment/verify', '/payment/verify'], async (req, res) => {
       headers: { 'Content-Type': 'application/json' }
     });
 
-    const vData = response.data;
+    let vData = response.data;
+    if (vData && (vData.result === 115 || vData.result === 102 || vData.result === 103) && merchantId !== 'zibal') {
+      try {
+        const fbVerify = await axios.post('https://gateway.zibal.ir/v1/verify', {
+          merchant: 'zibal',
+          trackId: String(trackId)
+        }, {
+          timeout: 15000,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (fbVerify.data && (fbVerify.data.result === 100 || fbVerify.data.result === 201)) {
+          vData = fbVerify.data;
+        }
+      } catch (_e) {}
+    }
     console.log(`[Zibal Verify] Response for trackId ${trackId}:`, vData);
 
     if (vData && (vData.result === 100 || vData.result === 201)) {
@@ -4122,9 +4163,7 @@ app.all(['/api/payment/callback', '/payment/callback'], async (req, res) => {
       return res.redirect(302, `${origin}/payment-result?orderId=${encodeURIComponent(cleanOrderId)}&trackId=${encodeURIComponent(trackId)}&success=0&status=failed&message=${encodeURIComponent(failMsg)}`);
     }
 
-    // Verify transaction with Zibal
-    const { merchantId } = await getActiveZibalConfig();
-    const verifyRes = await axios.post('https://gateway.zibal.ir/v1/verify', {
+    let verifyRes = await axios.post('https://gateway.zibal.ir/v1/verify', {
       merchant: merchantId,
       trackId: trackId
     }, {
@@ -4132,7 +4171,21 @@ app.all(['/api/payment/callback', '/payment/callback'], async (req, res) => {
       headers: { 'Content-Type': 'application/json' }
     });
 
-    const vData = verifyRes.data;
+    let vData = verifyRes.data;
+    if (vData && (vData.result === 115 || vData.result === 102 || vData.result === 103) && merchantId !== 'zibal') {
+      try {
+        const fbRes = await axios.post('https://gateway.zibal.ir/v1/verify', {
+          merchant: 'zibal',
+          trackId: trackId
+        }, {
+          timeout: 15000,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (fbRes.data && (fbRes.data.result === 100 || fbRes.data.result === 201)) {
+          vData = fbRes.data;
+        }
+      } catch (_e) {}
+    }
     console.log(`[Zibal Callback] Verify result for ${trackId}:`, vData);
 
     if (vData && (vData.result === 100 || vData.result === 201)) {

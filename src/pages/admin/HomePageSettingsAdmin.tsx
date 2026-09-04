@@ -350,18 +350,16 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
           const img = new Image();
           img.onerror = () => reject(new Error('فرمت فایل تصویری نامعتبر است'));
           img.onload = () => {
-            const maxDim = 400;
+            const maxWidth = 400;
+            const maxHeight = 120;
             let width = img.naturalWidth || img.width;
             let height = img.naturalHeight || img.height;
 
-            if (width > maxDim || height > maxDim) {
-              if (width > height) {
-                height = Math.round((height * maxDim) / width);
-                width = maxDim;
-              } else {
-                width = Math.round((width * maxDim) / height);
-                height = maxDim;
-              }
+            // Maintain aspect ratio within 400x120 bounds
+            if (width > maxWidth || height > maxHeight) {
+              const ratio = Math.min(maxWidth / width, maxHeight / height);
+              width = Math.round(width * ratio);
+              height = Math.round(height * ratio);
             }
 
             const canvas = document.createElement('canvas');
@@ -376,9 +374,19 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-            // Export as PNG (preserves transparency) or high-quality JPEG
-            const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png') || file.name.toLowerCase().endsWith('.svg');
-            const resultUrl = canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.88);
+            // Export as WebP/PNG/JPEG Data URL (quality: 0.85)
+            let resultUrl = '';
+            try {
+              resultUrl = canvas.toDataURL('image/webp', 0.85);
+            } catch (_err) {
+              resultUrl = '';
+            }
+
+            if (!resultUrl || !resultUrl.startsWith('data:image/webp')) {
+              const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png') || file.name.toLowerCase().endsWith('.svg');
+              resultUrl = canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.85);
+            }
+
             resolve(resultUrl);
           };
           img.src = reader.result as string;
@@ -736,27 +744,16 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
                   )}
                 </div>
 
-                {/* Input Controls: Direct URL + Device File Picker */}
-                <div className="flex-1 w-full space-y-2">
-                  <label className="text-xs font-bold text-slate-700 block">
-                    انتخاب فایل لوگو از گوشی/لپ‌تاپ یا وارد کردن آدرس مستقیم:
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="text"
-                      value={logoUrl}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const clean = extractLogoUrl(val);
-                        setLogoUrl(clean);
-                        setPreviewUrl(clean);
-                      }}
-                      placeholder="https://... یا انتخاب فایل از دکمه روبرو"
-                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dir-ltr text-right"
-                    />
-                    <label className="px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shrink-0 shadow-xs active:scale-98">
-                      <Upload className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{isProcessingFile ? 'در حال پردازش...' : 'انتخاب فایل از دستگاه'}</span>
+                {/* Input Controls: Primary Device File Picker + Secondary Direct URL */}
+                <div className="flex-1 w-full space-y-3">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <label className="px-5 py-3 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white text-xs font-black rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                      {isProcessingFile ? (
+                        <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                      ) : (
+                        <Upload className="w-4 h-4 text-white" />
+                      )}
+                      <span>{isProcessingFile ? 'در حال پردازش تصویر...' : 'انتخاب فایل از دستگاه (گوشی یا لپ‌تاپ)'}</span>
                       <input
                         type="file"
                         accept="image/png, image/jpeg, image/webp, image/svg+xml"
@@ -765,9 +762,27 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
                         className="hidden"
                       />
                     </label>
+
+                    <span className="text-[11px] text-slate-400 font-bold text-center sm:text-right">یا</span>
+
+                    <div className="flex-1">
+                      <input
+                        type="text"
+                        value={logoUrl}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const clean = extractLogoUrl(val);
+                          setLogoUrl(clean);
+                          setPreviewUrl(clean);
+                        }}
+                        placeholder="آدرس مستقیم تصویر اینترنتی (اختیاری): https://..."
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dir-ltr text-right"
+                      />
+                    </div>
                   </div>
+
                   <p className="text-[11px] text-slate-400 font-medium">
-                    می‌توانید تصویر لوگو را مستقیماً از گالری گوشی یا کامپیوتر انتخاب کنید و سپس دکمه «ذخیره و اعمال تنظیمات» را بزنید.
+                    با کلیک روی «انتخاب فایل از دستگاه»، عکس لوگو از گالری گوشی یا کامپیوتر بارگذاری و بلافاصله به ابعاد استاندارد هدر بهینه‌سازی می‌شود.
                   </p>
                 </div>
               </div>

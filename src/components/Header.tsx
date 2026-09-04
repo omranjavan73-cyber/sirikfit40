@@ -5,6 +5,8 @@ import { formatToman, toPersianDigits, getEffectiveAedRate } from '../utils/form
 import { SirikFitLogo } from './SirikFitLogo';
 import { useSettings } from '../context/SettingsContext';
 import { usePricing } from '../context/PricingContext';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface HeaderProps {
   settings: FinancialSettings | null;
@@ -39,7 +41,42 @@ export const Header: React.FC<HeaderProps> = ({
   const home = cms?.homeContent;
   const showPromo = home?.showTopPromo ?? false;
   const promoText = home?.topPromoText || 'سیریک فیت - مکمل‌های تخصصی ورزشی و اورجینال';
-  const logoUrl = home?.logoUrl || '';
+  const propLogoUrl = home?.logoUrl || (cms as any)?.logoUrl || (settings as any)?.logoUrl || '';
+
+  const [dynamicLogoUrl, setDynamicLogoUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('sirikfit_logo_url') || '';
+    }
+    return '';
+  });
+
+  useEffect(() => {
+    if (!db) return;
+    // Subscribe directly to settings/home (sole source of truth for header logo)
+    const unsubHome = onSnapshot(doc(db, 'settings', 'home'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const lUrl = data?.logoUrl ?? data?.headerLogoUrl;
+        if (typeof lUrl === 'string') {
+          const cleanUrl = lUrl.trim();
+          setDynamicLogoUrl(cleanUrl);
+          try {
+            if (cleanUrl) {
+              localStorage.setItem('sirikfit_logo_url', cleanUrl);
+            } else {
+              localStorage.removeItem('sirikfit_logo_url');
+            }
+          } catch (_e) {}
+        }
+      }
+    }, (err) => console.warn('Header logo onSnapshot home error:', err));
+
+    return () => {
+      unsubHome();
+    };
+  }, []);
+
+  const activeLogo = dynamicLogoUrl || propLogoUrl || '';
 
   const rawBrandTitle = (home as any)?.brandTitle || home?.appTitle || (settings as any)?.brandTitle || 'SIRIK FIT';
   const cleanBrandTitle = rawBrandTitle.replace(/\|.*$/g, '').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
@@ -99,14 +136,15 @@ export const Header: React.FC<HeaderProps> = ({
           >
             {/* Circular Fixed-Size Logo Container (42px x 42px on mobile, 48px on sm) */}
             <div
-              className="logo-container border border-black/10 shadow-2xs w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-white"
+              className="logo-container border border-black/10 shadow-2xs w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-white p-0.5"
             >
-              {logoUrl ? (
+              {activeLogo ? (
                 <img
                   id="header-app-logo"
-                  src={logoUrl}
-                  alt="SIRIK FIT"
-                  className="w-full h-full object-contain block"
+                  src={activeLogo}
+                  alt="Sirik Fit Logo"
+                  referrerPolicy="no-referrer"
+                  className="h-10 w-auto object-contain block max-w-full max-h-full"
                   onError={(e) => {
                     (e.target as HTMLElement).style.display = 'none';
                   }}

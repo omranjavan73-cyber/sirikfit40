@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, ReactNo
 import { collection, doc, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { FeaturedDeal, LocalInventoryItem } from '../types';
-import { sortPopularProducts, normalizeProductId } from '../services/popularProductsService';
+import { sortPopularProducts, normalizeProductId, cleanupGhostPopularProducts } from '../services/popularProductsService';
 
 export interface ProductContextType {
   deals: FeaturedDeal[];
@@ -121,26 +121,38 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       const loadedDeals: FeaturedDeal[] = [];
       dealsSnap.forEach((d) => loadedDeals.push({ id: d.id, ...d.data() } as FeaturedDeal));
       const sortedDeals = sortNewestFirst(loadedDeals);
-      if (sortedDeals.length > 0) {
-        setDeals(sortedDeals);
-        try { localStorage.setItem('sirikfit_special_deals', JSON.stringify(sortedDeals)); } catch (_) {}
-      }
+      setDeals(sortedDeals);
+      try {
+        if (sortedDeals.length > 0) {
+          localStorage.setItem('sirikfit_special_deals', JSON.stringify(sortedDeals));
+        } else {
+          localStorage.removeItem('sirikfit_special_deals');
+        }
+      } catch (_) {}
 
       const loadedWh: LocalInventoryItem[] = [];
       whSnap.forEach((d) => loadedWh.push({ id: d.id, ...d.data() } as LocalInventoryItem));
       const sortedWh = sortNewestFirst(loadedWh);
-      if (sortedWh.length > 0) {
-        setWarehouseItems(sortedWh);
-        try { localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(sortedWh)); } catch (_) {}
-      }
+      setWarehouseItems(sortedWh);
+      try {
+        if (sortedWh.length > 0) {
+          localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(sortedWh));
+        } else {
+          localStorage.removeItem('sirikfit_iran_warehouse');
+        }
+      } catch (_) {}
 
       const loadedProd: any[] = [];
       prodSnap.forEach((d: any) => loadedProd.push({ id: d.id, ...d.data() }));
       const sortedProd = sortNewestFirst(loadedProd);
-      if (sortedProd.length > 0) {
-        setGeneralProducts(sortedProd);
-        try { localStorage.setItem('sirikfit_products', JSON.stringify(sortedProd)); } catch (_) {}
-      }
+      setGeneralProducts(sortedProd);
+      try {
+        if (sortedProd.length > 0) {
+          localStorage.setItem('sirikfit_products', JSON.stringify(sortedProd));
+        } else {
+          localStorage.removeItem('sirikfit_products');
+        }
+      } catch (_) {}
       setIsLoading(false);
     } catch (err) {
       console.warn('ProductContext refetch warning:', err);
@@ -148,13 +160,14 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   useEffect(() => {
+    cleanupGhostPopularProducts().catch(() => {});
     let loadedCount = 0;
     const checkDone = () => {
       loadedCount++;
       if (loadedCount >= 2) setIsLoading(false);
     };
 
-    const unsubDeals = onSnapshot(
+        const unsubDeals = onSnapshot(
       collection(db, 'special_deals'),
       (snap) => {
         const loaded: FeaturedDeal[] = [];
@@ -162,15 +175,14 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
           loaded.push({ id: docSnap.id, ...docSnap.data() } as FeaturedDeal);
         });
         const sorted = sortNewestFirst(loaded);
-        setDeals((prev) => {
-          if (sorted.length === 0 && prev.length > 0) return prev;
-          return sorted;
-        });
-        if (sorted.length > 0) {
-          try {
+        setDeals(sorted);
+        try {
+          if (sorted.length > 0) {
             localStorage.setItem('sirikfit_special_deals', JSON.stringify(sorted));
-          } catch (_) {}
-        }
+          } else {
+            localStorage.removeItem('sirikfit_special_deals');
+          }
+        } catch (_) {}
         checkDone();
       },
       (err) => {
@@ -187,15 +199,14 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
           loaded.push({ id: docSnap.id, ...docSnap.data() } as LocalInventoryItem);
         });
         const sorted = sortNewestFirst(loaded);
-        setWarehouseItems((prev) => {
-          if (sorted.length === 0 && prev.length > 0) return prev;
-          return sorted;
-        });
-        if (sorted.length > 0) {
-          try {
+        setWarehouseItems(sorted);
+        try {
+          if (sorted.length > 0) {
             localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(sorted));
-          } catch (_) {}
-        }
+          } else {
+            localStorage.removeItem('sirikfit_iran_warehouse');
+          }
+        } catch (_) {}
         checkDone();
       },
       (err) => {
@@ -209,14 +220,19 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       (snap) => {
         const loaded: any[] = [];
         snap.forEach((docSnap) => {
-          loaded.push({ id: docSnap.id, ...docSnap.data() });
+          const data = docSnap.data();
+          const tFa = (data?.titleFa || '').trim();
+          const tEn = (data?.title || '').trim();
+          const name = (data?.name || '').trim();
+          if (tFa === 'محصول پرطرفدار' || tEn === 'محصول پرطرفدار' || (!tFa && !tEn && !name)) {
+            return;
+          }
+          loaded.push({ id: docSnap.id, ...data });
         });
-        if (loaded.length > 0) {
-          setGeneralProducts(loaded);
-          try {
-            localStorage.setItem('sirikfit_products', JSON.stringify(loaded));
-          } catch (_) {}
-        }
+        setGeneralProducts(loaded);
+        try {
+          localStorage.setItem('sirikfit_products', JSON.stringify(loaded));
+        } catch (_) {}
       },
       (err) => {
         console.warn('Products collection snapshot warning:', err);

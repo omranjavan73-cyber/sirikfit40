@@ -161,16 +161,19 @@ export function getActivePrices(params: {
   const activeAedRate = Number(settings?.aedRate) || 54500;
   const baseShipping = Number(settings?.baseShippingAed ?? 20);
 
-  const defaultBaseToman = product.priceToman && product.priceToman > 0
-    ? Number(product.priceToman)
-    : (product.calculatedTomanOverride && product.calculatedTomanOverride > 0
-        ? Number(product.calculatedTomanOverride)
-        : calculateProductTomanPrice({
-            priceAed: baseAed,
-            profitMarginPercent: effectiveMargin,
-            aedToTomanRate: activeAedRate,
-            baseShippingAed: baseShipping
-          }));
+  const manualBase = Number(product.manualPriceToman || (product.isManualPrice && product.priceToman));
+  const defaultBaseToman = manualBase && manualBase > 0
+    ? manualBase
+    : (product.priceToman && product.priceToman > 0
+        ? Number(product.priceToman)
+        : (product.calculatedTomanOverride && product.calculatedTomanOverride > 0
+            ? Number(product.calculatedTomanOverride)
+            : calculateProductTomanPrice({
+                priceAed: baseAed,
+                profitMarginPercent: effectiveMargin,
+                aedToTomanRate: activeAedRate,
+                baseShippingAed: baseShipping
+              })));
 
   // 1. Check if product.variants has a matching variant
   if (Array.isArray(product.variants) && product.variants.length > 0) {

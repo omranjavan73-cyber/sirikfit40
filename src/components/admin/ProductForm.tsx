@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
-import { Sparkles, RefreshCw, Save, Image as ImageIcon, Link as LinkIcon, DollarSign, Layers } from 'lucide-react';
+import { Sparkles, RefreshCw, Save, Image as ImageIcon, Link as LinkIcon, DollarSign, Layers, Plus, Upload } from 'lucide-react';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../../config/firebase';
 import type { Product } from '../../types/product';
-import { extractCleanUrl, deduplicateImageUrls, formatToman, toPersianDigits } from '../../utils/formatters';
-import { parseProductLinkUniversal, generateBilingualProductTitle } from '../../utils/parseLink';
+import { extractCleanUrl, deduplicateImageUrls, formatToman, toPersianDigits, isArtificialFallback } from '../../utils/formatters';
+import { sanitizeProductTitle } from '../../utils/textSanitizer';
+import { parseProductLinkUniversal, generateBilingualProductTitle, cleanProductTitle, extractDraftProduct } from '../../utils/parseLink';
+import { extractProductShared } from '../../services/sharedExtractor';
 import { getEffectiveGeminiKeysList } from '../../utils/geminiKey';
 import { normalizeProductImageUrl } from '../../utils/urlHelper';
 import { universalScraperService } from '../../services/scraperService';
@@ -24,31 +28,76 @@ export const ProductForm: React.FC<ProductFormProps> = ({
   showToast,
   aedRate = 54500
 }) => {
+  const [selectedSection, setSelectedSection] = useState<'deals' | 'iran_warehouse'>(
+    (initialProduct?.targetSection as any) || (activeTab === 'iran_warehouse' ? 'iran_warehouse' : 'deals')
+  );
   const [inputUrl, setInputUrl] = useState<string>(initialProduct?.url || initialProduct?.sourceUrl || '');
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
 
-  const [productDraft, setProductDraft] = useState<Product>(() => ({
-    id: initialProduct?.id || `prod_${Date.now()}`,
-    titleFa: initialProduct?.titleFa || initialProduct?.title || '',
-    titleEn: initialProduct?.titleEn || '',
-    title: initialProduct?.title || initialProduct?.titleFa || '',
-    imageUrl: initialProduct?.imageUrl || initialProduct?.image || '',
-    image: initialProduct?.image || initialProduct?.imageUrl || '',
-    images: initialProduct?.images || (initialProduct?.imageUrl ? [initialProduct.imageUrl] : []),
-    priceAed: Number(initialProduct?.priceAed || initialProduct?.price || 0),
-    priceToman: Number(initialProduct?.priceToman || 0),
-    storeName: initialProduct?.storeName || 'Dr. Nutrition',
-    targetSection: initialProduct?.targetSection || (activeTab === 'deals' ? 'deals' : 'iran_warehouse'),
-    isActive: initialProduct?.isActive !== false,
-    isDraft: Boolean(initialProduct?.isDraft),
-    profitMargin: initialProduct?.profitMargin ?? 20,
-    shippingFeeAed: initialProduct?.shippingFeeAed ?? 20,
-    category: initialProduct?.category || 'supplements',
-    subCategory: initialProduct?.subCategory || 'all',
-    variants: initialProduct?.variants || [],
-    createdAt: initialProduct?.createdAt || new Date().toISOString()
-  }));
+  const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const localUrl = URL.createObjectURL(file);
+    setProductDraft(prev => ({ ...prev, imageUrl: localUrl, image: localUrl, images: [localUrl] }));
+    setIsUploadingImage(true);
+    try {
+      const fileExt = file.name.split('.').pop() || 'jpg';
+      const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const storagePath = `products/${Date.now()}_${cleanName}`;
+      const storageRef = ref(storage, storagePath);
+      const snapshot = await uploadBytes(storageRef, file, { contentType: file.type || 'image/jpeg' });
+      const downloadUrl = await getDownloadURL(snapshot.ref);
+      setProductDraft(prev => ({ ...prev, imageUrl: downloadUrl, image: downloadUrl, images: [downloadUrl] }));
+      if (showToast) showToast('تصویر با موفقیت در فضای ابری ذخیره شد', 'success');
+    } catch (err: any) {
+      console.error('[Storage Upload Error]:', err);
+      try {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const b64 = reader.result as string;
+          setProductDraft(prev => ({ ...prev, imageUrl: b64, image: b64, images: [b64] }));
+          if (showToast) showToast('تصویر به صورت محلی متصل شد', 'info');
+        };
+        reader.readAsDataURL(file);
+      } catch (_e) {
+        if (showToast) showToast('خطا در بارگذاری تصویر', 'error');
+      }
+    } finally {
+      setIsUploadingImage(false);
+      e.target.value = '';
+    }
+  };
+
+  const [productDraft, setProductDraft] = useState<Product>(() => {
+    const rawInitImg = initialProduct?.imageUrl || initialProduct?.image || '';
+    const normInitImg = normalizeProductImageUrl(rawInitImg, initialProduct?.storeDomain || initialProduct?.url || 'https://drnutrition.com');
+    const normGallery = (initialProduct?.images || []).map((img: string) => normalizeProductImageUrl(img, initialProduct?.storeDomain || initialProduct?.url || 'https://drnutrition.com')).filter(Boolean);
+
+    return {
+      id: initialProduct?.id || `prod_${Date.now()}`,
+      titleFa: initialProduct?.titleFa || initialProduct?.title || '',
+      titleEn: initialProduct?.titleEn || '',
+      title: initialProduct?.title || initialProduct?.titleFa || '',
+      imageUrl: normInitImg,
+      image: normInitImg,
+      images: normGallery.length > 0 ? normGallery : (normInitImg ? [normInitImg] : []),
+      galleryImages: normGallery.length > 0 ? normGallery : (normInitImg ? [normInitImg] : []),
+      priceAed: Number(initialProduct?.priceAed || initialProduct?.price || 0),
+      priceToman: Number(initialProduct?.priceToman || 0),
+      storeName: initialProduct?.storeName || 'Dr. Nutrition',
+      targetSection: initialProduct?.targetSection || (activeTab === 'iran_warehouse' ? 'iran_warehouse' : 'deals'),
+      isActive: initialProduct?.isActive !== false,
+      isDraft: Boolean(initialProduct?.isDraft),
+      profitMargin: initialProduct?.profitMargin ?? 20,
+      shippingFeeAed: initialProduct?.shippingFeeAed ?? 20,
+      category: initialProduct?.category || 'supplements',
+      subCategory: initialProduct?.subCategory || 'all',
+      variants: initialProduct?.variants || [],
+      createdAt: initialProduct?.createdAt || new Date().toISOString()
+    };
+  });
 
   const handleExtractDraft = async () => {
     const targetUrl = extractCleanUrl(inputUrl);
@@ -60,69 +109,92 @@ export const ProductForm: React.FC<ProductFormProps> = ({
 
     setIsExtracting(true);
     try {
-      console.log('[Scraper Engine] Initiating extraction from caller: ProductForm', { targetUrl });
-      const result = await universalScraperService.extract(targetUrl);
+      console.log('[Scraper Engine] Initiating extraction from caller: ProductForm', { targetUrl, section: selectedSection });
+      const extracted = await extractProductShared(targetUrl, undefined, { bypassCache: true, forceFresh: true });
 
-      if (result && (result.priceAed || (result as any).priceAED || (result as any).price)) {
-        const resolvedPriceAed = Number(result.priceAed || (result as any).priceAED || (result as any).price || 0);
-        const computedToman = Math.round((resolvedPriceAed + 20) * (1 + 0.20) * aedRate);
+      // STRICT PRE-DRAFT VALIDATION GUARD (Anti-Corruption Invariant)
+      const isValidPayload = Boolean(
+        extracted &&
+        extracted.success &&
+        (extracted.titleFa || extracted.titleEn || extracted.title) &&
+        (extracted.titleFa !== 'محصول بدون عنوان' && extracted.title !== 'محصول بدون عنوان') &&
+        Number(extracted.priceAed || extracted.price || 0) > 0
+      );
 
-        const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
-        const isDrNutritionLink = targetUrl.toLowerCase().includes('drnutrition.com');
-        const storeDomain = result.storeDomain || (isDrNutritionLink ? 'https://drnutrition.com' : targetUrl);
-        const rawImg = result.image || (result as any).imageUrl || (result as any).mainImage || (result.images && result.images[0]) || (result.galleryImages && result.galleryImages[0]) || '';
-        const mainImg = normalizeProductImageUrl(rawImg, storeDomain) || fallbackImage;
-        const rawList = (result.images && result.images.length > 0) ? result.images : (result.galleryImages || (mainImg ? [mainImg] : []));
-        const galleryList = deduplicateImageUrls([mainImg, ...rawList.map((img: string) => normalizeProductImageUrl(img, storeDomain))], mainImg);
-        const effectiveMainImg = mainImg || (galleryList.length > 0 ? galleryList[0] : '');
+      if (!isValidPayload) {
+        if (showToast) showToast('خطا: اطلاعات کالا به درستی دریافت نشد. ایجاد پیش‌نویس متوقف شد.', 'error');
+        setIsExtracting(false);
+        return;
+      }
 
-        const resolvedStore = isDrNutritionLink ? 'Dr. Nutrition' : (result.storeName || (targetUrl.includes('sporter.com') ? 'Sporter' : 'iHerb'));
-        const titleEn = (result as any).titleEn || result.title || '';
-        const titleFa = result.titleFa || generateBilingualProductTitle(titleEn || result.title, resolvedStore, result.brand);
+      const resolvedPriceAed = Number(extracted.priceAed || extracted.price) || 0;
+      const computedToman = Math.round((resolvedPriceAed + 20) * (1 + 0.20) * aedRate);
 
-        const draftPayload: Product = {
-          id: (result.id && !result.id.startsWith('scraped-')) ? result.id : `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-          titleFa: titleFa || result.title || '',
-          titleEn: titleEn || result.title || '',
-          title: titleFa || result.title || '',
-          imageUrl: effectiveMainImg,
-          image: effectiveMainImg,
-          images: galleryList.length > 0 ? galleryList : (effectiveMainImg ? [effectiveMainImg] : []),
-          galleryImages: galleryList.length > 0 ? galleryList : (effectiveMainImg ? [effectiveMainImg] : []),
-          priceAed: resolvedPriceAed,
-          price: resolvedPriceAed,
-          priceToman: computedToman,
-          storeName: resolvedStore,
-          targetSection: activeTab === 'deals' ? 'deals' : 'iran_warehouse',
-          isActive: true,
-          isDraft: false,
-          profitMargin: 20,
-          shippingFeeAed: 20,
-          category: result.category || productDraft.category || 'supplements',
-          subCategory: productDraft.subCategory || 'all',
-          variants: (result.variants || []).map((v: any) => {
-            const rawVImg = v.imageUrl || v.image || v.imageThumbnail || effectiveMainImg;
-            const normVImg = normalizeProductImageUrl(rawVImg, storeDomain) || effectiveMainImg;
-            return {
-              ...v,
-              imageUrl: normVImg,
-              image: normVImg
-            };
-          }),
-          createdAt: new Date().toISOString(),
-          url: targetUrl,
-          sourceUrl: targetUrl
-        };
+      // 1:1 Logic Clone from HeroCalculator for Absolute HTTPS CDN Image Resolution
+      const rawImage = extracted.imageUrl || extracted.image || (extracted.images && extracted.images[0]) || '';
+      let resolvedImageUrl = rawImage.trim();
+      if (resolvedImageUrl.startsWith('//')) {
+        resolvedImageUrl = `https:${resolvedImageUrl}`;
+      } else if (resolvedImageUrl.startsWith('/')) {
+        const domain = targetUrl.includes('drnutrition') ? 'https://drnutrition.com' : 'https://www.lifepharmacy.com';
+        resolvedImageUrl = `${domain}${resolvedImageUrl}`;
+      }
+      const normMainImg = normalizeProductImageUrl(resolvedImageUrl, targetUrl) || resolvedImageUrl;
 
-        setProductDraft(draftPayload);
-        if (showToast) showToast('اطلاعات محصول با موفقیت استخراج شد', 'success');
-      } else {
-        const errMsg = (result as any)?.error || (result as any)?.message || 'عدم توانایی در استخراج اطلاعات از لینک';
-        if (showToast) showToast(errMsg, 'error');
+      const cleanTitleEn = sanitizeProductTitle(extracted.titleEn || extracted.title || '');
+      const cleanTitleFa = sanitizeProductTitle(extracted.titleFa || extracted.title || '');
+      const cleanTitle = cleanTitleFa || cleanTitleEn;
+
+      const draftPayload: Product = {
+        id: extracted.id || `prod_${Date.now()}`,
+        titleFa: cleanTitleFa || cleanTitle,
+        titleEn: cleanTitleEn,
+        title: cleanTitle,
+        imageUrl: normMainImg,
+        image: normMainImg,
+        images: extracted.images.length > 0 ? extracted.images : (normMainImg ? [normMainImg] : []),
+        galleryImages: extracted.galleryImages.length > 0 ? extracted.galleryImages : (normMainImg ? [normMainImg] : []),
+        priceAed: resolvedPriceAed,
+        price: resolvedPriceAed,
+        priceToman: computedToman,
+        manualPriceToman: null,
+        isManualPrice: false,
+        originalPriceAed: extracted.originalPriceAed,
+        discountPercent: extracted.discountPercent,
+        weightKg: extracted.weightKg || 0.8,
+        storeName: extracted.storeName || 'Dr. Nutrition',
+        brand: extracted.brand || extracted.storeName || 'Dr. Nutrition',
+        targetSection: selectedSection,
+        isActive: true,
+        isDraft: false,
+        profitMargin: 20,
+        shippingFeeAed: 20,
+        category: extracted.category || productDraft.category || 'supplements',
+        subCategory: productDraft.subCategory || 'all',
+        flavors: extracted.flavors,
+        sizes: extracted.sizes,
+        variants: extracted.variants.map((v, idx) => ({
+          ...v,
+          id: v.id || `var-${idx}-${Date.now()}`,
+          priceAed: v.priceAed || resolvedPriceAed,
+          priceAED: v.priceAed || resolvedPriceAed,
+          imageUrl: v.imageUrl || extracted.imageUrl,
+          image: v.image || extracted.image,
+          inStock: v.inStock !== false
+        })),
+        description: extracted.description || 'محصول اورجینال سفارش داده شده مستقیماً از نمایندگی‌های معتبر دبی.',
+        createdAt: new Date().toISOString(),
+        url: targetUrl,
+        sourceUrl: targetUrl
+      };
+
+      setProductDraft(draftPayload);
+      if (showToast) {
+        showToast(`پیش‌نویس محصول استخراج شد (${resolvedPriceAed} درهم)`, 'success');
       }
     } catch (err: any) {
-      console.error('Extraction error:', err);
-      if (showToast) showToast('خطا در استخراج محصول: ' + (err?.message || err), 'error');
+      console.error('[ProductForm handleExtractDraft Error]:', err);
+      if (showToast) showToast(err?.message || 'خطا در استخراج اطلاعات از لینک', 'error');
     } finally {
       setIsExtracting(false);
     }
@@ -130,12 +202,14 @@ export const ProductForm: React.FC<ProductFormProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!productDraft.titleFa && !productDraft.title) {
-      if (showToast) showToast('عنوان فارسی محصول الزامی است', 'error');
+    const hasTitle = Boolean(productDraft.titleFa || productDraft.title || productDraft.titleEn);
+    if (!hasTitle) {
+      if (showToast) showToast('عنوان فارسی یا انگلیسی محصول الزامی است', 'error');
       return;
     }
-    if (!productDraft.priceAed || productDraft.priceAed <= 0) {
-      if (showToast) showToast('قیمت معتبر درهم الزامی است', 'error');
+    const hasPrice = (Number(productDraft.priceAed) > 0) || (Number(productDraft.priceToman) > 0);
+    if (!hasPrice) {
+      if (showToast) showToast('قیمت معتبر (درهم یا تومان) الزامی است', 'error');
       return;
     }
 
@@ -163,9 +237,32 @@ export const ProductForm: React.FC<ProductFormProps> = ({
           <Sparkles className="w-5 h-5 text-amber-500" />
           <h3 className="font-black text-sm text-slate-900">استخراج و ویرایش پیش‌نویس محصول</h3>
         </div>
-        <span className="text-xs px-2.5 py-1 rounded-full font-black bg-blue-50 text-blue-700">
-          {activeTab === 'deals' ? '🔥 بخش پیشنهادها' : '🏢 انبار ایران'}
-        </span>
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedSection('deals');
+              setProductDraft(prev => ({ ...prev, targetSection: 'deals' }));
+            }}
+            className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
+              selectedSection === 'deals' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            🔥 پیشنهادهای ویژه
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedSection('iran_warehouse');
+              setProductDraft(prev => ({ ...prev, targetSection: 'iran_warehouse' }));
+            }}
+            className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
+              selectedSection === 'iran_warehouse' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            🏢 انبار ایران
+          </button>
+        </div>
       </div>
 
       {/* URL Input & Extract Action */}
@@ -191,20 +288,62 @@ export const ProductForm: React.FC<ProductFormProps> = ({
             {isExtracting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             <span>{isExtracting ? 'در حال استخراج...' : 'استخراج پیش‌نویس'}</span>
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setInputUrl('');
+              setProductDraft({
+                id: `manual_${Date.now()}`,
+                titleFa: '',
+                titleEn: '',
+                title: '',
+                imageUrl: '',
+                images: [],
+                priceAed: 0,
+                price: 0,
+                priceToman: 0,
+                manualPriceToman: null,
+                isManualPrice: false,
+                profitMargin: 20,
+                shippingFeeAed: selectedSection === 'iran_warehouse' ? 0 : 20,
+                storeName: selectedSection === 'iran_warehouse' ? 'انبار ایران (تحویل فوری)' : 'سیریک فیت',
+                brand: selectedSection === 'iran_warehouse' ? 'موجود در انبار ایران' : 'سیریک فیت',
+                targetSection: selectedSection,
+                category: 'مکمل‌های ورزشی',
+                subCategory: 'all',
+                isActive: true,
+                isDraft: false,
+                variants: [],
+                createdAt: new Date().toISOString()
+              });
+              if (showToast) showToast('فرم آماده ثبت دستی کالا شد', 'info');
+            }}
+            className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>محصول دستی</span>
+          </button>
         </div>
       </div>
 
       {/* Thumbnail & Title Preview Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-        <div className="w-12 h-12 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden shrink-0">
+        <div className="w-14 h-14 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden shrink-0">
           {(productDraft.imageUrl || productDraft.image) ? (
             <img
               src={productDraft.imageUrl || productDraft.image}
               alt={productDraft.titleEn || productDraft.titleFa || 'Product thumbnail'}
+              referrerPolicy="no-referrer"
+              crossOrigin="anonymous"
               className="w-full h-full object-contain p-0.5"
               onError={(e) => {
-                e.currentTarget.onerror = null;
-                e.currentTarget.src = '/placeholder-product.png';
+                const failedUrl = productDraft.imageUrl || productDraft.image;
+                console.error('[Image Load Failed - ProductForm]:', failedUrl);
+                if (failedUrl && !failedUrl.includes('images.weserv.nl') && !failedUrl.startsWith('data:')) {
+                  e.currentTarget.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(failedUrl);
+                } else {
+                  e.currentTarget.classList.add('opacity-40');
+                }
               }}
             />
           ) : (
@@ -256,14 +395,31 @@ export const ProductForm: React.FC<ProductFormProps> = ({
           />
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">لینک مستقیم تصویر (imageUrl):</label>
-          <input
-            type="text"
-            value={productDraft.imageUrl || productDraft.image || ''}
-            onChange={(e) => setProductDraft((prev) => ({ ...prev, imageUrl: e.target.value, image: e.target.value }))}
-            placeholder="https://..."
-            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-black dir-ltr text-right"
-          />
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-bold text-slate-700">تصویر کالا (لینک یا فایل):</label>
+            {isUploadingImage && (
+              <span className="text-[10px] font-bold text-emerald-600 animate-pulse">در حال ذخیره...</span>
+            )}
+          </div>
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={productDraft.imageUrl || productDraft.image || ''}
+              onChange={(e) => setProductDraft((prev) => ({ ...prev, imageUrl: e.target.value, image: e.target.value }))}
+              placeholder="https://..."
+              className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-black dir-ltr text-right"
+            />
+            <label className="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition flex items-center justify-center cursor-pointer shrink-0 border border-slate-200">
+              <Upload className="w-3.5 h-3.5" />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageFileUpload}
+                disabled={isUploadingImage}
+                className="hidden"
+              />
+            </label>
+          </div>
         </div>
         <div>
           <label className="block text-xs font-bold text-slate-700 mb-1">قیمت به درهم (AED):</label>
@@ -281,10 +437,27 @@ export const ProductForm: React.FC<ProductFormProps> = ({
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-        <div className="text-xs font-black text-emerald-700">
-          <span>قیمت محاسبه‌شده تومان: </span>
-          <span>{formatToman(productDraft.priceToman || 0)} تومان</span>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-black text-slate-700">قیمت نهایی فروش (تومان):</label>
+          <div className="relative w-44">
+            <input
+              type="number"
+              value={productDraft.priceToman || ''}
+              onChange={(e) => {
+                const customVal = e.target.value === '' ? 0 : Number(e.target.value);
+                setProductDraft((prev) => ({
+                  ...prev,
+                  priceToman: customVal,
+                  manualPriceToman: customVal,
+                  isManualPrice: true
+                }));
+              }}
+              placeholder="قیمت دستی به تومان"
+              className="w-full pl-12 pr-3 py-1.5 text-xs font-bold text-emerald-700 bg-white border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 dir-ltr text-center"
+            />
+            <span className="absolute left-2.5 top-1.5 text-[10px] text-slate-400 font-bold">تومان</span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {onCancel && (

@@ -1,5 +1,5 @@
 import { db } from '../config/firebase';
-import { doc, getDoc, setDoc, writeBatch, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, writeBatch, collection, getDocs, deleteDoc } from 'firebase/firestore';
 import { sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
 
 export const CMS_SETTINGS_COLLECTION = 'settings';
@@ -46,7 +46,10 @@ export function sortPopularProducts<T extends { id: string; popularOrder?: numbe
     if (!item || !item.id) return false;
     const isPop = item.isPopular === true || String(item.isPopular) === 'true' || (item as any).isPopularSample === true || String((item as any).isPopularSample) === 'true';
     const isPub = (item as any).isPublished !== false && (item as any).isActive !== false && (item as any).isDraft !== true;
-    return isPop && isPub;
+    const titleVal = ((item as any).titleFa || (item as any).title || (item as any).name || '').trim();
+    const isGhostOrDummy = !titleVal || titleVal === 'محصول پرطرفدار' || titleVal.toLowerCase() === 'popular product';
+    const isExplicitlyDisabled = item.popularOrder !== undefined && item.popularOrder < 0;
+    return isPop && isPub && !isGhostOrDummy && !isExplicitlyDisabled;
   });
 
   // 2. Deduplicate by normalized ID
@@ -345,15 +348,27 @@ export async function removePopularProduct(
         setDoc(doc(db, col, rawId), {
           isPopular: false,
           isPopularSample: false,
-          popularOrder: 9999,
+          popularOrder: -1,
           updatedAt: now
         }, { merge: true }),
         setDoc(doc(db, 'products', rawId), {
           isPopular: false,
           isPopularSample: false,
-          popularOrder: 9999,
+          popularOrder: -1,
           updatedAt: now
-        }, { merge: true })
+        }, { merge: true }),
+        setDoc(doc(db, 'special_deals', rawId), {
+          isPopular: false,
+          isPopularSample: false,
+          popularOrder: -1,
+          updatedAt: now
+        }, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'iran_warehouse', rawId), {
+          isPopular: false,
+          isPopularSample: false,
+          popularOrder: -1,
+          updatedAt: now
+        }, { merge: true }).catch(() => {})
       ]);
     } catch (docErr) {
       console.warn('[PopularOrder] Target doc remove notice:', docErr);
@@ -376,3 +391,69 @@ export async function removePopularProduct(
 
   return newOrder;
 }
+
+/**
+ * Helper to determine if a product document in Firestore is corrupted or a hollow ghost
+ */
+export function isCorruptedOrGhostDocument(data: any): boolean {
+  if (!data) return true;
+  const tFa = (data.titleFa || '').trim();
+  const tEn = (data.titleEn || data.title || '').trim();
+  const name = (data.name || '').trim();
+  const fullTitle = tFa || tEn || name;
+
+  const isExplicitGhostTitle =
+    !fullTitle ||
+    fullTitle === 'محصول بدون عنوان' ||
+    fullTitle === 'بدون عنوان' ||
+    fullTitle === 'محصول پرطرفدار' ||
+    fullTitle.toLowerCase() === 'popular product' ||
+    fullTitle.toLowerCase() === 'untitled product';
+
+  const hasPrice = Number(data.priceAed || data.price || data.priceToman || data.manualPriceToman || 0) > 0;
+  const hasImage = Boolean(data.imageUrl || data.image || (Array.isArray(data.images) && data.images.length > 0));
+
+  if (isExplicitGhostTitle) return true;
+  if (!hasPrice && !hasImage && !data.variants?.length) return true;
+
+  return false;
+}
+
+/**
+ * Scans Firestore collections (products, special_deals, iran_warehouse)
+ * for orphan ghost documents or empty dummy items and permanently eradicates them.
+ */
+export async function cleanupGhostPopularProducts(): Promise<void> {
+  if (!db) return;
+  try {
+    const collectionsToClean = ['products', 'special_deals', 'iran_warehouse'];
+    const deletions: Promise<any>[] = [];
+
+    for (const colName of collectionsToClean) {
+      try {
+        const snap = await getDocs(collection(db, colName));
+        snap.forEach((d) => {
+          const data = d.data();
+          if (isCorruptedOrGhostDocument(data)) {
+            console.log(`[PopularService] Eradicating corrupted ghost document in ${colName}:`, d.id);
+            deletions.push(deleteDoc(doc(db, colName, d.id)).catch(() => {}));
+            // Also cross-delete from products if found in sub-collection
+            if (colName !== 'products') {
+              deletions.push(deleteDoc(doc(db, 'products', d.id)).catch(() => {}));
+            }
+          }
+        });
+      } catch (colErr) {
+        console.warn(`[PopularService] Notice while scanning ${colName}:`, colErr);
+      }
+    }
+
+    if (deletions.length > 0) {
+      await Promise.all(deletions);
+      console.log(`[PopularService] Successfully purged ${deletions.length} ghost entries.`);
+    }
+  } catch (err) {
+    console.warn('[PopularService] Cleanup ghost products notice:', err);
+  }
+}
+

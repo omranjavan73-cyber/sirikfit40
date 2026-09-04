@@ -18,10 +18,14 @@ import {
   FileText,
   ShieldCheck,
   Megaphone,
-  Bell
+  Bell,
+  Upload,
+  Trash2
 } from 'lucide-react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from '../../firebase';
+import { storage } from '../../config/firebase';
 import type { CmsConfig, PromoPopupConfig } from '../../types';
 import { AdminPromoPopupSettings } from '../../components/AdminPromoPopupSettings';
 
@@ -49,6 +53,9 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
   const [topPromoText, setTopPromoText] = useState('🔥 تخفیف ویژه بهاره: ۱۰٪ تخفیف هزینه کارگو با کد SIRIKFIT');
   const [bannerImageUrl, setBannerImageUrl] = useState('');
   const [calculatorHeading, setCalculatorHeading] = useState('برآورد هوشمند قیمت و هزینه تحویل');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   useEffect(() => {
     const loadCms = async () => {
@@ -57,7 +64,7 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
           const docRef = doc(db, 'cms', 'app');
           const snap = await getDoc(docRef);
           if (snap.exists()) {
-            const data = snap.data() as CmsConfig;
+            const data = snap.data() as any;
             if (data.siteTitle) setSiteTitle(data.siteTitle);
             if (data.brandSlogan) setBrandSlogan(data.brandSlogan);
             if (data.heroHeading) setHeroHeading(data.heroHeading);
@@ -66,6 +73,30 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
             if (data.topPromoText) setTopPromoText(data.topPromoText);
             if (data.bannerImageUrl) setBannerImageUrl(data.bannerImageUrl);
             if (data.calculatorHeading) setCalculatorHeading(data.calculatorHeading);
+            if (data.logoUrl && !data.logoUrl.startsWith('blob:')) {
+              setLogoUrl(data.logoUrl);
+              setPreviewUrl(data.logoUrl);
+            }
+          }
+
+          // Check settings/home and settings/general
+          const homeSnap = await getDoc(doc(db, 'settings', 'home')).catch(() => null);
+          if (homeSnap && homeSnap.exists()) {
+            const homeData = homeSnap.data();
+            const hLogo = homeData?.logoUrl || homeData?.headerLogoUrl;
+            if (hLogo && !hLogo.startsWith('blob:')) {
+              setLogoUrl(hLogo);
+              setPreviewUrl(hLogo);
+            }
+          }
+          const cmsSnap = await getDoc(doc(db, 'settings', 'cms')).catch(() => null);
+          if (cmsSnap && cmsSnap.exists()) {
+            const cmsData = cmsSnap.data();
+            const cLogo = cmsData?.logoUrl || cmsData?.homeContent?.logoUrl;
+            if (cLogo && !cLogo.startsWith('blob:') && !logoUrl) {
+              setLogoUrl(cLogo);
+              setPreviewUrl(cLogo);
+            }
           }
         }
       } catch (err) {
@@ -75,13 +106,56 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     loadCms();
   }, []);
 
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingLogo(true);
+    // Instant local preview
+    const localPreview = URL.createObjectURL(file);
+    setPreviewUrl(localPreview);
+
+    try {
+      const cleanName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+      const storageRef = ref(storage, `branding/logo_${Date.now()}_${cleanName}`);
+      
+      // Safety timeout (15 seconds) to guarantee the button unfreezes even on network/storage stalls
+      const uploadPromise = uploadBytes(storageRef, file, {
+        contentType: file.type || 'image/png'
+      }).then(snapshot => getDownloadURL(snapshot.ref));
+
+      const timeoutPromise = new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error('زمان آپلود به پایان رسید. لطفاً اتصال اینترنت خود را بررسی کنید.')), 15000)
+      );
+
+      const downloadUrl = await Promise.race([uploadPromise, timeoutPromise]);
+
+      setLogoUrl(downloadUrl);
+      setPreviewUrl(downloadUrl);
+      if (showToast) showToast('لوگو با موفقیت آپلود شد', 'success');
+    } catch (error: any) {
+      console.error('[Logo Upload Error]:', error);
+      if (showToast) showToast(`خطا در آپلود لوگو: ${error.message || 'خطای شبکه یا فضای ذخیره‌سازی'}`, 'error');
+      setPreviewUrl(logoUrl || ''); // Revert preview on failure
+    } finally {
+      setIsUploadingLogo(false); // Guarantee loading state unfreezes
+      if (e.target) {
+        e.target.value = ''; // Reset input to allow re-selection
+      }
+    }
+  };
+
   const handleSaveContent = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     setSaveSuccess(false);
 
     try {
-      const updatedConfig: Partial<CmsConfig> = {
+      const nowIso = new Date().toISOString();
+      // Explicitly reject values beginning with blob: before updating Firestore
+      const sanitizedLogoUrl = (logoUrl && !logoUrl.startsWith('blob:')) ? logoUrl.trim() : '';
+
+      const updatedConfig: Partial<CmsConfig> & { logoUrl?: string } = {
         siteTitle,
         brandSlogan,
         heroHeading,
@@ -90,12 +164,43 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
         topPromoText,
         bannerImageUrl,
         calculatorHeading,
-        updatedAt: new Date().toISOString()
+        logoUrl: sanitizedLogoUrl,
+        updatedAt: nowIso
       };
 
       if (db) {
-        const docRef = doc(db, 'cms', 'app');
-        await setDoc(docRef, updatedConfig, { merge: true });
+        // 1. Write to settings/home (The absolute single source of truth for header logo)
+        await setDoc(doc(db, 'settings', 'home'), {
+          logoUrl: sanitizedLogoUrl,
+          headerLogoUrl: sanitizedLogoUrl,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+
+        // 2. Write to cms/app
+        await setDoc(doc(db, 'cms', 'app'), updatedConfig, { merge: true });
+
+        // 3. Write to settings/cms
+        await setDoc(doc(db, 'settings', 'cms'), {
+          logoUrl: sanitizedLogoUrl,
+          homeContent: { logoUrl: sanitizedLogoUrl },
+          updatedAt: nowIso
+        }, { merge: true });
+
+        // 4. Write to settings/general
+        await setDoc(doc(db, 'settings', 'general'), {
+          logoUrl: sanitizedLogoUrl,
+          updatedAt: nowIso
+        }, { merge: true });
+      }
+
+      if (typeof window !== 'undefined') {
+        if (sanitizedLogoUrl) {
+          localStorage.setItem('sirikfit_logo_url', sanitizedLogoUrl);
+        } else {
+          localStorage.removeItem('sirikfit_logo_url');
+        }
+        window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { logoUrl: sanitizedLogoUrl } }));
+        window.dispatchEvent(new Event('storage'));
       }
 
       if (onSaveCms) {
@@ -103,11 +208,11 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       }
 
       setSaveSuccess(true);
-      if (showToast) showToast('تنظیمات محتوایی و بنرهای صفحه اصلی با موفقیت ذخیره شد.', 'success');
+      if (showToast) showToast('تنظیمات محتوایی، لوگو و بنرهای صفحه اصلی با موفقیت ذخیره شد.', 'success');
       setTimeout(() => setSaveSuccess(false), 3500);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving CMS:', err);
-      if (showToast) showToast('خطا در ذخیره تنظیمات صفحه اصلی.', 'error');
+      if (showToast) showToast('خطا در ذخیره تنظیمات صفحه اصلی: ' + (err?.message || ''), 'error');
     } finally {
       setIsSaving(false);
     }
@@ -284,6 +389,91 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
                     onChange={(e) => setBrandSlogan(e.target.value)}
                     className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION: Site Header Logo Management */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-emerald-600" />
+                  <h4 className="font-extrabold text-xs text-slate-900">مدیریت لوگوی هدر سایت (Header Logo Management)</h4>
+                </div>
+                {(previewUrl || logoUrl) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLogoUrl('');
+                      setPreviewUrl('');
+                    }}
+                    className="text-rose-600 hover:text-rose-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
+                    title="حذف لوگو و بازگشت به لوگوی پیش‌فرض"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>حذف لوگو</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-4 bg-white p-4 rounded-xl border border-slate-200/80">
+                {/* Instant Logo Preview Box */}
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs relative">
+                  {(previewUrl || logoUrl) ? (
+                    <img
+                      src={previewUrl || logoUrl}
+                      alt="پیش‌نمایش لوگوی سایت"
+                      referrerPolicy="no-referrer"
+                      className="h-12 w-auto object-contain block max-w-full max-h-full"
+                      onError={(e) => {
+                        e.currentTarget.classList.add('opacity-40');
+                      }}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-slate-400 text-[10px] font-bold text-center p-1">
+                      <ImageIcon className="w-6 h-6 mb-1 text-slate-300" />
+                      <span>بدون لوگو</span>
+                    </div>
+                  )}
+                  {isUploadingLogo && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <RefreshCw className="w-5 h-5 text-white animate-spin" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Dual Input Controls: Direct URL + Device File Picker */}
+                <div className="flex-1 w-full space-y-2">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    آدرس مستقیم تصویر لوگو یا بارگذاری فایل از موبایل / لپ‌تاپ:
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="url"
+                      value={logoUrl}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setLogoUrl(val);
+                        setPreviewUrl(val);
+                      }}
+                      placeholder="https://... یا انتخاب فایل از دکمه روبرو"
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dir-ltr text-right"
+                    />
+                    <label className="px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shrink-0 shadow-xs active:scale-98">
+                      <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{isUploadingLogo ? 'در حال آپلود...' : 'انتخاب فایل از دستگاه'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLogoFileUpload}
+                        disabled={isUploadingLogo}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    لوگوی جدید بلافاصله پس از ذخیره، در گوشه سمت راست هدر فروشگاه در تمام صفحات نمایش داده خواهد شد.
+                  </p>
                 </div>
               </div>
             </div>

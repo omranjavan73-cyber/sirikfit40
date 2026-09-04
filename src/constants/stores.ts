@@ -37,6 +37,19 @@ export const SUPPORTED_STORES: Record<string, StoreConfig> = {
     brandColor: '#458500',
     defaultUrl: 'https://ae.iherb.com'
   },
+  sportsresearch: {
+    id: 'sportsresearch',
+    name: 'Sports Research',
+    nameFa: 'اسپورتس ریسرچ',
+    badgeBg: 'bg-emerald-700',
+    badgeText: 'text-white',
+    pulseColor: 'bg-white',
+    domainPattern: /(?:www\.)?sportsresearch\.com/i,
+    origin: 'فروشگاه رسمی Sports Research آمریکا',
+    flag: '🇺🇸',
+    brandColor: '#047857',
+    defaultUrl: 'https://www.sportsresearch.com'
+  },
   gnc: {
     id: 'gnc',
     name: 'GNC Store',

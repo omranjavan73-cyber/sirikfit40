@@ -40,7 +40,25 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
   const [filterState, setFilterState] = useState<ProductFilterState>(DEFAULT_FILTER_STATE);
 
-  const visibleItems = (items || []).filter(item => item && item.inStock !== false && (item as any).isActive !== false && (item as any).isPublished !== false && (item as any).isDraft !== true);
+  const visibleItems = useMemo(() => {
+    return (items || [])
+      .filter(item => {
+        if (!item || item.inStock === false || (item as any).isActive === false || (item as any).isPublished === false || (item as any).isDraft === true) return false;
+        const tFa = (item.titleFa || '').trim();
+        const tEn = (item.titleEn || item.title || '').trim();
+        const name = (item.name || '').trim();
+        const fullTitle = tFa || tEn || name;
+        const isGhost = !fullTitle || fullTitle === 'محصول بدون عنوان' || fullTitle === 'بدون عنوان' || fullTitle === 'محصول پرطرفدار';
+        const hasPrice = Number(item.priceAed || item.price || item.priceToman || item.manualPriceToman || item.basePriceAed || 0) > 0;
+        const hasImage = Boolean(item.imageUrl || item.image || (Array.isArray(item.images) && item.images.length > 0));
+        return (!isGhost || hasPrice || hasImage);
+      })
+      .sort((a, b) => {
+        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
+        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        return timeB - timeA;
+      });
+  }, [items]);
 
   // Apply full taxonomy and multi-variable filtering
   const filteredItems = useMemo(() => {

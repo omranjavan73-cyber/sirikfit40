@@ -20,7 +20,19 @@ export const LocalInventorySection: React.FC<LocalInventorySectionProps> = ({
   onAddToCart
 }) => {
   const [selectedLocalForModal, setSelectedLocalForModal] = useState<LocalInventoryItem | null>(null);
-  const visibleItems = sortNewestFirst((items || []).filter(item => item && item.isActive !== false && item.inStock !== false));
+  const visibleItems = sortNewestFirst(
+    (items || []).filter(item => {
+      if (!item || item.isActive === false || item.inStock === false) return false;
+      const tFa = (item.titleFa || '').trim();
+      const tEn = (item.titleEn || item.title || '').trim();
+      const name = (item.name || '').trim();
+      const fullTitle = tFa || tEn || name;
+      const isGhost = !fullTitle || fullTitle === 'محصول بدون عنوان' || fullTitle === 'بدون عنوان' || fullTitle === 'محصول پرطرفدار';
+      const hasPrice = Number(item.priceAed || item.price || item.priceToman || item.manualPriceToman || item.basePriceAed || 0) > 0;
+      const hasImage = Boolean(item.imageUrl || item.image || (Array.isArray(item.images) && item.images.length > 0));
+      return (!isGhost || hasPrice || hasImage);
+    })
+  );
 
   if (visibleItems.length === 0) {
     return null;

@@ -126,6 +126,7 @@ import {
   getSubcategoriesForMain, 
   fetchTaxonomyFromFirestore 
 } from '../utils/taxonomyHelper';
+import { cleanupGhostPopularProducts } from '../services/popularProductsService';
 
 export { sanitizePayloadForFirestore };
 
@@ -178,6 +179,7 @@ import { IranWarehouseAdmin } from '../pages/admin/IranWarehouseAdmin';
 import { HomePageSettingsAdmin } from '../pages/admin/HomePageSettingsAdmin';
 import { SeoAdmin } from '../pages/admin/SeoAdmin';
 import { LinkManagementTab } from './admin/LinkManagementTab';
+import { extractProductShared } from '../services/sharedExtractor';
 import { 
   normalizeProductId, 
   sortPopularProducts 
@@ -476,26 +478,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newCatIconUrl, setNewCatIconUrl] = useState<string>('');
   const [isLoadingAdminProducts, setIsLoadingAdminProducts] = useState<boolean>(dealsList.length === 0 && localInventoryList.length === 0);
 
-  // Sync state if cms props arrive with non-empty lists
+  // Sync state if cms props arrive
   useEffect(() => {
-    if (cms?.deals && cms.deals.length > 0) {
+    if (Array.isArray(cms?.deals)) {
       setDealsList(cms.deals);
     }
   }, [cms?.deals]);
 
   useEffect(() => {
-    if (cms?.localInventory && cms.localInventory.length > 0) {
+    if (Array.isArray(cms?.localInventory)) {
       setLocalInventoryList(cms.localInventory);
     }
   }, [cms?.localInventory]);
 
   // Direct real-time collection sync for Admin Panel (Single Source of Truth)
   useEffect(() => {
+    // Purge any corrupted or ghost products across collections on load
+    cleanupGhostPopularProducts().catch(() => {});
+
     let unsubs: (() => void)[] = [];
     try {
       const unsubWh = onSnapshot(collection(db, 'iran_warehouse'), (snap) => {
         const items: LocalInventoryItem[] = [];
-        snap.forEach((d) => items.push({ id: d.id, ...d.data() } as LocalInventoryItem));
+        snap.forEach((d) => {
+          const data = d.data();
+          const tFa = (data?.titleFa || '').trim();
+          const tEn = (data?.titleEn || data?.title || '').trim();
+          const name = (data?.name || '').trim();
+          const fullTitle = tFa || tEn || name;
+          const isGhost = !fullTitle || fullTitle === 'محصول بدون عنوان' || fullTitle === 'بدون عنوان' || fullTitle === 'محصول پرطرفدار';
+          const hasPrice = Number(data?.priceAed || data?.price || data?.priceToman || data?.manualPriceToman || 0) > 0;
+          const hasImage = Boolean(data?.imageUrl || data?.image || (Array.isArray(data?.images) && data.images.length > 0));
+          if (!isGhost || hasPrice || hasImage) {
+            items.push({ id: d.id, ...data } as LocalInventoryItem);
+          }
+        });
+
+        // Newest items first (descending by sectionAddedAt, createdAt, updatedAt)
+        items.sort((a, b) => {
+          const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
+          const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+          return timeB - timeA;
+        });
+
         setLocalInventoryList(items);
         try { localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(items)); } catch (_e) {}
         setIsLoadingAdminProducts(false);
@@ -507,7 +532,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       const unsubDeals = onSnapshot(collection(db, 'special_deals'), (snap) => {
         const items: FeaturedDeal[] = [];
-        snap.forEach((d) => items.push({ id: d.id, ...d.data() } as FeaturedDeal));
+        snap.forEach((d) => {
+          const data = d.data();
+          const tFa = (data?.titleFa || '').trim();
+          const tEn = (data?.titleEn || data?.title || '').trim();
+          const name = (data?.name || '').trim();
+          const fullTitle = tFa || tEn || name;
+          const isGhost = !fullTitle || fullTitle === 'محصول بدون عنوان' || fullTitle === 'بدون عنوان' || fullTitle === 'محصول پرطرفدار';
+          const hasPrice = Number(data?.priceAed || data?.price || data?.priceToman || data?.manualPriceToman || 0) > 0;
+          const hasImage = Boolean(data?.imageUrl || data?.image || (Array.isArray(data?.images) && data.images.length > 0));
+          if (!isGhost || hasPrice || hasImage) {
+            items.push({ id: d.id, ...data } as FeaturedDeal);
+          }
+        });
+
+        // Newest items first (descending by sectionAddedAt, createdAt, updatedAt)
+        items.sort((a, b) => {
+          const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
+          const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+          return timeB - timeA;
+        });
+
         setDealsList(items);
         try { localStorage.setItem('sirikfit_special_deals', JSON.stringify(items)); } catch (_e) {}
         setIsLoadingAdminProducts(false);
@@ -2321,19 +2366,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     setIsExtractingNewLocalItem(true);
     try {
-      const response = await fetch('/api/parse-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: cleanUrl, is_free_extraction: true })
-      });
+      const data = await extractProductShared(cleanUrl, cms, { bypassCache: true, forceFresh: true });
+      const priceAed = Number(data.priceAed || 0);
 
-      const data = await response.json();
-      const priceAed = Number(data.priceAed || data.price || data.basePriceAED || 0);
-
-      if ((data.ok || data.success) && (data.title || prefixText) && priceAed > 0) {
-        const finalTitle = data.title && data.title !== 'محصول استخراج شده'
-          ? data.title
-          : (prefixText || data.title || 'مکمل اورجینال دبی');
+      if (data.success && priceAed > 0) {
+        const finalTitle = data.titleFa || data.titleEn || prefixText || data.title || 'مکمل اورجینال دبی';
 
         const currentAedRate = getEffectiveAedRate(settings, cms) || 54500;
         const cargoRate = settings?.cargoRatePerKg || 35;
@@ -2353,20 +2390,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           profitMargin: marginPercent
         }) : 0;
 
-        const mainImage = data.mainImage || data.image || (Array.isArray(data.images) ? data.images[0] : '') || '';
-        const gallery = Array.isArray(data.galleryImages) && data.galleryImages.length > 0
-          ? data.galleryImages
-          : (Array.isArray(data.images) && data.images.length > 0 ? data.images : (mainImage ? [mainImage] : []));
+        const mainImage = data.image || data.imageUrl || '';
+        const gallery = data.images && data.images.length > 0 ? data.images : (mainImage ? [mainImage] : []);
 
         const assignedCategory = newLocalCategory || data.category || 'مکمل‌های ورزشی';
         const assignedCategoryKey = getCanonicalCategoryKey(assignedCategory);
 
         const newItem: LocalInventoryItem = {
-          id: 'local-' + Date.now(),
+          id: data.id || ('local-' + Date.now()),
           title: finalTitle,
           brand: data.brand || data.storeName || 'دبی',
           storeName: data.storeName || 'فروشگاه دبی',
-          image: mainImage || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
+          image: mainImage,
+          imageUrl: mainImage,
           images: gallery,
           galleryImages: gallery,
           priceToman: calculatedPriceToman,
@@ -2384,9 +2420,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           priceAed: priceAed,
           weightKg: weightKg,
           marginPercent: marginPercent,
-          flavors: Array.isArray(data.flavors) ? data.flavors : [],
-          sizes: Array.isArray(data.sizes) ? data.sizes : [],
-          variants: Array.isArray(data.variants) ? data.variants : [],
+          flavors: data.flavors || [],
+          sizes: data.sizes || [],
+          variants: data.variants || [],
           url: cleanUrl
         };
 
@@ -2436,19 +2472,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     setIsExtractingNewDeal(true);
     try {
-      const response = await fetch('/api/parse-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: cleanUrl, is_free_extraction: true })
-      });
+      const data = await extractProductShared(cleanUrl, cms, { bypassCache: true, forceFresh: true });
+      const priceAed = Number(data.priceAed || 0);
 
-      const data = await response.json();
-      const priceAed = Number(data.priceAed || data.price || data.basePriceAED || 0);
-
-      if ((data.ok || data.success) && (data.title || prefixText) && priceAed > 0) {
-        const finalTitle = data.title && data.title !== 'محصول استخراج شده'
-          ? data.title
-          : (prefixText || data.title || 'مکمل اورجینال دبی');
+      if (data.success && priceAed > 0) {
+        const finalTitle = data.titleFa || data.titleEn || prefixText || data.title || 'مکمل اورجینال دبی';
 
         const currentAedRate = getEffectiveAedRate(settings, cms) || 54500;
         const cargoRate = settings?.cargoRatePerKg || 35;
@@ -2474,16 +2502,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         }
         const badgeText = discountPercent > 0 ? `-${discountPercent}%` : '🔥 پیشنهاد ویژه';
 
-        const mainImage = data.mainImage || data.image || (Array.isArray(data.images) ? data.images[0] : '') || '';
-        const gallery = Array.isArray(data.galleryImages) && data.galleryImages.length > 0
-          ? data.galleryImages
-          : (Array.isArray(data.images) && data.images.length > 0 ? data.images : (mainImage ? [mainImage] : []));
+        const mainImage = data.image || data.imageUrl || '';
+        const gallery = data.images && data.images.length > 0 ? data.images : (mainImage ? [mainImage] : []);
 
         const assignedCategory = newDealCategory || data.category || 'مکمل‌های ورزشی';
         const assignedCategoryKey = getCanonicalCategoryKey(assignedCategory);
 
         const newDeal: FeaturedDeal = {
-          id: 'deal-' + Date.now(),
+          id: data.id || ('deal-' + Date.now()),
           title: finalTitle,
           brand: data.brand || data.storeName || 'دبی',
           category: assignedCategory,
@@ -2498,7 +2524,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           originalPriceToman: (originalPriceToman && originalPriceToman > calculatedPriceToman) ? originalPriceToman : 0,
           stockQuantity: 10,
           stockCount: 10,
-          image: mainImage || 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
+          image: mainImage,
+          imageUrl: mainImage,
           images: gallery,
           galleryImages: gallery,
           url: cleanUrl,
@@ -2511,9 +2538,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           isPopular: false,
           isActive: true,
           inStock: true,
-          flavors: Array.isArray(data.flavors) ? data.flavors : [],
-          sizes: Array.isArray(data.sizes) ? data.sizes : [],
-          variants: Array.isArray(data.variants) ? data.variants : []
+          flavors: data.flavors || [],
+          sizes: data.sizes || [],
+          variants: data.variants || []
         };
 
         const updatedDealsList = [newDeal, ...dealsList];
@@ -2684,7 +2711,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       originalPriceToman,
       stockQuantity: 10,
       stockCount: 10,
-      image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
+      image: '',
       url: 'https://www.drnutrition.com',
       storeName: 'Dr. Nutrition',
       badge: '🔥 پیشنهاد ویژه',
@@ -2776,7 +2803,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const newItem: LocalInventoryItem = {
       id: 'local-' + Date.now(),
       title: 'محصول جدید انبار تهران',
-      image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
+      image: '',
       priceToman: 3500000,
       originalPriceToman: 4000000,
       stockQuantity: 10,
@@ -5353,8 +5380,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <img
                               src={item.image}
                               alt="thumb"
-                              className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0 bg-slate-50"
-                              onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                              referrerPolicy="no-referrer"
+                              crossOrigin="anonymous"
+                              className="w-8 h-8 rounded-lg object-contain border border-slate-200 shrink-0 bg-white p-0.5"
+                              onError={(e) => {
+                                console.error('[Image Load Failed - Local Item]:', item.image);
+                                e.currentTarget.classList.add('opacity-40');
+                              }}
                             />
                           ) : null}
                           <input
@@ -5982,8 +6014,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <img
                                 src={deal.image}
                                 alt="thumb"
+                                referrerPolicy="no-referrer"
+                                crossOrigin="anonymous"
                                 className="w-8 h-8 rounded-lg object-contain border border-slate-200 shrink-0 bg-white p-0.5"
-                                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                                onError={(e) => {
+                                  console.error('[Image Load Failed - Deal Item]:', deal.image);
+                                  e.currentTarget.classList.add('opacity-40');
+                                }}
                               />
                             ) : null}
                             <input

@@ -14,11 +14,13 @@ export interface Product {
   priceAed?: number;
   price?: number;
   priceToman?: number;
+  manualPriceToman?: number | null;
+  isManualPrice?: boolean;
   originalPriceAed?: number;
   originalPriceToman?: number;
   storeName?: string;
   storeDomain?: string;
-  targetSection?: 'deals' | 'iran_warehouse' | string;
+  targetSection?: 'deals' | 'iran_warehouse';
   isActive?: boolean;
   isPublished?: boolean;
   isDraft?: boolean;
@@ -36,7 +38,8 @@ export interface Product {
   brand?: string;
   sourceUrl?: string;
   url?: string;
-  createdAt?: string;
+  createdAt?: string | number;
+  updatedAt?: string | number;
   [key: string]: any;
 }
 

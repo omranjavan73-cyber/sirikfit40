@@ -494,4 +494,4 @@ export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeThe
   };
 }
 
-
+export { sanitizeProductTitle } from './textSanitizer';

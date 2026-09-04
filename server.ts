@@ -15,11 +15,14 @@ import {
   setDoc,
   getDocs,
   collection,
-  deleteDoc
+  deleteDoc,
+  query,
+  where
 } from 'firebase/firestore';
 import firebaseConfigJson from './firebase-applet-config.json';
 import { scraperRouter } from './functions/src/routes/scraper.ts';
 import { iherbAdapter, parseIherbHtml } from './functions/src/scrapers/iherbAdapter.ts';
+import { sportsResearchAdapter, parseSportsResearchHtml } from './functions/src/scrapers/sportsResearchAdapter.ts';
 
 // Suppress internal gRPC stream disconnect debug/info messages
 try {
@@ -302,7 +305,12 @@ interface StoreData {
     phoneNumber: string;
     email?: string;
     passwordHash?: string;
+    deliveryAddress?: string;
+    postalCode?: string;
+    role?: string;
     createdAt: string;
+    updatedAt?: string;
+    [key: string]: any;
   }>;
   orders: Array<{
     id: string;
@@ -433,111 +441,13 @@ const defaultCmsConfig: CmsConfig = {
       sampleWeightKg: 0.4
     }
   ],
-  deals: [
-    {
-      id: 'deal-1',
-      title: 'پروتئین وی ایزوله اپتیموم نوتریشن Gold Standard 5lb',
-      brand: 'Optimum Nutrition',
-      category: '💊 مکمل‌های ورزشی',
-      priceAed: 280,
-      originalPriceAed: 350,
-      discountPercent: 20,
-      weightKg: 2.3,
-      image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
-      url: 'https://www.drnutrition.com/en-ae/product/on-gold-standard-100-whey-5lb',
-      storeName: 'Dr. Nutrition',
-      badge: '🔥 پرفروش',
-      isActive: true
-    },
-    {
-      id: 'deal-2',
-      title: 'پماد قبل از تمرین C4 Extreme Pre-Workout 30 Servings',
-      brand: 'Cellucor',
-      category: '🏷️ تخفیف ویژه',
-      priceAed: 135,
-      originalPriceAed: 170,
-      discountPercent: 20,
-      weightKg: 0.6,
-      image: 'https://images.unsplash.com/photo-1579722821273-0f6c7d44362f?auto=format&fit=crop&q=80&w=400',
-      url: 'https://www.drnutrition.com/en-ae/product/cellucor-c4-original-30-servings',
-      storeName: 'Dr. Nutrition',
-      badge: '🏷️ تخفیف ویژه',
-      isActive: true
-    },
-    {
-      id: 'deal-3',
-      title: 'مولتی ویتامین تخصصی آقایان GNC Mega Men One Daily',
-      brand: 'GNC UAE',
-      category: '✨ ویتامین و سلامت',
-      priceAed: 110,
-      originalPriceAed: 140,
-      discountPercent: 21,
-      weightKg: 0.4,
-      image: 'https://images.unsplash.com/photo-1584017911766-d451b3d0e843?auto=format&fit=crop&q=80&w=400',
-      url: 'https://gnc-mena.com/en-ae/multivitamins/gnc-mega-men.html',
-      storeName: 'GNC UAE',
-      badge: '✨ ویتامین و سلامت',
-      isActive: true
-    },
-    {
-      id: 'deal-4',
-      title: 'روغن ماهی امگا ۳ اولترا سوفت ژل Life Pharmacy Omega-3 1000mg',
-      brand: 'Life Pharmacy',
-      category: '✨ ویتامین و سلامت',
-      priceAed: 95,
-      originalPriceAed: 125,
-      discountPercent: 24,
-      weightKg: 0.3,
-      image: 'https://images.unsplash.com/photo-1631549916768-4119b2e5f926?auto=format&fit=crop&q=80&w=400',
-      url: 'https://www.lifepharmacy.com/product/daily-multi-100s',
-      storeName: 'Life Pharmacy',
-      badge: '🏷️ تخفیف ویژه',
-      isActive: true
-    }
-  ],
+  deals: [],
   showLocalInventory: true,
   warehouseBannerTitle: 'کالاهای موجود در انبار ایران (ارسال فوری)',
   warehouseBannerSubtitle: 'تحویل ۱ تا ۲ روزه در سراسر کشور • کالاها پلمپ و اورجینال',
   warehouseBannerTheme: 'light',
   warehouseBannerButtonText: 'جستجو و مشاهده همه',
-  localInventory: [
-    {
-      id: 'local-1',
-      title: 'پروتئین وی ایزوله اپتیموم نوتریشن Gold Standard 5lb (انبار تهران)',
-      image: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=400',
-      priceToman: 7200000,
-      originalPriceToman: 7800000,
-      stockQuantity: 5,
-      category: '💊 مکمل‌های ورزشی',
-      description: 'ارسال فوری ۱ تا ۲ روزه با پیک یا پست پیشتاز - پلمپ اورجینال خرید مستقیم از دبی',
-      deliveryBadge: '⚡ تحویل فوری ۲۴ ساعته',
-      inStock: true
-    },
-    {
-      id: 'local-2',
-      title: 'قرص مولتی ویتامین GNC Mega Men One Daily (انبار ایران)',
-      image: 'https://images.unsplash.com/photo-1584017911766-d451b3d0e843?auto=format&fit=crop&q=80&w=400',
-      priceToman: 2450000,
-      originalPriceToman: 2800000,
-      stockQuantity: 12,
-      category: '✨ ویتامین و سلامت',
-      description: 'موجود در انبار مرکزی ایران، ارسال همان روز ثبت سفارش',
-      deliveryBadge: '📦 ارسال همان روز',
-      inStock: true
-    },
-    {
-      id: 'local-3',
-      title: 'روغن ماهی امگا ۳ اولترا لایف فارمسی 1000mg',
-      image: 'https://images.unsplash.com/photo-1631549916768-4119b2e5f926?auto=format&fit=crop&q=80&w=400',
-      priceToman: 2100000,
-      originalPriceToman: 2500000,
-      stockQuantity: 8,
-      category: '✨ ویتامین و سلامت',
-      description: 'بسته‌بندی جدید، تاریخ انقضای معتبر ۲۰۲۷',
-      deliveryBadge: '⚡ تحویل فوری',
-      inStock: true
-    }
-  ],
+  localInventory: [],
   apiConfig: {
     currencyApiUrl: '',
     autoUpdateRates: false,
@@ -635,8 +545,8 @@ function readStoreFromFile(): StoreData {
     const content = fs.readFileSync(DATA_FILE, 'utf-8');
     const store: StoreData = JSON.parse(content);
     if (!store.cms) store.cms = defaultCmsConfig;
-    if (!store.cms.deals || !Array.isArray(store.cms.deals) || store.cms.deals.length === 0) {
-      store.cms.deals = defaultCmsConfig.deals;
+    if (!store.cms.deals || !Array.isArray(store.cms.deals)) {
+      store.cms.deals = [];
     }
     if (store.cms.showLocalInventory === undefined) store.cms.showLocalInventory = true;
     if (!store.cms.warehouseBannerTitle) store.cms.warehouseBannerTitle = 'کالاهای موجود در انبار ایران (ارسال فوری)';
@@ -646,8 +556,8 @@ function readStoreFromFile(): StoreData {
     if (store.cms.showAnnouncementBanner === undefined) store.cms.showAnnouncementBanner = true;
     if (!store.cms.announcementText) store.cms.announcementText = defaultCmsConfig.announcementText;
     if (!store.cms.announcementBadge) store.cms.announcementBadge = defaultCmsConfig.announcementBadge;
-    if (!store.cms.localInventory || !Array.isArray(store.cms.localInventory) || store.cms.localInventory.length === 0) {
-      store.cms.localInventory = defaultCmsConfig.localInventory;
+    if (!store.cms.localInventory || !Array.isArray(store.cms.localInventory)) {
+      store.cms.localInventory = [];
     }
     if (!store.users) store.users = defaultData.users;
     if (store.cms && Array.isArray(store.cms.stores)) {
@@ -2550,7 +2460,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
           const q = query(collection(db, 'users'), where('phoneNumber', '==', mobile));
           const snap = await getDocs(q);
           if (!snap.empty) {
-            user = { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
+            user = { id: snap.docs[0].id, ...(snap.docs[0].data() as Record<string, any>) } as any;
           }
         }
       } catch (_e) {}
@@ -2635,7 +2545,7 @@ app.get('/api/customers/by-phone/:phone', async (req, res) => {
           const q = query(collection(db, 'users'), where('phoneNumber', '==', phone));
           const qSnap = await getDocs(q);
           if (!qSnap.empty) {
-            user = { id: qSnap.docs[0].id, ...qSnap.docs[0].data() } as any;
+            user = { id: qSnap.docs[0].id, ...(qSnap.docs[0].data() as Record<string, any>) } as any;
           }
         }
       } catch (_e) {}
@@ -4714,6 +4624,29 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
     }
   }
 
+  // If target URL is Sports Research or HTML indicates Sports Research, use dedicated Sports Research parser
+  if (targetUrl.toLowerCase().includes('sportsresearch.com') || rawHtmlText.includes('sportsresearch.com')) {
+    const srResult = parseSportsResearchHtml(rawHtmlText, targetUrl);
+    if (srResult.ok && srResult.priceAed && srResult.priceAed > 0) {
+      return {
+        title: srResult.title || '',
+        titleFa: srResult.titleFa || '',
+        price: srResult.priceAed,
+        originalPriceAed: srResult.originalPriceAed,
+        discountPercent: srResult.discountPercent,
+        image: srResult.image || '',
+        galleryImages: srResult.galleryImages || [],
+        description: srResult.description || '',
+        variantGroups: srResult.variantGroups || [],
+        variantMatrix: srResult.variantMatrix || null,
+        variants: srResult.variants || [],
+        options: srResult.flavors || [],
+        flavors: srResult.flavors || [],
+        sizes: srResult.sizes || []
+      };
+    }
+  }
+
   // If target URL is Sporter or HTML indicates Sporter, use dedicated Sporter parser
   if (targetUrl.toLowerCase().includes('sporter.com') || rawHtmlText.includes('sporter.com')) {
     const sporterResult = parseSporterProduct(rawHtmlText, targetUrl);
@@ -4915,11 +4848,15 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
             for (const offer of offersList) {
               if (!offer) continue;
               const pVal = offer.price ?? offer.lowPrice ?? offer.highPrice ?? offer.priceSpecification?.price;
+              const pCurr = String(offer.priceCurrency || offer.currency || '').toUpperCase();
               if (pVal !== undefined && pVal !== null) {
                 const normStr = normalizeToEnglishDigits(String(pVal));
                 let p = parseFloat(normStr.replace(/,/g, '').replace(/[^0-9.]/g, ''));
                 if (p > 2000) p = p / 100;
                 if (!isNaN(p) && p > 0) {
+                  if (pCurr === 'USD' || pCurr === '$') {
+                    p = Math.round(p * 3.6725 * 100) / 100;
+                  }
                   extractedPrice = Math.round(p * 100) / 100;
                   break;
                 }
@@ -4953,9 +4890,18 @@ function parseHtmlEngine(rawHtmlText: string, targetUrl: string = '') {
                   rawHtmlText.match(/<meta[^>]*name=["'](?:twitter:data1|price)["'][^>]*content=["']([^"']+)["']/i) ||
                   rawHtmlText.match(/itemprop=["']price["'][^>]*content=["']([^"']+)["']/i) ||
                   rawHtmlText.match(/content=["']([^"']+)["'][^>]*itemprop=["']price["']/i);
+    const currMeta = rawHtmlText.match(/<meta[^>]*property=["'](?:product:price:currency|og:price:currency)["'][^>]*content=["']([^"']+)["']/i) ||
+                     rawHtmlText.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["'](?:product:price:currency|og:price:currency)["']/i) ||
+                     rawHtmlText.match(/<meta[^>]*name=["']currency["'][^>]*content=["']([^"']+)["']/i);
+    const metaCurr = (currMeta && currMeta[1] ? currMeta[1] : '').toUpperCase();
     if (pMeta && pMeta[1]) {
-      const p = parseFloat(normalizeToEnglishDigits(pMeta[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-      if (!isNaN(p) && p > 0) extractedPrice = Math.round(p * 100) / 100;
+      let p = parseFloat(normalizeToEnglishDigits(pMeta[1]).replace(/,/g, '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(p) && p > 0) {
+        if (metaCurr === 'USD' || metaCurr === '$') {
+          p = Math.round(p * 3.6725 * 100) / 100;
+        }
+        extractedPrice = Math.round(p * 100) / 100;
+      }
     }
   }
 
@@ -6915,6 +6861,7 @@ async function genericAdapter(targetUrl: string, cmsConfig?: any, extraBody?: an
   else if (lowerUrl.includes('noon.com')) storeName = 'Noon Dubai';
   else if (lowerUrl.includes('amazon.ae') || lowerUrl.includes('amazon.')) storeName = 'Amazon UAE';
   else if (lowerUrl.includes('sporter.com')) storeName = 'Sporter UAE';
+  else if (lowerUrl.includes('sportsresearch.com')) storeName = 'Sports Research';
   else if (lowerUrl.includes('lifeextension.com')) storeName = 'Life Extension';
 
   const headers = getStandardScraperHeaders(targetUrl);
@@ -7257,10 +7204,14 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
     const isFreeReq = req.body?.is_free_extraction === true || req.body?.is_free_extraction === 'true' || req.body?.isFreeExtraction === true;
     const reqRestricted = req.body?.enable_domain_restriction ?? req.body?.enableDomainRestriction;
 
-    const defaultAllowedDomains = ['noon.com', 'amazon.ae', 'lifepharmacy.com', 'drpharmacy.ae', 'sporter.com', 'drnutrition.com', 'gnc-mena.com', 'gnc.ae', 'gnc.com', 'iherb.com', 'ae.iherb.com'];
-    const configuredAllowed = (cmsConfig?.apiConfig?.allowedDomains && cmsConfig.apiConfig.allowedDomains.length > 0)
-      ? cmsConfig.apiConfig.allowedDomains
-      : defaultAllowedDomains;
+    const defaultAllowedDomains = ['noon.com', 'amazon.ae', 'lifepharmacy.com', 'drpharmacy.ae', 'sporter.com', 'drnutrition.com', 'gnc-mena.com', 'gnc.ae', 'gnc.com', 'iherb.com', 'ae.iherb.com', 'sportsresearch.com', 'www.sportsresearch.com'];
+    const configuredAllowed = Array.from(new Set([
+      ...(Array.isArray(cmsConfig?.apiConfig?.allowedDomains) ? cmsConfig.apiConfig.allowedDomains : defaultAllowedDomains),
+      'drnutrition.com',
+      'iherb.com',
+      'ae.iherb.com',
+      'sportsresearch.com'
+    ]));
 
     let enableRestriction = true;
     if (typeof reqRestricted === 'boolean') {
@@ -7285,20 +7236,28 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
     }
 
     // STEP 1: FIRESTORE CACHING LAYER (scraped_products_cache with 30-Day TTL & 3-Day SWR)
+    const bypassCache = Boolean(req.body?.bypassCache || req.body?.forceFresh || req.query?.bypassCache || req.query?.forceFresh);
     let cachedResult: { data: any; isStale: boolean } | null = null;
     let normalizedUrl = cleanUrl;
     let urlHash = '';
     try {
       normalizedUrl = normalizeTargetUrl(cleanUrl) || cleanUrl;
       urlHash = computeUrlHash(normalizedUrl);
-      cachedResult = await getCachedScrapedProduct(urlHash);
+      if (!bypassCache) {
+        cachedResult = await getCachedScrapedProduct(urlHash);
+      } else {
+        console.log('[handleParseLinkRoute] Cache bypass requested for:', normalizedUrl);
+      }
     } catch (cacheErr) {
       console.warn('Firestore cache read error:', cacheErr);
     }
 
-    if (cachedResult && cachedResult.data && (cachedResult.data.price || cachedResult.data.productData?.price)) {
+    if (!bypassCache && cachedResult && cachedResult.data && (cachedResult.data.price || cachedResult.data.productData?.price)) {
       const cached = cachedResult.data.productData || cachedResult.data;
-      const isStale = cachedResult.isStale;
+      const cachedImg = cached.image || cached.mainImage || (Array.isArray(cached.galleryImages) && cached.galleryImages[0]);
+      // Only serve from cache if authentic image exists and is valid
+      if (cachedImg && !isInvalidDrImage(cachedImg)) {
+        const isStale = cachedResult.isStale;
 
       // If cache is stale, trigger non-blocking detached background revalidation
       if (isStale) {
@@ -7307,6 +7266,7 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
             const domain = new URL(normalizedUrl).hostname.toLowerCase();
             let freshRes: any = null;
             if (domain.includes('iherb')) freshRes = await iherbAdapter(normalizedUrl, cmsConfig);
+            else if (domain.includes('sportsresearch')) freshRes = await sportsResearchAdapter(normalizedUrl, cmsConfig);
             else if (domain.includes('gnc')) freshRes = await gncAdapter(normalizedUrl, cmsConfig);
             else if (domain.includes('lifepharmacy') || domain.includes('drpharmacy')) freshRes = await lifePharmacyAdapter(normalizedUrl, cmsConfig);
             else if (domain.includes('drnutrition')) freshRes = await drNutritionAdapter(normalizedUrl, cmsConfig);
@@ -7359,6 +7319,7 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
         options: cached.options || [],
         description: cached.description || `محصول استخراج شده (از کش)`
       });
+      }
     }
 
 
@@ -7375,6 +7336,8 @@ const handleParseLinkRoute = async (req: express.Request, res: express.Response)
     const executeScraper = async (userAgent?: string): Promise<ParseAdapterResult> => {
       if (domain.includes('iherb')) {
         return (await iherbAdapter(normalizedUrl, cmsConfig, userAgent)) as ParseAdapterResult;
+      } else if (domain.includes('sportsresearch')) {
+        return (await sportsResearchAdapter(normalizedUrl, cmsConfig, userAgent)) as ParseAdapterResult;
       } else if (domain.includes('gnc')) {
         return await gncAdapter(normalizedUrl, cmsConfig);
       } else if (domain.includes('lifepharmacy') || domain.includes('drpharmacy')) {

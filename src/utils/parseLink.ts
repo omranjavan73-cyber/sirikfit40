@@ -1,7 +1,6 @@
 import { getEffectiveGeminiKeysList, callGeminiApiWithKeyRotation } from './geminiKey';
-import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase';
-import { normalizeProductImageUrl, isInvalidProductImage } from './formatters';
+import { normalizeProductImageUrl, isInvalidProductImage, deduplicateImageUrls } from './formatters';
 import type { ProductVariantGroup, ProductVariantOption, ProductVariantMatrix, ProductVariantItem } from '../types';
 import { 
   cleanProductTitle, 
@@ -810,8 +809,10 @@ export async function parseProductLinkUniversal(params: {
   url: string;
   geminiKeys?: string[];
   cmsConfig?: any;
+  bypassCache?: boolean;
+  forceFresh?: boolean;
 }): Promise<ParsedProductResult> {
-  const { url, geminiKeys, cmsConfig } = params;
+  const { url, geminiKeys, cmsConfig, bypassCache, forceFresh } = params;
   const targetUrl = url.trim();
 
   const scraperKeyVal = (() => {
@@ -841,7 +842,9 @@ export async function parseProductLinkUniversal(params: {
         apiKey: scraperKeyVal,
         scraperApiKey: scraperKeyVal,
         geminiApiKeys: effectiveGeminiKeys,
-        geminiApiKey: effectiveGeminiKeys?.[0] || ''
+        geminiApiKey: effectiveGeminiKeys?.[0] || '',
+        bypassCache: Boolean(bypassCache || forceFresh),
+        forceFresh: Boolean(bypassCache || forceFresh)
       }),
       signal: controller.signal
     });
@@ -859,16 +862,22 @@ export async function parseProductLinkUniversal(params: {
       let rawImg = data.image || data.mainImage || data.image_url || data.imageUrl || (Array.isArray(data.galleryImages) && data.galleryImages[0]) || (Array.isArray(data.images) && data.images[0]) || '';
       let mainImg = normalizeProductImageUrl(rawImg, storeDomain);
       if (isInvalidProductImage(mainImg)) mainImg = '';
+      if (targetUrl.toLowerCase().includes('iherb')) {
+        mainImg = resolveIherbHighResImage(mainImg);
+      }
 
       const rawGallery = Array.isArray(data.galleryImages) 
         ? data.galleryImages 
         : (Array.isArray(data.images) ? data.images : []);
-      const galleryImages = Array.from(
+      let galleryImages = Array.from(
         new Set(
           [mainImg, ...rawGallery.map((g: string) => normalizeProductImageUrl(g, storeDomain))]
             .filter(img => img && !isInvalidProductImage(img))
         )
       );
+      if (targetUrl.toLowerCase().includes('iherb')) {
+        galleryImages = galleryImages.map(img => resolveIherbHighResImage(img)).filter(Boolean);
+      }
       if (!mainImg && galleryImages.length > 0) mainImg = galleryImages[0];
 
       // Process variant groups
@@ -959,5 +968,136 @@ export async function parseProductLinkUniversal(params: {
       image: ""
     };
   }
+}
+
+export interface UnifiedDraftProduct {
+  id: string;
+  title: string;
+  titleFa: string;
+  titleEn: string;
+  brand: string;
+  storeName: string;
+  priceAed: number;
+  originalPriceAed: number;
+  discountPercent?: number;
+  weightKg: number;
+  image: string;
+  imageUrl: string;
+  images: string[];
+  galleryImages: string[];
+  flavors: string[];
+  sizes: string[];
+  variants: any[];
+  description?: string;
+  url: string;
+}
+
+/**
+ * Single Unified Extractor for Admin Draft Creation.
+ * Faithfully mirrors Homepage extraction, supporting both Dr. Nutrition and iHerb.
+ * Zero fallback/fake images: returns real image or empty string.
+ */
+export async function extractDraftProduct(
+  inputUrl: string,
+  options?: {
+    cmsConfig?: any;
+    geminiKeys?: string[];
+  }
+): Promise<{ success: boolean; data?: UnifiedDraftProduct; error?: string }> {
+  const targetUrl = (inputUrl || '').trim();
+  if (!targetUrl) {
+    return { success: false, error: 'آدرس لینک معتبر نمی‌باشد.' };
+  }
+
+  const result = await parseProductLinkUniversal({
+    url: targetUrl,
+    geminiKeys: options?.geminiKeys,
+    cmsConfig: options?.cmsConfig
+  });
+
+  if (!result.success || !result.priceAed || result.priceAed <= 0) {
+    return {
+      success: false,
+      error: result.error || result.message || 'امکان استخراج اطلاعات از این لینک وجود ندارد.'
+    };
+  }
+
+  const pAed = Number(result.priceAed) || 0;
+  const isDrNutrition = targetUrl.toLowerCase().includes('drnutrition.com');
+  const isIherb = targetUrl.toLowerCase().includes('iherb.com') || targetUrl.toLowerCase().includes('ae.iherb.com');
+  const resolvedStore = isIherb ? 'iHerb' : (isDrNutrition ? 'Dr. Nutrition' : (result.storeName || 'دبی'));
+
+  const rawTitle = (result.title || '').trim();
+  let titleFa = rawTitle;
+  let titleEn = '';
+  const bracketMatch = rawTitle.match(/\(([^)]+)\)$/);
+  if (bracketMatch) {
+    titleEn = bracketMatch[1].trim();
+    titleFa = rawTitle;
+  } else {
+    titleEn = cleanProductTitle(rawTitle);
+    titleFa = rawTitle;
+  }
+
+  const domainForImg = result.storeDomain || targetUrl;
+  const rawMainImg = result.imageUrl || result.image || result.mainImage || (result as any).image_url || (Array.isArray(result.images) && result.images[0]) || (Array.isArray(result.galleryImages) && result.galleryImages[0]) || '';
+  let mainImg = normalizeProductImageUrl(rawMainImg, domainForImg);
+  if (!mainImg && rawMainImg && (rawMainImg.startsWith('http://') || rawMainImg.startsWith('https://'))) {
+    mainImg = rawMainImg;
+  }
+
+  const rawGallery = Array.isArray(result.images) && result.images.length > 0
+    ? result.images
+    : (Array.isArray(result.galleryImages) && result.galleryImages.length > 0 ? result.galleryImages : (mainImg ? [mainImg] : []));
+
+  const normalizedGallery = Array.from(
+    new Set(
+      [mainImg, ...rawGallery.map(img => normalizeProductImageUrl(img, domainForImg) || (img.startsWith('http') ? img : ''))]
+        .filter(Boolean)
+    )
+  );
+  const gallery = deduplicateImageUrls(normalizedGallery, mainImg);
+  if (!mainImg && gallery.length > 0) {
+    mainImg = gallery[0];
+  }
+
+  const extractedFlavors = Array.isArray(result.flavors) ? result.flavors.filter(f => f && String(f).trim()) : [];
+  const extractedSizes = Array.isArray(result.sizes) ? result.sizes.filter(s => s && String(s).trim()) : [];
+
+  const normalizedVariants = (result.variants || []).map((v: any, idx: number) => {
+    const rawVImg = v.imageUrl || v.image || v.imageThumbnail || mainImg;
+    const normVImg = normalizeProductImageUrl(rawVImg, domainForImg) || mainImg;
+    return {
+      ...v,
+      id: v.id || `var-${idx}-${Date.now()}`,
+      image: normVImg,
+      imageUrl: normVImg
+    };
+  });
+
+  return {
+    success: true,
+    data: {
+      id: (result.id && !result.id.startsWith('scraped-')) ? result.id : `draft-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      title: titleFa || titleEn,
+      titleFa: titleFa || titleEn,
+      titleEn: titleEn || titleFa,
+      brand: result.brand || (isIherb ? 'iHerb' : (isDrNutrition ? 'Dr. Nutrition' : 'دبی')),
+      storeName: resolvedStore,
+      priceAed: pAed,
+      originalPriceAed: Number(result.originalPriceAed || 0) || 0,
+      discountPercent: result.discountPercent,
+      weightKg: Number(result.weightKg || 0.8) || 0.8,
+      image: mainImg,
+      imageUrl: mainImg,
+      images: gallery,
+      galleryImages: gallery,
+      flavors: extractedFlavors,
+      sizes: extractedSizes,
+      variants: normalizedVariants,
+      description: result.description,
+      url: targetUrl
+    }
+  };
 }
 

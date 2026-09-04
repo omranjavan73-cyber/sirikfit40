@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Trash2, ChevronDown, ChevronUp, Star, Eye, EyeOff } from 'lucide-react';
 import { toPersianDigits } from '../../utils/formatters';
 
 export interface ProductCardAdminProps {
@@ -45,13 +45,21 @@ export const ProductCardAdmin: React.FC<ProductCardAdminProps> = ({
   const isPublished = product.isPublished !== false && product.isActive !== false;
   const isPopular = Boolean(product.isPopular);
 
-  const handleTogglePublished = () => {
+  const handleTogglePublished = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (onTogglePublished) {
       onTogglePublished(product.id, !isPublished);
     }
   };
 
-  const handleTogglePopular = () => {
+  const handleTogglePopular = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (onTogglePopular) {
       onTogglePopular(product.id, !isPopular);
     }
@@ -61,7 +69,13 @@ export const ProductCardAdmin: React.FC<ProductCardAdminProps> = ({
     <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden transition-all duration-200 hover:border-slate-300">
       {/* Top Header Banner: Strictly Core Identifiers */}
       <div
-        onClick={onToggleExpand}
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('button') || target.closest('input') || target.closest('select') || target.closest('a')) {
+            return;
+          }
+          if (onToggleExpand) onToggleExpand();
+        }}
         className="p-3 sm:p-4 flex items-center gap-3 cursor-pointer select-none hover:bg-slate-50/80 transition"
       >
         {/* Index Number */}
@@ -107,6 +121,34 @@ export const ProductCardAdmin: React.FC<ProductCardAdminProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* Eye Icon (Visibility / Publish Toggle) */}
+          <button
+            type="button"
+            onClick={handleTogglePublished}
+            title={isPublished ? 'نمایش در سایت (فعال)' : 'مخفی از سایت (غیرفعال)'}
+            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+              isPublished
+                ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                : 'bg-slate-100 dark:bg-zinc-800 border-slate-300 dark:border-zinc-700 text-slate-400'
+            }`}
+          >
+            {isPublished ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+          </button>
+
+          {/* Star Icon (Popular Toggle) */}
+          <button
+            type="button"
+            onClick={handleTogglePopular}
+            title={isPopular ? 'پرطرفدار (فعال)' : 'پرطرفدار (غیرفعال)'}
+            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+              isPopular
+                ? 'bg-amber-500/10 border-amber-500 text-amber-500'
+                : 'bg-slate-100 dark:bg-zinc-800 border-slate-300 dark:border-zinc-700 text-slate-400'
+            }`}
+          >
+            <Star className={`w-4 h-4 ${isPopular ? 'fill-amber-500 text-amber-500' : 'text-slate-400'}`} />
+          </button>
+
           {onDelete && (
             <button
               type="button"
@@ -146,34 +188,6 @@ export const ProductCardAdmin: React.FC<ProductCardAdminProps> = ({
       {/* Expanded Section */}
       {isOpen && (
         <div className="p-4 pt-0 border-t border-slate-100 space-y-4">
-          {/* Single Unified Status Control Toolbar */}
-          <div className="flex items-center gap-2 py-2 w-full">
-            {/* 1. Publication State Toggle (isPublished) */}
-            <button
-              type="button"
-              onClick={handleTogglePublished}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                isPublished
-                  ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
-                  : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700'
-              }`}
-            >
-              <span>{isPublished ? '✓ منتشر شده در سایت (عمومی)' : '⊘ پیشنویس (مخفی از سایت)'}</span>
-            </button>
-
-            {/* 2. Homepage Featured Toggle (isPopular) */}
-            <button
-              type="button"
-              onClick={handleTogglePopular}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                isPopular
-                  ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/20'
-                  : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700'
-              }`}
-            >
-              <span>{isPopular ? '★ پرطرفدار (نمایش در خانه)' : '☆ پرطرفدار (غیرفعال)'}</span>
-            </button>
-          </div>
 
           {/* Children: Variant Matrix, Taxonomy Selectors, Price Settings */}
           {children}

@@ -12,7 +12,7 @@ import type {
 } from '../types';
 import { generateBilingualProductTitle, parseProductLinkUniversal } from '../utils/parseLink';
 import { getEffectiveGeminiKeysList } from '../utils/geminiKey';
-import { sanitizeVariantLabel, isArtificialFallback, normalizeProductImageUrl, isInvalidProductImage } from '../utils/formatters';
+import { sanitizeVariantLabel, isArtificialFallback, normalizeProductImageUrl, isInvalidProductImage, deduplicateImageUrls } from '../utils/formatters';
 import { GncAdapter } from './GncAdapter';
 import { DrNutritionAdapter } from './DrNutritionAdapter';
 import { GncParser } from './gncParser';
@@ -33,6 +33,9 @@ export function detectStoreOrigin(url: string): { storeName: string; origin: str
   const lower = (url || '').toLowerCase();
   if (lower.includes('iherb.com') || lower.includes('ae.iherb.com')) {
     return { storeName: 'iHerb', origin: 'انبار مرکزی iHerb امارات و دبی', flag: '🇦🇪' };
+  }
+  if (lower.includes('sportsresearch.com')) {
+    return { storeName: 'Sports Research', origin: 'فروشگاه رسمی Sports Research آمریکا', flag: '🇺🇸' };
   }
   if (lower.includes('amazon.ae') || lower.includes('amazon.')) {
     return { storeName: 'Amazon UAE', origin: 'دبی، امارات (Amazon.ae)', flag: '🇦🇪' };
@@ -535,17 +538,23 @@ export class UniversalScraperService {
     const storeName = raw.storeName || raw.sourceStore || originInfo.storeName;
     const brand = raw.brand || storeName;
 
+    const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
     const rawMainImg = raw.imageUrl || raw.mainImage || raw.image || raw.image_url || (raw.images && raw.images[0]) || (raw.galleryImages && raw.galleryImages[0]) || '';
-    let mainImage = normalizeProductImageUrl(rawMainImg, raw.storeDomain || sourceUrl || 'https://drnutrition.com');
+    let mainImage = normalizeProductImageUrl(rawMainImg, raw.storeDomain || sourceUrl || 'https://drnutrition.com') || (rawMainImg.startsWith('http') ? rawMainImg : '') || fallbackImage;
     const rawGallery: string[] = Array.isArray(raw.galleryImages)
       ? raw.galleryImages
       : (Array.isArray(raw.images) ? raw.images : (rawMainImg ? [rawMainImg] : []));
 
-    const galleryImages: string[] = Array.from(
-      new Set([mainImage, ...rawGallery.map(img => normalizeProductImageUrl(img, raw.storeDomain || sourceUrl || 'https://drnutrition.com'))].filter(Boolean))
+    const normalizedGallery: string[] = Array.from(
+      new Set([mainImage, ...rawGallery.map(img => normalizeProductImageUrl(img, raw.storeDomain || sourceUrl || 'https://drnutrition.com') || (img.startsWith('http') ? img : ''))].filter(Boolean))
     );
+    const galleryImages: string[] = deduplicateImageUrls(normalizedGallery, mainImage);
     if (!mainImage && galleryImages.length > 0) {
       mainImage = galleryImages[0];
+    }
+    if (!mainImage) {
+      mainImage = fallbackImage;
+      galleryImages.push(fallbackImage);
     }
 
     const priceAed = Number(raw.basePriceAED || raw.priceAed || raw.price_aed || raw.price) || 0;

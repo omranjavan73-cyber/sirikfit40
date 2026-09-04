@@ -157,8 +157,14 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
     : Number((product as any)?.basePriceAed || product?.priceAed || 0);
 
   const currentPriceToman = useMemo(() => {
+    if (activeVariant && Number((activeVariant as any).manualPriceToman) > 0) {
+      return Number((activeVariant as any).manualPriceToman);
+    }
     if (activeVariant && Number(activeVariant.priceToman) > 0) {
       return Number(activeVariant.priceToman);
+    }
+    if ((product as any)?.manualPriceToman && Number((product as any).manualPriceToman) > 0) {
+      return Number((product as any).manualPriceToman);
     }
     if ((product as any)?.priceToman) {
       return Number((product as any).priceToman);
@@ -170,7 +176,7 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
       aedToTomanRate: aedRate,
       baseShippingAed: 20
     }));
-  }, [activeVariant, (product as any)?.priceToman, (product as any)?.profitMargin, profitMargin, currentPriceAed, aedRate]);
+  }, [activeVariant, (product as any)?.manualPriceToman, (product as any)?.priceToman, (product as any)?.profitMargin, profitMargin, currentPriceAed, aedRate]);
 
   // Compute active combination stock availability
   const isComboAvailable = useMemo(() => {

@@ -79,7 +79,9 @@ export async function saveIranWarehouseItems(
           ? p.images.map((img: string) => normalizeProductImageUrl(img, p.storeDomain || p.url || 'https://drnutrition.com')).filter(Boolean)
           : (p.imageUrl || p.image ? [normalizeProductImageUrl(p.imageUrl || p.image, p.storeDomain || p.url || 'https://drnutrition.com')] : []),
         priceAed: Number(p.priceAed) || 0,
-        priceToman: Number(p.priceToman) || 0,
+        priceToman: Number(p.manualPriceToman || p.priceToman || 0),
+        manualPriceToman: p.manualPriceToman !== undefined ? (p.manualPriceToman ? Number(p.manualPriceToman) : null) : (p.isManualPrice ? Number(p.priceToman) : null),
+        isManualPrice: Boolean(p.isManualPrice || (p.manualPriceToman && Number(p.manualPriceToman) > 0)),
         originalPriceToman: p.originalPriceToman ? Number(p.originalPriceToman) : null,
         isPopular: Boolean(p.isPopular),
         isFeatured: Boolean(p.isPopular),
@@ -107,11 +109,14 @@ export async function saveIranWarehouseItems(
           }),
         flavors: Array.from(new Set((p.variants || []).map((v: any) => v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__' ? String(v.flavor).trim() : null).filter(Boolean))),
         sizes: Array.from(new Set((p.variants || []).map((v: any) => v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__' ? String(v.size).trim() : null).filter(Boolean))),
+        targetSection: 'iran_warehouse',
         createdAt: parsedCreatedAt,
         sectionAddedAt: p.sectionAddedAt || parsedCreatedAt,
         updatedAt: new Date().toISOString()
       });
       batch.set(docRef, cleanProduct, { merge: true });
+      const prodRef = doc(db, 'products', docRef.id);
+      batch.set(prodRef, cleanProduct, { merge: true });
     }
     await batch.commit();
 
@@ -213,7 +218,9 @@ export async function saveSpecialDeals(
           ? p.images.map((img: string) => normalizeProductImageUrl(img, p.storeDomain || p.url || 'https://drnutrition.com')).filter(Boolean)
           : (p.imageUrl || p.image ? [normalizeProductImageUrl(p.imageUrl || p.image, p.storeDomain || p.url || 'https://drnutrition.com')] : []),
         priceAed: Number(p.priceAed) || 0,
-        priceToman: Number(p.priceToman) || 0,
+        priceToman: Number(p.manualPriceToman || p.priceToman || 0),
+        manualPriceToman: p.manualPriceToman !== undefined ? (p.manualPriceToman ? Number(p.manualPriceToman) : null) : (p.isManualPrice ? Number(p.priceToman) : null),
+        isManualPrice: Boolean(p.isManualPrice || (p.manualPriceToman && Number(p.manualPriceToman) > 0)),
         originalPriceAed: p.originalPriceAed ? Number(p.originalPriceAed) : null,
         isPopular: Boolean(p.isPopular),
         isFeatured: Boolean(p.isPopular),
@@ -241,11 +248,14 @@ export async function saveSpecialDeals(
           }),
         flavors: Array.from(new Set((p.variants || []).map((v: any) => v.flavor && !String(v.flavor).includes('+ طعم سفارشی') && v.flavor !== '__custom__' ? String(v.flavor).trim() : null).filter(Boolean))),
         sizes: Array.from(new Set((p.variants || []).map((v: any) => v.size && !String(v.size).includes('+ تایپ سایز') && v.size !== '__custom__' ? String(v.size).trim() : null).filter(Boolean))),
+        targetSection: 'deals',
         createdAt: parsedCreatedAt,
         sectionAddedAt: p.sectionAddedAt || parsedCreatedAt,
         updatedAt: new Date().toISOString()
       });
       batch.set(docRef, cleanProduct, { merge: true });
+      const prodRef = doc(db, 'products', docRef.id);
+      batch.set(prodRef, cleanProduct, { merge: true });
     }
     await batch.commit();
 

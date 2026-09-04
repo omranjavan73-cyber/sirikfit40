@@ -536,12 +536,11 @@ function MainApp() {
                   minOrderLimitEnabled: prev.pricingRules.minOrderLimitEnabled
                 } as any;
               }
-              // Preserve active deals and localInventory if cmsData has empty or missing ones
-              if (prev?.deals && prev.deals.length > 0 && (!cmsData.deals || cmsData.deals.length === 0)) {
-                merged.deals = prev.deals;
+              if (Array.isArray(cmsData.deals)) {
+                merged.deals = cmsData.deals;
               }
-              if (prev?.localInventory && prev.localInventory.length > 0 && (!cmsData.localInventory || cmsData.localInventory.length === 0)) {
-                merged.localInventory = prev.localInventory;
+              if (Array.isArray(cmsData.localInventory)) {
+                merged.localInventory = cmsData.localInventory;
               }
               return merged;
             });
@@ -621,12 +620,10 @@ function MainApp() {
           loadedDeals.push({ id: docSnap.id, ...docSnap.data() });
         });
         const sorted = sortNewestFirst(loadedDeals);
-        if (sorted.length > 0) {
-          setCmsConfig(prev => {
-            if (!prev) return prev;
-            return { ...prev, deals: sorted };
-          });
-        }
+        setCmsConfig(prev => {
+          if (!prev) return prev;
+          return { ...prev, deals: sorted };
+        });
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore special_deals onSnapshot notice:', err);
       });
@@ -638,12 +635,10 @@ function MainApp() {
           loadedLocal.push({ id: docSnap.id, ...docSnap.data() });
         });
         const sorted = sortNewestFirst(loadedLocal);
-        if (sorted.length > 0) {
-          setCmsConfig(prev => {
-            if (!prev) return prev;
-            return { ...prev, localInventory: sorted };
-          });
-        }
+        setCmsConfig(prev => {
+          if (!prev) return prev;
+          return { ...prev, localInventory: sorted };
+        });
       }, (err) => {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore iran_warehouse onSnapshot notice:', err);
       });
@@ -1183,21 +1178,27 @@ function MainApp() {
 
               // Transform context's canonical sorted popularProducts to PopularProductItem format
               // The items are ALREADY sorted by the single source of truth in ProductContext
-              const carouselItems: PopularProductItem[] = popularProducts.map(p => ({
-                id: p.id,
-                title: p.titleFa || p.title || 'محصول پرطرفدار',
-                titleFa: p.titleFa || p.title,
-                image: p.image || p.imageUrl || (p.galleryImages && p.galleryImages[0]) || 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80',
-                imageUrl: p.imageUrl || p.image,
-                galleryImages: p.galleryImages || p.images,
-                rawItem: p.rawItem || p,
-                popularOrder: p.popularOrder,
-                isPopular: true,
-                priceToman: p.priceToman,
-                priceAed: p.priceAed || p.priceAED || p.samplePriceAed,
-                samplePriceAed: p.samplePriceAed || p.priceAed || p.priceAED,
-                type: (p.type === 'local' || p.targetSection === 'iran_warehouse' || p.id?.startsWith('local-') || p.id?.startsWith('iran-')) ? 'local' : 'deal'
-              }));
+              const carouselItems: PopularProductItem[] = popularProducts
+                .filter(p => {
+                  if (!p || !p.id) return false;
+                  const t = (p.titleFa || p.title || p.name || '').trim();
+                  return t && t !== 'محصول پرطرفدار' && (p.popularOrder === undefined || p.popularOrder >= 0);
+                })
+                .map(p => ({
+                  id: p.id,
+                  title: p.titleFa || p.title || '',
+                  titleFa: p.titleFa || p.title || '',
+                  image: p.image || p.imageUrl || (p.galleryImages && p.galleryImages[0]) || '',
+                  imageUrl: p.imageUrl || p.image || '',
+                  galleryImages: p.galleryImages || p.images || [],
+                  rawItem: p.rawItem || p,
+                  popularOrder: p.popularOrder,
+                  isPopular: true,
+                  priceToman: p.priceToman,
+                  priceAed: p.priceAed || p.priceAED || p.samplePriceAed,
+                  samplePriceAed: p.samplePriceAed || p.priceAed || p.priceAED,
+                  type: (p.type === 'local' || p.targetSection === 'iran_warehouse' || p.id?.startsWith('local-') || p.id?.startsWith('iran-')) ? 'local' : 'deal'
+                }));
 
               return (
                 <PopularProductsCarousel

@@ -41,7 +41,25 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
   const [filterState, setFilterState] = useState<ProductFilterState>(DEFAULT_FILTER_STATE);
 
-  const activeDeals = (deals || []).filter((d) => d && d.isActive !== false && (d as any).isPublished !== false && (d as any).isDraft !== true);
+  const activeDeals = useMemo(() => {
+    return (deals || [])
+      .filter((d) => {
+        if (!d || d.isActive === false || (d as any).isPublished === false || (d as any).isDraft === true) return false;
+        const tFa = (d.titleFa || '').trim();
+        const tEn = (d.titleEn || d.title || '').trim();
+        const name = (d.name || '').trim();
+        const fullTitle = tFa || tEn || name;
+        const isGhost = !fullTitle || fullTitle === 'محصول بدون عنوان' || fullTitle === 'بدون عنوان' || fullTitle === 'محصول پرطرفدار';
+        const hasPrice = Number(d.priceAed || d.price || d.priceToman || d.manualPriceToman || 0) > 0;
+        const hasImage = Boolean(d.imageUrl || d.image || (Array.isArray(d.images) && d.images.length > 0));
+        return (!isGhost || hasPrice || hasImage);
+      })
+      .sort((a, b) => {
+        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
+        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        return timeB - timeA;
+      });
+  }, [deals]);
 
   const filteredDeals = useMemo(() => {
     const matchedTaxonomy = activeDeals.filter((deal) => {

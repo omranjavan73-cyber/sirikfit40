@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles, Zap, Plus, Trash2, RefreshCw, Save, Layers,
   Check, Scale, Eye, EyeOff, ChevronDown, ChevronUp,
-  Search, Building2, Globe, Percent
+  Search, Building2, Globe, Percent, Upload, Image as ImageIcon, Star
 } from 'lucide-react';
 import type { LocalInventoryItem, ProductVariant, FinancialSettings } from '../../types';
-import { formatToman, toPersianDigits, getEffectiveAedRate, normalizeProductImageUrl } from '../../utils/formatters';
+import { formatToman, toPersianDigits, getEffectiveAedRate, normalizeProductImageUrl, extractCleanUrl, deduplicateImageUrls } from '../../utils/formatters';
+import { sanitizeProductTitle } from '../../utils/textSanitizer';
 import {
   PRESET_FLAVORS, PRESET_SIZES, STANDARD_SIZE_OPTIONS,
   convertLbsToKg
@@ -16,14 +17,21 @@ import {
   TaxonomyCategory, DEFAULT_TAXONOMY, fetchTaxonomyFromFirestore
 } from '../../utils/taxonomyHelper';
 import { generatePersianTitle } from '../../utils/supplementLocalization';
-import { deleteDoc, doc, setDoc, updateDoc, getDocs, collection } from 'firebase/firestore';
+import { deleteDoc, doc, setDoc, updateDoc, getDocs, collection, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from '../../firebase';
+import { storage } from '../../config/firebase';
 import { calculateProductTomanPrice, parseWeightKg, computeVariantToman } from '../../utils/pricingCalculator';
 import { saveIranWarehouseItems } from '../../services/adminService';
+import { sanitizePayloadForFirestore } from '../../utils/adminSaveHelper';
 import { universalScraperService } from '../../services/scraperService';
+import { parseProductLinkUniversal, generateBilingualProductTitle, cleanProductTitle, extractDraftProduct } from '../../utils/parseLink';
+import { extractProductShared } from '../../services/sharedExtractor';
+import { getEffectiveGeminiKeysList } from '../../utils/geminiKey';
 import { 
   addPopularProductToBeginning, 
-  removePopularProduct 
+  removePopularProduct,
+  normalizeProductId 
 } from '../../services/popularProductsService';
 
 interface IranWarehouseAdminProps {
@@ -115,7 +123,7 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
     baseShippingAed: 20
   });
 
-  const titleFa = String(prod.titleFa || prod.title || prod.titleEn || 'بدون عنوان');
+  const titleFa = String(prod.titleFa || prod.title || prod.titleEn || '').trim();
   const titleEn = String(prod.titleEn || prod.rawTitle || '');
   const rawMainImg = String(prod.imageUrl || prod.image || '');
   const mainImage = normalizeProductImageUrl(rawMainImg, String(prod.url || ''));
@@ -152,9 +160,13 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
     stockCount: Number(prod.stockCount !== undefined ? prod.stockCount : (prod.stockQuantity !== undefined ? prod.stockQuantity : 10)),
     url: String(prod.url || ''),
     storeName: String(prod.storeName || 'انبار ایران'),
+    targetSection: 'iran_warehouse' as const,
     isActive: prod.isActive !== undefined ? Boolean(prod.isActive) : (prod.isPublished !== undefined ? Boolean(prod.isPublished) : true),
-    isPublished: prod.isPublished !== undefined ? Boolean(prod.isPublished) : (prod.isActive !== undefined ? Boolean(prod.isActive) : true),
     isPopular: Boolean(prod.isPopular),
+    isPopularSample: Boolean(prod.isPopularSample ?? prod.isPopular),
+    popularOrder: prod.isPopular
+      ? (typeof prod.popularOrder === 'number' && prod.popularOrder >= 0 ? prod.popularOrder : Date.now())
+      : -1,
     isFeatured: Boolean(prod.isFeatured || prod.isPopular),
     inStock: prod.inStock !== false,
     allowedFlavors: cleanFlavors,
@@ -166,7 +178,29 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
   };
 };
 
-export const sanitizeProductDoc = sanitizeProductPayload;
+export const isCorruptedProduct = (p: any): boolean => {
+  if (!p || !p.id) return true;
+  const tFa = (p.titleFa || '').trim();
+  const tEn = (p.titleEn || p.title || '').trim();
+  const name = (p.name || '').trim();
+  const fullTitle = tFa || tEn || name;
+
+  const isExplicitGhostTitle =
+    !fullTitle ||
+    fullTitle === 'محصول بدون عنوان' ||
+    fullTitle === 'بدون عنوان' ||
+    fullTitle === 'محصول پرطرفدار' ||
+    fullTitle.toLowerCase() === 'popular product' ||
+    fullTitle.toLowerCase() === 'untitled product';
+
+  const hasPrice = Number(p.priceAed || p.price || p.priceToman || p.manualPriceToman || p.basePriceAed || 0) > 0;
+  const hasImage = Boolean(p.imageUrl || p.image || (Array.isArray(p.images) && p.images.length > 0));
+
+  if (isExplicitGhostTitle) return true;
+  if (!hasPrice && !hasImage && (!p.variants || p.variants.length === 0)) return true;
+
+  return false;
+};
 
 export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
   items: initialItems = [],
@@ -176,7 +210,26 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
   onSaveItems,
   showToast
 }) => {
-  const [items, setItems] = useState<LocalInventoryItem[]>(initialItems);
+  const [items, setItems] = useState<LocalInventoryItem[]>(() => {
+    return (initialItems || [])
+      .filter(i => !isCorruptedProduct(i))
+      .sort((a, b) => {
+        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
+        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        return timeB - timeA;
+      });
+  });
+
+  useEffect(() => {
+    if (Array.isArray(initialItems)) {
+      setItems(initialItems.filter(i => !isCorruptedProduct(i)).sort((a, b) => {
+        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
+        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        return timeB - timeA;
+      }));
+    }
+  }, [initialItems]);
+
   const [categoriesTree, setCategoriesTree] = useState<TaxonomyCategory[]>(DEFAULT_TAXONOMY);
   const [newItemUrl, setNewItemUrl] = useState('');
   const [newItemCategory, setNewItemCategory] = useState('');
@@ -195,6 +248,57 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
   // Per-variant custom row mode
   const [customRowMode, setCustomRowMode] = useState<Record<string, { customSize?: boolean; customFlavor?: boolean }>>({});
   const [editingVariantImage, setEditingVariantImage] = useState<{ itemId: string; variantId: string; variantTitle?: string; currentUrl?: string; mainImage?: string } | null>(null);
+  const [uploadingImageIds, setUploadingImageIds] = useState<Record<string, boolean>>({});
+
+  const handleManualItemImageUpload = async (itemId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // 1. Immediately set a local preview via URL.createObjectURL(file)
+    const localPreviewUrl = URL.createObjectURL(file);
+    updateItem(itemId, {
+      imageUrl: localPreviewUrl,
+      image: localPreviewUrl,
+      images: [localPreviewUrl]
+    } as any);
+
+    // 2. Upload file binary to Firebase Storage under products/images/${Date.now()}_${file.name}
+    setUploadingImageIds(prev => ({ ...prev, [itemId]: true }));
+    try {
+      const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const storagePath = `products/images/${Date.now()}_${cleanName}`;
+      const storageRef = ref(storage, storagePath);
+      const snapshot = await uploadBytes(storageRef, file, { contentType: file.type || 'image/jpeg' });
+      const downloadUrl = await getDownloadURL(snapshot.ref);
+
+      updateItem(itemId, {
+        imageUrl: downloadUrl,
+        image: downloadUrl,
+        images: [downloadUrl]
+      } as any);
+      if (showToast) showToast('تصویر کالا با موفقیت در فضای ابری ذخیره شد', 'success');
+    } catch (uploadErr: any) {
+      console.error('[Storage Upload Error]:', uploadErr);
+      try {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const b64 = reader.result as string;
+          updateItem(itemId, {
+            imageUrl: b64,
+            image: b64,
+            images: [b64]
+          } as any);
+          if (showToast) showToast('تصویر به صورت محلی ذخیره شد', 'info');
+        };
+        reader.readAsDataURL(file);
+      } catch (_fbErr) {
+        if (showToast) showToast('خطا در بارگذاری تصویر', 'error');
+      }
+    } finally {
+      setUploadingImageIds(prev => ({ ...prev, [itemId]: false }));
+      e.target.value = '';
+    }
+  };
 
   // Search & filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -221,8 +325,10 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
   }, []);
 
   // ── Filtering ──────────────────────────────────────────────────────────
+  // ── Filtering & Newest-First Sorting ──────────────────────────────────
   const filteredItems = useMemo(() => {
-    return items.filter(item => {
+    const matched = items.filter(item => {
+      if (isCorruptedProduct(item)) return false;
       const q = searchTerm.toLowerCase();
       const matchSearch = !q ||
         item.title?.toLowerCase().includes(q) ||
@@ -233,12 +339,19 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
       const matchCat = filterCategory === 'all' || item.mainCategory === filterCategory || item.category === filterCategory;
       const matchStatus =
         filterStatus === 'all' ? true :
-        filterStatus === 'active' ? item.isActive === true :
-        filterStatus === 'popular' ? (item as any).isPopular === true :
-        filterStatus === 'draft' ? item.isActive !== true : true;
+        filterStatus === 'active' ? (item.isActive === true || expandedIds.has(item.id)) :
+        filterStatus === 'popular' ? ((item as any).isPopular === true || expandedIds.has(item.id)) :
+        filterStatus === 'draft' ? (item.isActive !== true || expandedIds.has(item.id)) : true;
       return matchSearch && matchCat && matchStatus;
     });
-  }, [items, searchTerm, filterCategory, filterStatus]);
+
+    // Newest products appear first at the top of the table
+    return matched.sort((a, b) => {
+      const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
+      const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+      return timeB - timeA;
+    });
+  }, [items, searchTerm, filterCategory, filterStatus, expandedIds]);
 
   // ── Helpers ────────────────────────────────────────────────────────────
   const calcToman = (priceAed: number, profitMarginVal?: number) =>
@@ -250,8 +363,18 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
     });
 
   useEffect(() => {
-    if (initialItems && initialItems.length > 0) {
-      setItems(initialItems);
+    if (Array.isArray(initialItems)) {
+      setItems(prev => {
+        // Keep active unsaved drafts in memory so incoming snapshot updates never wipe user work
+        const unsavedDrafts = prev.filter(p => !initialItems.some(init => init.id === p.id) && !isCorruptedProduct(p));
+        const cleanInitial = initialItems.filter(i => !isCorruptedProduct(i));
+        const merged = [...unsavedDrafts, ...cleanInitial];
+        return merged.sort((a, b) => {
+          const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
+          const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+          return timeB - timeA;
+        });
+      });
     }
   }, [initialItems]);
 
@@ -264,26 +387,60 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
 
   const handleTogglePopular = async (productId: string) => {
     const target = items.find(i => i.id === productId);
-    const nextPop = !Boolean((target as any)?.isPopular);
+    if (!target) return;
+    const currentPop = Boolean((target as any)?.isPopular);
+    const nextPop = !currentPop;
+    // 0 is highest priority in popular sort (renders first from right)
+    const nextOrder = nextPop ? 0 : -1;
+
+    // Optimistic local update in items state
     setItems((prev) =>
       prev.map((p) => {
         if (p.id === productId) {
-          return { ...p, isPopular: nextPop, isFeatured: nextPop, popularOrder: nextPop ? 0 : 9999 };
-        }
-        if (nextPop && p.isPopular && typeof p.popularOrder === 'number') {
-          return { ...p, popularOrder: p.popularOrder + 1 };
+          return { ...p, isPopular: nextPop, isFeatured: nextPop, popularOrder: nextOrder };
         }
         return p;
       })
     );
-    try {
-      if (nextPop) {
-        await addPopularProductToBeginning(productId, COLLECTION_NAME);
-      } else {
-        await removePopularProduct(productId, COLLECTION_NAME);
+
+    // Identify if target is an unsaved draft (not yet persisted in database)
+    const isSavedInFirestore = initialItems.some(item => item.id === productId);
+
+    if (!isSavedInFirestore) {
+      if (showToast) {
+        showToast(nextPop ? 'وضعیت پیش‌نویس: پرطرفدار (با ذخیره سراسری در دیتابیس ثبت می‌شود)' : 'وضعیت پیش‌نویس: عادی', 'info');
       }
-    } catch (err) {
-      console.warn('Instant popular toggle error:', err);
+      return;
+    }
+
+    try {
+      const patch = {
+        isPopular: nextPop,
+        isPopularSample: nextPop,
+        isFeatured: nextPop,
+        popularOrder: nextOrder,
+        updatedAt: serverTimestamp()
+      };
+
+      if (db) {
+        await Promise.all([
+          updateDoc(doc(db, COLLECTION_NAME, productId), patch).catch((err) => {
+            console.warn('[Popular Toggle] Update in collection skipped/failed:', err);
+          }),
+          updateDoc(doc(db, 'products', productId), patch).catch((err) => {
+            console.warn('[Popular Toggle] Update in products skipped/failed:', err);
+          })
+        ]);
+      }
+
+      if (showToast) showToast(nextPop ? 'به لیست پرطرفدارها افزوده شد' : 'از لیست پرطرفدارها حذف شد', 'success');
+    } catch (err: any) {
+      console.error('[Popular Toggle DB Error]:', err);
+      // Revert optimistic update
+      setItems((prev) =>
+        prev.map((p) => (p.id === productId ? { ...p, isPopular: currentPop } : p))
+      );
+      if (showToast) showToast('خطا در ذخیره وضعیت در دیتابیس', 'error');
     }
   };
 
@@ -464,16 +621,43 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
     if (showToast) showToast(`سایز "${label}" اضافه شد`, 'success');
   };
 
-  // ── Primary Scraper (Extracts Dual English + Persian Titles) ───────────
+  // ── Unified Primary Scraper (Direct Single Source of Truth) ───────────
   const handleExtract = async () => {
-    if (!newItemUrl.trim()) { if (showToast) showToast('لینک وارد کنید', 'error'); return; }
+    const targetUrl = extractCleanUrl(newItemUrl.trim());
+    if (!targetUrl) { if (showToast) showToast('لینک وارد کنید', 'error'); return; }
     setIsExtracting(true);
     try {
-      const data = await universalScraperService.extract(newItemUrl.trim());
+      console.log('[Scraper Engine] Initiating extraction from caller: IranWarehouseAdmin', { targetUrl });
+      const extracted = await extractProductShared(targetUrl, cms, { bypassCache: true, forceFresh: true });
 
-      if (!data?.title && !data?.priceAED && !data?.price && !data?.priceAed) throw new Error('استخراج ناموفق');
+      // STRICT PRE-DRAFT VALIDATION GUARD (Anti-Corruption Invariant)
+      const isValidPayload = Boolean(
+        extracted &&
+        extracted.success &&
+        (extracted.titleFa || extracted.titleEn || extracted.title) &&
+        (extracted.titleFa !== 'محصول بدون عنوان' && extracted.title !== 'محصول بدون عنوان') &&
+        Number(extracted.priceAed || extracted.price || 0) > 0
+      );
 
-      const pAed = Number(data.priceAed || data.priceAED || data.price) || 0;
+      if (!isValidPayload) {
+        if (showToast) showToast('خطا: اطلاعات کالا به درستی دریافت نشد. ایجاد پیش‌نویس متوقف شد.', 'error');
+        setIsExtracting(false);
+        return;
+      }
+
+      const pAed = Number(extracted.priceAed || extracted.price);
+
+      // 1:1 Logic Clone from HeroCalculator for Absolute HTTPS CDN Image Resolution
+      const rawImage = extracted.imageUrl || extracted.image || (extracted.images && extracted.images[0]) || '';
+      let resolvedImageUrl = rawImage.trim();
+      if (resolvedImageUrl.startsWith('//')) {
+        resolvedImageUrl = `https:${resolvedImageUrl}`;
+      } else if (resolvedImageUrl.startsWith('/')) {
+        const domain = targetUrl.includes('drnutrition') ? 'https://drnutrition.com' : 'https://www.lifepharmacy.com';
+        resolvedImageUrl = `${domain}${resolvedImageUrl}`;
+      }
+      const normMainImg = normalizeProductImageUrl(resolvedImageUrl, targetUrl) || resolvedImageUrl;
+
       const defMargin = 20;
       const calcPriceToman = pAed > 0 ? calculateProductTomanPrice({
         priceAed: pAed,
@@ -481,130 +665,127 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
         aedToTomanRate: aedRate,
         baseShippingAed: 20
       }) : 0;
-      const rawImg = data.imageUrl || data.image || data.mainImage || (data.images && data.images[0]) || (data.galleryImages && data.galleryImages[0]) || '';
-      const img = normalizeProductImageUrl(rawImg, data.storeDomain || newItemUrl.trim() || 'https://drnutrition.com');
-      const rawGalleryList: string[] = Array.isArray(data.galleryImages) && data.galleryImages.length > 0
-        ? data.galleryImages
-        : (Array.isArray(data.images) ? data.images : (rawImg ? [rawImg] : []));
-      const gallery = Array.from(
-        new Set([img, ...rawGalleryList.map((g: string) => normalizeProductImageUrl(g, data.storeDomain || newItemUrl.trim() || 'https://drnutrition.com'))].filter(Boolean))
-      );
 
       const mainCat = newItemCategory || categoriesTree[0]?.name || 'مکمل‌های ورزشی';
       const subCat = newItemSubCategory || categoriesTree[0]?.subCategories?.[0]?.name || '';
 
-      const rawTitleEn = data.titleEn || data.title || '';
-      const brand = data.brand || 'دبی';
-      const localizedFa = data.titleFa || generatePersianTitle(rawTitleEn, brand);
+      const defSize = extracted.sizes[0] || '';
+      const wt = defSize ? parseWeightKg(defSize, extracted.weightKg) : extracted.weightKg;
 
-      const extractedFlavors: string[] = Array.isArray(data.flavors) && data.flavors.length > 0
-        ? data.flavors.filter((f: string) => f && String(f).trim())
-        : [];
-      const extractedSizes: string[] = Array.isArray(data.sizes) && data.sizes.length > 0
-        ? data.sizes.filter((s: string) => s && String(s).trim())
-        : [];
-
-      const defSize = extractedSizes[0] || '';
-      const wt = defSize ? parseWeightKg(defSize, Number(data.weightKg) || 0.8) : (Number(data.weightKg) || 0.8);
-
-      // Build populated variants from extracted data
-      const dynamicVariants: ProductVariant[] = [];
-      if (Array.isArray(data.variants) && data.variants.length > 0) {
-        data.variants.forEach((v: any, idx: number) => {
-          const vPrice = parseFloat(v.priceAED || v.priceAed || v.price || pAed) || pAed;
-          const vSize = v.size || defSize || undefined;
-          const vFlavor = v.flavor || undefined;
-          const vWeight = vSize ? parseWeightKg(vSize, parseFloat(v.weightKg || data.weightKg) || 0.8) : wt;
-          const rawVImg = v.image || v.imageUrl || v.imageThumbnail || rawImg;
-          const normVImg = normalizeProductImageUrl(rawVImg, newItemUrl.trim()) || img;
-          dynamicVariants.push({
-            id: `var-${idx}-${Date.now()}`,
-            size: vSize,
-            flavor: vFlavor,
-            price: vPrice,
+      const dynamicVariants: ProductVariant[] = extracted.variants.map((v, idx) => {
+        const vPrice = v.priceAed || pAed;
+        return {
+          ...v,
+          id: v.id || `var-${idx}-${Date.now()}`,
+          priceToman: vPrice > 0 ? calculateProductTomanPrice({
             priceAed: vPrice,
-            priceAED: vPrice,
-            weightKg: vWeight,
-            priceToman: vPrice > 0 ? calculateProductTomanPrice({
-              priceAed: vPrice,
-              profitMarginPercent: defMargin,
-              aedToTomanRate: aedRate,
-              baseShippingAed: 20
-            }) : 0,
-            inStock: v.inStock !== false,
-            image: normVImg,
-            imageUrl: normVImg
-          });
-        });
-      } else {
-        // Single-variant product: only add a variant if there is genuine size or flavor info
-        const hasSingleFlavor = extractedFlavors.length > 0;
-        const hasSingleSize = extractedSizes.length > 0;
-        if (hasSingleFlavor || hasSingleSize || pAed > 0) {
-          dynamicVariants.push({
-            id: `var-init-${Date.now()}`,
-            size: extractedSizes[0] || undefined,
-            flavor: extractedFlavors[0] || undefined,
-            price: pAed,
-            priceAed: pAed,
-            priceAED: pAed,
-            weightKg: wt,
-            priceToman: calcPriceToman,
-            inStock: true,
-            image: img,
-            imageUrl: img
-          });
-        }
-      }
+            profitMarginPercent: defMargin,
+            aedToTomanRate: aedRate,
+            baseShippingAed: 20
+          }) : 0,
+          image: v.image ? (normalizeProductImageUrl(v.image, targetUrl) || v.image) : normMainImg,
+          imageUrl: v.imageUrl ? (normalizeProductImageUrl(v.imageUrl, targetUrl) || v.imageUrl) : normMainImg
+        };
+      });
+
+      const cleanTitleEn = sanitizeProductTitle(extracted.titleEn || extracted.title || '');
+      const cleanTitleFa = sanitizeProductTitle(extracted.titleFa || extracted.title || '');
+      const cleanTitle = cleanTitleFa || cleanTitleEn;
 
       const newItem: LocalInventoryItem = {
-        id: data.id && !data.id.startsWith('scraped-') ? data.id : `local-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        title: localizedFa || rawTitleEn,
-        titleFa: localizedFa,
-        titleEn: rawTitleEn,
-        brand,
+        id: extracted.id || `item-${Date.now()}`,
+        title: cleanTitle,
+        titleFa: cleanTitleFa || cleanTitle,
+        titleEn: cleanTitleEn,
+        brand: extracted.brand || 'انبار ایران',
         category: mainCat,
         mainCategory: mainCat,
         subcategory: subCat,
         subCategory: subCat,
         priceAed: pAed,
         basePriceAed: pAed,
-        originalPriceAed: Number(data.originalPriceAed || data.originalPriceAED || 0) || 0,
+        originalPriceAed: extracted.originalPriceAed,
         profitMargin: defMargin,
         weightKg: wt,
         priceToman: calcPriceToman,
+        manualPriceToman: null,
+        isManualPrice: false,
         originalPriceToman: 0,
         stockQuantity: 10,
         stockCount: 10,
-        image: img,
-        imageUrl: img,
-        images: gallery,
-        galleryImages: gallery,
-        url: newItemUrl.trim(),
-        storeName: data.storeName || '',
+        image: normMainImg,
+        imageUrl: normMainImg,
+        images: extracted.images.length > 0 ? extracted.images : (normMainImg ? [normMainImg] : []),
+        galleryImages: extracted.galleryImages.length > 0 ? extracted.galleryImages : (normMainImg ? [normMainImg] : []),
+        url: targetUrl,
+        storeName: extracted.storeName || 'Dr. Nutrition',
         inStock: true,
-        isActive: false, // DRAFT
+        isActive: true,
+        isPublished: true,
         isPopular: false,
         isFeatured: false,
-        flavors: extractedFlavors as any,
-        allowedFlavors: extractedFlavors as any,
-        sizes: extractedSizes as any,
-        allowedSizes: extractedSizes as any,
+        flavors: extracted.flavors as any,
+        allowedFlavors: extracted.flavors as any,
+        sizes: extracted.sizes as any,
+        allowedSizes: extracted.sizes as any,
         variants: dynamicVariants,
-        createdAt: (data as any).createdAt || new Date().toISOString(),
+        createdAt: new Date().toISOString(),
         sectionAddedAt: new Date().toISOString()
       };
 
-      setItems(prev => [newItem, ...prev]);
+      setItems(prev => [newItem, ...prev.filter(i => !isCorruptedProduct(i))]);
       setExpandedIds(prev => new Set([newItem.id, ...prev]));
       setNewItemUrl('');
-      if (showToast) showToast('محصول و ماتریس متغیرها با موفقیت استخراج و به عنوان پیش‌نویس ذخیره شد.', 'success');
+      if (showToast) showToast('محصول با موفقیت استخراج و به عنوان پیش‌نویس ثبت شد.', 'success');
 
     } catch (err: any) {
       if (showToast) showToast('خطا در استخراج: ' + err.message, 'error');
     } finally {
       setIsExtracting(false);
     }
+  };
+
+  // ── Manual Item Creation ──
+  const handleCreateManualItem = () => {
+    const mainCat = newItemCategory || categoriesTree[0]?.name || 'مکمل‌های ورزشی';
+    const subCat = newItemSubCategory || categoriesTree[0]?.subCategories?.[0]?.name || '';
+    const manualItem: LocalInventoryItem = {
+      id: `manual_iran_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      title: '',
+      titleFa: '',
+      titleEn: '',
+      brand: 'انبار ایران',
+      category: mainCat,
+      mainCategory: mainCat,
+      subcategory: subCat,
+      subCategory: subCat,
+      priceAed: 0,
+      basePriceAed: 0,
+      originalPriceAed: 0,
+      profitMargin: 20,
+      weightKg: 1,
+      priceToman: 0,
+      manualPriceToman: null,
+      isManualPrice: false,
+      originalPriceToman: 0,
+      stockQuantity: 10,
+      stockCount: 10,
+      inStock: true,
+      imageUrl: '',
+      image: '',
+      images: [],
+      variants: [],
+      targetSection: 'iran_warehouse',
+      storeName: 'انبار ایران (تحویل فوری)',
+      storeDomain: 'https://sirikfit.ir/warehouse',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      sectionAddedAt: new Date().toISOString()
+    };
+    const updated = [manualItem, ...items];
+    setItems(updated);
+    setExpandedItemId(manualItem.id);
+    if (showToast) showToast('محصول دستی خام اضافه شد (ردیف اول باز شد)', 'success');
   };
 
   // ── Auxiliary Scraper ─────────────────────────────────────────────────
@@ -662,53 +843,95 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
     }
   };
 
-  // ── Delete item ────────────────────────────────────────────────────────
+  // ── Delete item (Atomic Multi-Collection Firestore Deletion) ───────────
   const handleDelete = async (itemId: string) => {
-    if (!confirm('آیا از حذف این محصول مطمئن هستید؟')) return;
+    if (!itemId) {
+      if (showToast) showToast('شناسه محصول نامعتبر است', 'error');
+      return;
+    }
+    if (!window.confirm('آیا از حذف دائمی این محصول از پایگاه داده اطمینان دارید؟')) return;
     const updated = items.filter(i => i.id !== itemId);
     setItems(updated);
     try {
-      await deleteDoc(doc(db, COLLECTION_NAME, itemId));
+      const rawId = normalizeProductId(itemId);
+      const collectionsToPurge = [COLLECTION_NAME, 'products', 'inventory', 'special_deals', 'deals'];
+      await Promise.all([
+        ...collectionsToPurge.map(col => deleteDoc(doc(db, col, itemId)).catch(() => {})),
+        ...(rawId && rawId !== itemId ? collectionsToPurge.map(col => deleteDoc(doc(db, col, rawId)).catch(() => {})) : []),
+        removePopularProduct(rawId || itemId, COLLECTION_NAME).catch(() => {})
+      ]);
       await onSaveItems(updated);
-      if (showToast) showToast('محصول با موفقیت حذف شد', 'success');
+      if (showToast) showToast('محصول با موفقیت از پایگاه داده حذف شد', 'success');
     } catch (err: any) {
-      console.error('Error deleting iran warehouse item:', err);
-      if (showToast) showToast('خطا در حذف: ' + (err.message || 'نامشخص'), 'error');
+      console.error('[Firestore Delete Error]:', err);
+      if (showToast) showToast(`خطا در حذف محصول: ${err.message || 'خطای سرور'}`, 'error');
     }
   };
 
+  // ── Database Cleanup Utility (Auto-Purge Corrupted Items) ──
   // ── Direct Native Firestore Save Handler (Bypasses legacy service) ──
   const handleSaveAll = async () => {
     if (isSaving) return;
+
+    // Filter items BEFORE sending to Firestore: Only keep items that have a valid title.
+    // If an item is an unpopulated blank draft, drop it from the payload and active state.
+    const populatedItems = items.filter(d => Boolean(d.titleFa?.trim() || d.title?.trim() || d.titleEn?.trim()));
+    if (populatedItems.length === 0 && items.length > 0) {
+      if (showToast) showToast('هیچ محصول معتبری برای ذخیره وجود ندارد. لطفاً عنوان محصول را وارد کنید.', 'error');
+      return;
+    }
+
     setIsSaving(true);
     try {
       const cleanList: LocalInventoryItem[] = [];
 
-      for (const item of items) {
+      for (const item of populatedItems) {
         if (!item.id) continue;
-        const cleanDoc = sanitizeProductPayload(item, aedRate, margin);
+        if (isCorruptedProduct(item)) continue;
+
+        const cleanDoc = sanitizeProductPayload({
+          ...item,
+          targetSection: 'iran_warehouse'
+        }, aedRate, margin);
+
+        if (!cleanDoc.titleFa && !cleanDoc.title && !cleanDoc.titleEn) continue;
+
         cleanList.push(cleanDoc as any);
-      }
 
-      // Execute bulk save across Firestore, LocalStorage and Server backend
-      const result = await saveIranWarehouseItems(cleanList, aedRate, margin);
-
-      // Immediately refetch from Firestore to ensure state reflects Firestore
-      try {
-        const snap = await getDocs(collection(db, COLLECTION_NAME));
-        const freshList: LocalInventoryItem[] = [];
-        snap.forEach((d) => freshList.push({ id: d.id, ...d.data() } as LocalInventoryItem));
-        if (freshList.length > 0) {
-          setItems(freshList);
-          await onSaveItems(freshList);
-        } else {
-          await onSaveItems(cleanList);
+        if (db) {
+          const finalId = item.id;
+          const cleanPayload = {
+            ...cleanDoc,
+            id: finalId,
+            targetSection: 'iran_warehouse' as const,
+            isActive: cleanDoc.isActive ?? true,
+            isPopular: Boolean(cleanDoc.isPopular),
+            popularOrder: cleanDoc.isPopular ? (typeof cleanDoc.popularOrder === 'number' && cleanDoc.popularOrder >= 0 ? cleanDoc.popularOrder : 0) : -1,
+            updatedAt: new Date().toISOString()
+          };
+          const safePayload = sanitizePayloadForFirestore(cleanPayload);
+          await Promise.all([
+            setDoc(doc(db, 'products', finalId), safePayload, { merge: true }),
+            setDoc(doc(db, COLLECTION_NAME, finalId), safePayload, { merge: true })
+          ]);
         }
-      } catch (_refetchErr) {
-        await onSaveItems(cleanList);
       }
 
-      if (showToast) showToast(result.message || 'تمامی محصولات و تنظیمات انبار ایران با موفقیت ذخیره شدند', 'success');
+      // Sort newest-first
+      cleanList.sort((a, b) => {
+        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
+        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        return timeB - timeA;
+      });
+
+      // Immediate reactive local state update
+      setItems(cleanList);
+      await onSaveItems(cleanList);
+
+      // Execute auxiliary bulk save across LocalStorage and Server backend
+      saveIranWarehouseItems(cleanList, aedRate, margin).catch(() => {});
+
+      if (showToast) showToast('محصولات انبار ایران با موفقیت ذخیره و در صدر لیست درج شدند', 'success');
     } catch (err: any) {
       console.error('Error saving IranWarehouse items:', err);
       if (showToast) showToast('خطا در ذخیره‌سازی: ' + (err.message || 'نامشخص'), 'error');
@@ -732,10 +955,20 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
 
       {/* ── URL Extractor Bar ── */}
       <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-3xl p-5 space-y-3">
-        <p className="text-xs font-black text-emerald-900 flex items-center gap-2">
-          <Zap className="w-4 h-4" />
-          <span>استخراج محصول جدید به عنوان پیش‌نویس (تولید خودکار عنوان فارسی و انگلیسی):</span>
-        </p>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <p className="text-xs font-black text-emerald-900 flex items-center gap-2">
+            <Zap className="w-4 h-4" />
+            <span>استخراج کالا از لینک خارجی یا ایجاد محصول دستی انبار ایران:</span>
+          </p>
+          <button
+            type="button"
+            onClick={handleCreateManualItem}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>افزودن دستی کالا</span>
+          </button>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
           <div className="relative flex items-center sm:col-span-5 w-full">
             <input
@@ -833,24 +1066,41 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
               className={`rounded-2xl border transition-all ${item.isActive ? 'border-slate-200 bg-white' : 'border-dashed border-amber-300 bg-amber-50/30'}`}
             >
               {/* ── Compact Header Row ── */}
-              <div className="flex items-center gap-2 px-4 py-3">
+              <div
+                className="flex items-center gap-2 px-4 py-3 cursor-pointer select-none"
+                onClick={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (target.closest('button') || target.closest('input') || target.closest('label') || target.closest('select') || target.closest('a')) {
+                    return;
+                  }
+                  toggleExpand(item.id);
+                }}
+              >
                 <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 font-black text-[11px] flex items-center justify-center shrink-0 border border-slate-200">
                   {toPersianDigits(idx + 1)}
                 </span>
 
-                <div className="w-12 h-12 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden shrink-0">
-                  {normalizeProductImageUrl(item.imageUrl || item.image, item.url || 'https://drnutrition.com') ? (
+                <div className="w-14 h-14 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden shrink-0">
+                  {(item.imageUrl || item.image) ? (
                     <img
-                      src={normalizeProductImageUrl(item.imageUrl || item.image, item.url || 'https://drnutrition.com')}
+                      src={item.imageUrl || item.image}
                       alt={(item as any).titleEn || (item as any).titleFa || item.title}
+                      referrerPolicy="no-referrer"
+                      crossOrigin="anonymous"
                       className="w-full h-full object-contain p-0.5"
+                      loading="lazy"
                       onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        e.currentTarget.src = '/placeholder-product.png';
+                        const failedUrl = item.imageUrl || item.image;
+                        console.error('[Image Load Failed - Inventory]:', failedUrl);
+                        if (failedUrl && !failedUrl.includes('images.weserv.nl') && !failedUrl.startsWith('data:')) {
+                          e.currentTarget.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(failedUrl);
+                        } else {
+                          e.currentTarget.classList.add('opacity-40');
+                        }
                       }}
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-slate-100 text-[9px] text-slate-400">
+                    <div className="w-full h-full flex items-center justify-center bg-slate-100 text-[10px] text-slate-400">
                       بدون تصویر
                     </div>
                   )}
@@ -873,8 +1123,72 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Eye Icon (Visibility / Publish Toggle) */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleTogglePublished(item.id);
+                    }}
+                    title={(item.isPublished !== false && item.isActive !== false) ? 'نمایش در سایت (فعال)' : 'مخفی از سایت (غیرفعال)'}
+                    className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                      (item.isPublished !== false && item.isActive !== false)
+                        ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                        : 'bg-slate-100 dark:bg-zinc-800 border-slate-300 dark:border-zinc-700 text-slate-400'
+                    }`}
+                  >
+                    {(item.isPublished !== false && item.isActive !== false) ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  </button>
+
+                  {/* Star Icon (Popular Toggle) */}
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!item.id) return;
+                      const nextPopular = !item.isPopular;
+                      const nextOrder = nextPopular ? 0 : -1;
+                      setItems(prev => prev.map(p => p.id === item.id ? { ...p, isPopular: nextPopular, isFeatured: nextPopular, popularOrder: nextOrder } : p));
+
+                      const isSaved = initialItems.some(i => i.id === item.id);
+                      if (!isSaved) {
+                        if (showToast) showToast(nextPopular ? 'وضعیت پیش‌نویس: پرطرفدار (با ذخیره سراسری در دیتابیس ثبت می‌شود)' : 'وضعیت پیش‌نویس: عادی', 'info');
+                        return;
+                      }
+
+                      try {
+                        const patch = {
+                          isPopular: nextPopular,
+                          isPopularSample: nextPopular,
+                          isFeatured: nextPopular,
+                          popularOrder: nextOrder,
+                          updatedAt: new Date().toISOString()
+                        };
+                        await Promise.all([
+                          setDoc(doc(db, 'products', item.id), patch, { merge: true }),
+                          setDoc(doc(db, COLLECTION_NAME, item.id), patch, { merge: true })
+                        ]);
+                        if (showToast) showToast(nextPopular ? 'به پرطرفدارها اضافه شد' : 'از پرطرفدارها حذف شد', 'success');
+                      } catch (err: any) {
+                        console.error('[Popular Toggle Error]:', err);
+                        if (showToast) showToast('خطا در ذخیره وضعیت پرطرفدار', 'error');
+                      }
+                    }}
+                    className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                      item.isPopular
+                        ? 'bg-amber-500/10 border-amber-500 text-amber-500'
+                        : 'bg-slate-100 dark:bg-zinc-800 border-slate-300 dark:border-zinc-700 text-slate-400'
+                    }`}
+                    title={item.isPopular ? 'پرطرفدار (فعال)' : 'پرطرفدار (غیرفعال)'}
+                  >
+                    <Star className={`w-4 h-4 ${item.isPopular ? 'fill-amber-500 text-amber-500' : 'text-slate-400'}`} />
+                  </button>
+
                   <button type="button"
                     onClick={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
                       handleDelete(item.id);
                     }}
@@ -885,7 +1199,11 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                   </button>
 
                   <button type="button"
-                    onClick={() => toggleExpand(item.id)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      toggleExpand(item.id);
+                    }}
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition text-[11px] font-bold cursor-pointer"
                   >
                     {isOpen ? <><ChevronUp className="w-3.5 h-3.5" /><span>بستن</span></> : <><ChevronDown className="w-3.5 h-3.5" /><span>ویرایش</span></>}
@@ -922,6 +1240,79 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                         placeholder="Original English Product Name..."
                         className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-emerald-600 dir-ltr"
                       />
+                    </div>
+                  </div>
+
+                  {/* ── تنظیم تصویر محصول (Product Image Settings) ── */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <ImageIcon className="w-4 h-4 text-emerald-600" />
+                        <span className="text-xs font-black text-slate-900">تنظیم تصویر محصول (Product Image Settings)</span>
+                      </div>
+                      {uploadingImageIds[item.id] && (
+                        <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1.5 animate-pulse bg-emerald-100/70 px-2.5 py-1 rounded-lg">
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          <span>در حال بارگذاری در Firebase Storage...</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3.5">
+                      {/* Reactive Visual Preview */}
+                      <div className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-300 bg-white flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
+                        {(item.imageUrl || item.image) ? (
+                          <img
+                            src={item.imageUrl || item.image}
+                            alt={item.title || 'تصویر محصول'}
+                            referrerPolicy="no-referrer"
+                            crossOrigin="anonymous"
+                            className="w-full h-full object-contain p-1 transition"
+                            onError={(e) => {
+                              e.currentTarget.classList.add('opacity-40');
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 text-[10px] text-slate-400 font-bold p-1 text-center">
+                            <ImageIcon className="w-4 h-4 text-slate-300 mb-0.5" />
+                            <span>بدون تصویر</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Dual Source: Direct URL + Device File Upload */}
+                      <div className="flex-1 w-full space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 block">
+                          لینک مستقیم تصویر یا انتخاب فایل از موبایل / لپ‌تاپ:
+                        </label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="url"
+                            value={item.imageUrl || item.image || ''}
+                            onChange={(e) => {
+                              const val = e.target.value.trim();
+                              updateItem(item.id, {
+                                imageUrl: val,
+                                image: val,
+                                images: val ? [val, ...(item.images || []).filter(i => i !== val)] : []
+                              } as any);
+                            }}
+                            placeholder="لینک تصویر را وارد کنید..."
+                            className="flex-1 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:border-emerald-500 dir-ltr text-right"
+                          />
+                          <label className="px-3.5 py-2 bg-slate-900 hover:bg-black text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 shadow-xs active:scale-98">
+                            <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>انتخاب فایل</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => handleManualItemImageUpload(item.id, e)}
+                              disabled={uploadingImageIds[item.id]}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -963,11 +1354,24 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                     </div>
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        قیمت محاسبه‌شده تومان:
+                        قیمت نهایی فروش (تومان):
                       </label>
-                      <div className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-black text-emerald-700 flex items-center justify-between">
-                        <span>{formatToman(item.priceToman || 0)}</span>
-                        <span className="text-[10px] text-slate-500 font-bold">تومان</span>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          value={item.priceToman || ''}
+                          onChange={e => {
+                            const val = e.target.value === '' ? 0 : parseInt(e.target.value);
+                            updateItem(item.id, {
+                              priceToman: val,
+                              manualPriceToman: val,
+                              isManualPrice: true
+                            });
+                          }}
+                          placeholder="قیمت دستی به تومان"
+                          className="w-full bg-white border border-emerald-400 rounded-xl px-3 py-2 text-xs font-black text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 dir-ltr text-center"
+                        />
+                        <span className="absolute left-2.5 top-2.5 text-[10px] text-slate-400 font-bold">تومان</span>
                       </div>
                     </div>
                   </div>
@@ -1089,34 +1493,6 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                     </div>
                   </details>
 
-                  {/* Single Unified Status Control Toolbar */}
-                  <div className="flex items-center gap-2 py-2 w-full">
-                    {/* 1. Publication State Toggle (isPublished) */}
-                    <button
-                      type="button"
-                      onClick={() => handleTogglePublished(item.id)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        (item.isPublished !== false && item.isActive !== false)
-                          ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
-                          : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700'
-                      }`}
-                    >
-                      <span>{(item.isPublished !== false && item.isActive !== false) ? '✓ منتشر شده در سایت (عمومی)' : '⊘ پیشنویس (مخفی از سایت)'}</span>
-                    </button>
-
-                    {/* 2. Homepage Featured Toggle (isPopular) */}
-                    <button
-                      type="button"
-                      onClick={() => handleTogglePopular(item.id)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        Boolean((item as any).isPopular)
-                          ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/20'
-                          : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700'
-                      }`}
-                    >
-                      <span>{Boolean((item as any).isPopular) ? '★ پرطرفدار (نمایش در خانه)' : '☆ پرطرفدار (غیرفعال)'}</span>
-                    </button>
-                  </div>
 
                   {/* Variant Matrix */}
                   <div className="space-y-2">
@@ -1185,6 +1561,8 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
                                   src={v.image || item.image}
                                   alt=""
                                   className="w-9 h-9 object-contain rounded-lg border border-slate-200 p-0.5 shrink-0 bg-white shadow-2xs group-hover/thumb:brightness-95"
+                                  referrerPolicy="no-referrer"
+                                  loading="lazy"
                                   onError={(e) => {
                                     if (item.image && (e.target as HTMLImageElement).src !== item.image) {
                                       (e.target as HTMLImageElement).src = item.image;

@@ -1,8 +1,9 @@
 import { db } from '../config/firebase';
-import { collection, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { sanitizePayloadForFirestore } from '../utils/adminSaveHelper';
 import type { FeaturedDeal, LocalInventoryItem } from '../types';
 import { parseWeightKg, calculateProductTomanPrice } from '../utils/pricingCalculator';
+import { normalizeProductId, removePopularProduct, addPopularProductToBeginning } from './popularProductsService';
 
 export const SPECIAL_DEALS_COLLECTION = 'special_deals';
 export const IRAN_WAREHOUSE_COLLECTION = 'iran_warehouse';
@@ -29,15 +30,19 @@ export interface StandardProductDoc {
   profitMargin: number;
   weightKg: number;
   priceToman: number;
+  manualPriceToman?: number | null;
+  isManualPrice?: boolean;
   originalPriceToman: number;
   stockQuantity: number;
   stockCount: number;
   url: string;
   storeName: string;
   inStock: boolean;
+  targetSection?: 'deals' | 'iran_warehouse';
   isActive: boolean;
   isPublished?: boolean;
   isPopular: boolean;
+  popularOrder?: number;
   isFeatured: boolean;
   allowedFlavors: string[];
   flavors: string[];
@@ -73,9 +78,12 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
     baseShippingAed: 20
   });
 
-  const titleFa = String(prod.titleFa || prod.title || 'محصول بدون عنوان');
-  const titleEn = String(prod.titleEn || prod.rawTitle || '');
-  const primaryTitle = titleFa || titleEn || 'محصول بدون عنوان';
+  const titleFa = String(prod.titleFa || prod.title || '').trim();
+  const titleEn = String(prod.titleEn || prod.rawTitle || '').trim();
+  const primaryTitle = titleFa || titleEn;
+  if (!primaryTitle || primaryTitle === 'محصول بدون عنوان') {
+    throw new Error('محصول فاقد عنوان معتبر است و نمی‌تواند در پایگاه داده ثبت شود.');
+  }
   const img = String(prod.imageUrl || prod.image || '');
 
   const rawVariants = Array.isArray(prod.variants) ? prod.variants : [];
@@ -139,16 +147,20 @@ export const sanitizeProductForFirestore = (prod: any, aedToTomanRate: number = 
     originalPriceAed: Number(prod.originalPriceAed || 0),
     profitMargin: margin,
     weightKg: baseWeight,
-    priceToman: Number(prod.priceToman || defaultToman),
+    priceToman: Number(prod.manualPriceToman || prod.priceToman || defaultToman),
+    manualPriceToman: prod.manualPriceToman !== undefined ? (prod.manualPriceToman ? Number(prod.manualPriceToman) : null) : (prod.isManualPrice ? Number(prod.priceToman) : null),
+    isManualPrice: Boolean(prod.isManualPrice || (prod.manualPriceToman && Number(prod.manualPriceToman) > 0)),
     originalPriceToman: Number(prod.originalPriceToman || 0),
     stockQuantity: Number(prod.stockQuantity || 10),
     stockCount: Number(prod.stockCount || prod.stockQuantity || 10),
     url: String(prod.url || ''),
     storeName: String(prod.storeName || 'فروشگاه دبی'),
     inStock: prod.inStock !== false,
+    targetSection: (prod.targetSection === 'iran_warehouse' ? 'iran_warehouse' : 'deals') as 'deals' | 'iran_warehouse',
     isActive: prod.isActive !== undefined ? Boolean(prod.isActive) : (prod.isPublished !== undefined ? Boolean(prod.isPublished) : true),
     isPublished: prod.isPublished !== undefined ? Boolean(prod.isPublished) : (prod.isActive !== undefined ? Boolean(prod.isActive) : true),
     isPopular: Boolean(prod.isPopular),
+    popularOrder: prod.isPopular ? (typeof prod.popularOrder === 'number' && prod.popularOrder >= 0 ? prod.popularOrder : Date.now()) : -1,
     isFeatured: Boolean(prod.isFeatured || prod.isPopular),
     allowedFlavors: cleanFlavors,
     flavors: cleanFlavors,
@@ -174,11 +186,15 @@ export async function saveAllAdminProducts(
     throw new Error('لیست محصولات نامعتبر است');
   }
 
+  const normalizedSection: 'deals' | 'iran_warehouse' = collectionName === 'iran_warehouse' ? 'iran_warehouse' : 'deals';
   const cleanList: StandardProductDoc[] = [];
 
   for (const item of products) {
     if (!item.id) continue;
-    const cleanDoc = sanitizeProductForFirestore(item);
+    const cleanDoc = sanitizeProductForFirestore({
+      ...item,
+      targetSection: normalizedSection
+    });
     cleanList.push(cleanDoc);
   }
 
@@ -199,11 +215,22 @@ export async function saveAllAdminProducts(
 
   // 2. Direct Firestore SDK writes (strictly upsert/append, never delete collection docs)
   try {
-
-    // B. Write or update active documents
+    // Write or update active documents across both target collection and central 'products' collection
     for (const cleanDoc of cleanList) {
+      const payload = {
+        ...cleanDoc,
+        targetSection: normalizedSection,
+        isActive: cleanDoc.isActive ?? true,
+        isPopular: Boolean(cleanDoc.isPopular),
+        popularOrder: cleanDoc.isPopular ? (typeof cleanDoc.popularOrder === 'number' && cleanDoc.popularOrder >= 0 ? cleanDoc.popularOrder : Date.now()) : -1,
+        updatedAt: new Date().toISOString()
+      };
+      // Write to specific collection
       const docRef = doc(db, collectionName, cleanDoc.id);
-      await setDoc(docRef, sanitizePayloadForFirestore(cleanDoc), { merge: true });
+      await setDoc(docRef, sanitizePayloadForFirestore(payload), { merge: true });
+      // Centralized write to 'products' collection
+      const prodRef = doc(db, 'products', cleanDoc.id);
+      await setDoc(prodRef, sanitizePayloadForFirestore(payload), { merge: true });
     }
 
     const cmsKey = collectionName === 'iran_warehouse' ? 'localInventory' : 'deals';
@@ -266,5 +293,46 @@ export async function deleteProductFromFirestore(
   collectionName: 'special_deals' | 'iran_warehouse',
   productId: string
 ): Promise<void> {
-  await deleteDoc(doc(db, collectionName, productId));
+  const rawId = normalizeProductId(productId);
+  await Promise.all([
+    deleteDoc(doc(db, collectionName, productId)),
+    deleteDoc(doc(db, 'products', rawId)).catch(() => {}),
+    removePopularProduct(rawId, collectionName).catch(() => {})
+  ]);
+}
+
+/**
+ * Atomically toggle a product's popular state in Firestore
+ */
+export async function toggleProductPopularInFirestore(
+  productId: string,
+  nextPopular: boolean,
+  collectionName: 'special_deals' | 'iran_warehouse' | 'products' = 'products'
+): Promise<void> {
+  const rawId = normalizeProductId(productId);
+  if (!rawId || !db) return;
+
+  const now = new Date().toISOString();
+  const patch = {
+    isPopular: nextPopular,
+    isPopularSample: nextPopular,
+    isFeatured: nextPopular,
+    popularOrder: nextPopular ? 0 : -1,
+    updatedAt: now
+  };
+
+  await Promise.all([
+    updateDoc(doc(db, collectionName, rawId), patch).catch((err) => {
+      console.warn(`[productService] updateDoc in ${collectionName} skipped (doc may not exist):`, err);
+    }),
+    updateDoc(doc(db, 'products', rawId), patch).catch((err) => {
+      console.warn('[productService] updateDoc in products skipped (doc may not exist):', err);
+    })
+  ]);
+
+  if (nextPopular) {
+    await addPopularProductToBeginning(rawId, collectionName);
+  } else {
+    await removePopularProduct(rawId, collectionName);
+  }
 }

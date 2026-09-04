@@ -566,8 +566,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       : (settings?.profitMargin || 20));
 
   let singleToman = 0;
-  if (exactActiveVariant?.priceToman && Number(exactActiveVariant.priceToman) > 0) {
+  if (exactActiveVariant?.manualPriceToman && Number(exactActiveVariant.manualPriceToman) > 0) {
+    singleToman = Number(exactActiveVariant.manualPriceToman);
+  } else if (exactActiveVariant?.priceToman && Number(exactActiveVariant.priceToman) > 0) {
     singleToman = Number(exactActiveVariant.priceToman);
+  } else if ((product as any)?.manualPriceToman && Number((product as any).manualPriceToman) > 0) {
+    singleToman = Number((product as any).manualPriceToman);
   } else if (product) {
     const activePricing = getActivePrices({
       product,
@@ -607,6 +611,9 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   const getItemUnitToman = (item: CartItem): number => {
     if (!item) return 0;
+    if ((item as any)?.manualPriceToman && Number((item as any).manualPriceToman) > 0) {
+      return Math.round(Number((item as any).manualPriceToman));
+    }
     if (item.calculatedTomanOverride && item.calculatedTomanOverride > 0) {
       return Math.round(item.calculatedTomanOverride);
     }

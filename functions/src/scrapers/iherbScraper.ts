@@ -62,13 +62,17 @@ export interface IherbScraperOptions {
  */
 export function resolveIherbHighResImage(rawUrl: string): string {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
-  let clean = rawUrl.trim();
+  let clean = rawUrl.trim().replace(/&amp;/g, '&');
   if (clean.startsWith('//')) clean = 'https:' + clean;
 
   if (clean.includes('iherb.com') || clean.includes('images-iherb.com')) {
-    // Replace medium/small/thumbnail tokens /m/, /s/, /t/, /v/, /c/ with /l/ (large)
-    clean = clean.replace(/(\/images\.iherb\.com\/)(?:m|s|t|v|c)(\/[a-z0-9_-]+\.(?:jpg|png|webp|jpeg))/i, '$1l$2');
-    clean = clean.replace(/(\/)(?:m|s|t|v|c)(\/[a-z0-9_-]+\.(?:jpg|png|webp|jpeg))/i, '$1l$2');
+    // Replace medium/small/thumbnail tokens /m/, /s/, /t/, /v/, /c/, /k/, /r/ with /l/ (large master photo)
+    clean = clean.replace(/(\/images\.iherb\.com\/)(?:m|s|t|v|c|k|r)(\/[a-z0-9_-]+\.(?:jpg|png|webp|jpeg))/i, '$1l$2');
+    clean = clean.replace(/(\/)(?:m|s|t|v|c|k|r)(\/[a-z0-9_-]+\.(?:jpg|png|webp|jpeg))/i, '$1l$2');
+
+    // Strip Cloudinary transform downscaling tokens (e.g. ,c_fit,w_200,h_200 or ,w_240,h_240)
+    clean = clean.replace(/,c_fit,w_\d+,h_\d+/gi, '');
+    clean = clean.replace(/,w_\d+,h_\d+/gi, '');
 
     // Strip size constraint query params (like ?v=...&w=120&h=120) to preserve full dimensions
     try {
@@ -177,11 +181,16 @@ export function parseIherbHtml(html: string, sourceUrl: string): IherbScraperRes
             for (const off of offersList) {
               if (!off) continue;
               const rawPrice = off.price ?? off.lowPrice ?? off.priceAmount;
+              const offCurrency = String(off.priceCurrency || off.currency || '').toUpperCase();
               if (rawPrice !== undefined && rawPrice !== null) {
                 const parsedNum = parseFloat(normalizeToEnglishDigits(String(rawPrice)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
                 if (!isNaN(parsedNum) && parsedNum > 0) {
+                  let convertedAed = parsedNum;
+                  if (offCurrency === 'USD' || offCurrency === '$') {
+                    convertedAed = Math.round(parsedNum * 3.6725 * 100) / 100;
+                  }
                   if (priceAed === 0) {
-                    priceAed = Math.round(parsedNum * 100) / 100;
+                    priceAed = Math.round(convertedAed * 100) / 100;
                   }
                 }
               }
@@ -190,8 +199,14 @@ export function parseIherbHtml(html: string, sourceUrl: string): IherbScraperRes
               const rawHighPrice = off.highPrice ?? off.regularPrice;
               if (rawHighPrice !== undefined && rawHighPrice !== null) {
                 const parsedHigh = parseFloat(normalizeToEnglishDigits(String(rawHighPrice)).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-                if (!isNaN(parsedHigh) && parsedHigh > priceAed) {
-                  originalPriceAed = Math.round(parsedHigh * 100) / 100;
+                if (!isNaN(parsedHigh) && parsedHigh > 0) {
+                  let convertedHigh = parsedHigh;
+                  if (offCurrency === 'USD' || offCurrency === '$') {
+                    convertedHigh = Math.round(parsedHigh * 3.6725 * 100) / 100;
+                  }
+                  if (convertedHigh > priceAed) {
+                    originalPriceAed = Math.round(convertedHigh * 100) / 100;
+                  }
                 }
               }
 
@@ -240,13 +255,15 @@ export function parseIherbHtml(html: string, sourceUrl: string): IherbScraperRes
   // Pricing Fallbacks (AED on ae.iherb.com or DOM elements)
   if (priceAed === 0) {
     const priceSelectors = [
+      '.discount-price',
+      '#our-price',
       '.our-price',
+      '.inner-price',
+      '.price-inner',
       '.product-price-amount',
       '#price',
       'b[itemprop="price"]',
       '[itemprop="price"]',
-      '.price-inner',
-      '.discount-price',
       '[data-qa-element="product-price"]',
       '.product-price .price',
       '.price'
@@ -256,6 +273,25 @@ export function parseIherbHtml(html: string, sourceUrl: string): IherbScraperRes
       const el = $(sel).first();
       if (el.length > 0) {
         const text = el.text().trim();
+        // Priority: AED price pattern
+        const aedMatch = text.match(/(?:AED|Dhs\.?|د\.إ)\s*([0-9]+(?:\.[0-9]{1,2})?)/i) ||
+                         text.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(?:AED|Dhs\.?|د\.إ)/i);
+        if (aedMatch && aedMatch[1]) {
+          const num = parseFloat(aedMatch[1]);
+          if (!isNaN(num) && num > 0) {
+            priceAed = Math.round(num * 100) / 100;
+            break;
+          }
+        }
+        // USD price pattern with standard benchmark conversion (1 USD = 3.6725 AED)
+        const usdMatch = text.match(/(?:\$|USD)\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+        if (usdMatch && usdMatch[1]) {
+          const num = parseFloat(usdMatch[1]);
+          if (!isNaN(num) && num > 0) {
+            priceAed = Math.round(num * 3.6725 * 100) / 100;
+            break;
+          }
+        }
         const num = extractPriceNumber(text);
         if (num > 0) {
           priceAed = num;
@@ -267,9 +303,25 @@ export function parseIherbHtml(html: string, sourceUrl: string): IherbScraperRes
     // Check meta tags
     if (priceAed === 0) {
       const metaPrice = $('meta[property="product:price:amount"], meta[itemprop="price"]').attr('content');
+      const metaCurr = $('meta[property="product:price:currency"]').attr('content') || 'AED';
       if (metaPrice) {
         const p = parseFloat(normalizeToEnglishDigits(metaPrice).replace(/,/g, '').replace(/[^0-9.]/g, ''));
-        if (!isNaN(p) && p > 0) priceAed = Math.round(p * 100) / 100;
+        if (!isNaN(p) && p > 0) {
+          if (metaCurr.toUpperCase() === 'USD' || metaCurr === '$') {
+            priceAed = Math.round(p * 3.6725 * 100) / 100;
+          } else {
+            priceAed = Math.round(p * 100) / 100;
+          }
+        }
+      }
+    }
+
+    // Check script tags or JSON-LD raw content for price
+    if (priceAed === 0) {
+      const scriptMatch = html.match(/["'](?:ourPrice|discountPrice|finalPrice|price)["']\s*:\s*["']?([0-9]+(?:\.[0-9]{1,2})?)["']?/i);
+      if (scriptMatch && scriptMatch[1]) {
+        const p = parseFloat(scriptMatch[1]);
+        if (!isNaN(p) && p > 0 && p < 100000) priceAed = Math.round(p * 100) / 100;
       }
     }
   }
@@ -314,6 +366,22 @@ export function parseIherbHtml(html: string, sourceUrl: string): IherbScraperRes
       if (src) {
         const hr = resolveIherbHighResImage(src);
         if (hr && !galleryImages.includes(hr)) galleryImages.push(hr);
+      }
+    });
+
+    // General HTML product images (filter out logos, icons, cms banners)
+    $('img').each((_, el) => {
+      const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-large-img');
+      if (src && typeof src === 'string') {
+        const lower = src.toLowerCase();
+        if ((lower.includes('images-iherb') || lower.includes('cloudinary.images-iherb')) &&
+            !lower.includes('/cms/') && !lower.includes('/logos/') && !lower.includes('/icon/') &&
+            !lower.includes('/brand/logo/') && !lower.includes('/my-account/')) {
+          const hr = resolveIherbHighResImage(src);
+          if (hr && !galleryImages.includes(hr)) {
+            galleryImages.push(hr);
+          }
+        }
       }
     });
 
@@ -576,16 +644,17 @@ export async function scrapeIherb(
     console.warn(`[scrapeIherb] Direct fetch failed for ${normalizedUrl}: ${err.message}. Trying proxies...`);
   }
 
-  // Tier 2: Jina AI Reader Proxy
+  // Tier 2: Jina AI Reader with Full HTML
   try {
     const jinaUrl = `https://r.jina.ai/${normalizedUrl}`;
     const jinaRes = await axios.get(jinaUrl, {
       headers: {
         'User-Agent': ua,
-        'X-With-Images-Summary': 'true',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'X-Return-Format': 'html',
         'X-No-Cache': 'true'
       },
-      timeout: timeout + 3000
+      timeout: timeout + 4000
     });
 
     if (jinaRes.data && typeof jinaRes.data === 'string' && jinaRes.data.length > 100) {
@@ -595,7 +664,89 @@ export async function scrapeIherb(
       }
     }
   } catch (jinaErr: any) {
-    console.warn(`[scrapeIherb] Jina proxy fallback failed for ${normalizedUrl}:`, jinaErr.message);
+    console.warn(`[scrapeIherb] Jina HTML proxy fallback failed for ${normalizedUrl}:`, jinaErr.message);
+  }
+
+  // Tier 3: Jina Markdown / Text Fallback if HTML mode was truncated or unavailable
+  try {
+    const jinaUrl = `https://r.jina.ai/${normalizedUrl}`;
+    const jinaRes = await axios.get(jinaUrl, {
+      headers: {
+        'User-Agent': ua,
+        'X-With-Images-Summary': 'true',
+        'X-No-Cache': 'true'
+      },
+      timeout: timeout + 4000
+    });
+
+    if (jinaRes.data && typeof jinaRes.data === 'string' && jinaRes.data.length > 100) {
+      const md = jinaRes.data;
+      const titleMatch = md.match(/^Title:\s*(.+)$/m);
+      const title = titleMatch ? titleMatch[1].trim() : '';
+      // Price: look specifically for product price lines (One-time purchase, discount price, or AED after title)
+      // Exclude free shipping banner (e.g. Free Shipping over AED99.00)
+      let price = 0;
+      const cleanMdForPrice = md.replace(/Free\s*Shipping\s*(?:over|above)?\s*(?:AED|Dhs)?\s*[0-9\.]+/gi, '');
+      const oneTimeMatch = cleanMdForPrice.match(/One-time\s*purchase[:\s]*(?:AED|Dhs|د\.إ)?\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+      if (oneTimeMatch && oneTimeMatch[1]) {
+        price = parseFloat(oneTimeMatch[1]);
+      } else {
+        const aedMatches = Array.from(cleanMdForPrice.matchAll(/(?:AED|Dhs|د\.إ)\s*([0-9]+(?:\.[0-9]{1,2})?)/gi));
+        for (const m of aedMatches) {
+          const val = parseFloat(m[1]);
+          if (val > 0 && val !== 99 && val !== 0) {
+            price = val;
+            break;
+          }
+        }
+      }
+
+      // Check USD fallback if no AED match
+      if (price === 0) {
+        const usdMatch = cleanMdForPrice.match(/(?:\$|USD)\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+        if (usdMatch && usdMatch[1]) {
+          const val = parseFloat(usdMatch[1]);
+          if (val > 0) price = Math.round(val * 3.6725 * 100) / 100;
+        }
+      }
+
+      // Find authentic product image, strictly excluding cms, logos, icons, rewards
+      const imgRegex = /https?:\/\/[^\s\)\"\']*(?:images-iherb|cloudinary\.images-iherb)[^\s\)\"\']*\.(?:jpg|png|webp|jpeg)(?:\?[^\s\)\"\']*)?/gi;
+      const allImgs = md.match(imgRegex) || [];
+      const prodImg = allImgs.find(img => 
+        !img.includes('/cms/') && !img.includes('/logos/') && !img.includes('/icon/') &&
+        !img.includes('/brand/logo/') && !img.includes('/my-account/') && !img.includes('rewards')
+      );
+      const image = prodImg ? resolveIherbHighResImage(prodImg) : '';
+
+      if (title && price > 0) {
+        const titleFa = generateBilingualProductTitle(title, 'iHerb');
+        return {
+          success: true,
+          ok: true,
+          titleFa,
+          titleEn: title,
+          title: titleFa,
+          brand: 'iHerb',
+          priceAed: price,
+          priceAED: price,
+          image,
+          imageUrl: image,
+          galleryImages: image ? [image] : [],
+          inStock: true,
+          retailer: 'iHerb',
+          store: 'iHerb',
+          storeName: 'iHerb',
+          sourceUrl: normalizedUrl,
+          flavors: [],
+          sizes: [],
+          variants: [],
+          weightKg: 0.8
+        };
+      }
+    }
+  } catch (mdErr: any) {
+    console.warn(`[scrapeIherb] Jina Markdown fallback failed for ${normalizedUrl}:`, mdErr?.message);
   }
 
   return {

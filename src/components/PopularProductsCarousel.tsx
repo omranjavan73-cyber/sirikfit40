@@ -56,7 +56,11 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
     }
   };
 
-  const list = items || products || [];
+  const list = (items || products || []).filter(prod => {
+    if (!prod || !prod.id) return false;
+    const t = (prod.title || prod.titleFa || prod.name || (prod.rawItem && (prod.rawItem.title || prod.rawItem.name)) || '').trim();
+    return t && t !== 'محصول پرطرفدار';
+  });
 
   if (!list || list.length === 0) {
     return null;
@@ -138,7 +142,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
             }
 
             const itemImage = prod.image || prod.imageUrl || (rawItem && (rawItem.image || rawItem.imageUrl)) || (prod.galleryImages && prod.galleryImages[0]) || '';
-            const itemTitle = prod.title || prod.titleFa || prod.name || (rawItem && (rawItem.title || rawItem.name)) || 'محصول پرطرفدار';
+            const itemTitle = prod.title || prod.titleFa || prod.name || (rawItem && (rawItem.title || rawItem.name)) || '';
 
             return (
               <div
@@ -156,7 +160,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
                       className="w-full h-full object-contain select-none group-hover:scale-110 transition-transform duration-300"
                       referrerPolicy="no-referrer"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579722820308-d74e571900a9?w=500&auto=format&fit=crop&q=80';
+                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
                       }}
                     />
                   </div>

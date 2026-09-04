@@ -18,8 +18,11 @@ import {
   fetchPopularOrderFromFirestore, 
   saveManualPopularOrder, 
   removePopularProduct,
-  normalizeProductId 
+  normalizeProductId,
+  cleanupGhostPopularProducts 
 } from '../../services/popularProductsService';
+import { db } from '../../config/firebase';
+import { collection, query, where, orderBy, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
 export interface PopularOrderAdminProps {
   products: Product[];
@@ -36,22 +39,83 @@ export const PopularOrderAdmin: React.FC<PopularOrderAdminProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Initialize and sort popular products using canonical popularSamplesOrder
+  // Initialize and sort popular products using aligned Firestore query
   useEffect(() => {
     let isMounted = true;
+    cleanupGhostPopularProducts().catch(() => {});
 
-    async function loadAndSort() {
-      const canonicalOrder = await fetchPopularOrderFromFirestore();
-      if (!isMounted) return;
-      const sorted = sortPopularProducts(products, canonicalOrder);
-      setPopularList(sorted);
+    if (!db) {
+      async function fallbackLoad() {
+        const canonicalOrder = await fetchPopularOrderFromFirestore();
+        if (!isMounted) return;
+        setPopularList(sortPopularProducts(products, canonicalOrder));
+      }
+      fallbackLoad();
+      return;
     }
 
-    loadAndSort();
+    try {
+      const popularQuery = query(
+        collection(db, 'products'),
+        where('isActive', '==', true),
+        where('isPopular', '==', true),
+        orderBy('popularOrder', 'asc')
+      );
 
-    return () => {
-      isMounted = false;
-    };
+      const unsubscribe = onSnapshot(
+        popularQuery,
+        (snapshot) => {
+          if (!isMounted) return;
+          if (snapshot.empty) {
+            fetchPopularOrderFromFirestore().then(canonicalOrder => {
+              if (!isMounted) return;
+              setPopularList(sortPopularProducts(products, canonicalOrder));
+            });
+            return;
+          }
+
+          // Eradicate any orphan document titled "محصول پرطرفدار"
+          snapshot.docs.forEach((docSnap) => {
+            const data = docSnap.data();
+            const titleFa = (data?.titleFa || '').trim();
+            const titleEn = (data?.title || '').trim();
+            if (titleFa === 'محصول پرطرفدار' || titleEn === 'محصول پرطرفدار' || (!titleFa && !titleEn)) {
+              deleteDoc(docSnap.ref).catch(() => {});
+            }
+          });
+
+          const liveItems = snapshot.docs
+            .map(d => ({ id: d.id, ...d.data() } as Product))
+            .filter(p => {
+              const t = (p.titleFa || p.title || '').trim();
+              return t && t !== 'محصول پرطرفدار' && (p.popularOrder === undefined || p.popularOrder >= 0);
+            });
+
+          const propsMap = new Map((products || []).map(p => [normalizeProductId(p.id), p]));
+          const merged = liveItems.map(p => {
+            const matched = propsMap.get(normalizeProductId(p.id));
+            return matched ? { ...matched, ...p } : p;
+          });
+
+          const sorted = sortPopularProducts(merged);
+          setPopularList(sorted);
+        },
+        (err) => {
+          console.warn('[PopularOrderAdmin] onSnapshot notice:', err);
+          fetchPopularOrderFromFirestore().then(canonicalOrder => {
+            if (!isMounted) return;
+            setPopularList(sortPopularProducts(products, canonicalOrder));
+          });
+        }
+      );
+
+      return () => {
+        isMounted = false;
+        unsubscribe();
+      };
+    } catch (_e) {
+      return () => { isMounted = false; };
+    }
   }, [products]);
 
   // Move item up in the list
@@ -80,11 +144,27 @@ export const PopularOrderAdmin: React.FC<PopularOrderAdminProps> = ({
 
   // Remove item from popular list
   const handleRemovePopular = async (prodId: string) => {
-    const updated = popularList.filter(p => normalizeProductId(p.id) !== normalizeProductId(prodId));
+    const rawId = normalizeProductId(prodId);
+    const updated = popularList.filter(p => normalizeProductId(p.id) !== rawId);
     setPopularList(updated);
 
     try {
-      await removePopularProduct(prodId);
+      await removePopularProduct(rawId);
+      const now = new Date().toISOString();
+      if (db) {
+        const patch = { isPopular: false, popularOrder: -1, isPopularSample: false, updatedAt: now };
+        await Promise.all([
+          updateDoc(doc(db, 'products', rawId), patch).catch(() =>
+            setDoc(doc(db, 'products', rawId), patch, { merge: true })
+          ),
+          updateDoc(doc(db, 'special_deals', rawId), patch).catch(() =>
+            setDoc(doc(db, 'special_deals', rawId), patch, { merge: true })
+          ),
+          updateDoc(doc(db, 'iran_warehouse', rawId), patch).catch(() =>
+            setDoc(doc(db, 'iran_warehouse', rawId), patch, { merge: true })
+          )
+        ]);
+      }
       if (showToast) showToast('محصول از لیست پرطرفدارها حذف شد', 'info');
     } catch (err: any) {
       console.warn('Remove popular product error:', err);
@@ -246,7 +326,11 @@ export const PopularOrderAdmin: React.FC<PopularOrderAdminProps> = ({
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
-                    onClick={() => moveUp(idx)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      moveUp(idx);
+                    }}
                     disabled={isFirst}
                     title="انتقال به بالا (اولویت بیشتر)"
                     className="w-8 h-8 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center justify-center transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
@@ -256,7 +340,11 @@ export const PopularOrderAdmin: React.FC<PopularOrderAdminProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => moveDown(idx)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      moveDown(idx);
+                    }}
                     disabled={isLast}
                     title="انتقال به پایین (اولویت کمتر)"
                     className="w-8 h-8 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center justify-center transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
@@ -266,7 +354,11 @@ export const PopularOrderAdmin: React.FC<PopularOrderAdminProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleRemovePopular(prod.id)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleRemovePopular(prod.id);
+                    }}
                     title="حذف از پرطرفدارها"
                     className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 text-rose-600 dark:text-rose-400 flex items-center justify-center transition cursor-pointer shadow-2xs ml-1"
                   >

@@ -24,11 +24,26 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const title = product.title || product.name || 'مکمل ورزشی اورجینال';
   const storeName = product.storeName || product.brand || 'دبی';
   const imageUrl = product.imageUrl || product.image || product.productImage;
-  const priceToman = product.priceToman || product.calculatedToman || product.totalToman || 0;
+  const priceToman = product.manualPriceToman || product.priceToman || product.calculatedToman || product.totalToman || 0;
   const priceAed = product.priceAED || product.priceAed || 0;
-  const discountPercent = product.discountPercent || (product.originalPriceAed && priceAed ? Math.round(((product.originalPriceAed - priceAed) / product.originalPriceAed) * 100) : 0);
+  const regularPrice = Number(product.priceToman || product.totalToman || 0);
+  const salePrice = Number(product.discountPrice || product.salePriceToman || 0);
+  const hasValidTomanDiscount = salePrice > 0 && regularPrice > 0 && salePrice < regularPrice;
 
-  const effectiveBadge = badgeText || (discountPercent > 0 ? `${discountPercent}٪ تخفیف` : product.badge || undefined);
+  const origAed = Number(product.originalPriceAed || product.originalPriceAED || product.originalPrice || 0);
+  const currAed = Number(product.priceAED || product.priceAed || product.price || 0);
+  const hasValidAedDiscount = origAed > 0 && currAed > 0 && origAed > currAed;
+
+  let calculatedDiscount = 0;
+  if (hasValidTomanDiscount) {
+    calculatedDiscount = Math.round(((regularPrice - salePrice) / regularPrice) * 100);
+  } else if (hasValidAedDiscount) {
+    calculatedDiscount = Math.round(((origAed - currAed) / origAed) * 100);
+  }
+
+  // Strict validation: discount badge MUST only appear if there is an authentic, verified price reduction
+  const hasAuthenticDiscount = calculatedDiscount > 0 && calculatedDiscount < 100;
+  const effectiveBadge = badgeText || (hasAuthenticDiscount ? `${calculatedDiscount}٪ تخفیف` : (product.badge && !product.badge.includes('تخفیف') ? product.badge : undefined));
   const isIHerb = (storeName || '').toLowerCase().includes('iherb') || (product.sourceUrl || product.url || '').toLowerCase().includes('iherb');
   const storeTheme = getStoreBadgeTheme(isIHerb ? 'iHerb' : storeName);
 

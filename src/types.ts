@@ -171,6 +171,8 @@ export interface FeaturedDeal {
   profitMargin?: number;
   marginPercent?: number;
   priceToman?: number;
+  manualPriceToman?: number | null;
+  isManualPrice?: boolean;
   originalPriceToman?: number;
   stockQuantity?: number;
   stockCount?: number;
@@ -204,6 +206,8 @@ export interface LocalInventoryItem {
   image: string;
   images?: string[];
   priceToman: number;
+  manualPriceToman?: number | null;
+  isManualPrice?: boolean;
   originalPriceToman?: number;
   calculatedTomanOverride?: number;
   stockQuantity: number;
@@ -1038,6 +1042,8 @@ export interface NormalizedProduct {
   priceAed?: number;
   priceAED?: number;
   priceToman?: number;
+  manualPriceToman?: number | null;
+  isManualPrice?: boolean;
   originalPrice?: number;
   originalPriceAed?: number;
   originalPriceAED?: number;

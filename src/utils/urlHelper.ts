@@ -124,37 +124,43 @@ export function isInvalidProductImage(rawUrl: string): boolean {
  */
 export function normalizeProductImageUrl(rawUrl?: string | null, defaultDomain = 'https://drnutrition.com'): string {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
-  const trimmed = rawUrl.trim();
+  let trimmed = rawUrl.trim().replace(/&amp;/g, '&').replace(/^["']|["']$/g, '').replace(/\\/g, '').trim();
   if (!trimmed) return '';
   
   if (trimmed.startsWith('data:image')) return trimmed;
-  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  if (trimmed.startsWith('//')) {
+    trimmed = `https:${trimmed}`;
+  }
+
+  let resolvedUrl = '';
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    const upgraded = trimmed.startsWith('http://') ? trimmed.replace('http://', 'https://') : trimmed;
-    if (isInvalidProductImage(upgraded)) return '';
-    return upgraded;
-  }
-
-  let cleanDomain = (defaultDomain || 'https://drnutrition.com').trim();
-  if (cleanDomain.startsWith('http://') || cleanDomain.startsWith('https://')) {
-    try {
-      cleanDomain = new URL(cleanDomain).origin;
-    } catch (_e) {
-      cleanDomain = cleanDomain.replace(/\/+$/, '');
-    }
+    resolvedUrl = trimmed.startsWith('http://') ? trimmed.replace('http://', 'https://') : trimmed;
   } else {
-    cleanDomain = cleanDomain.replace(/\/+$/, '');
-    if (!cleanDomain.startsWith('http')) {
-      cleanDomain = `https://${cleanDomain}`;
+    let cleanDomain = (defaultDomain || 'https://drnutrition.com').trim();
+    if (cleanDomain.startsWith('http://') || cleanDomain.startsWith('https://')) {
+      try {
+        cleanDomain = new URL(cleanDomain).origin;
+      } catch (_e) {
+        cleanDomain = cleanDomain.replace(/\/+$/, '');
+      }
+    } else {
+      cleanDomain = cleanDomain.replace(/\/+$/, '');
+      if (!cleanDomain.startsWith('http')) {
+        cleanDomain = `https://${cleanDomain}`;
+      }
     }
-  }
 
-  const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-  let resolvedUrl = `${cleanDomain}${cleanPath}`;
+    let cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+    if (cleanPath.startsWith('/catalog/')) {
+      cleanPath = `/media${cleanPath}`;
+    }
 
-  // If pointing to Dr Nutrition media relative path, map to media CDN
-  if (cleanPath.startsWith('/media/') && (cleanDomain.includes('drnutrition.com') || !cleanDomain.startsWith('http'))) {
-    resolvedUrl = `https://media.drnutrition.com${cleanPath}`;
+    // If pointing to Dr Nutrition media relative path, map to media CDN
+    if (cleanPath.startsWith('/media/') && (cleanDomain.includes('drnutrition.com') || !cleanDomain.startsWith('http'))) {
+      resolvedUrl = `https://media.drnutrition.com${cleanPath}`;
+    } else {
+      resolvedUrl = `${cleanDomain}${cleanPath}`;
+    }
   }
 
   // Syntax validation & CDN query cleanup
@@ -174,6 +180,9 @@ export function normalizeProductImageUrl(rawUrl?: string | null, defaultDomain =
   } catch (_urlErr) {
     // Keep resolvedUrl as is
   }
+
+  // Upgrade Shopify/E-Commerce thumbnail images to high-res master
+  resolvedUrl = resolvedUrl.replace(/_(?:small|compact|thumb|medium|100x100|150x150|200x200|240x240|300x300)\.(jpe?g|png|webp|avif)/gi, '_1024x1024.$1');
 
   if (isInvalidProductImage(resolvedUrl)) {
     return '';

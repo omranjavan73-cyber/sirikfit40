@@ -6,6 +6,7 @@ import { formatPersianSize, translateFlavor, generatePersianProductCaption } fro
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { getEffectiveGeminiKeysList, extractProductWithGeminiAI } from '../utils/geminiKey';
 import { parseProductLinkUniversal } from '../utils/parseLink';
+import { extractProductShared } from '../services/sharedExtractor';
 import { SpeedboatLoader } from './SpeedboatLoader';
 import { ImageMagnifier } from './ImageMagnifier';
 import { usePricing } from '../context/PricingContext';
@@ -204,14 +205,8 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
     setIsParsing(true);
 
     console.log('[Scraper Engine] Initiating extraction from caller: HeroCalculator', { targetUrl });
-    const savedKeys = getEffectiveGeminiKeysList(cms?.apiConfig?.geminiApiKeys || cms?.apiConfig?.geminiApiKey);
-
     try {
-      const result = await parseProductLinkUniversal({
-        url: targetUrl,
-        geminiKeys: savedKeys,
-        cmsConfig: cms
-      });
+      const result = await extractProductShared(targetUrl, cms);
 
       if (result.success && result.priceAed && result.priceAed > 0) {
         setProductTitle(result.title || 'محصول استخراج شده');
@@ -221,11 +216,9 @@ export const HeroCalculator: React.FC<HeroCalculatorProps> = ({
         setPriceInput(String(result.priceAed));
         setWeightKg(result.weightKg || 0.8);
         setWeightInput(String(result.weightKg || 0.8));
-        const fallbackImage = 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?auto=format&fit=crop&q=80&w=600';
-        const mainImg = result.image || cms?.heroImage || fallbackImage;
+        const mainImg = result.image || cms?.heroImage || '';
         setProductImage(mainImg);
-        const rawList = (result.images && result.images.length > 0) ? result.images : (result.galleryImages || [mainImg]);
-        const galleryList = deduplicateImageUrls([mainImg, ...rawList], mainImg);
+        const galleryList = (result.images && result.images.length > 0) ? result.images : (mainImg ? [mainImg] : []);
         setProductGallery(galleryList);
         if (result.storeName) setStoreName(result.storeName);
         if (result.brand) setBrandName(result.brand);

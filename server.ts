@@ -121,7 +121,7 @@ app.use((req, res, next) => {
     const knownApiPrefixes = [
       '/admin', '/orders', '/settings', '/cms', '/analytics',
       '/currency', '/auth', '/preset-products', '/payment',
-      '/notify', '/parse-link', '/tickets', '/sms'
+      '/notify', '/parse-link', '/tickets', '/sms', '/upload-image', '/media'
     ];
     if (knownApiPrefixes.some(p => req.url.startsWith(p))) {
       req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
@@ -7934,6 +7934,76 @@ app.post('/api/admin/send-link-alert', async (req, res) => {
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+// POST /api/upload-image: Server-side image upload avoiding client-side browser CORS restrictions
+app.post('/api/upload-image', async (req, res) => {
+  try {
+    const { dataUrl, fileName, folder = 'branding' } = req.body || {};
+    if (!dataUrl || typeof dataUrl !== 'string') {
+      return res.status(400).json({ success: false, error: 'تصویر معتبر ارسال نشده است.' });
+    }
+
+    // Extract mime type and base64 content
+    const match = dataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+    if (!match) {
+      return res.status(400).json({ success: false, error: 'فرمت Base64 تصویر نامعتبر است.' });
+    }
+
+    const mimeType = match[1];
+    const base64Data = match[2];
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Create a public/media document or persistent URL in Firestore
+    const imgId = `img_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const docRef = doc(db, 'system_media', imgId);
+    
+    await setDoc(docRef, {
+      id: imgId,
+      name: fileName || `${imgId}.png`,
+      mimeType,
+      size: buffer.length,
+      dataUrl,
+      folder,
+      createdAt: new Date().toISOString()
+    });
+
+    const publicUrl = `/api/media/${imgId}`;
+
+    return res.json({
+      success: true,
+      url: publicUrl,
+      id: imgId
+    });
+  } catch (err: any) {
+    console.error('Error in /api/upload-image:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Upload failed' });
+  }
+});
+
+// GET /api/media/:id: Serve uploaded media images with proper caching and headers
+app.get('/api/media/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const snap = await getDoc(doc(db, 'system_media', id));
+    if (!snap.exists()) {
+      return res.status(404).send('Image not found');
+    }
+    const data = snap.data();
+    const match = (data.dataUrl || '').match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+    if (!match) {
+      return res.status(500).send('Corrupted image data');
+    }
+    const contentType = match[1];
+    const buffer = Buffer.from(match[2], 'base64');
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.end(buffer);
+  } catch (err: any) {
+    return res.status(500).send('Error retrieving media');
   }
 });
 

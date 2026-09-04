@@ -120,29 +120,61 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     setIsUploadingLogo(true);
 
     try {
-      const fileExt = file.name.split('.').pop() || 'png';
-      const cleanExt = fileExt.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const storageRef = ref(storage, `products/images/site_logo_${Date.now()}.${cleanExt || 'png'}`);
-      
-      // Safety timeout promise to prevent infinite hanging if Firebase Storage is unreachable/blocked
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('زمان آپلود به پایان رسید (Timeout 15s)')), 15000)
-      );
+      // 1. Read file as Base64 Data URL to send to backend upload endpoint
+      const fileDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+      });
 
-      const uploadPromise = uploadBytes(storageRef, file, {
-        contentType: file.type || 'image/png'
-      }).then(uploadResult => getDownloadURL(uploadResult.ref));
+      // 2. Upload via backend endpoint /api/upload-image which bypasses browser CORS entirely
+      let downloadUrl = '';
+      try {
+        const res = await fetch('/api/upload-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dataUrl: fileDataUrl,
+            fileName: file.name,
+            folder: 'branding'
+          })
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.url) {
+            downloadUrl = json.url;
+          }
+        }
+      } catch (proxyErr) {
+        console.warn('[Proxy upload error, attempting direct storage upload]:', proxyErr);
+      }
 
-      const downloadUrl = await Promise.race([uploadPromise, timeoutPromise]);
+      // 3. If proxy upload didn't succeed, fallback to client-side uploadBytes
+      if (!downloadUrl) {
+        const fileExt = file.name.split('.').pop() || 'png';
+        const cleanExt = fileExt.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const storageRef = ref(storage, `products/images/site_logo_${Date.now()}.${cleanExt || 'png'}`);
+        
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('زمان آپلود به پایان رسید (Timeout 15s)')), 15000)
+        );
+
+        const uploadPromise = uploadBytes(storageRef, file, {
+          contentType: file.type || 'image/png'
+        }).then(uploadResult => getDownloadURL(uploadResult.ref));
+
+        downloadUrl = await Promise.race([uploadPromise, timeoutPromise]);
+      }
 
       // Save uploaded URL to state
       setLogoUrl(downloadUrl);
       setPreviewUrl(downloadUrl);
       if (showToast) showToast('تصویر لوگو با موفقیت بارگذاری شد', 'success');
     } catch (err: any) {
-      console.error('[Firebase Storage Upload Error]:', err);
+      console.error('[Upload Error]:', err);
       if (showToast) {
-        showToast(`خطا در بارگذاری لوگو در سرور: ${err?.message || 'عدم دسترسی به مخزن تصاویر'}. لطفاً آدرس مستقیم تصویر را در کادر وارد کنید.`, 'error');
+        showToast(`خطا در بارگذاری خودکار لوگو: ${err?.message || 'مشکل در ارتباط با سرور'}. لطفاً از کادر زیر، آدرس مستقیم تصویر را وارد نمایید.`, 'error');
       }
       setPreviewUrl(logoUrl || '');
     } finally {

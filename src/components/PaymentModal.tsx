@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Order } from '../types';
 import { formatToman, toPersianDigits } from '../utils/formatters';
+import { navigateToPaymentGateway } from '../utils/paymentRedirect';
 
 interface PaymentModalProps {
   order: Order;
@@ -87,9 +88,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
       const data = await res.json();
       const targetUrl = data.paymentUrl || data.redirectUrl || data.url;
-      if (res.ok && data.success && targetUrl) {
-        // Redirect directly to official Zibal Shaparak payment gateway
-        window.location.href = targetUrl;
+      if (res.ok && data.success && (targetUrl || data.trackId)) {
+        // Redirect directly to official Zibal Shaparak payment gateway via dynamic form
+        navigateToPaymentGateway(targetUrl, data.trackId);
       } else {
         setErrorMessage(
           data.error ||

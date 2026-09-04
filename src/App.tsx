@@ -44,6 +44,7 @@ import { CartProvider } from './context/CartContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { getSafeItem, setSafeItem } from './utils/safeStorage';
 import { extractLogoUrl } from './utils/logoHelper';
+import { navigateToPaymentGateway } from './utils/paymentRedirect';
 
 function MainApp() {
   const { deals: contextDeals, warehouseItems: contextWarehouse, generalProducts: contextProducts, popularProducts, isLoading: isProductsLoading } = useProducts();
@@ -999,8 +1000,8 @@ function MainApp() {
 
       const data = await res.json();
       const targetUrl = data.paymentUrl || data.redirectUrl || data.url;
-      if (res.ok && data.success && targetUrl) {
-        window.location.href = targetUrl;
+      if (res.ok && data.success && (targetUrl || data.trackId)) {
+        navigateToPaymentGateway(targetUrl, data.trackId);
       } else {
         showToast(data.error || 'خطا در دریافت لینک پرداخت زیبال.', 'error');
       }

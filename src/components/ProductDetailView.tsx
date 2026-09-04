@@ -46,6 +46,7 @@ import {
   handleSizeChange
 } from '../utils/variantMatrixEngine';
 import { resolveVariantHeroImage, getVariantImageUrl } from '../utils/variantHelpers';
+import { navigateToPaymentGateway } from '../utils/paymentRedirect';
 
 /**
  * Utility to strip raw HTML tags and markdown formatting from scraped text
@@ -874,8 +875,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
       const paymentData = await paymentRes.json();
       const targetUrl = paymentData.paymentUrl || paymentData.redirectUrl || paymentData.url;
-      if (paymentRes.ok && paymentData.success && targetUrl) {
-        window.location.href = targetUrl;
+      if (paymentRes.ok && paymentData.success && (targetUrl || paymentData.trackId)) {
+        navigateToPaymentGateway(targetUrl, paymentData.trackId);
         return;
       } else {
         onOrderCreated(orderPayload as any);

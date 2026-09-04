@@ -4,6 +4,7 @@ import type { FinancialSettings, CartItem, CmsConfig, Order, User } from '../typ
 import { formatToman, toPersianDigits, getEffectiveAedRate, isValidIranianMobile, cleanIranianMobile, isValidPostalCode, cleanPostalCode } from '../utils/formatters';
 import { calculateOrderPricing } from '../utils/pricingEngine';
 import { validateDiscountCode, incrementDiscountUsage, type ValidationResult } from '../utils/discountHelper';
+import { navigateToPaymentGateway } from '../utils/paymentRedirect';
 
 interface CartModalProps {
   isOpen: boolean;
@@ -295,8 +296,8 @@ export const CartModal: React.FC<CartModalProps> = ({
 
       const paymentData = await paymentRes.json();
       const targetUrl = paymentData.paymentUrl || paymentData.redirectUrl || paymentData.url;
-      if (paymentRes.ok && paymentData.success && targetUrl) {
-        window.location.href = targetUrl;
+      if (paymentRes.ok && paymentData.success && (targetUrl || paymentData.trackId)) {
+        navigateToPaymentGateway(targetUrl, paymentData.trackId);
         return;
       } else {
         setErrorMessage(paymentData.error || 'خطا در دریافت لینک درگاه بانکی زیبال.');

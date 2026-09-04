@@ -40,7 +40,14 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
   showToast
 }) => {
   const [activeTab, setActiveTab] = useState<'content' | 'popup'>('content');
-  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('sirikfit_home_settings');
+      if (cached) return false;
+    }
+    if (initialCms) return false;
+    return true;
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -228,7 +235,10 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
 
     // 1. Initial async load
     const loadSettings = async () => {
-      setIsLoadingSettings(true);
+      const hasLocal = typeof window !== 'undefined' && localStorage.getItem('sirikfit_home_settings');
+      if (!hasLocal && !initialCms) {
+        setIsLoadingSettings(true);
+      }
       try {
         const homeData = await getHomeSettings();
         if (!isMounted) return;

@@ -44,55 +44,195 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Local State for CMS Content
-  const [siteTitle, setSiteTitle] = useState('سیریک فیت | مرجع تخصصی خرید مکمل اورجینال از دبی');
-  const [brandSlogan, setBrandSlogan] = useState('خرید مستقیم از معتبرترین داروخانه‌ها و نمایندگی‌های امارات');
-  const [heroHeading, setHeroHeading] = useState('سفارش مستقیم و بی‌واسطه مکمل از دبی');
-  const [heroSubheading, setHeroSubheading] = useState('ارسال سریع به سراسر ایران با ضمانت اصالت ۱۰۰٪ کالا');
-  const [showTopPromo, setShowTopPromo] = useState(true);
-  const [topPromoText, setTopPromoText] = useState('🔥 تخفیف ویژه بهاره: ۱۰٪ تخفیف هزینه کارگو با کد SIRIKFIT');
-  const [bannerImageUrl, setBannerImageUrl] = useState('');
-  const [calculatorHeading, setCalculatorHeading] = useState('برآورد هوشمند قیمت و هزینه تحویل');
-  const [logoUrl, setLogoUrl] = useState('');
-  const [previewUrl, setPreviewUrl] = useState('');
+  // Local State for CMS Content with eager cache hydration
+  const [siteTitle, setSiteTitle] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.siteTitle) return parsed.siteTitle;
+        }
+      } catch (_) {}
+    }
+    return (initialCms as any)?.homeContent?.siteTitle || (initialCms as any)?.siteTitle || 'سیریک فیت | مرجع تخصصی خرید مکمل اورجینال از دبی';
+  });
+
+  const [brandSlogan, setBrandSlogan] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.brandSlogan) return parsed.brandSlogan;
+        }
+      } catch (_) {}
+    }
+    return (initialCms as any)?.homeContent?.brandSlogan || (initialCms as any)?.brandSlogan || 'خرید مستقیم از معتبرترین داروخانه‌ها و نمایندگی‌های امارات';
+  });
+
+  const [heroHeading, setHeroHeading] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.heroHeading) return parsed.heroHeading;
+        }
+      } catch (_) {}
+    }
+    return (initialCms as any)?.homeContent?.heroHeading || 'سفارش مستقیم و بی‌واسطه مکمل از دبی';
+  });
+
+  const [heroSubheading, setHeroSubheading] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.heroSubheading) return parsed.heroSubheading;
+        }
+      } catch (_) {}
+    }
+    return (initialCms as any)?.homeContent?.heroSubheading || 'ارسال سریع به سراسر ایران با ضمانت اصالت ۱۰۰٪ کالا';
+  });
+
+  const [showTopPromo, setShowTopPromo] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.showTopPromo !== undefined) return parsed.showTopPromo;
+        }
+      } catch (_) {}
+    }
+    return (initialCms as any)?.homeContent?.showTopPromo ?? true;
+  });
+
+  const [topPromoText, setTopPromoText] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.topPromoText) return parsed.topPromoText;
+        }
+      } catch (_) {}
+    }
+    return (initialCms as any)?.homeContent?.topPromoText || '🔥 تخفیف ویژه بهاره: ۱۰٪ تخفیف هزینه کارگو با کد SIRIKFIT';
+  });
+
+  const [bannerImageUrl, setBannerImageUrl] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.bannerImageUrl) return parsed.bannerImageUrl;
+        }
+      } catch (_) {}
+    }
+    return (initialCms as any)?.homeContent?.bannerImageUrl || '';
+  });
+
+  const [calculatorHeading, setCalculatorHeading] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.calculatorHeading) return parsed.calculatorHeading;
+        }
+      } catch (_) {}
+    }
+    return (initialCms as any)?.homeContent?.calculatorHeading || 'برآورد هوشمند قیمت و هزینه تحویل';
+  });
+
+  const [logoUrl, setLogoUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const cachedLogo = parsed.logoUrl || parsed.headerLogoUrl;
+          if (cachedLogo && !cachedLogo.startsWith('blob:')) return cachedLogo;
+        }
+        const directLogo = localStorage.getItem('sirikfit_logo_url');
+        if (directLogo && !directLogo.startsWith('blob:')) return directLogo;
+      } catch (_) {}
+    }
+    const propLogo = (initialCms as any)?.homeContent?.logoUrl || (initialCms as any)?.logoUrl || '';
+    return (propLogo && !propLogo.startsWith('blob:')) ? propLogo : '';
+  });
+
+  const [previewUrl, setPreviewUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const cachedLogo = parsed.logoUrl || parsed.headerLogoUrl;
+          if (cachedLogo && !cachedLogo.startsWith('blob:')) return cachedLogo;
+        }
+        const directLogo = localStorage.getItem('sirikfit_logo_url');
+        if (directLogo && !directLogo.startsWith('blob:')) return directLogo;
+      } catch (_) {}
+    }
+    const propLogo = (initialCms as any)?.homeContent?.logoUrl || (initialCms as any)?.logoUrl || '';
+    return (propLogo && !propLogo.startsWith('blob:')) ? propLogo : '';
+  });
+
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   // Preserve partner stores & banners so they are never lost on save
-  const [preservedStores, setPreservedStores] = useState<any[]>([]);
-  const [preservedBanners, setPreservedBanners] = useState<any[]>([]);
+  const [preservedStores, setPreservedStores] = useState<any[]>(() => {
+    if (Array.isArray(initialCms?.stores) && initialCms.stores.length > 0) return initialCms.stores;
+    return [];
+  });
+  const [preservedBanners, setPreservedBanners] = useState<any[]>(() => {
+    if (Array.isArray(initialCms?.homeBanners) && initialCms.homeBanners.length > 0) return initialCms.homeBanners;
+    return [];
+  });
+
+  const applyHomeData = (homeData: any) => {
+    if (!homeData) return;
+    if (homeData.siteTitle) setSiteTitle(homeData.siteTitle);
+    if (homeData.brandSlogan) setBrandSlogan(homeData.brandSlogan);
+    if (homeData.heroHeading) setHeroHeading(homeData.heroHeading);
+    if (homeData.heroSubheading) setHeroSubheading(homeData.heroSubheading);
+    if (homeData.showTopPromo !== undefined) setShowTopPromo(homeData.showTopPromo);
+    if (homeData.topPromoText) setTopPromoText(homeData.topPromoText);
+    if (homeData.bannerImageUrl) setBannerImageUrl(homeData.bannerImageUrl);
+    if (homeData.calculatorHeading) setCalculatorHeading(homeData.calculatorHeading);
+    
+    const hLogo = homeData.logoUrl || homeData.headerLogoUrl;
+    if (hLogo && !hLogo.startsWith('blob:')) {
+      setLogoUrl(hLogo);
+      setPreviewUrl(hLogo);
+    }
+
+    const stores = homeData.stores || homeData.partnerStores;
+    if (Array.isArray(stores) && stores.length > 0) {
+      setPreservedStores(stores);
+    }
+
+    const banners = homeData.banners || homeData.homeBanners;
+    if (Array.isArray(banners) && banners.length > 0) {
+      setPreservedBanners(banners);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
+
+    // 1. Initial async load
     const loadSettings = async () => {
       setIsLoadingSettings(true);
       try {
         const homeData = await getHomeSettings();
         if (!isMounted) return;
-
-        if (homeData.siteTitle) setSiteTitle(homeData.siteTitle);
-        if (homeData.brandSlogan) setBrandSlogan(homeData.brandSlogan);
-        if (homeData.heroHeading) setHeroHeading(homeData.heroHeading);
-        if (homeData.heroSubheading) setHeroSubheading(homeData.heroSubheading);
-        if (homeData.showTopPromo !== undefined) setShowTopPromo(homeData.showTopPromo);
-        if (homeData.topPromoText) setTopPromoText(homeData.topPromoText);
-        if (homeData.bannerImageUrl) setBannerImageUrl(homeData.bannerImageUrl);
-        if (homeData.calculatorHeading) setCalculatorHeading(homeData.calculatorHeading);
-        
-        const hLogo = homeData.logoUrl || homeData.headerLogoUrl;
-        if (hLogo && !hLogo.startsWith('blob:')) {
-          setLogoUrl(hLogo);
-          setPreviewUrl(hLogo);
-        }
-
-        const stores = homeData.stores || homeData.partnerStores;
-        if (Array.isArray(stores) && stores.length > 0) {
-          setPreservedStores(stores);
-        }
-
-        const banners = homeData.banners || homeData.homeBanners;
-        if (Array.isArray(banners) && banners.length > 0) {
-          setPreservedBanners(banners);
-        }
+        applyHomeData(homeData);
       } catch (err) {
         console.warn('Error loading settings in HomePageSettingsAdmin:', err);
       } finally {
@@ -103,8 +243,34 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     };
     loadSettings();
 
+    // 2. Real-time snapshot listener on settings/home
+    let unsubHome = () => {};
+    if (db) {
+      try {
+        unsubHome = subscribeToHomeSettings((data) => {
+          if (!isMounted) return;
+          applyHomeData(data);
+        });
+      } catch (_e) {}
+    }
+
+    // 3. Storage and CustomEvent listeners for cross-tab or instant updates
+    const handleHomeUpdated = (e: any) => {
+      if (!isMounted) return;
+      const detail = e?.detail;
+      if (detail) applyHomeData(detail);
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('homeSettingsUpdated', handleHomeUpdated);
+    }
+
     return () => {
       isMounted = false;
+      unsubHome();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('homeSettingsUpdated', handleHomeUpdated);
+      }
     };
   }, []);
 

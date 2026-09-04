@@ -45,7 +45,16 @@ export const Header: React.FC<HeaderProps> = ({
 
   const [dynamicLogoUrl, setDynamicLogoUrl] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('sirikfit_logo_url') || '';
+      try {
+        const cachedHome = localStorage.getItem('sirikfit_home_settings');
+        if (cachedHome) {
+          const parsed = JSON.parse(cachedHome);
+          const cachedLogo = parsed.logoUrl || parsed.headerLogoUrl;
+          if (cachedLogo && !cachedLogo.startsWith('blob:')) return cachedLogo;
+        }
+        const stored = localStorage.getItem('sirikfit_logo_url');
+        if (stored && !stored.startsWith('blob:')) return stored;
+      } catch (_) {}
     }
     return '';
   });
@@ -58,16 +67,36 @@ export const Header: React.FC<HeaderProps> = ({
   useEffect(() => {
     const handleSettingsUpdated = (e: any) => {
       const newLogo = e?.detail?.logoUrl;
-      if (typeof newLogo === 'string') {
+      if (typeof newLogo === 'string' && !newLogo.startsWith('blob:')) {
         setDynamicLogoUrl(newLogo.trim());
       } else if (typeof window !== 'undefined') {
-        const stored = localStorage.getItem('sirikfit_logo_url');
-        if (stored) setDynamicLogoUrl(stored);
+        try {
+          const cachedHome = localStorage.getItem('sirikfit_home_settings');
+          if (cachedHome) {
+            const parsed = JSON.parse(cachedHome);
+            const cachedLogo = parsed.logoUrl || parsed.headerLogoUrl;
+            if (cachedLogo && !cachedLogo.startsWith('blob:')) {
+              setDynamicLogoUrl(cachedLogo);
+              return;
+            }
+          }
+          const stored = localStorage.getItem('sirikfit_logo_url');
+          if (stored && !stored.startsWith('blob:')) setDynamicLogoUrl(stored);
+        } catch (_) {}
+      }
+    };
+
+    const handleHomeSettingsUpdated = (e: any) => {
+      const homeData = e?.detail;
+      const newLogo = homeData?.logoUrl || homeData?.headerLogoUrl;
+      if (typeof newLogo === 'string' && !newLogo.startsWith('blob:')) {
+        setDynamicLogoUrl(newLogo.trim());
       }
     };
 
     if (typeof window !== 'undefined') {
       window.addEventListener('settingsUpdated', handleSettingsUpdated);
+      window.addEventListener('homeSettingsUpdated', handleHomeSettingsUpdated);
       window.addEventListener('storage', handleSettingsUpdated);
     }
 
@@ -77,7 +106,7 @@ export const Header: React.FC<HeaderProps> = ({
       if (snap.exists()) {
         const data = snap.data();
         const lUrl = data?.logoUrl ?? data?.headerLogoUrl;
-        if (typeof lUrl === 'string') {
+        if (typeof lUrl === 'string' && !lUrl.startsWith('blob:')) {
           const cleanUrl = lUrl.trim();
           setDynamicLogoUrl(cleanUrl);
           try {
@@ -95,6 +124,7 @@ export const Header: React.FC<HeaderProps> = ({
       unsubHome();
       if (typeof window !== 'undefined') {
         window.removeEventListener('settingsUpdated', handleSettingsUpdated);
+        window.removeEventListener('homeSettingsUpdated', handleHomeSettingsUpdated);
         window.removeEventListener('storage', handleSettingsUpdated);
       }
     };

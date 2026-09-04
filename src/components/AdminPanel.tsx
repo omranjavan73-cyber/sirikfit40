@@ -3220,9 +3220,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const homeSyncPayload: Record<string, any> = {
         updatedAt: new Date().toISOString()
       };
-      if (logoUrl && !logoUrl.startsWith('blob:')) {
-        homeSyncPayload.logoUrl = logoUrl;
-        homeSyncPayload.headerLogoUrl = logoUrl;
+      const resolvedHomeLogo = (cms as any)?.homeContent?.logoUrl || (cms as any)?.logoUrl || '';
+      if (resolvedHomeLogo && !resolvedHomeLogo.startsWith('blob:')) {
+        homeSyncPayload.logoUrl = resolvedHomeLogo;
+        homeSyncPayload.headerLogoUrl = resolvedHomeLogo;
       }
       if (currentHomeContent?.appTitle) homeSyncPayload.siteTitle = currentHomeContent.appTitle;
       if (currentHomeContent?.appSubtitle) homeSyncPayload.brandSlogan = currentHomeContent.appSubtitle;
@@ -7743,15 +7744,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           cms={cms}
           onSaveCms={async (updatedCms) => {
             if (onUpdateCms) onUpdateCms(updatedCms);
+            const homeLogo = (updatedCms as any)?.logoUrl || (updatedCms as any)?.homeContent?.logoUrl || '';
+            const homePayload: Record<string, any> = {
+              ...(updatedCms as any)?.homeContent,
+              ...updatedCms,
+              updatedAt: new Date().toISOString()
+            };
+            if (homeLogo && !homeLogo.startsWith('blob:')) {
+              homePayload.logoUrl = homeLogo;
+              homePayload.headerLogoUrl = homeLogo;
+            }
+
             if (typeof window !== 'undefined') {
               localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
               localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
-              window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms } }));
+              localStorage.setItem('sirikfit_home_settings', JSON.stringify(homePayload));
+              if (homeLogo && !homeLogo.startsWith('blob:')) {
+                localStorage.setItem('sirikfit_logo_url', homeLogo);
+              }
+              window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms, logoUrl: homeLogo } }));
+              window.dispatchEvent(new CustomEvent('homeSettingsUpdated', { detail: homePayload }));
               window.dispatchEvent(new Event('storage'));
             }
             await Promise.all([
               setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
-              setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true })
+              setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
+              setDoc(doc(db, 'settings', 'home'), sanitizePayloadForFirestore(homePayload), { merge: true })
             ]);
             if (onRefresh) onRefresh();
           }}

@@ -108,7 +108,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -3793,6 +3793,409 @@ app.post('/api/payment/simulate', async (req, res) => {
       error: 'پرداخت توسط بانک ناموفق اعلام شد',
       order: store.orders[orderIndex]
     });
+  }
+});
+
+// ====================================================
+// ZIBAL PAYMENT GATEWAY INTEGRATION
+// ====================================================
+
+function getZibalErrorMessage(code: number | string): string {
+  const num = Number(code);
+  switch (num) {
+    case 100: return 'با موفقیت تایید شد';
+    case 102: return 'مرچنت یافت نشد (کد مرچنت زیبال اشتباه یا تایید نشده است)';
+    case 103: return 'درگاه زیبال غیرفعال است';
+    case 104: return 'درگاه نامعتبر است';
+    case 105: return 'مبلغ پرداختی باید حداقل ۱,۰۰۰ تومان باشد';
+    case 106: return 'آدرس بازگشت (Callback URL) نامعتبر است';
+    case 113: return 'مبلغ تراکنش بیش از سقف مجاز شاپرک است';
+    case 201: return 'تراکنش قبلاً تایید شده است';
+    case 202: return 'سفارش پرداخت نشده یا توسط کاربر لغو شده است';
+    case 203: return 'شناسه رهگیری trackId نامعتبر است';
+    default: return `خطای درگاه بانکی زیبال (کد: ${code})`;
+  }
+}
+
+async function getActiveZibalConfig(): Promise<{ merchantId: string; isSandbox: boolean }> {
+  const defaultMerchant = '6a8490e3f37350835317f93e';
+  try {
+    const store = readStore();
+    const gw = store?.cms?.paymentGateway;
+    let merchant = (gw?.zibalMerchantId || gw?.merchantId || '').trim();
+    let isSandbox = gw?.zibalSandbox ?? gw?.isSandbox ?? false;
+
+    if (db) {
+      try {
+        const cmsDoc = await getDoc(doc(db, 'settings', 'cms'));
+        if (cmsDoc.exists()) {
+          const cmsData = cmsDoc.data();
+          const pGw = cmsData?.paymentGateway;
+          if (pGw) {
+            if (pGw.zibalSandbox !== undefined || pGw.isSandbox !== undefined) {
+              isSandbox = pGw.zibalSandbox ?? pGw.isSandbox ?? false;
+            }
+            const m = (pGw.zibalMerchantId || pGw.merchantId || '').trim();
+            if (m && m !== 'zibal') {
+              merchant = m;
+            }
+          }
+        }
+      } catch (_fsErr) {}
+    }
+
+    if (isSandbox) {
+      return { merchantId: 'zibal', isSandbox: true };
+    }
+    return {
+      merchantId: merchant && merchant !== 'zibal' ? merchant : defaultMerchant,
+      isSandbox: false
+    };
+  } catch (_e) {
+    return { merchantId: defaultMerchant, isSandbox: false };
+  }
+}
+
+// GET /api/payment/config
+app.get(['/api/payment/config', '/payment/config'], (_req, res) => {
+  res.json({
+    activeGateway: 'zibal',
+    successMessage: 'سفارش شما با موفقیت ثبت و پرداخت گردید.'
+  });
+});
+
+// POST /api/payment/create: Request payment transaction from Zibal gateway
+app.post(['/api/payment/create', '/payment/create'], async (req, res) => {
+  try {
+    const { orderId, orderData, amountToman, amount, mobile, phoneNumber } = req.body || {};
+
+    const cleanOrderId = String(orderId || orderData?.id || orderData?.trackingCode || `ORD-${Date.now()}`);
+
+    const numAmountToman = Math.round(Number(
+      amountToman ??
+      amount ??
+      orderData?.calculatedToman ??
+      orderData?.totalToman ??
+      orderData?.priceToman ??
+      0
+    ));
+
+    if (!numAmountToman || numAmountToman < 1000) {
+      return res.status(400).json({
+        success: false,
+        error: 'مبلغ سفارش نامعتبر است. حداقل مبلغ پرداخت ۱,۰۰۰ تومان می‌باشد.'
+      });
+    }
+
+    // Zibal expects amount in RIALS (1 Toman = 10 Rials)
+    const amountInRials = numAmountToman * 10;
+
+    // Persist or merge order immediately in database
+    const store = readStore();
+    let currentOrder = store.orders.find(o => o.id === cleanOrderId);
+    if (orderData && typeof orderData === 'object') {
+      currentOrder = {
+        ...(currentOrder || {}),
+        ...orderData,
+        id: cleanOrderId,
+        totalToman: numAmountToman,
+        calculatedToman: numAmountToman,
+        paymentGateway: 'ZIBAL',
+        paymentStatus: currentOrder?.paymentStatus || 'PENDING',
+        updatedAt: new Date().toISOString()
+      };
+      await persistOrder(currentOrder);
+    }
+
+    const rawPhone = mobile || phoneNumber || orderData?.phoneNumber || orderData?.phone || currentOrder?.phoneNumber || '';
+    const cleanPhone = normalizeIranMobile(rawPhone);
+
+    const { merchantId, isSandbox } = await getActiveZibalConfig();
+
+    const hostHeader = req.headers['x-forwarded-host'] || req.headers.host || 'sirikfit.ir';
+    const protoHeader = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+    const origin = `${protoHeader}://${hostHeader}`;
+    const zibalCallback = `${origin}/api/payment/callback?orderId=${encodeURIComponent(cleanOrderId)}`;
+
+    console.log(`[Zibal Gateway] Initiating payment for order ${cleanOrderId}:`, {
+      merchant: merchantId,
+      isSandbox,
+      amountRials: amountInRials,
+      callbackUrl: zibalCallback
+    });
+
+    const response = await axios.post('https://gateway.zibal.ir/v1/request', {
+      merchant: merchantId,
+      amount: amountInRials,
+      callbackUrl: zibalCallback,
+      description: `خرید از سیریک فیت - سفارش ${cleanOrderId}`,
+      orderId: cleanOrderId,
+      mobile: cleanPhone || undefined
+    }, {
+      timeout: 15000,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    const data = response.data;
+    console.log(`[Zibal Gateway] Response for order ${cleanOrderId}:`, data);
+
+    if (data && data.result === 100) {
+      const trackId = String(data.trackId);
+      const paymentUrl = `https://gateway.zibal.ir/start/${trackId}`;
+
+      // Update trackId on the order
+      if (currentOrder) {
+        currentOrder.trackId = trackId;
+        currentOrder.paymentTrackId = trackId;
+        currentOrder.gateway = 'ZIBAL';
+        await persistOrder(currentOrder);
+      }
+
+      return res.json({
+        success: true,
+        result: 100,
+        trackId,
+        paymentUrl,
+        redirectUrl: paymentUrl,
+        url: paymentUrl,
+        orderId: cleanOrderId
+      });
+    } else {
+      const errorMsg = getZibalErrorMessage(data?.result ?? -1);
+      console.warn(`[Zibal Gateway] Request rejected (code ${data?.result}):`, data?.message);
+      return res.status(400).json({
+        success: false,
+        result: data?.result,
+        error: errorMsg,
+        message: data?.message || errorMsg
+      });
+    }
+  } catch (err: any) {
+    console.error('[Zibal Gateway] Request exception:', err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: 'خطای برقراری ارتباط با درگاه پرداخت زیبال: ' + (err?.response?.data?.message || err?.message || 'پاسخی از سرور دریافت نشد.')
+    });
+  }
+});
+
+// POST /api/payment/verify: Verify transaction with Zibal gateway
+app.post(['/api/payment/verify', '/payment/verify'], async (req, res) => {
+  try {
+    const { trackId, orderId } = req.body || {};
+    if (!trackId) {
+      return res.status(400).json({ success: false, error: 'شناسه رهگیری trackId ارسال نشده است.' });
+    }
+
+    const { merchantId } = await getActiveZibalConfig();
+
+    console.log(`[Zibal Verify] Verifying trackId ${trackId} for order ${orderId || 'unknown'}`);
+
+    const response = await axios.post('https://gateway.zibal.ir/v1/verify', {
+      merchant: merchantId,
+      trackId: String(trackId)
+    }, {
+      timeout: 15000,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    const vData = response.data;
+    console.log(`[Zibal Verify] Response for trackId ${trackId}:`, vData);
+
+    if (vData && (vData.result === 100 || vData.result === 201)) {
+      const refNumber = String(vData.refNumber || vData.refId || trackId);
+      const cardNumber = String(vData.cardNumber || '');
+      const store = readStore();
+      const cleanOrderId = String(orderId || vData.orderId || '');
+
+      let matchedOrder = store.orders.find(o =>
+        (cleanOrderId && o.id === cleanOrderId) ||
+        o.trackId === String(trackId) ||
+        o.paymentTrackId === String(trackId)
+      );
+
+      if (!matchedOrder && cleanOrderId && db) {
+        try {
+          const docSnap = await getDoc(doc(db, 'orders', cleanOrderId));
+          if (docSnap.exists()) {
+            matchedOrder = { id: docSnap.id, ...docSnap.data() } as any;
+          }
+        } catch (_e) {}
+      }
+
+      if (matchedOrder) {
+        const wasAlreadyPaid = matchedOrder.paymentStatus === 'PAID';
+        matchedOrder.paymentStatus = 'PAID';
+        matchedOrder.shippingStatus = matchedOrder.shippingStatus || 'PURCHASED';
+        matchedOrder.paymentRefId = refNumber;
+        matchedOrder.refNumber = refNumber;
+        matchedOrder.cardNumber = cardNumber;
+        matchedOrder.paidAt = vData.paidAt || new Date().toISOString();
+        matchedOrder.updatedAt = new Date().toISOString();
+
+        await persistOrder(matchedOrder);
+
+        if (!wasAlreadyPaid) {
+          try {
+            sendTelegramAdminNotification(matchedOrder, store.cms);
+            sendEmailAdminNotification(matchedOrder, store.cms);
+            sendGoogleSheetWebhook(formatOrderSheetPayload(matchedOrder)).catch(() => {});
+
+            const customerPhone = normalizeIranMobile(matchedOrder.phoneNumber || (matchedOrder as any).customerPhone);
+            if (customerPhone && /^09\d{9}$/.test(customerPhone)) {
+              getActiveSmsConfig().then(cfg => {
+                if (cfg.enabled) {
+                  sendSmsIrFastSend({
+                    mobile: customerPhone,
+                    templateId: cfg.orderSuccessTemplateId,
+                    parameters: [
+                      { name: 'NAME', value: matchedOrder.customerName || 'کاربر گرامی' },
+                      { name: 'ORDER_ID', value: matchedOrder.trackingCode || matchedOrder.id }
+                    ]
+                  }).catch(e => console.warn('[Order SMS Dispatch Notice]:', e));
+                }
+              }).catch(() => {});
+            }
+          } catch (_notifyErr) {}
+        }
+      }
+
+      return res.json({
+        success: true,
+        result: vData.result,
+        refNumber,
+        cardNumber,
+        amount: vData.amount,
+        orderId: matchedOrder?.id || cleanOrderId,
+        order: matchedOrder || null,
+        message: 'پرداخت با موفقیت تایید و ثبت شد.'
+      });
+    } else {
+      const errorMsg = getZibalErrorMessage(vData?.result ?? -1);
+      return res.status(400).json({
+        success: false,
+        result: vData?.result,
+        error: errorMsg,
+        message: vData?.message || errorMsg
+      });
+    }
+  } catch (err: any) {
+    console.error('[Zibal Verify] Exception:', err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: 'خطا در تایید تراکنش بانکی: ' + (err?.message || 'خطای سرور')
+    });
+  }
+});
+
+// ALL /api/payment/callback: Gateway redirect return URL (handles GET and POST)
+app.all(['/api/payment/callback', '/payment/callback'], async (req, res) => {
+  try {
+    const rawTrackId = req.query.trackId || req.body?.trackId;
+    const rawSuccess = req.query.success || req.body?.success;
+    const rawStatus = req.query.status || req.body?.status;
+    const rawOrderId = req.query.orderId || req.body?.orderId;
+
+    const trackId = rawTrackId ? String(rawTrackId) : '';
+    const isSuccess = String(rawSuccess) === '1' || String(rawStatus) === '2';
+    const cleanOrderId = rawOrderId ? String(rawOrderId) : '';
+
+    const hostHeader = req.headers['x-forwarded-host'] || req.headers.host || 'sirikfit.ir';
+    const protoHeader = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+    const origin = `${protoHeader}://${hostHeader}`;
+
+    console.log(`[Zibal Callback] Callback received:`, { trackId, success: rawSuccess, status: rawStatus, orderId: cleanOrderId });
+
+    if (!trackId) {
+      return res.redirect(302, `${origin}/payment-result?status=failed&message=${encodeURIComponent('شناسه تراکنش نامعتبر است.')}`);
+    }
+
+    if (!isSuccess) {
+      const store = readStore();
+      const order = store.orders.find(o => (cleanOrderId && o.id === cleanOrderId) || o.trackId === trackId);
+      if (order) {
+        order.paymentStatus = 'FAILED';
+        order.updatedAt = new Date().toISOString();
+        await persistOrder(order);
+      }
+      const failMsg = getZibalErrorMessage(rawStatus || 202);
+      return res.redirect(302, `${origin}/payment-result?orderId=${encodeURIComponent(cleanOrderId)}&trackId=${encodeURIComponent(trackId)}&success=0&status=failed&message=${encodeURIComponent(failMsg)}`);
+    }
+
+    // Verify transaction with Zibal
+    const { merchantId } = await getActiveZibalConfig();
+    const verifyRes = await axios.post('https://gateway.zibal.ir/v1/verify', {
+      merchant: merchantId,
+      trackId: trackId
+    }, {
+      timeout: 15000,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    const vData = verifyRes.data;
+    console.log(`[Zibal Callback] Verify result for ${trackId}:`, vData);
+
+    if (vData && (vData.result === 100 || vData.result === 201)) {
+      const refNumber = String(vData.refNumber || vData.refId || trackId);
+      const store = readStore();
+      let order = store.orders.find(o => (cleanOrderId && o.id === cleanOrderId) || o.trackId === trackId);
+
+      if (!order && cleanOrderId && db) {
+        try {
+          const docSnap = await getDoc(doc(db, 'orders', cleanOrderId));
+          if (docSnap.exists()) {
+            order = { id: docSnap.id, ...docSnap.data() } as any;
+          }
+        } catch (_e) {}
+      }
+
+      if (order) {
+        const wasAlreadyPaid = order.paymentStatus === 'PAID';
+        order.paymentStatus = 'PAID';
+        order.shippingStatus = order.shippingStatus || 'PURCHASED';
+        order.paymentRefId = refNumber;
+        order.refNumber = refNumber;
+        order.cardNumber = String(vData.cardNumber || '');
+        order.paidAt = vData.paidAt || new Date().toISOString();
+        order.updatedAt = new Date().toISOString();
+
+        await persistOrder(order);
+
+        if (!wasAlreadyPaid) {
+          try {
+            sendTelegramAdminNotification(order, store.cms);
+            sendEmailAdminNotification(order, store.cms);
+            sendGoogleSheetWebhook(formatOrderSheetPayload(order)).catch(() => {});
+            const customerPhone = normalizeIranMobile(order.phoneNumber || (order as any).customerPhone);
+            if (customerPhone && /^09\d{9}$/.test(customerPhone)) {
+              getActiveSmsConfig().then(cfg => {
+                if (cfg.enabled) {
+                  sendSmsIrFastSend({
+                    mobile: customerPhone,
+                    templateId: cfg.orderSuccessTemplateId,
+                    parameters: [
+                      { name: 'NAME', value: order.customerName || 'کاربر گرامی' },
+                      { name: 'ORDER_ID', value: order.trackingCode || order.id }
+                    ]
+                  }).catch(() => {});
+                }
+              }).catch(() => {});
+            }
+          } catch (_notifyErr) {}
+        }
+      }
+
+      return res.redirect(302, `${origin}/payment-result?orderId=${encodeURIComponent(cleanOrderId || order?.id || '')}&trackId=${encodeURIComponent(trackId)}&success=1&status=success&refNumber=${encodeURIComponent(refNumber)}`);
+    } else {
+      const errorMsg = getZibalErrorMessage(vData?.result ?? -1);
+      return res.redirect(302, `${origin}/payment-result?orderId=${encodeURIComponent(cleanOrderId)}&trackId=${encodeURIComponent(trackId)}&success=0&status=failed&message=${encodeURIComponent(errorMsg)}`);
+    }
+  } catch (err: any) {
+    console.error('[Zibal Callback] Exception:', err?.message || err);
+    const hostHeader = req.headers['x-forwarded-host'] || req.headers.host || 'sirikfit.ir';
+    const protoHeader = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+    const origin = `${protoHeader}://${hostHeader}`;
+    return res.redirect(302, `${origin}/payment-result?status=failed&message=${encodeURIComponent('خطا در پردازش نتیجه پرداخت')}`);
   }
 });
 

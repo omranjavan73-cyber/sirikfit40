@@ -21,7 +21,8 @@ export const sortNewestFirst = <T extends any>(arr: T[]): T[] => {
   return [...arr].sort((a: any, b: any) => {
     const getTime = (item: any): number => {
       if (!item) return 0;
-      const candidate = item.sectionAddedAt || item.createdAt || item.updatedAt;
+      if (typeof item.createdAt === 'number' && !isNaN(item.createdAt) && item.createdAt > 0) return item.createdAt;
+      const candidate = item.createdAt || item.sectionAddedAt || item.updatedAt;
       if (candidate) {
         if (typeof candidate === 'number' && !isNaN(candidate) && candidate > 0) return candidate;
         if (typeof candidate === 'object' && candidate !== null) {

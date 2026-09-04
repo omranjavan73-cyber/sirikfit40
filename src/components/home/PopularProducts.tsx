@@ -65,42 +65,30 @@ export const PopularProducts: React.FC<PopularProductsProps> = ({
             return isPub && !isGhost && (p.popularOrder === undefined || p.popularOrder >= 0);
           });
 
-        // Sort ascending by popularOrder (0 is highest priority), then newest first
+        // Sort items marked isPopular: true descending by popularOrder (or createdAt),
+        // ensuring the most recently starred product appears as the first card in the RTL carousel.
         fetched.sort((a: any, b: any) => {
-          const orderA = typeof a.popularOrder === 'number' && a.popularOrder >= 0 ? a.popularOrder : 999999999;
-          const orderB = typeof b.popularOrder === 'number' && b.popularOrder >= 0 ? b.popularOrder : 999999999;
-          if (orderA !== orderB) return orderA - orderB;
-          const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
-          const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
-          return timeB - timeA;
+          const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+          const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+          const orderA = typeof a.popularOrder === 'number' && a.popularOrder > 0 ? a.popularOrder : timeA;
+          const orderB = typeof b.popularOrder === 'number' && b.popularOrder > 0 ? b.popularOrder : timeB;
+          return orderB - orderA;
         });
         setPopularItems(fetched);
       };
 
       const popularQuery = query(
         collection(db, 'products'),
-        where('isPopular', '==', true),
-        orderBy('popularOrder', 'asc')
+        where('isPopular', '==', true)
       );
 
-      let unsubscribeFallback: (() => void) | null = null;
       const unsubscribe = onSnapshot(
         popularQuery,
         (snapshot) => {
           processSnapshot(snapshot);
         },
         (error) => {
-          console.warn('[PopularProducts] onSnapshot index warning, using resilient fallback:', error?.message || error);
-          // Resilient fallback: query isPopular == true without orderBy and sort in-memory
-          const fallbackQuery = query(
-            collection(db, 'products'),
-            where('isPopular', '==', true)
-          );
-          unsubscribeFallback = onSnapshot(fallbackQuery, (fbSnap) => {
-            processSnapshot(fbSnap);
-          }, (fbErr) => {
-            console.warn('[PopularProducts] Fallback snapshot error:', fbErr);
-          });
+          console.warn('[PopularProducts] onSnapshot notice:', error?.message || error);
         }
       );
 

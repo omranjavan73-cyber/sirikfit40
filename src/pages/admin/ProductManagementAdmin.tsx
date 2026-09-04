@@ -626,9 +626,17 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
     const gallery = deduplicateImageUrls(normImages, normMain);
 
     const resolvedPriceAed = aedVal > 0 ? aedVal : (finalToman > 0 && liveAedRate > 0 ? Math.round(finalToman / liveAedRate) : 0);
+    const now = Date.now();
+    const rawCreated = item.createdAt || item.sectionAddedAt;
+    const createdAtMs = rawCreated ? (
+      typeof rawCreated === 'number' && !isNaN(rawCreated) && rawCreated > 0
+        ? rawCreated
+        : (new Date(rawCreated).getTime() || now)
+    ) : now;
+
     const docId = item.id && !item.id.startsWith('draft_') && !item.id.startsWith('temp_')
       ? item.id
-      : `prod_${Date.now()}`;
+      : `prod_${now}`;
 
     const cleanPayload: any = {
       ...item,
@@ -646,12 +654,12 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
       priceToman: finalToman,
       manualPriceToman: manualToman > 0 ? manualToman : null,
       isManualPrice: Boolean(item.isManualPrice || manualToman > 0),
-      createdAt: item.createdAt || Date.now(),
-      updatedAt: Date.now(),
-      sectionAddedAt: item.sectionAddedAt || nowIso,
+      createdAt: createdAtMs,
+      updatedAt: now,
+      sectionAddedAt: new Date(now).toISOString(),
       targetSection,
       isPopular: Boolean(item.isPopular),
-      popularOrder: item.isPopular ? (typeof item.popularOrder === 'number' && item.popularOrder >= 0 ? item.popularOrder : Date.now()) : -1,
+      popularOrder: item.isPopular ? (typeof item.popularOrder === 'number' && item.popularOrder > 0 ? item.popularOrder : now) : -1,
       isActive: item.isActive !== false,
       isPublished: item.isPublished !== false,
       isDraft: false
@@ -706,11 +714,19 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
       return;
     }
 
+    const now = Date.now();
     const docId = draftProduct.id && !draftProduct.id.startsWith('draft_') && !draftProduct.id.startsWith('manual_')
       ? draftProduct.id 
-      : `prod_${Date.now()}`;
+      : `prod_${now}`;
 
     const targetSection: 'deals' | 'iran_warehouse' = activeTab === 'deals' ? 'deals' : 'iran_warehouse';
+
+    const rawCreated = draftProduct.createdAt || (draftProduct as any).sectionAddedAt;
+    const createdAtMs = rawCreated ? (
+      typeof rawCreated === 'number' && !isNaN(rawCreated) && rawCreated > 0
+        ? rawCreated
+        : (new Date(rawCreated).getTime() || now)
+    ) : now;
 
     const payload: Product = {
       ...draftProduct,
@@ -725,9 +741,9 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
       targetSection,
       isActive: draftProduct.isActive !== false,
       isPopular: Boolean(draftProduct.isPopular),
-      popularOrder: draftProduct.isPopular ? Date.now() : -1,
-      createdAt: draftProduct.createdAt || Date.now(),
-      updatedAt: Date.now()
+      popularOrder: draftProduct.isPopular ? (typeof draftProduct.popularOrder === 'number' && draftProduct.popularOrder > 0 ? draftProduct.popularOrder : now) : -1,
+      createdAt: createdAtMs,
+      updatedAt: now
     };
 
     try {
@@ -1048,7 +1064,8 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
 
     const currentPop = Boolean(existing?.isPopular);
     const nextState = !currentPop;
-    const nextOrder = nextState ? 0 : -1;
+    const now = Date.now();
+    const nextOrder = nextState ? now : -1;
 
     // Optimistic local state update across all lists without resetting open rows, modals, or scroll
     setProducts((prev) => prev.map((p) => p.id === targetId ? { ...p, isPopular: nextState, popularOrder: nextOrder } : p));
@@ -1394,7 +1411,8 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
             aedRate={liveAedRate}
             showToast={showToast}
             onSave={async (draft) => {
-              const nowIso = new Date().toISOString();
+              const now = Date.now();
+              const nowIso = new Date(now).toISOString();
               const sourceUrl = draft.sourceUrl || draft.url || 'https://drnutrition.com';
               const rawImg = draft.imageUrl || draft.image || '';
               const normMain = normalizeProductImageUrl(rawImg, draft.storeDomain || sourceUrl) || rawImg;
@@ -1404,15 +1422,23 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
                 normMain
               );
 
+              const rawCreated = (draft as any).createdAt;
+              const createdAtMs = rawCreated ? (
+                typeof rawCreated === 'number' && !isNaN(rawCreated) && rawCreated > 0
+                  ? rawCreated
+                  : (new Date(rawCreated).getTime() || now)
+              ) : now;
+
               const itemDraft = {
                 ...draft,
                 imageUrl: normMain,
                 image: normMain,
                 images: normGallery,
                 galleryImages: normGallery,
-                createdAt: (draft as any).createdAt || nowIso,
+                createdAt: createdAtMs,
                 sectionAddedAt: nowIso,
-                updatedAt: nowIso
+                updatedAt: now,
+                popularOrder: draft.isPopular ? (typeof draft.popularOrder === 'number' && draft.popularOrder > 0 ? draft.popularOrder : now) : -1
               };
               if (draft.targetSection === 'iran_warehouse') {
                 const updated = [itemDraft as any, ...inventoryList.filter(p => p.id !== draft.id)];

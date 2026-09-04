@@ -56,11 +56,19 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
     }
   };
 
-  const list = (items || products || []).filter(prod => {
-    if (!prod || !prod.id) return false;
-    const t = (prod.title || prod.titleFa || prod.name || (prod.rawItem && (prod.rawItem.title || prod.rawItem.name)) || '').trim();
-    return t && t !== 'محصول پرطرفدار' && t !== 'بدون عنوان' && t !== 'محصول بدون عنوان';
-  });
+  const list = (items || products || [])
+    .filter(prod => {
+      if (!prod || !prod.id) return false;
+      const t = (prod.title || prod.titleFa || prod.name || (prod.rawItem && (prod.rawItem.title || prod.rawItem.name)) || '').trim();
+      return t && t !== 'محصول پرطرفدار' && t !== 'بدون عنوان' && t !== 'محصول بدون عنوان';
+    })
+    .sort((a: any, b: any) => {
+      const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+      const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+      const orderA = typeof a.popularOrder === 'number' && a.popularOrder > 0 ? a.popularOrder : timeA;
+      const orderB = typeof b.popularOrder === 'number' && b.popularOrder > 0 ? b.popularOrder : timeB;
+      return orderB - orderA;
+    });
 
   if (!list || list.length === 0) {
     return null;

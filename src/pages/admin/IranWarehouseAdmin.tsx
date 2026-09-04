@@ -165,7 +165,7 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
     isPopular: Boolean(prod.isPopular),
     isPopularSample: Boolean(prod.isPopularSample ?? prod.isPopular),
     popularOrder: prod.isPopular
-      ? (typeof prod.popularOrder === 'number' && prod.popularOrder >= 0 ? prod.popularOrder : Date.now())
+      ? (typeof prod.popularOrder === 'number' && prod.popularOrder > 0 ? prod.popularOrder : Date.now())
       : -1,
     isFeatured: Boolean(prod.isFeatured || prod.isPopular),
     inStock: prod.inStock !== false,
@@ -174,7 +174,10 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
     allowedSizes: cleanSizes,
     sizes: cleanSizes,
     variants: cleanVariants,
-    updatedAt: new Date().toISOString()
+    createdAt: typeof prod.createdAt === 'number' && !isNaN(prod.createdAt) && prod.createdAt > 0
+      ? prod.createdAt
+      : (prod.createdAt ? new Date(prod.createdAt).getTime() : Date.now()),
+    updatedAt: Date.now()
   };
 };
 
@@ -214,8 +217,8 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
     return (initialItems || [])
       .filter(i => !isCorruptedProduct(i))
       .sort((a, b) => {
-        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
-        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
         return timeB - timeA;
       });
   });
@@ -223,8 +226,8 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
   useEffect(() => {
     if (Array.isArray(initialItems)) {
       setItems(initialItems.filter(i => !isCorruptedProduct(i)).sort((a, b) => {
-        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
-        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
         return timeB - timeA;
       }));
     }
@@ -390,8 +393,9 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
     if (!target) return;
     const currentPop = Boolean((target as any)?.isPopular);
     const nextPop = !currentPop;
-    // 0 is highest priority in popular sort (renders first from right)
-    const nextOrder = nextPop ? 0 : -1;
+    const now = Date.now();
+    // Millisecond timestamp for popular sort ensures most recently starred is placed first
+    const nextOrder = nextPop ? now : -1;
 
     // Optimistic local update in items state
     setItems((prev) =>
@@ -729,14 +733,15 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
         sizes: extracted.sizes as any,
         allowedSizes: extracted.sizes as any,
         variants: dynamicVariants,
-        createdAt: new Date().toISOString(),
-        sectionAddedAt: new Date().toISOString()
+        createdAt: Date.now(),
+        sectionAddedAt: new Date().toISOString(),
+        updatedAt: Date.now()
       };
 
-      setItems(prev => [newItem, ...prev.filter(i => !isCorruptedProduct(i))]);
+      setItems(prev => [newItem, ...prev.filter(i => i.id !== newItem.id && !isCorruptedProduct(i))]);
       setExpandedIds(prev => new Set([newItem.id, ...prev]));
       setNewItemUrl('');
-      if (showToast) showToast('محصول با موفقیت استخراج و به عنوان پیش‌نویس ثبت شد.', 'success');
+      if (showToast) showToast('محصول با موفقیت استخراج و به عنوان پیش‌نویس در صدر لیست ثبت شد.', 'success');
 
     } catch (err: any) {
       if (showToast) showToast('خطا در استخراج: ' + err.message, 'error');
@@ -749,8 +754,9 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
   const handleCreateManualItem = () => {
     const mainCat = newItemCategory || categoriesTree[0]?.name || 'مکمل‌های ورزشی';
     const subCat = newItemSubCategory || categoriesTree[0]?.subCategories?.[0]?.name || '';
+    const now = Date.now();
     const manualItem: LocalInventoryItem = {
-      id: `manual_iran_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: `manual_iran_${now}_${Math.random().toString(36).substring(2, 6)}`,
       title: '',
       titleFa: '',
       titleEn: '',
@@ -778,11 +784,11 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
       targetSection: 'iran_warehouse',
       storeName: 'انبار ایران (تحویل فوری)',
       storeDomain: 'https://sirikfit.ir/warehouse',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      sectionAddedAt: new Date().toISOString()
+      createdAt: now,
+      updatedAt: now,
+      sectionAddedAt: new Date(now).toISOString()
     };
-    const updated = [manualItem, ...items];
+    const updated = [manualItem, ...items.filter(i => i.id !== manualItem.id)];
     setItems(updated);
     setExpandedItemId(manualItem.id);
     if (showToast) showToast('محصول دستی خام اضافه شد (ردیف اول باز شد)', 'success');
@@ -883,14 +889,24 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
 
     setIsSaving(true);
     try {
+      const now = Date.now();
       const cleanList: LocalInventoryItem[] = [];
 
       for (const item of populatedItems) {
         if (!item.id) continue;
         if (isCorruptedProduct(item)) continue;
 
+        const rawCreated = item.createdAt || item.sectionAddedAt;
+        const createdAtMs = rawCreated ? (
+          typeof rawCreated === 'number' && !isNaN(rawCreated) && rawCreated > 0
+            ? rawCreated
+            : (new Date(rawCreated).getTime() || now)
+        ) : now;
+
         const cleanDoc = sanitizeProductPayload({
           ...item,
+          createdAt: createdAtMs,
+          updatedAt: now,
           targetSection: 'iran_warehouse'
         }, aedRate, margin);
 
@@ -903,11 +919,12 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
           const cleanPayload = {
             ...cleanDoc,
             id: finalId,
+            createdAt: createdAtMs,
+            updatedAt: now,
             targetSection: 'iran_warehouse' as const,
             isActive: cleanDoc.isActive ?? true,
             isPopular: Boolean(cleanDoc.isPopular),
-            popularOrder: cleanDoc.isPopular ? (typeof cleanDoc.popularOrder === 'number' && cleanDoc.popularOrder >= 0 ? cleanDoc.popularOrder : 0) : -1,
-            updatedAt: new Date().toISOString()
+            popularOrder: cleanDoc.isPopular ? (typeof cleanDoc.popularOrder === 'number' && cleanDoc.popularOrder > 0 ? cleanDoc.popularOrder : now) : -1,
           };
           const safePayload = sanitizePayloadForFirestore(cleanPayload);
           await Promise.all([
@@ -917,10 +934,10 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
         }
       }
 
-      // Sort newest-first
+      // Universal Descending Sort (Newest-First / LIFO)
       cleanList.sort((a, b) => {
-        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
-        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
         return timeB - timeA;
       });
 
@@ -946,24 +963,24 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-3xl p-5 shadow-xs">
         <div>
           <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-emerald-600" />
-            <span>مدیریت انبار ایران ({toPersianDigits(items.length)} محصول)</span>
+            <Package className="w-5 h-5 text-blue-500" />
+            <span>مدیریت محصولات انبار ایران ({toPersianDigits(items.length)} محصول)</span>
           </h3>
-          <p className="text-[11px] text-slate-500 mt-0.5">مدیریت موجودی تحویل فوری، عناوین دوزبانه (FA/EN) و ذخیره مطمئن در Firestore</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">فرمول قیمت‌گذاری انبار ایران (بدون هزینه باربری هوایی) و ذخیره مستقیم در دیتابیس</p>
         </div>
       </div>
 
       {/* ── URL Extractor Bar ── */}
-      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-3xl p-5 space-y-3">
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-3xl p-5 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <p className="text-xs font-black text-emerald-900 flex items-center gap-2">
+          <p className="text-xs font-black text-blue-900 flex items-center gap-2">
             <Zap className="w-4 h-4" />
-            <span>استخراج کالا از لینک خارجی یا ایجاد محصول دستی انبار ایران:</span>
+            <span>استخراج محصول انبار ایران از لینک خارجی یا ایجاد دستی کالا:</span>
           </p>
           <button
             type="button"
             onClick={handleCreateManualItem}
-            className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
+            className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>افزودن دستی کالا</span>
@@ -977,7 +994,7 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
               onChange={e => setNewItemUrl(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleExtract()}
               placeholder="https://www.drnutrition.com/..."
-              className="w-full bg-white border border-emerald-300 text-slate-900 text-xs pl-9 pr-3 py-2.5 rounded-xl focus:outline-none focus:border-emerald-600 dir-ltr font-mono"
+              className="w-full bg-white border border-blue-300 text-slate-900 text-xs pl-9 pr-3 py-2.5 rounded-xl focus:outline-none focus:border-blue-600 dir-ltr font-mono"
             />
             {newItemUrl && (
               <button
@@ -997,18 +1014,19 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
               const cat = categoriesTree.find(c => c.name === e.target.value);
               setNewItemSubCategory(cat?.subCategories?.[0]?.name || '');
             }}
-            className="sm:col-span-3 bg-white border border-emerald-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold"
+            className="sm:col-span-3 bg-white border border-blue-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold"
           >
             {categoriesTree.map(c => <option key={c.id || c.slug} value={c.name}>{c.name}</option>)}
           </select>
           <select
             value={newItemSubCategory}
             onChange={e => setNewItemSubCategory(e.target.value)}
-            className="sm:col-span-2 bg-white border border-emerald-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold"
+            className="sm:col-span-2 bg-white border border-blue-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold"
           >
-            {(categoriesTree.find(c => c.name === newItemCategory)?.subCategories || []).map(s =>
-              <option key={s.id || s.slug} value={s.name}>{s.name}</option>
-            )}
+            <option value="">همه زیردسته‌ها</option>
+            {categoriesTree.find(c => c.name === newItemCategory)?.subCategories?.map(sc => (
+              <option key={sc.id || sc.slug} value={sc.name}>{sc.name}</option>
+            ))}
           </select>
           <button
             type="button" onClick={handleExtract}
@@ -1055,7 +1073,14 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
 
       {/* ── Product Accordion List ── */}
       <div className="space-y-2">
-        {filteredItems.map((item, idx) => {
+        {filteredItems
+          .slice()
+          .sort((a, b) => {
+            const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+            const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+            return timeB - timeA;
+          })
+          .map((item, idx) => {
           const isOpen = expandedIds.has(item.id);
           const flavorsPool = (item.flavors as any as string[]) || [];
           const sizesPool = (item.sizes as any as string[]) || [];

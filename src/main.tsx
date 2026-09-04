@@ -23,7 +23,7 @@ if ('caches' in window) {
 }
 
 // Global App Build Version synchronization
-const CURRENT_VERSION = "2026.09.04-v1";
+const CURRENT_VERSION = "2026.09.04-v2";
 const savedVersion = localStorage.getItem("sirikfit_app_version");
 if (savedVersion !== CURRENT_VERSION) {
   localStorage.clear();

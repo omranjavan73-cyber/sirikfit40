@@ -166,7 +166,7 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
     isPopular: Boolean(prod.isPopular),
     isPopularSample: Boolean(prod.isPopularSample ?? prod.isPopular),
     popularOrder: prod.isPopular
-      ? (typeof prod.popularOrder === 'number' && prod.popularOrder >= 0 ? prod.popularOrder : Date.now())
+      ? (typeof prod.popularOrder === 'number' && prod.popularOrder > 0 ? prod.popularOrder : Date.now())
       : -1,
     isFeatured: Boolean(prod.isFeatured || prod.isPopular),
     inStock: prod.inStock !== false,
@@ -175,7 +175,10 @@ export const sanitizeProductPayload = (prod: any, globalRate: number = 54500, de
     allowedSizes: cleanSizes,
     sizes: cleanSizes,
     variants: cleanVariants,
-    updatedAt: new Date().toISOString()
+    createdAt: typeof prod.createdAt === 'number' && !isNaN(prod.createdAt) && prod.createdAt > 0
+      ? prod.createdAt
+      : (prod.createdAt ? new Date(prod.createdAt).getTime() : Date.now()),
+    updatedAt: Date.now()
   };
 };
 
@@ -217,8 +220,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
     return (initialDeals || [])
       .filter(d => !isCorruptedProduct(d))
       .sort((a, b) => {
-        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
-        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
         return timeB - timeA;
       });
   });
@@ -226,8 +229,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   useEffect(() => {
     if (Array.isArray(initialDeals)) {
       setDeals(initialDeals.filter(d => !isCorruptedProduct(d)).sort((a, b) => {
-        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
-        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
         return timeB - timeA;
       }));
     }
@@ -379,8 +382,9 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
     if (!target) return;
     const currentPop = Boolean((target as any)?.isPopular);
     const nextPop = !currentPop;
-    // 0 is highest priority in popular sort (renders first from right)
-    const nextOrder = nextPop ? 0 : -1;
+    const now = Date.now();
+    // Millisecond timestamp for popular sort ensures most recently starred is placed first
+    const nextOrder = nextPop ? now : -1;
 
     // Optimistic local update
     setDeals((prev) =>
@@ -683,14 +687,15 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         sizes: extracted.sizes as any,
         allowedSizes: extracted.sizes as any,
         variants: dynamicVariants,
-        createdAt: new Date().toISOString(),
-        sectionAddedAt: new Date().toISOString()
+        createdAt: Date.now(),
+        sectionAddedAt: new Date().toISOString(),
+        updatedAt: Date.now()
       };
 
-      setDeals(prev => [newDeal, ...prev.filter(d => !isCorruptedProduct(d))]);
+      setDeals(prev => [newDeal, ...prev.filter(d => d.id !== newDeal.id && !isCorruptedProduct(d))]);
       setExpandedIds(prev => new Set([newDeal.id, ...prev]));
       setNewDealUrl('');
-      if (showToast) showToast('محصول با موفقیت استخراج و به عنوان پیش‌نویس ثبت شد.', 'success');
+      if (showToast) showToast('محصول با موفقیت استخراج و به عنوان پیش‌نویس در صدر لیست ثبت شد.', 'success');
 
     } catch (err: any) {
       if (showToast) showToast('خطا در استخراج: ' + err.message, 'error');
@@ -703,8 +708,9 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   const handleCreateManualDeal = () => {
     const mainCat = newDealCategory || categoriesTree[0]?.name || 'مکمل‌های ورزشی';
     const subCat = newDealSubCategory || categoriesTree[0]?.subCategories?.[0]?.name || '';
+    const now = Date.now();
     const manualDeal: FeaturedDeal = {
-      id: `manual_deal_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: `manual_deal_${now}_${Math.random().toString(36).substring(2, 6)}`,
       title: '',
       titleFa: '',
       titleEn: '',
@@ -733,10 +739,11 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
       isPopular: false,
       isFeatured: false,
       variants: [],
-      createdAt: new Date().toISOString(),
-      sectionAddedAt: new Date().toISOString()
+      createdAt: now,
+      sectionAddedAt: new Date(now).toISOString(),
+      updatedAt: now
     };
-    setDeals(prev => [manualDeal, ...prev]);
+    setDeals(prev => [manualDeal, ...prev.filter(d => d.id !== manualDeal.id)]);
     setExpandedIds(prev => new Set([manualDeal.id, ...prev]));
     if (showToast) showToast('محصول دستی جدید به پیشنهادهای ویژه اضافه شد (ردیف اول باز شد)', 'success');
   };
@@ -829,14 +836,24 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
 
     setIsSaving(true);
     try {
+      const now = Date.now();
       const cleanList: FeaturedDeal[] = [];
 
       for (const deal of populatedDeals) {
         if (!deal.id) continue;
         if (isCorruptedProduct(deal)) continue;
 
+        const rawCreated = deal.createdAt || deal.sectionAddedAt;
+        const createdAtMs = rawCreated ? (
+          typeof rawCreated === 'number' && !isNaN(rawCreated) && rawCreated > 0
+            ? rawCreated
+            : (new Date(rawCreated).getTime() || now)
+        ) : now;
+
         const cleanDoc = sanitizeProductPayload({
           ...deal,
+          createdAt: createdAtMs,
+          updatedAt: now,
           targetSection: 'deals'
         }, aedRate, defaultMargin);
 
@@ -849,11 +866,12 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           const cleanPayload = {
             ...cleanDoc,
             id: finalId,
+            createdAt: createdAtMs,
+            updatedAt: now,
             targetSection: 'deals' as const,
             isActive: cleanDoc.isActive ?? true,
             isPopular: Boolean(cleanDoc.isPopular),
-            popularOrder: cleanDoc.isPopular ? (typeof cleanDoc.popularOrder === 'number' && cleanDoc.popularOrder >= 0 ? cleanDoc.popularOrder : 0) : -1,
-            updatedAt: new Date().toISOString()
+            popularOrder: cleanDoc.isPopular ? (typeof cleanDoc.popularOrder === 'number' && cleanDoc.popularOrder > 0 ? cleanDoc.popularOrder : now) : -1,
           };
           const safePayload = sanitizePayloadForFirestore(cleanPayload);
           await Promise.all([
@@ -863,10 +881,10 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         }
       }
 
-      // Sort newest-first
+      // Universal Descending Sort (Newest-First / LIFO)
       cleanList.sort((a, b) => {
-        const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
-        const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
         return timeB - timeA;
       });
 
@@ -952,9 +970,10 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
             onChange={e => setNewDealSubCategory(e.target.value)}
             className="sm:col-span-2 bg-white border border-amber-300 text-slate-800 text-xs px-3 py-2.5 rounded-xl font-bold"
           >
-            {(categoriesTree.find(c => c.name === newDealCategory)?.subCategories || []).map((s, sIdx) =>
-              <option key={s.id || s.slug || s.name || `sub-opt-${sIdx}`} value={s.name}>{s.name}</option>
-            )}
+            <option value="">همه زیردسته‌ها</option>
+            {categoriesTree.find(c => c.name === newDealCategory)?.subCategories?.map((sc, scIdx) => (
+              <option key={sc.id || sc.slug || sc.name || `sub-cat-${scIdx}`} value={sc.name}>{sc.name}</option>
+            ))}
           </select>
           <button
             type="button" onClick={handleExtract}
@@ -1001,7 +1020,14 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
 
       {/* ── Deal Accordion List ── */}
       <div className="space-y-2">
-        {filteredDeals.map((deal, idx) => {
+        {filteredDeals
+          .slice()
+          .sort((a, b) => {
+            const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+            const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+            return timeB - timeA;
+          })
+          .map((deal, idx) => {
           const dealKey = deal.id ? `deal-${deal.id}` : `deal-idx-${idx}`;
           const isOpen = expandedIds.has(deal.id);
           const flavorsPool = (deal.flavors as any as string[]) || [];

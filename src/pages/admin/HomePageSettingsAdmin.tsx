@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Layout,
   Sparkles,
@@ -198,6 +198,7 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
   });
 
   const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Sync state when initialCms loads in parent
   useEffect(() => {
@@ -329,10 +330,12 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     };
   }, []);
 
-  // Client-side local file processor: resizes to crisp ~400px logo and creates a clean, lightweight PNG Data URL (~15-40KB)
+  // Client-side local file processor: reads file, generates clean Data URL and immediately stages it
   const handleDeviceFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    console.log('File selected:', file.name, file.size, file.type);
 
     // Validate type
     if (!file.type.startsWith('image/')) {
@@ -347,54 +350,61 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
         const reader = new FileReader();
         reader.onerror = () => reject(new Error('خطا در خواندن فایل از حافظه دستگاه'));
         reader.onload = () => {
+          const rawResult = reader.result as string;
+          if (!rawResult) {
+            reject(new Error('محتوای فایل خالی است'));
+            return;
+          }
+
           const img = new Image();
-          img.onerror = () => reject(new Error('فرمت فایل تصویری نامعتبر است'));
-          img.onload = () => {
-            const maxWidth = 400;
-            const maxHeight = 120;
-            let width = img.naturalWidth || img.width;
-            let height = img.naturalHeight || img.height;
-
-            // Maintain aspect ratio within 400x120 bounds
-            if (width > maxWidth || height > maxHeight) {
-              const ratio = Math.min(maxWidth / width, maxHeight / height);
-              width = Math.round(width * ratio);
-              height = Math.round(height * ratio);
-            }
-
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.max(1, width);
-            canvas.height = Math.max(1, height);
-            const ctx = canvas.getContext('2d');
-            if (!ctx) {
-              resolve(reader.result as string);
-              return;
-            }
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-            // Export as WebP/PNG/JPEG Data URL (quality: 0.85)
-            let resultUrl = '';
-            try {
-              resultUrl = canvas.toDataURL('image/webp', 0.85);
-            } catch (_err) {
-              resultUrl = '';
-            }
-
-            if (!resultUrl || !resultUrl.startsWith('data:image/webp')) {
-              const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png') || file.name.toLowerCase().endsWith('.svg');
-              resultUrl = canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.85);
-            }
-
-            resolve(resultUrl);
+          img.onerror = () => {
+            // Fallback: if Image element decoding fails, return standard reader output
+            resolve(rawResult);
           };
-          img.src = reader.result as string;
+          img.onload = () => {
+            try {
+              const maxWidth = 400;
+              const maxHeight = 120;
+              let width = img.naturalWidth || img.width;
+              let height = img.naturalHeight || img.height;
+
+              if (width > maxWidth || height > maxHeight) {
+                const ratio = Math.min(maxWidth / width, maxHeight / height);
+                width = Math.round(width * ratio);
+                height = Math.round(height * ratio);
+              }
+
+              const canvas = document.createElement('canvas');
+              canvas.width = Math.max(1, width);
+              canvas.height = Math.max(1, height);
+              const ctx = canvas.getContext('2d');
+              if (!ctx) {
+                resolve(rawResult);
+                return;
+              }
+
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+              const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png') || file.name.toLowerCase().endsWith('.svg');
+              let resultUrl = '';
+              try {
+                resultUrl = canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.85);
+              } catch (_e) {
+                resultUrl = rawResult;
+              }
+              resolve(resultUrl || rawResult);
+            } catch (_err) {
+              resolve(rawResult);
+            }
+          };
+          img.src = rawResult;
         };
         reader.readAsDataURL(file);
       });
 
       if (dataUrl) {
+        console.log('Staged logo dataUrl length:', dataUrl.length);
         setLogoUrl(dataUrl);
         setPreviewUrl(dataUrl);
         if (showToast) {
@@ -445,6 +455,10 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
 
       // 1. Direct atomic write to settings/home in Firestore
       const cleanHome = sanitizePayloadForFirestore(homeSettingsPayload);
+      console.log('Writing homeSettingsPayload to Firestore settings/home:', {
+        logoUrl: cleanHome.logoUrl,
+        updatedAt: nowIso
+      });
       if (db) {
         await Promise.all([
           setDoc(doc(db, 'settings', 'home'), cleanHome, { merge: true }),
@@ -747,21 +761,28 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
                 {/* Input Controls: Primary Device File Picker + Secondary Direct URL */}
                 <div className="flex-1 w-full space-y-3">
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                    <label className="px-5 py-3 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white text-xs font-black rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isProcessingFile}
+                      className="px-5 py-3 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white text-xs font-black rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
+                    >
                       {isProcessingFile ? (
                         <RefreshCw className="w-4 h-4 animate-spin text-white" />
                       ) : (
                         <Upload className="w-4 h-4 text-white" />
                       )}
                       <span>{isProcessingFile ? 'در حال پردازش تصویر...' : 'انتخاب فایل از دستگاه (گوشی یا لپ‌تاپ)'}</span>
-                      <input
-                        type="file"
-                        accept="image/png, image/jpeg, image/webp, image/svg+xml"
-                        onChange={handleDeviceFileSelect}
-                        disabled={isProcessingFile}
-                        className="hidden"
-                      />
-                    </label>
+                    </button>
+
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleDeviceFileSelect}
+                      disabled={isProcessingFile}
+                      className="hidden"
+                    />
 
                     <span className="text-[11px] text-slate-400 font-bold text-center sm:text-right">یا</span>
 

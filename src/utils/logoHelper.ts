@@ -24,6 +24,11 @@ export const isValidLogoString = (str: string): boolean => {
     return meta.includes(';base64');
   }
 
+  // Reject broken non-existent legacy asset URL
+  if (trimmed.includes('sirikfit.ir/assets/logo.png') || trimmed === '/assets/logo.png') {
+    return false;
+  }
+
   // Accept valid web URLs and local absolute paths (e.g. https://... or /logo.png)
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/')) {
     return true;

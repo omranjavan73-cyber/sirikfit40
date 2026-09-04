@@ -1,7 +1,8 @@
 /**
- * Submits an HTTP GET form navigation to the target payment gateway URL.
- * Using a native DOM HTML form guarantees that the browser attaches the origin
- * (https://sirikfit.ir) as the HTTP Referer header, satisfying gateway requirements (e.g. Zibal).
+ * Navigates to target payment gateway using a native DOM anchor element
+ * with explicit referrerPolicy='unsafe-url' and rel='opener'.
+ * This strictly forces the browser to send 'Referer: https://sirikfit.ir'
+ * to the Zibal payment gateway, preventing the empty referrer rejection.
  */
 export function navigateToPaymentGateway(targetUrl: string, trackId?: string): void {
   try {
@@ -10,17 +11,21 @@ export function navigateToPaymentGateway(targetUrl: string, trackId?: string): v
       console.error("Invalid payment URL for navigation");
       return;
     }
-    const existingForm = document.getElementById("zibal-payment-redirect-form");
-    if (existingForm) existingForm.remove();
-    const form = document.createElement("form");
-    form.id = "zibal-payment-redirect-form";
-    form.method = "GET";
-    form.action = url;
-    form.style.display = "none";
-    document.body.appendChild(form);
-    form.submit();
+
+    const existingLink = document.getElementById("zibal-payment-redirect-link");
+    if (existingLink) existingLink.remove();
+
+    const link = document.createElement("a");
+    link.id = "zibal-payment-redirect-link";
+    link.href = url;
+    link.referrerPolicy = "unsafe-url";
+    link.rel = "opener"; // Explicitly avoid 'noreferrer' or 'noopener'
+    link.style.display = "none";
+
+    document.body.appendChild(link);
+    link.click();
   } catch (err) {
-    console.error("Failed to submit dynamic payment form:", err);
+    console.error("Failed to click payment anchor link:", err);
     if (targetUrl) window.location.href = targetUrl;
   }
 }

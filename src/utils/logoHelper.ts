@@ -5,7 +5,7 @@
  */
 
 // Maximum safe size for an inlined Data URL logo (e.g. ~120KB string length), well below Firestore 1MB quota
-const MAX_SAFE_DATA_URL_LENGTH = 160000;
+const MAX_SAFE_DATA_URL_LENGTH = 500000;
 
 export const isValidLogoString = (str: string): boolean => {
   if (!str || typeof str !== 'string') return false;
@@ -15,13 +15,10 @@ export const isValidLogoString = (str: string): boolean => {
   // Reject temporary blob URLs as they expire upon page reload
   if (trimmed.startsWith('blob:')) return false;
 
-  // Accept valid lightweight image Data URLs (e.g. data:image/png;base64,...)
+  // Accept valid lightweight image Data URLs (e.g. data:image/png;base64,... or data:image/jpeg;base64,...)
   if (trimmed.startsWith('data:image/')) {
     if (trimmed.length > MAX_SAFE_DATA_URL_LENGTH) return false;
-    const commaIndex = trimmed.indexOf(',');
-    if (commaIndex === -1) return false;
-    const meta = trimmed.substring(0, commaIndex);
-    return meta.includes(';base64');
+    return trimmed.includes(';base64,') || trimmed.includes(',');
   }
 
   // Reject broken non-existent legacy asset URL
@@ -75,7 +72,7 @@ export const extractLogoUrl = (data: any): string => {
  * satisfies any consumer reading logoUrl, headerLogoUrl, logo, or headerLogo.
  */
 export const normalizeLogoPayload = (logoUrl: string) => {
-  const clean = extractLogoUrl(logoUrl);
+  const clean = extractLogoUrl(logoUrl) || (typeof logoUrl === 'string' && logoUrl.startsWith('data:image/') ? logoUrl : '');
   return {
     logoUrl: clean,
     headerLogoUrl: clean,

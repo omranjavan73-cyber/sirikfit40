@@ -199,12 +199,19 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
 
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const stagedLogoRef = useRef<string>(logoUrl || '');
+
+  // Keep stagedLogoRef in sync with logoUrl state
+  useEffect(() => {
+    stagedLogoRef.current = logoUrl || '';
+  }, [logoUrl]);
 
   // Sync state when initialCms loads in parent
   useEffect(() => {
     if (initialCms) {
       const propLogo = extractLogoUrl(initialCms);
       if (propLogo && !logoUrl) {
+        stagedLogoRef.current = propLogo;
         setLogoUrl(propLogo);
         setPreviewUrl(propLogo);
       }
@@ -234,8 +241,12 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     
     const hLogo = extractLogoUrl(homeData);
     if (hLogo) {
-      setLogoUrl(hLogo);
-      setPreviewUrl(hLogo);
+      // If user hasn't actively staged a local Data URL, populate from server
+      if (!stagedLogoRef.current || !stagedLogoRef.current.startsWith('data:image/')) {
+        stagedLogoRef.current = hLogo;
+        setLogoUrl(hLogo);
+        setPreviewUrl(hLogo);
+      }
     }
 
     const stores = homeData.stores || homeData.partnerStores;
@@ -405,6 +416,7 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
 
       if (dataUrl) {
         console.log('Staged logo dataUrl length:', dataUrl.length);
+        stagedLogoRef.current = dataUrl;
         setLogoUrl(dataUrl);
         setPreviewUrl(dataUrl);
         if (showToast) {
@@ -432,7 +444,9 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
 
     try {
       const nowIso = new Date().toISOString();
-      const cleanLogo = extractLogoUrl(logoUrl);
+      // Prioritize stagedLogoRef.current, then logoUrl, then previewUrl
+      const candidateLogo = stagedLogoRef.current || logoUrl || previewUrl || '';
+      const cleanLogo = extractLogoUrl(candidateLogo) || (candidateLogo.startsWith('data:image/') ? candidateLogo : '');
       const logoAliases = cleanLogo ? normalizeLogoPayload(cleanLogo) : { logoUrl: '', headerLogoUrl: '', logo: '', headerLogo: '' };
 
       // Prepare payload preserving partnerStores and banners
@@ -726,6 +740,7 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      stagedLogoRef.current = '';
                       setLogoUrl('');
                       setPreviewUrl('');
                       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -797,6 +812,7 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
                         value={logoUrl}
                         onChange={(e) => {
                           const val = e.target.value;
+                          stagedLogoRef.current = val;
                           setLogoUrl(val);
                           setPreviewUrl(val);
                         }}

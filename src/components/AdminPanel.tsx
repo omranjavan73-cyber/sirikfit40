@@ -3101,8 +3101,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       };
 
       // A. General Settings Payload (The absolute source of truth for toggles)
+      const resolvedLogo = (logoUrl && !logoUrl.startsWith('blob:')) ? logoUrl : ((cms as any)?.homeContent?.logoUrl || (cms as any)?.logoUrl || '');
       const generalPayload = {
-        logoUrl: logoUrl || '',
+        ...(resolvedLogo ? { logoUrl: resolvedLogo } : {}),
         mobileBannerUrl: (cms as any)?.mobileBannerUrl || '',
         desktopBannerUrl: (cms as any)?.desktopBannerUrl || '',
         showPriceDetails: Boolean(showPriceBreakdown),

@@ -8341,7 +8341,7 @@ app.post('/api/admin/send-link-alert', async (req, res) => {
 });
 
 // POST /api/upload-image: Server-side image upload avoiding client-side browser CORS restrictions
-app.post('/api/upload-image', async (req, res) => {
+app.post(['/api/upload-image', '/upload-image'], async (req, res) => {
   try {
     const { dataUrl, fileName, folder = 'branding' } = req.body || {};
     if (!dataUrl || typeof dataUrl !== 'string') {
@@ -8357,6 +8357,10 @@ app.post('/api/upload-image', async (req, res) => {
     const mimeType = match[1];
     const base64Data = match[2];
     const buffer = Buffer.from(base64Data, 'base64');
+
+    if (buffer.length > 950000) {
+      return res.status(400).json({ success: false, error: 'حجم تصویر برای ذخیره‌سازی بیش از حد مجاز است.' });
+    }
 
     // Create a public/media document or persistent URL in Firestore
     const imgId = `img_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
@@ -8386,7 +8390,7 @@ app.post('/api/upload-image', async (req, res) => {
 });
 
 // GET /api/media/:id: Serve uploaded media images with proper caching and headers
-app.get('/api/media/:id', async (req, res) => {
+app.get(['/api/media/:id', '/media/:id'], async (req, res) => {
   try {
     const { id } = req.params;
     const snap = await getDoc(doc(db, 'system_media', id));

@@ -23,9 +23,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from '../../firebase';
-import { storage } from '../../config/firebase';
 import type { CmsConfig, PromoPopupConfig } from '../../types';
 import { AdminPromoPopupSettings } from '../../components/AdminPromoPopupSettings';
 import { getHomeSettings, saveHomeSettings } from '../../services/settingsService';
@@ -110,75 +108,110 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     };
   }, []);
 
+  // Client-side canvas optimizer: shrinks large raw images (even 5MB+) to high-clarity ~40KB Web/Retina size
+  const compressLogoFile = (file: File, maxDim = 480, quality = 0.88): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('خطا در خواندن فایل از دستگاه'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('قالب فایل نامعتبر است'));
+        img.onload = () => {
+          let width = img.naturalWidth || img.width;
+          let height = img.naturalHeight || img.height;
+
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, width);
+          canvas.height = Math.max(1, height);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(reader.result as string);
+            return;
+          }
+
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png');
+          const outputMime = isPng ? 'image/png' : 'image/jpeg';
+          const dataUrl = canvas.toDataURL(outputMime, isPng ? undefined : quality);
+          resolve(dataUrl);
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Instant local preview for immediate visual feedback
-    const localPreview = URL.createObjectURL(file);
-    setPreviewUrl(localPreview);
     setIsUploadingLogo(true);
 
     try {
-      // 1. Read file as Base64 Data URL to send to backend upload endpoint
-      const fileDataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = (err) => reject(err);
-        reader.readAsDataURL(file);
-      });
+      // 1. Client-side instant canvas compression (turns large images into lightweight ~40KB)
+      const compressedDataUrl = await compressLogoFile(file);
+      setPreviewUrl(compressedDataUrl);
 
-      // 2. Upload via backend endpoint /api/upload-image which bypasses browser CORS entirely
-      let downloadUrl = '';
+      let finalUrl = '';
+
+      // 2. Try fast server-side upload to obtain a clean /api/media URL
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+
         const res = await fetch('/api/upload-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            dataUrl: fileDataUrl,
+            dataUrl: compressedDataUrl,
             fileName: file.name,
             folder: 'branding'
-          })
+          }),
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
+
         if (res.ok) {
           const json = await res.json();
           if (json.success && json.url) {
-            downloadUrl = json.url;
+            finalUrl = json.url;
           }
         }
       } catch (proxyErr) {
-        console.warn('[Proxy upload error, attempting direct storage upload]:', proxyErr);
+        console.warn('[Proxy upload notice, fallback to optimized data URL]:', proxyErr);
       }
 
-      // 3. If proxy upload didn't succeed, fallback to client-side uploadBytes
-      if (!downloadUrl) {
-        const fileExt = file.name.split('.').pop() || 'png';
-        const cleanExt = fileExt.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const storageRef = ref(storage, `products/images/site_logo_${Date.now()}.${cleanExt || 'png'}`);
-        
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('زمان آپلود به پایان رسید (Timeout 15s)')), 15000)
-        );
-
-        const uploadPromise = uploadBytes(storageRef, file, {
-          contentType: file.type || 'image/png'
-        }).then(uploadResult => getDownloadURL(uploadResult.ref));
-
-        downloadUrl = await Promise.race([uploadPromise, timeoutPromise]);
+      // 3. Fail-safe fallback: If server upload is slow or unavailable, use the optimized lightweight data URL directly
+      if (!finalUrl) {
+        finalUrl = compressedDataUrl;
       }
 
-      // Save uploaded URL to state
-      setLogoUrl(downloadUrl);
-      setPreviewUrl(downloadUrl);
-      if (showToast) showToast('تصویر لوگو با موفقیت بارگذاری شد', 'success');
+      // Save uploaded/optimized URL to state
+      setLogoUrl(finalUrl);
+      setPreviewUrl(finalUrl);
+      if (showToast) {
+        showToast('تصویر لوگو با موفقیت انتخاب شد. لطفاً دکمه «ذخیره و اعمال تنظیمات» را بزنید.', 'success');
+      }
     } catch (err: any) {
       console.error('[Upload Error]:', err);
       if (showToast) {
-        showToast(`خطا در بارگذاری خودکار لوگو: ${err?.message || 'مشکل در ارتباط با سرور'}. لطفاً از کادر زیر، آدرس مستقیم تصویر را وارد نمایید.`, 'error');
+        showToast(`خطا در بارگذاری تصویر: ${err?.message || 'مشکل در پردازش فایل'}. لطفاً از کادر زیر، آدرس مستقیم تصویر را وارد نمایید.`, 'error');
       }
       setPreviewUrl(logoUrl || '');
     } finally {
-      setIsUploadingLogo(false); // Guarantees the spinner stops immediately in 100% of cases
+      setIsUploadingLogo(false);
       if (e.target) {
         e.target.value = '';
       }

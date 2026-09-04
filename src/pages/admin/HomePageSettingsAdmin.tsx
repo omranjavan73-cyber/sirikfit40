@@ -710,100 +710,104 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
             </div>
 
             {/* SECTION: Site Header Logo Management */}
-            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <ImageIcon className="w-4 h-4 text-emerald-600" />
-                  <h4 className="font-extrabold text-xs text-slate-900">مدیریت لوگوی هدر سایت (Header Logo Management)</h4>
+            <div className="bg-white border-2 border-slate-200 rounded-3xl p-6 shadow-sm space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <ImageIcon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-sm text-slate-900">مدیریت لوگوی هدر سایت (Header Logo Management)</h4>
+                    <p className="text-[11px] text-slate-500 font-medium">لوگوی اختصاصی فروشگاه در گوشه بالای صفحه اصلی و تمامی صفحات</p>
+                  </div>
                 </div>
-                {(previewUrl || logoUrl) && (
+
+                {(previewUrl || logoUrl) ? (
                   <button
                     type="button"
                     onClick={() => {
                       setLogoUrl('');
                       setPreviewUrl('');
+                      if (fileInputRef.current) fileInputRef.current.value = '';
                     }}
-                    className="text-rose-600 hover:text-rose-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
+                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                     title="حذف لوگو و بازگشت به لوگوی پیش‌فرض"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>حذف لوگو</span>
                   </button>
-                )}
+                ) : null}
               </div>
 
-              <div className="flex flex-col sm:flex-row items-center gap-4 bg-white p-4 rounded-xl border border-slate-200/80">
-                {/* Instant Logo Preview Box */}
-                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs relative">
-                  {(previewUrl || logoUrl) ? (
-                    <img
-                      src={previewUrl || logoUrl}
-                      alt="پیش‌نمایش لوگوی سایت"
-                      referrerPolicy="no-referrer"
-                      className="h-12 w-auto object-contain block max-w-full max-h-full"
-                      onError={(e) => {
-                        e.currentTarget.classList.add('opacity-40');
-                      }}
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-slate-400 text-[10px] font-bold text-center p-1">
-                      <ImageIcon className="w-6 h-6 mb-1 text-slate-300" />
-                      <span>بدون لوگو</span>
-                    </div>
-                  )}
-                  {isProcessingFile && (
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                      <RefreshCw className="w-5 h-5 text-white animate-spin" />
-                    </div>
-                  )}
+              <div className="flex flex-col md:flex-row items-center gap-6 bg-slate-50/80 p-5 rounded-2xl border border-slate-200/80">
+                {/* Instant Logo Thumbnail Preview Box */}
+                <div className="flex flex-col items-center gap-2 shrink-0">
+                  <div className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-300 bg-white flex items-center justify-center overflow-hidden shadow-xs relative">
+                    {(previewUrl || logoUrl) ? (
+                      <img
+                        src={previewUrl || logoUrl}
+                        alt="پیش‌نمایش لوگو"
+                        className="max-w-full max-h-full object-contain p-1"
+                        onError={() => setPreviewUrl('')}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-slate-400 text-[10px] font-bold text-center p-2">
+                        <ImageIcon className="w-7 h-7 mb-1 text-slate-300" />
+                        <span>بدون لوگو</span>
+                      </div>
+                    )}
+
+                    {isProcessingFile && (
+                      <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white text-[10px] font-bold gap-1">
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        <span>در حال پردازش...</span>
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-bold">پیش‌نمایش فعلی</span>
                 </div>
 
-                {/* Input Controls: Primary Device File Picker + Secondary Direct URL */}
+                {/* File Upload Controls & Direct URL Input */}
                 <div className="flex-1 w-full space-y-3">
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isProcessingFile}
-                      className="px-5 py-3 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white text-xs font-black rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
-                    >
+                    {/* Primary Button: Choose File from Device */}
+                    <label className="px-6 py-3.5 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white text-xs font-black rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm select-none shrink-0">
                       {isProcessingFile ? (
-                        <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                        <RefreshCw className="w-4 h-4 animate-spin" />
                       ) : (
-                        <Upload className="w-4 h-4 text-white" />
+                        <Upload className="w-4 h-4" />
                       )}
-                      <span>{isProcessingFile ? 'در حال پردازش تصویر...' : 'انتخاب فایل از دستگاه (گوشی یا لپ‌تاپ)'}</span>
-                    </button>
+                      <span>{isProcessingFile ? 'در حال بارگذاری تصویر...' : 'انتخاب فایل از دستگاه (گوشی یا کامپیوتر)'}</span>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleDeviceFileSelect}
+                        disabled={isProcessingFile}
+                        className="hidden"
+                      />
+                    </label>
 
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleDeviceFileSelect}
-                      disabled={isProcessingFile}
-                      className="hidden"
-                    />
+                    <span className="text-xs text-slate-400 font-bold text-center sm:text-right">یا</span>
 
-                    <span className="text-[11px] text-slate-400 font-bold text-center sm:text-right">یا</span>
-
-                    <div className="flex-1">
+                    {/* Secondary Input: Direct Image URL */}
+                    <div className="flex-1 min-w-[200px]">
                       <input
                         type="text"
                         value={logoUrl}
                         onChange={(e) => {
                           const val = e.target.value;
-                          const clean = extractLogoUrl(val);
-                          setLogoUrl(clean);
-                          setPreviewUrl(clean);
+                          setLogoUrl(val);
+                          setPreviewUrl(val);
                         }}
-                        placeholder="آدرس مستقیم تصویر اینترنتی (اختیاری): https://..."
-                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dir-ltr text-right"
+                        placeholder="آدرس اینترنتی مستقیم: https://..."
+                        className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dir-ltr text-right placeholder:text-slate-400"
                       />
                     </div>
                   </div>
 
-                  <p className="text-[11px] text-slate-400 font-medium">
-                    با کلیک روی «انتخاب فایل از دستگاه»، عکس لوگو از گالری گوشی یا کامپیوتر بارگذاری و بلافاصله به ابعاد استاندارد هدر بهینه‌سازی می‌شود.
+                  <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                    فایل تصویری لوگو مستقیماً از حافظه گوشی یا لپ‌تاپ خوانده شده و برای هدر سایت بهینه‌سازی می‌شود. پس از انتخاب فایل، حتماً روی دکمه آبی بالای صفحه <strong className="text-blue-600 font-black">«ذخیره و اعمال تنظیمات»</strong> کلیک فرمایید.
                   </p>
                 </div>
               </div>

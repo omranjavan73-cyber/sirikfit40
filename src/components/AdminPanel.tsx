@@ -3216,16 +3216,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (typeof showTrustBadges === 'boolean') landingSyncPayload.showTrustBadges = showTrustBadges;
       if (typeof showEnamad === 'boolean') landingSyncPayload.showEnamad = showEnamad;
 
+      const homeSyncPayload: Record<string, any> = {
+        updatedAt: new Date().toISOString()
+      };
+      if (logoUrl && !logoUrl.startsWith('blob:')) {
+        homeSyncPayload.logoUrl = logoUrl;
+        homeSyncPayload.headerLogoUrl = logoUrl;
+      }
+      if (currentHomeContent?.appTitle) homeSyncPayload.siteTitle = currentHomeContent.appTitle;
+      if (currentHomeContent?.appSubtitle) homeSyncPayload.brandSlogan = currentHomeContent.appSubtitle;
+      if (currentHomeContent?.heroMainHeadline) homeSyncPayload.heroHeading = currentHomeContent.heroMainHeadline;
+      if (currentHomeContent?.topPromoText) homeSyncPayload.topPromoText = currentHomeContent.topPromoText;
+      if (currentHomeContent?.showTopPromo !== undefined) homeSyncPayload.showTopPromo = currentHomeContent.showTopPromo;
+
       await Promise.all([
         setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore(cleanGeneralPayload), { merge: true }),
         setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(cleanCmsPayload), { merge: true }),
         setDoc(doc(db, 'settings', 'landing'), sanitizePayloadForFirestore(landingSyncPayload), { merge: true }),
+        setDoc(doc(db, 'settings', 'home'), sanitizePayloadForFirestore(homeSyncPayload), { merge: true }),
         setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(cleanCmsPayload), { merge: true })
       ]);
 
       // D. Only show success AFTER the promise resolves
       setSaveCmsSuccess(true);
-      if (showToast) showToast('تنظیمات عمومی با موفقیت در دیتابیس ذخیره شد', 'success');
+      if (showToast) showToast('تنظیمات عمومی و صفحه اصلی با موفقیت در دیتابیس ذخیره شد', 'success');
       if (onRefresh) onRefresh();
 
 

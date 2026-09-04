@@ -247,6 +247,12 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [auxLinks, setAuxLinks] = useState<Record<string, string>>({});
   const [auxLoading, setAuxLoading] = useState<Record<string, boolean>>({});
+  const [customFlavors, setCustomFlavors] = useState<Record<string, string>>({});
+  const [customSizes, setCustomSizes] = useState<Record<string, { val: string; unit: string }>>({});
+  const [customRowMode, setCustomRowMode] = useState<Record<string, { customSize?: boolean; customFlavor?: boolean }>>({});
+  const [editingVariantImage, setEditingVariantImage] = useState<{ itemId: string; variantId: string; variantTitle?: string; currentUrl?: string; mainImage?: string } | null>(null);
+  const [uploadingImageIds, setUploadingImageIds] = useState<Record<string, boolean>>({});
+
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [targetPosition, setTargetPosition] = useState<string>('');
   const [isBulkOperating, setIsBulkOperating] = useState<boolean>(false);

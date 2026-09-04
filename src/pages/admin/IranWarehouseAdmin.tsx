@@ -248,6 +248,13 @@ export const IranWarehouseAdmin: React.FC<IranWarehouseAdminProps> = ({
   const [auxLinks, setAuxLinks] = useState<Record<string, string>>({});
   const [auxLoading, setAuxLoading] = useState<Record<string, boolean>>({});
   // Per-item custom flavor/size inputs
+  const [customFlavors, setCustomFlavors] = useState<Record<string, string>>({});
+  const [customSizes, setCustomSizes] = useState<Record<string, { val: string; unit: string }>>({});
+  // Per-variant custom row mode
+  const [customRowMode, setCustomRowMode] = useState<Record<string, { customSize?: boolean; customFlavor?: boolean }>>({});
+  const [editingVariantImage, setEditingVariantImage] = useState<{ itemId: string; variantId: string; variantTitle?: string; currentUrl?: string; mainImage?: string } | null>(null);
+  const [uploadingImageIds, setUploadingImageIds] = useState<Record<string, boolean>>({});
+
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [targetPosition, setTargetPosition] = useState<string>('');
   const [isBulkOperating, setIsBulkOperating] = useState<boolean>(false);

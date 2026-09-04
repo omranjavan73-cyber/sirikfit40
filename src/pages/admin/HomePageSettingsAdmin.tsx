@@ -122,11 +122,11 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     try {
       const fileExt = file.name.split('.').pop() || 'png';
       const cleanExt = fileExt.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const storageRef = ref(storage, `branding/site_logo_${Date.now()}.${cleanExt || 'png'}`);
+      const storageRef = ref(storage, `products/images/site_logo_${Date.now()}.${cleanExt || 'png'}`);
       
       // Safety timeout promise to prevent infinite hanging if Firebase Storage is unreachable/blocked
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('زمان آپلود به پایان رسید (Timeout 8s)')), 8000)
+        setTimeout(() => reject(new Error('زمان آپلود به پایان رسید (Timeout 15s)')), 15000)
       );
 
       const uploadPromise = uploadBytes(storageRef, file, {
@@ -140,29 +140,11 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       setPreviewUrl(downloadUrl);
       if (showToast) showToast('تصویر لوگو با موفقیت بارگذاری شد', 'success');
     } catch (err: any) {
-      console.warn('[Firebase Storage Upload Error or Timeout, attempting Base64 fallback]:', err);
-      
-      // Fallback: Read file as Data URL (Base64) so user is never blocked even if Storage fails
-      try {
-        const base64Data = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = (error) => reject(error);
-          reader.readAsDataURL(file);
-        });
-        
-        if (base64Data) {
-          setLogoUrl(base64Data);
-          setPreviewUrl(base64Data);
-          if (showToast) showToast('تصویر به صورت مستقیم بارگذاری شد (مخزن ذخیره‌سازی در دسترس نبود)', 'info');
-        } else {
-          setPreviewUrl(logoUrl || '');
-        }
-      } catch (fallbackErr) {
-        console.error('[Base64 Fallback Error]:', fallbackErr);
-        if (showToast) showToast(`خطا در پردازش تصویر: ${err.message || 'مشکل در بارگذاری فایل'}`, 'error');
-        setPreviewUrl(logoUrl || '');
+      console.error('[Firebase Storage Upload Error]:', err);
+      if (showToast) {
+        showToast(`خطا در بارگذاری لوگو در سرور: ${err?.message || 'عدم دسترسی به مخزن تصاویر'}. لطفاً آدرس مستقیم تصویر را در کادر وارد کنید.`, 'error');
       }
+      setPreviewUrl(logoUrl || '');
     } finally {
       setIsUploadingLogo(false); // Guarantees the spinner stops immediately in 100% of cases
       if (e.target) {

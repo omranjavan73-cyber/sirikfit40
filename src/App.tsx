@@ -34,7 +34,7 @@ import { defaultLandingSettings } from './types';
 import { getLandingSettings } from './services/settingsService';
 import { toPersianDigits, getEffectiveAedRate, calculateFinalToman, isArtificialFallback } from './utils/formatters';
 import { fetchSettingsFromFirestore, getCmsFromFirestore, db, isFirestoreGrpcNoise } from './firebase';
-import { doc, collection, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, collection, onSnapshot } from 'firebase/firestore';
 import { setEffectiveGeminiKeysList, getEffectiveGeminiKeysList } from './utils/geminiKey';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
 import { PricingProvider } from './context/PricingContext';
@@ -620,8 +620,7 @@ function MainApp() {
           const homeData = snap.data();
           if (homeData) {
             setCmsConfig(prev => {
-              if (!prev) return prev;
-              const next = { ...prev };
+              const next = prev ? { ...prev } : ({} as any);
               const stores = homeData.partnerStores || homeData.stores;
               if (Array.isArray(stores) && stores.length > 0) {
                 next.stores = stores;
@@ -857,8 +856,32 @@ function MainApp() {
 
   const fetchCms = async () => {
     try {
-      const fsCms = await getCmsFromFirestore();
-      if (fsCms) {
+      const fsCms = (await getCmsFromFirestore()) || {};
+      try {
+        if (db) {
+          const homeSnap = await getDoc(doc(db, 'settings', 'home'));
+          if (homeSnap.exists()) {
+            const hData = homeSnap.data();
+            const l = (hData.logoUrl || hData.headerLogoUrl || '').trim();
+            if (l) {
+              fsCms.logoUrl = l;
+              if (!fsCms.homeContent) fsCms.homeContent = {};
+              fsCms.homeContent.logoUrl = l;
+              fsCms.homeContent.headerLogoUrl = l;
+            }
+            const stores = hData.stores || hData.partnerStores;
+            if (Array.isArray(stores) && stores.length > 0) {
+              fsCms.stores = stores;
+            }
+            const banners = hData.homeBanners || hData.banners;
+            if (Array.isArray(banners) && banners.length > 0) {
+              fsCms.homeBanners = banners;
+            }
+          }
+        }
+      } catch (_hErr) {}
+
+      if (fsCms && Object.keys(fsCms).length > 0) {
         if (fsCms.homeContent) {
           fsCms.homeContent.appTitle = (fsCms.homeContent.appTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';
           fsCms.homeContent.brandTitle = (fsCms.homeContent.brandTitle || 'SIRIK FIT').replace(/PLATFORM IMPORTS/gi, '').replace(/SIRIK FIT PRO/gi, 'SIRIK FIT').replace(/PRO/gi, '').replace(/OMEX/gi, '').trim() || 'SIRIK FIT';

@@ -1,6 +1,6 @@
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { isFirestoreGrpcNoise } from '../firebase';
+import { isFirestoreGrpcNoise, sanitizePayloadForFirestore } from '../firebase';
 import type { LandingSettings } from '../types';
 import type { GeneralSettingsDoc, SupportSettings, SupportFirestoreDoc } from '../types/settings';
 import { DEFAULT_GENERAL_SUPPORT_SETTINGS } from '../types/settings';
@@ -591,8 +591,8 @@ export const saveHomeSettings = async (data: Partial<HomeSettingsDoc>): Promise<
       payload.banners = payload.homeBanners;
     }
 
-    // 1. Write to settings/home
-    await setDoc(doc(db, 'settings', 'home'), payload, { merge: true });
+    // 1. Write to settings/home with sanitized payload
+    await setDoc(doc(db, 'settings', 'home'), sanitizePayloadForFirestore(payload), { merge: true });
 
     // 2. Synchronize to cms/app
     const cmsSyncPayload: any = {
@@ -600,7 +600,7 @@ export const saveHomeSettings = async (data: Partial<HomeSettingsDoc>): Promise<
       stores: payload.stores || payload.partnerStores || existingStores,
       homeBanners: payload.homeBanners || payload.banners || existingBanners
     };
-    await setDoc(doc(db, 'cms', 'app'), cmsSyncPayload, { merge: true });
+    await setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(cmsSyncPayload), { merge: true });
 
     // 3. Local storage & events
     if (typeof window !== 'undefined') {

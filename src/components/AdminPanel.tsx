@@ -1689,7 +1689,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setAppTitleText(titleToUse);
         setAppSubtitleText(subToUse);
         setHeaderPillSlogan(cms.homeContent.headerPillSlogan || subToUse);
-        setLogoUrl(cms.homeContent.logoUrl || '');
+        const incomingLogo = cms.homeContent.logoUrl || (cms as any)?.logoUrl || '';
+        if (incomingLogo && !incomingLogo.startsWith('blob:')) {
+          setLogoUrl(incomingLogo);
+        }
         setHeroMainHeadline(cms.homeContent.heroMainHeadline || 'فقط اورجینال، فقط');
         setHeroHighlightWord(cms.homeContent.heroHighlightWord || 'نتیجه.');
         setHeroBannerSubtitle(cms.homeContent.heroSubtitle || 'تضمین اصالت کالا، تضمین کیفیت.');
@@ -3220,7 +3223,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const homeSyncPayload: Record<string, any> = {
         updatedAt: new Date().toISOString()
       };
-      const resolvedHomeLogo = (cms as any)?.homeContent?.logoUrl || (cms as any)?.logoUrl || '';
+      const resolvedHomeLogo = (cms as any)?.homeContent?.logoUrl || (cms as any)?.logoUrl || (logoUrl && !logoUrl.startsWith('blob:') ? logoUrl : '');
       if (resolvedHomeLogo && !resolvedHomeLogo.startsWith('blob:')) {
         homeSyncPayload.logoUrl = resolvedHomeLogo;
         homeSyncPayload.headerLogoUrl = resolvedHomeLogo;
@@ -7745,8 +7748,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           onSaveCms={async (updatedCms) => {
             if (onUpdateCms) onUpdateCms(updatedCms);
             const homeLogo = (updatedCms as any)?.logoUrl || (updatedCms as any)?.homeContent?.logoUrl || '';
+            const resolvedHomeContent = {
+              ...((cms as any)?.homeContent || {}),
+              ...((updatedCms as any)?.homeContent || {}),
+              ...(homeLogo && !homeLogo.startsWith('blob:') ? {
+                logoUrl: homeLogo,
+                headerLogoUrl: homeLogo
+              } : {})
+            };
             const homePayload: Record<string, any> = {
-              ...(updatedCms as any)?.homeContent,
+              ...resolvedHomeContent,
               ...updatedCms,
               updatedAt: new Date().toISOString()
             };
@@ -7755,20 +7766,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               homePayload.headerLogoUrl = homeLogo;
             }
 
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('sirikfit_cms_config', JSON.stringify(updatedCms));
-              localStorage.setItem('omex_home_cms', JSON.stringify(updatedCms));
-              localStorage.setItem('sirikfit_home_settings', JSON.stringify(homePayload));
-              if (homeLogo && !homeLogo.startsWith('blob:')) {
-                localStorage.setItem('sirikfit_logo_url', homeLogo);
-              }
-              window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { cmsConfig: updatedCms, logoUrl: homeLogo } }));
-              window.dispatchEvent(new CustomEvent('homeSettingsUpdated', { detail: homePayload }));
-              window.dispatchEvent(new Event('storage'));
-            }
+            const cmsPayload: Record<string, any> = {
+              ...updatedCms,
+              homeContent: resolvedHomeContent,
+              ...(homeLogo && !homeLogo.startsWith('blob:') ? {
+                logoUrl: homeLogo,
+                headerLogoUrl: homeLogo
+              } : {})
+            };
+
             await Promise.all([
-              setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
-              setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(updatedCms), { merge: true }),
+              setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(cmsPayload), { merge: true }),
+              setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(cmsPayload), { merge: true }),
               setDoc(doc(db, 'settings', 'home'), sanitizePayloadForFirestore(homePayload), { merge: true })
             ]);
             if (onRefresh) onRefresh();

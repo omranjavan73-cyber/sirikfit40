@@ -23,7 +23,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { db, sanitizePayloadForFirestore } from '../../firebase';
 import type { CmsConfig, PromoPopupConfig } from '../../types';
 import { AdminPromoPopupSettings } from '../../components/AdminPromoPopupSettings';
 import { getHomeSettings, saveHomeSettings } from '../../services/settingsService';
@@ -157,35 +157,11 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
   });
 
   const [logoUrl, setLogoUrl] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const cached = localStorage.getItem('sirikfit_home_settings');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          const cachedLogo = parsed.logoUrl || parsed.headerLogoUrl;
-          if (cachedLogo && !cachedLogo.startsWith('blob:')) return cachedLogo;
-        }
-        const directLogo = localStorage.getItem('sirikfit_logo_url');
-        if (directLogo && !directLogo.startsWith('blob:')) return directLogo;
-      } catch (_) {}
-    }
     const propLogo = (initialCms as any)?.homeContent?.logoUrl || (initialCms as any)?.logoUrl || '';
     return (propLogo && !propLogo.startsWith('blob:')) ? propLogo : '';
   });
 
   const [previewUrl, setPreviewUrl] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const cached = localStorage.getItem('sirikfit_home_settings');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          const cachedLogo = parsed.logoUrl || parsed.headerLogoUrl;
-          if (cachedLogo && !cachedLogo.startsWith('blob:')) return cachedLogo;
-        }
-        const directLogo = localStorage.getItem('sirikfit_logo_url');
-        if (directLogo && !directLogo.startsWith('blob:')) return directLogo;
-      } catch (_) {}
-    }
     const propLogo = (initialCms as any)?.homeContent?.logoUrl || (initialCms as any)?.logoUrl || '';
     return (propLogo && !propLogo.startsWith('blob:')) ? propLogo : '';
   });
@@ -213,10 +189,11 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     if (homeData.bannerImageUrl) setBannerImageUrl(homeData.bannerImageUrl);
     if (homeData.calculatorHeading) setCalculatorHeading(homeData.calculatorHeading);
     
-    const hLogo = homeData.logoUrl || homeData.headerLogoUrl;
-    if (hLogo && !hLogo.startsWith('blob:')) {
-      setLogoUrl(hLogo);
-      setPreviewUrl(hLogo);
+    const hLogo = homeData.logoUrl ?? homeData.headerLogoUrl;
+    if (typeof hLogo === 'string' && !hLogo.startsWith('blob:')) {
+      const clean = hLogo.trim();
+      setLogoUrl(clean);
+      setPreviewUrl(clean);
     }
 
     const stores = homeData.stores || homeData.partnerStores;
@@ -233,16 +210,23 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Initial async load
+    // 1. Initial direct Firestore load
     const loadSettings = async () => {
-      const hasLocal = typeof window !== 'undefined' && localStorage.getItem('sirikfit_home_settings');
-      if (!hasLocal && !initialCms) {
-        setIsLoadingSettings(true);
-      }
+      setIsLoadingSettings(true);
       try {
-        const homeData = await getHomeSettings();
-        if (!isMounted) return;
-        applyHomeData(homeData);
+        if (db) {
+          const homeSnap = await getDoc(doc(db, 'settings', 'home'));
+          if (homeSnap.exists() && isMounted) {
+            const homeData = homeSnap.data();
+            applyHomeData(homeData);
+          } else {
+            const homeData = await getHomeSettings();
+            if (isMounted) applyHomeData(homeData);
+          }
+        } else {
+          const homeData = await getHomeSettings();
+          if (isMounted) applyHomeData(homeData);
+        }
       } catch (err) {
         console.warn('Error loading settings in HomePageSettingsAdmin:', err);
       } finally {
@@ -424,34 +408,34 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
         updatedAt: nowIso
       };
 
-      // 1. Atomically save via settingsService (persists to settings/home and mirrors cms/app)
-      await saveHomeSettings(homeSettingsPayload);
-
+      // 1. Direct atomic write to settings/home in Firestore
+      const cleanHome = sanitizePayloadForFirestore(homeSettingsPayload);
       if (db) {
-        // 2. Also ensure settings/cms and settings/general are kept consistent
         await Promise.all([
-          setDoc(doc(db, 'settings', 'cms'), {
+          setDoc(doc(db, 'settings', 'home'), cleanHome, { merge: true }),
+          setDoc(doc(db, 'cms', 'app'), cleanHome, { merge: true }),
+          setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore({
             logoUrl: sanitizedLogoUrl,
-            homeContent: { logoUrl: sanitizedLogoUrl },
+            headerLogoUrl: sanitizedLogoUrl,
+            homeContent: {
+              ...homeSettingsPayload,
+              logoUrl: sanitizedLogoUrl,
+              headerLogoUrl: sanitizedLogoUrl
+            },
             updatedAt: nowIso
-          }, { merge: true }),
-          setDoc(doc(db, 'settings', 'general'), {
+          }), { merge: true }),
+          setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore({
             logoUrl: sanitizedLogoUrl,
+            headerLogoUrl: sanitizedLogoUrl,
             updatedAt: nowIso
-          }, { merge: true })
+          }), { merge: true })
         ]);
       }
 
-      if (typeof window !== 'undefined') {
-        if (sanitizedLogoUrl) {
-          localStorage.setItem('sirikfit_logo_url', sanitizedLogoUrl);
-        } else {
-          localStorage.removeItem('sirikfit_logo_url');
-        }
-        window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: { logoUrl: sanitizedLogoUrl } }));
-        window.dispatchEvent(new Event('storage'));
-      }
+      // 2. Also execute saveHomeSettings service helper
+      await saveHomeSettings(homeSettingsPayload);
 
+      // 3. Parent callback with full homeContent populated
       if (onSaveCms) {
         onSaveCms({
           siteTitle,
@@ -463,6 +447,12 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
           bannerImageUrl,
           calculatorHeading,
           logoUrl: sanitizedLogoUrl,
+          headerLogoUrl: sanitizedLogoUrl,
+          homeContent: {
+            ...homeSettingsPayload,
+            logoUrl: sanitizedLogoUrl,
+            headerLogoUrl: sanitizedLogoUrl
+          },
           stores: preservedStores,
           homeBanners: preservedBanners,
           updatedAt: nowIso
@@ -470,7 +460,7 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       }
 
       setSaveSuccess(true);
-      if (showToast) showToast('تنظیمات محتوایی، لوگو و بنرهای صفحه اصلی با موفقیت ذخیره شد.', 'success');
+      if (showToast) showToast('تنظیمات محتوایی و لوگوی صفحه اصلی با موفقیت در دیتابیس ذخیره شد.', 'success');
       setTimeout(() => setSaveSuccess(false), 3500);
     } catch (err: any) {
       console.error('Error saving CMS:', err);

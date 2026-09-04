@@ -57,18 +57,6 @@ export const Footer: React.FC<FooterProps> = ({
   const logoUrl = (() => {
     if (home?.logoUrl && !home.logoUrl.startsWith('blob:')) return home.logoUrl;
     if ((cms as any)?.logoUrl && !(cms as any).logoUrl.startsWith('blob:')) return (cms as any).logoUrl;
-    if (typeof window !== 'undefined') {
-      try {
-        const cachedHome = localStorage.getItem('sirikfit_home_settings');
-        if (cachedHome) {
-          const parsed = JSON.parse(cachedHome);
-          const cLogo = parsed.logoUrl || parsed.headerLogoUrl;
-          if (cLogo && !cLogo.startsWith('blob:')) return cLogo;
-        }
-        const directLogo = localStorage.getItem('sirikfit_logo_url');
-        if (directLogo && !directLogo.startsWith('blob:')) return directLogo;
-      } catch (_) {}
-    }
     return '';
   })();
 

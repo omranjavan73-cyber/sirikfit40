@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Megaphone,
   Bell,
+  Upload,
   Trash2
 } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -196,6 +197,8 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     return extractLogoUrl(initialCms);
   });
 
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
+
   // Sync state when initialCms loads in parent
   useEffect(() => {
     if (initialCms) {
@@ -325,6 +328,83 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       }
     };
   }, []);
+
+  // Client-side local file processor: resizes to crisp ~400px logo and creates a clean, lightweight PNG Data URL (~15-40KB)
+  const handleDeviceFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate type
+    if (!file.type.startsWith('image/')) {
+      if (showToast) showToast('لطفاً یک فایل تصویری معتبر (PNG یا JPG) انتخاب فرمایید.', 'error');
+      return;
+    }
+
+    setIsProcessingFile(true);
+
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('خطا در خواندن فایل از حافظه دستگاه'));
+        reader.onload = () => {
+          const img = new Image();
+          img.onerror = () => reject(new Error('فرمت فایل تصویری نامعتبر است'));
+          img.onload = () => {
+            const maxDim = 400;
+            let width = img.naturalWidth || img.width;
+            let height = img.naturalHeight || img.height;
+
+            if (width > maxDim || height > maxDim) {
+              if (width > height) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              } else {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, width);
+            canvas.height = Math.max(1, height);
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              resolve(reader.result as string);
+              return;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // Export as PNG (preserves transparency) or high-quality JPEG
+            const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png') || file.name.toLowerCase().endsWith('.svg');
+            const resultUrl = canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.88);
+            resolve(resultUrl);
+          };
+          img.src = reader.result as string;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      if (dataUrl) {
+        setLogoUrl(dataUrl);
+        setPreviewUrl(dataUrl);
+        if (showToast) {
+          showToast('تصویر لوگو از دستگاه با موفقیت انتخاب شد. لطفاً دکمه «ذخیره و اعمال تنظیمات» را بزنید.', 'success');
+        }
+      }
+    } catch (err: any) {
+      console.error('Error processing device file:', err);
+      if (showToast) {
+        showToast('خطا در پردازش تصویر لوگو: ' + (err?.message || 'لطفاً تصویر دیگری را انتخاب کنید'), 'error');
+      }
+    } finally {
+      setIsProcessingFile(false);
+      if (e.target) {
+        e.target.value = '';
+      }
+    }
+  };
 
   const handleSaveContent = async (e?: React.FormEvent) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
@@ -649,27 +729,45 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
                       <span>بدون لوگو</span>
                     </div>
                   )}
+                  {isProcessingFile && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <RefreshCw className="w-5 h-5 text-white animate-spin" />
+                    </div>
+                  )}
                 </div>
 
-                {/* Direct URL Input */}
+                {/* Input Controls: Direct URL + Device File Picker */}
                 <div className="flex-1 w-full space-y-2">
                   <label className="text-xs font-bold text-slate-700 block">
-                    آدرس مستقیم تصویر لوگو (URL معتبر وب یا مسیر داخلی):
+                    انتخاب فایل لوگو از گوشی/لپ‌تاپ یا وارد کردن آدرس مستقیم:
                   </label>
-                  <input
-                    type="text"
-                    value={logoUrl}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const clean = extractLogoUrl(val);
-                      setLogoUrl(clean);
-                      setPreviewUrl(clean);
-                    }}
-                    placeholder="https://example.com/logo.png یا /logo.png"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dir-ltr text-right"
-                  />
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={logoUrl}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const clean = extractLogoUrl(val);
+                        setLogoUrl(clean);
+                        setPreviewUrl(clean);
+                      }}
+                      placeholder="https://... یا انتخاب فایل از دکمه روبرو"
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dir-ltr text-right"
+                    />
+                    <label className="px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shrink-0 shadow-xs active:scale-98">
+                      <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{isProcessingFile ? 'در حال پردازش...' : 'انتخاب فایل از دستگاه'}</span>
+                      <input
+                        type="file"
+                        accept="image/png, image/jpeg, image/webp, image/svg+xml"
+                        onChange={handleDeviceFileSelect}
+                        disabled={isProcessingFile}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
                   <p className="text-[11px] text-slate-400 font-medium">
-                    لوگوی جدید بلافاصله پس از ذخیره، در گوشه سمت راست هدر فروشگاه در تمام صفحات نمایش داده خواهد شد.
+                    می‌توانید تصویر لوگو را مستقیماً از گالری گوشی یا کامپیوتر انتخاب کنید و سپس دکمه «ذخیره و اعمال تنظیمات» را بزنید.
                   </p>
                 </div>
               </div>

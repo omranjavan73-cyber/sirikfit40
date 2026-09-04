@@ -59,7 +59,7 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
   const list = (items || products || []).filter(prod => {
     if (!prod || !prod.id) return false;
     const t = (prod.title || prod.titleFa || prod.name || (prod.rawItem && (prod.rawItem.title || prod.rawItem.name)) || '').trim();
-    return t && t !== 'محصول پرطرفدار';
+    return t && t !== 'محصول پرطرفدار' && t !== 'بدون عنوان' && t !== 'محصول بدون عنوان';
   });
 
   if (!list || list.length === 0) {

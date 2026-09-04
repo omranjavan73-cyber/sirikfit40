@@ -48,9 +48,7 @@ export const PopularProducts: React.FC<PopularProductsProps> = ({
           const name = (data?.name || '').trim();
           const fullTitle = tFa || tEn || name;
           const isGhost = !fullTitle || fullTitle === 'محصول بدون عنوان' || fullTitle === 'بدون عنوان' || fullTitle === 'محصول پرطرفدار';
-          const hasPrice = Number(data?.priceAed || data?.price || data?.priceToman || data?.manualPriceToman || 0) > 0;
-          const hasImage = Boolean(data?.imageUrl || data?.image || (Array.isArray(data?.images) && data.images.length > 0));
-          if (isGhost && !hasPrice && !hasImage) {
+          if (isGhost) {
             deleteDoc(docSnap.ref).catch(() => {});
           }
         });
@@ -63,10 +61,8 @@ export const PopularProducts: React.FC<PopularProductsProps> = ({
             const name = (p.name || '').trim();
             const fullTitle = tFa || tEn || name;
             const isGhost = !fullTitle || fullTitle === 'محصول بدون عنوان' || fullTitle === 'بدون عنوان' || fullTitle === 'محصول پرطرفدار';
-            const hasPrice = Number(p.priceAed || p.price || p.priceToman || p.manualPriceToman || 0) > 0;
-            const hasImage = Boolean(p.imageUrl || p.image || (Array.isArray(p.images) && p.images.length > 0));
             const isPub = p.isPublished !== false && p.isActive !== false;
-            return isPub && (!isGhost || hasPrice || hasImage) && (p.popularOrder === undefined || p.popularOrder >= 0);
+            return isPub && !isGhost && (p.popularOrder === undefined || p.popularOrder >= 0);
           });
 
         // Sort ascending by popularOrder (0 is highest priority), then newest first

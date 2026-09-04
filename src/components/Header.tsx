@@ -7,6 +7,7 @@ import { useSettings } from '../context/SettingsContext';
 import { usePricing } from '../context/PricingContext';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { extractLogoUrl } from '../utils/logoHelper';
 
 interface HeaderProps {
   settings: FinancialSettings | null;
@@ -41,11 +42,24 @@ export const Header: React.FC<HeaderProps> = ({
   const home = cms?.homeContent;
   const showPromo = home?.showTopPromo ?? false;
   const promoText = home?.topPromoText || 'سیریک فیت - مکمل‌های تخصصی ورزشی و اورجینال';
-  const propLogoUrl = home?.logoUrl || (cms as any)?.logoUrl || (settings as any)?.logoUrl || '';
+  const propLogoUrl = extractLogoUrl(home) || extractLogoUrl(cms) || extractLogoUrl(settings);
 
   const [dynamicLogoUrl, setDynamicLogoUrl] = useState<string>(() => {
-    if (propLogoUrl && !propLogoUrl.startsWith('blob:')) return propLogoUrl;
-    return '';
+    if (typeof window !== 'undefined') {
+      try {
+        const cachedHome = localStorage.getItem('sirikfit_home_settings');
+        if (cachedHome) {
+          const found = extractLogoUrl(JSON.parse(cachedHome));
+          if (found) return found;
+        }
+        const cachedCms = localStorage.getItem('sirikfit_cms_config');
+        if (cachedCms) {
+          const found = extractLogoUrl(JSON.parse(cachedCms));
+          if (found) return found;
+        }
+      } catch (_) {}
+    }
+    return propLogoUrl;
   });
   const [logoError, setLogoError] = useState<boolean>(false);
 
@@ -53,37 +67,66 @@ export const Header: React.FC<HeaderProps> = ({
     setLogoError(false);
   }, [dynamicLogoUrl, propLogoUrl]);
 
+  // Sync state if props arrive with a logo
   useEffect(() => {
-    if (!db) return;
+    if (propLogoUrl && !dynamicLogoUrl) {
+      setDynamicLogoUrl(propLogoUrl);
+    }
+  }, [propLogoUrl]);
 
-    // 1. Immediate direct read from Firestore settings/home
-    getDoc(doc(db, 'settings', 'home'))
-      .then((snap) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          const lUrl = data?.logoUrl ?? data?.headerLogoUrl;
-          if (typeof lUrl === 'string' && !lUrl.startsWith('blob:')) {
-            const cleanUrl = lUrl.trim();
-            if (cleanUrl) setDynamicLogoUrl(cleanUrl);
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. Immediate direct read from Firestore settings/home (with fallback to cms/app)
+    if (db) {
+      getDoc(doc(db, 'settings', 'home'))
+        .then((snap) => {
+          if (!isMounted) return;
+          if (snap.exists()) {
+            const cleanUrl = extractLogoUrl(snap.data());
+            if (cleanUrl) {
+              setDynamicLogoUrl(cleanUrl);
+              return;
+            }
           }
-        }
-      })
-      .catch((err) => console.warn('Header logo getDoc error:', err));
+          // Fallback to cms/app
+          getDoc(doc(db, 'cms', 'app')).then((cmsSnap) => {
+            if (!isMounted) return;
+            if (cmsSnap.exists()) {
+              const cleanUrl = extractLogoUrl(cmsSnap.data());
+              if (cleanUrl) setDynamicLogoUrl(cleanUrl);
+            }
+          }).catch(() => {});
+        })
+        .catch((err) => console.warn('Header logo getDoc error:', err));
 
-    // 2. Real-time snapshot listener on settings/home (sole cloud source of truth)
-    const unsubHome = onSnapshot(doc(db, 'settings', 'home'), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        const lUrl = data?.logoUrl ?? data?.headerLogoUrl;
-        if (typeof lUrl === 'string' && !lUrl.startsWith('blob:')) {
-          const cleanUrl = lUrl.trim();
-          setDynamicLogoUrl(cleanUrl);
+      // 2. Real-time snapshot listener on settings/home (sole cloud source of truth)
+      var unsubHome = onSnapshot(doc(db, 'settings', 'home'), (snap) => {
+        if (!isMounted) return;
+        if (snap.exists()) {
+          const cleanUrl = extractLogoUrl(snap.data());
+          if (cleanUrl) setDynamicLogoUrl(cleanUrl);
         }
-      }
-    }, (err) => console.warn('Header logo onSnapshot home error:', err));
+      }, (err) => console.warn('Header logo onSnapshot home error:', err));
+    }
+
+    // 3. Instant local broadcast event listener
+    const handleHomeUpdated = (e: any) => {
+      if (!isMounted) return;
+      const cleanUrl = extractLogoUrl(e?.detail);
+      if (cleanUrl) setDynamicLogoUrl(cleanUrl);
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('homeSettingsUpdated', handleHomeUpdated);
+    }
 
     return () => {
-      unsubHome();
+      isMounted = false;
+      if (unsubHome) unsubHome();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('homeSettingsUpdated', handleHomeUpdated);
+      }
     };
   }, []);
 

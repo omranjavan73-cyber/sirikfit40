@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { isFirestoreGrpcNoise, sanitizePayloadForFirestore } from '../firebase';
+import { extractLogoUrl, normalizeLogoPayload } from '../utils/logoHelper';
 import type { LandingSettings } from '../types';
 import type { GeneralSettingsDoc, SupportSettings, SupportFirestoreDoc } from '../types/settings';
 import { DEFAULT_GENERAL_SUPPORT_SETTINGS } from '../types/settings';
@@ -462,11 +463,28 @@ export const getHomeSettings = async (): Promise<HomeSettingsDoc> => {
       const homeSnap = await getDoc(doc(db, 'settings', 'home'));
       if (homeSnap.exists()) {
         const data = homeSnap.data() as HomeSettingsDoc;
-        // Fallback check: if stores or banners are missing in settings/home, check cms/app
-        if ((!data.stores && !data.partnerStores) || (!data.banners && !data.homeBanners)) {
+        const foundLogo = extractLogoUrl(data);
+        if (foundLogo) {
+          data.logoUrl = foundLogo;
+          data.headerLogoUrl = foundLogo;
+          data.logo = foundLogo;
+          data.headerLogo = foundLogo;
+        }
+
+        // Fallback check: if stores, banners, or logo are missing in settings/home, check cms/app
+        if ((!data.stores && !data.partnerStores) || (!data.banners && !data.homeBanners) || !foundLogo) {
           const cmsSnap = await getDoc(doc(db, 'cms', 'app')).catch(() => null);
           if (cmsSnap && cmsSnap.exists()) {
             const cmsData = cmsSnap.data();
+            if (!foundLogo) {
+              const cmsLogo = extractLogoUrl(cmsData);
+              if (cmsLogo) {
+                data.logoUrl = cmsLogo;
+                data.headerLogoUrl = cmsLogo;
+                data.logo = cmsLogo;
+                data.headerLogo = cmsLogo;
+              }
+            }
             if (!data.stores && !data.partnerStores && Array.isArray(cmsData.stores)) {
               data.stores = cmsData.stores;
               data.partnerStores = cmsData.stores;
@@ -487,9 +505,12 @@ export const getHomeSettings = async (): Promise<HomeSettingsDoc> => {
       const cmsSnap = await getDoc(doc(db, 'cms', 'app'));
       if (cmsSnap.exists()) {
         const cmsData = cmsSnap.data() as any;
+        const cmsLogo = extractLogoUrl(cmsData);
         const res: HomeSettingsDoc = {
-          logoUrl: cmsData.logoUrl,
-          headerLogoUrl: cmsData.logoUrl,
+          logoUrl: cmsLogo,
+          headerLogoUrl: cmsLogo,
+          logo: cmsLogo,
+          headerLogo: cmsLogo,
           siteTitle: cmsData.siteTitle,
           brandSlogan: cmsData.brandSlogan,
           heroHeading: cmsData.heroHeading,
@@ -566,8 +587,12 @@ export const saveHomeSettings = async (data: Partial<HomeSettingsDoc>): Promise<
       }
     } catch (_err) {}
 
+    const logoCandidate = extractLogoUrl(data);
+    const logoAliases = logoCandidate ? normalizeLogoPayload(logoCandidate) : { logoUrl: '', headerLogoUrl: '', logo: '', headerLogo: '' };
+
     const payload: HomeSettingsDoc = {
       ...data,
+      ...logoAliases,
       updatedAt: nowIso
     };
 

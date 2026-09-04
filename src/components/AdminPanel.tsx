@@ -105,6 +105,7 @@ import {
   mapExpenseToSheetPayload
 } from '../utils/googleSheetsSync';
 import StickyBottomSaveBar from './StickyBottomSaveBar';
+import { extractLogoUrl, normalizeLogoPayload } from '../utils/logoHelper';
 import { AdminSupportTickets } from './AdminSupportTickets';
 import { AdminFAQManager } from './AdminFAQManager';
 import { AdminSmsSettings } from './AdminSmsSettings';
@@ -3104,9 +3105,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       };
 
       // A. General Settings Payload (The absolute source of truth for toggles)
-      const resolvedLogo = (logoUrl && !logoUrl.startsWith('blob:')) ? logoUrl : ((cms as any)?.homeContent?.logoUrl || (cms as any)?.logoUrl || '');
+      const resolvedLogo = extractLogoUrl(logoUrl) || extractLogoUrl(cms) || extractLogoUrl(currentHomeContent);
+      const generalLogoAliases = resolvedLogo ? normalizeLogoPayload(resolvedLogo) : {};
       const generalPayload = {
-        ...(resolvedLogo ? { logoUrl: resolvedLogo } : {}),
+        ...generalLogoAliases,
         mobileBannerUrl: (cms as any)?.mobileBannerUrl || '',
         desktopBannerUrl: (cms as any)?.desktopBannerUrl || '',
         showPriceDetails: Boolean(showPriceBreakdown),
@@ -3223,10 +3225,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const homeSyncPayload: Record<string, any> = {
         updatedAt: new Date().toISOString()
       };
-      const resolvedHomeLogo = (cms as any)?.homeContent?.logoUrl || (cms as any)?.logoUrl || (logoUrl && !logoUrl.startsWith('blob:') ? logoUrl : '');
-      if (resolvedHomeLogo && !resolvedHomeLogo.startsWith('blob:')) {
-        homeSyncPayload.logoUrl = resolvedHomeLogo;
-        homeSyncPayload.headerLogoUrl = resolvedHomeLogo;
+      const resolvedHomeLogo = extractLogoUrl(logoUrl) || extractLogoUrl(cms) || extractLogoUrl(currentHomeContent);
+      if (resolvedHomeLogo) {
+        Object.assign(homeSyncPayload, normalizeLogoPayload(resolvedHomeLogo));
       }
       if (currentHomeContent?.appTitle) homeSyncPayload.siteTitle = currentHomeContent.appTitle;
       if (currentHomeContent?.appSubtitle) homeSyncPayload.brandSlogan = currentHomeContent.appSubtitle;
@@ -3340,13 +3341,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleStickySave = async () => {
-    if (activeAdminSubTab === 'security') {
+    if (activeAdminSubTab === 'homeContent') {
+      setIsSavingCms(true);
+      window.dispatchEvent(new CustomEvent('requestSaveHomeSettings'));
+      return;
+    } else if (activeAdminSubTab === 'security') {
       await handleChangePassword(new Event('submit') as any);
     } else if (activeAdminSubTab === 'backup') {
       await handleSaveBackupSchedule(new Event('submit') as any);
     } else if (activeAdminSubTab === 'gateway') {
       await handleSaveGatewaySettings();
-    } else if (activeAdminSubTab === 'homeContent' || activeAdminSubTab === 'cms' || activeAdminSubTab === 'apiSettings' || activeAdminSubTab === 'landingSettings') {
+    } else if (activeAdminSubTab === 'cms' || activeAdminSubTab === 'apiSettings' || activeAdminSubTab === 'landingSettings') {
       await handleDirectCmsSave();
     } else if (activeAdminSubTab === 'accounting' || activeAdminSubTab === 'dashboard') {
       await handleDirectFinancialSave();
@@ -3356,6 +3361,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       await handleMasterSaveAllAdminSettings();
     }
   };
+
+  useEffect(() => {
+    const handleHomeSaved = () => {
+      setIsSavingCms(false);
+      setSaveCmsSuccess(true);
+      setTimeout(() => setSaveCmsSuccess(false), 3500);
+    };
+    const handleHomeUpdated = (e: any) => {
+      const l = extractLogoUrl(e?.detail);
+      if (l) setLogoUrl(l);
+    };
+    window.addEventListener('homeSettingsSaveCompleted', handleHomeSaved);
+    window.addEventListener('homeSettingsUpdated', handleHomeUpdated);
+    return () => {
+      window.removeEventListener('homeSettingsSaveCompleted', handleHomeSaved);
+      window.removeEventListener('homeSettingsUpdated', handleHomeUpdated);
+    };
+  }, []);
 
   const isAnySaving = isMasterSaving || isSavingCms || isSavingSettings || isSavingGateway || isSavingSchedule || isChangingPass || isSavingProducts;
   const isAnySuccess = masterSaveSuccess || saveCmsSuccess || saveSettingsSuccess || saveGatewaySuccess || saveProductsSuccess || (passMessage?.type === 'success');
@@ -7747,38 +7770,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           cms={cms}
           onSaveCms={async (updatedCms) => {
             if (onUpdateCms) onUpdateCms(updatedCms);
-            const homeLogo = (updatedCms as any)?.logoUrl || (updatedCms as any)?.homeContent?.logoUrl || '';
+            const homeLogo = extractLogoUrl(updatedCms);
+            if (homeLogo) {
+              setLogoUrl(homeLogo);
+            }
+            const logoAliases = homeLogo ? normalizeLogoPayload(homeLogo) : { logoUrl: '', headerLogoUrl: '', logo: '', headerLogo: '' };
             const resolvedHomeContent = {
               ...((cms as any)?.homeContent || {}),
               ...((updatedCms as any)?.homeContent || {}),
-              ...(homeLogo && !homeLogo.startsWith('blob:') ? {
-                logoUrl: homeLogo,
-                headerLogoUrl: homeLogo
-              } : {})
+              ...logoAliases
             };
             const homePayload: Record<string, any> = {
               ...resolvedHomeContent,
               ...updatedCms,
+              ...logoAliases,
               updatedAt: new Date().toISOString()
             };
-            if (homeLogo && !homeLogo.startsWith('blob:')) {
-              homePayload.logoUrl = homeLogo;
-              homePayload.headerLogoUrl = homeLogo;
-            }
 
             const cmsPayload: Record<string, any> = {
               ...updatedCms,
-              homeContent: resolvedHomeContent,
-              ...(homeLogo && !homeLogo.startsWith('blob:') ? {
-                logoUrl: homeLogo,
-                headerLogoUrl: homeLogo
-              } : {})
+              ...logoAliases,
+              homeContent: resolvedHomeContent
             };
 
             await Promise.all([
               setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore(cmsPayload), { merge: true }),
               setDoc(doc(db, 'cms', 'app'), sanitizePayloadForFirestore(cmsPayload), { merge: true }),
-              setDoc(doc(db, 'settings', 'home'), sanitizePayloadForFirestore(homePayload), { merge: true })
+              setDoc(doc(db, 'settings', 'home'), sanitizePayloadForFirestore(homePayload), { merge: true }),
+              setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore({ ...logoAliases, updatedAt: new Date().toISOString() }), { merge: true })
             ]);
             if (onRefresh) onRefresh();
           }}

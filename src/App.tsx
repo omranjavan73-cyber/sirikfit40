@@ -43,6 +43,7 @@ import { SupportProvider } from './context/SupportContext';
 import { CartProvider } from './context/CartContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { getSafeItem, setSafeItem } from './utils/safeStorage';
+import { extractLogoUrl } from './utils/logoHelper';
 
 function MainApp() {
   const { deals: contextDeals, warehouseItems: contextWarehouse, generalProducts: contextProducts, popularProducts, isLoading: isProductsLoading } = useProducts();
@@ -629,12 +630,14 @@ function MainApp() {
               if (Array.isArray(banners) && banners.length > 0) {
                 next.homeBanners = banners;
               }
-              if (homeData.logoUrl !== undefined || homeData.headerLogoUrl !== undefined) {
-                const l = (homeData.logoUrl || homeData.headerLogoUrl || '').trim();
+              const l = extractLogoUrl(homeData);
+              if (l) {
                 next.logoUrl = l;
                 if (!next.homeContent) next.homeContent = {} as any;
                 next.homeContent.logoUrl = l;
                 next.homeContent.headerLogoUrl = l;
+                (next.homeContent as any).logo = l;
+                (next.homeContent as any).headerLogo = l;
               }
               return next;
             });
@@ -862,12 +865,14 @@ function MainApp() {
           const homeSnap = await getDoc(doc(db, 'settings', 'home'));
           if (homeSnap.exists()) {
             const hData = homeSnap.data();
-            const l = (hData.logoUrl || hData.headerLogoUrl || '').trim();
+            const l = extractLogoUrl(hData);
             if (l) {
               fsCms.logoUrl = l;
               if (!fsCms.homeContent) fsCms.homeContent = {};
               fsCms.homeContent.logoUrl = l;
               fsCms.homeContent.headerLogoUrl = l;
+              (fsCms.homeContent as any).logo = l;
+              (fsCms.homeContent as any).headerLogo = l;
             }
             const stores = hData.stores || hData.partnerStores;
             if (Array.isArray(stores) && stores.length > 0) {

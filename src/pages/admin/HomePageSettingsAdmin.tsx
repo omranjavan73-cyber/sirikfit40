@@ -19,14 +19,14 @@ import {
   ShieldCheck,
   Megaphone,
   Bell,
-  Upload,
   Trash2
 } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, sanitizePayloadForFirestore } from '../../firebase';
 import type { CmsConfig, PromoPopupConfig } from '../../types';
 import { AdminPromoPopupSettings } from '../../components/AdminPromoPopupSettings';
-import { getHomeSettings, saveHomeSettings } from '../../services/settingsService';
+import { getHomeSettings, saveHomeSettings, subscribeToHomeSettings } from '../../services/settingsService';
+import { extractLogoUrl, normalizeLogoPayload } from '../../utils/logoHelper';
 
 interface HomePageSettingsAdminProps {
   cms?: CmsConfig | null;
@@ -157,16 +157,55 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
   });
 
   const [logoUrl, setLogoUrl] = useState<string>(() => {
-    const propLogo = (initialCms as any)?.homeContent?.logoUrl || (initialCms as any)?.logoUrl || '';
-    return (propLogo && !propLogo.startsWith('blob:')) ? propLogo : '';
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const found = extractLogoUrl(parsed);
+          if (found) return found;
+        }
+        const cachedCms = localStorage.getItem('sirikfit_cms_config') || localStorage.getItem('omex_home_cms');
+        if (cachedCms) {
+          const parsed = JSON.parse(cachedCms);
+          const found = extractLogoUrl(parsed);
+          if (found) return found;
+        }
+      } catch (_) {}
+    }
+    return extractLogoUrl(initialCms);
   });
 
   const [previewUrl, setPreviewUrl] = useState<string>(() => {
-    const propLogo = (initialCms as any)?.homeContent?.logoUrl || (initialCms as any)?.logoUrl || '';
-    return (propLogo && !propLogo.startsWith('blob:')) ? propLogo : '';
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const found = extractLogoUrl(parsed);
+          if (found) return found;
+        }
+        const cachedCms = localStorage.getItem('sirikfit_cms_config') || localStorage.getItem('omex_home_cms');
+        if (cachedCms) {
+          const parsed = JSON.parse(cachedCms);
+          const found = extractLogoUrl(parsed);
+          if (found) return found;
+        }
+      } catch (_) {}
+    }
+    return extractLogoUrl(initialCms);
   });
 
-  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  // Sync state when initialCms loads in parent
+  useEffect(() => {
+    if (initialCms) {
+      const propLogo = extractLogoUrl(initialCms);
+      if (propLogo && !logoUrl) {
+        setLogoUrl(propLogo);
+        setPreviewUrl(propLogo);
+      }
+    }
+  }, [initialCms]);
 
   // Preserve partner stores & banners so they are never lost on save
   const [preservedStores, setPreservedStores] = useState<any[]>(() => {
@@ -189,11 +228,10 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     if (homeData.bannerImageUrl) setBannerImageUrl(homeData.bannerImageUrl);
     if (homeData.calculatorHeading) setCalculatorHeading(homeData.calculatorHeading);
     
-    const hLogo = homeData.logoUrl ?? homeData.headerLogoUrl;
-    if (typeof hLogo === 'string' && !hLogo.startsWith('blob:')) {
-      const clean = hLogo.trim();
-      setLogoUrl(clean);
-      setPreviewUrl(clean);
+    const hLogo = extractLogoUrl(homeData);
+    if (hLogo) {
+      setLogoUrl(hLogo);
+      setPreviewUrl(hLogo);
     }
 
     const stores = homeData.stores || homeData.partnerStores;
@@ -214,18 +252,30 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     const loadSettings = async () => {
       setIsLoadingSettings(true);
       try {
+        let loadedData: any = null;
         if (db) {
-          const homeSnap = await getDoc(doc(db, 'settings', 'home'));
-          if (homeSnap.exists() && isMounted) {
-            const homeData = homeSnap.data();
-            applyHomeData(homeData);
-          } else {
-            const homeData = await getHomeSettings();
-            if (isMounted) applyHomeData(homeData);
+          const homeSnap = await getDoc(doc(db, 'settings', 'home')).catch(() => null);
+          if (homeSnap && homeSnap.exists()) {
+            loadedData = homeSnap.data();
           }
-        } else {
-          const homeData = await getHomeSettings();
-          if (isMounted) applyHomeData(homeData);
+
+          // Fallback: If logo is missing from settings/home, check cms/app or settings/cms
+          if (!extractLogoUrl(loadedData)) {
+            const cmsSnap = await getDoc(doc(db, 'cms', 'app')).catch(() => null);
+            if (cmsSnap && cmsSnap.exists()) {
+              const cmsData = cmsSnap.data();
+              const cmsLogo = extractLogoUrl(cmsData);
+              if (cmsLogo) {
+                loadedData = { ...(loadedData || {}), ...normalizeLogoPayload(cmsLogo) };
+              }
+            }
+          }
+        }
+        if (!loadedData) {
+          loadedData = await getHomeSettings();
+        }
+        if (isMounted && loadedData) {
+          applyHomeData(loadedData);
         }
       } catch (err) {
         console.warn('Error loading settings in HomePageSettingsAdmin:', err);
@@ -255,8 +305,15 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       if (detail) applyHomeData(detail);
     };
 
+    // 4. Remote save trigger from bottom StickyBottomSaveBar
+    const handleRemoteSaveRequest = () => {
+      if (!isMounted) return;
+      handleSaveContent();
+    };
+
     if (typeof window !== 'undefined') {
       window.addEventListener('homeSettingsUpdated', handleHomeUpdated);
+      window.addEventListener('requestSaveHomeSettings', handleRemoteSaveRequest);
     }
 
     return () => {
@@ -264,130 +321,21 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       unsubHome();
       if (typeof window !== 'undefined') {
         window.removeEventListener('homeSettingsUpdated', handleHomeUpdated);
+        window.removeEventListener('requestSaveHomeSettings', handleRemoteSaveRequest);
       }
     };
   }, []);
 
-  // Client-side canvas optimizer: shrinks large raw images (even 5MB+) to high-clarity ~40KB Web/Retina size
-  const compressLogoFile = (file: File, maxDim = 480, quality = 0.88): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error('خطا در خواندن فایل از دستگاه'));
-      reader.onload = () => {
-        const img = new Image();
-        img.onerror = () => reject(new Error('قالب فایل نامعتبر است'));
-        img.onload = () => {
-          let width = img.naturalWidth || img.width;
-          let height = img.naturalHeight || img.height;
-
-          if (width > maxDim || height > maxDim) {
-            if (width > height) {
-              height = Math.round((height * maxDim) / width);
-              width = maxDim;
-            } else {
-              width = Math.round((width * maxDim) / height);
-              height = maxDim;
-            }
-          }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, width);
-          canvas.height = Math.max(1, height);
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            resolve(reader.result as string);
-            return;
-          }
-
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-          const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png');
-          const outputMime = isPng ? 'image/png' : 'image/jpeg';
-          const dataUrl = canvas.toDataURL(outputMime, isPng ? undefined : quality);
-          resolve(dataUrl);
-        };
-        img.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploadingLogo(true);
-
-    try {
-      // 1. Client-side instant canvas compression (turns large images into lightweight ~40KB)
-      const compressedDataUrl = await compressLogoFile(file);
-      setPreviewUrl(compressedDataUrl);
-
-      let finalUrl = '';
-
-      // 2. Try fast server-side upload to obtain a clean /api/media URL
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-        const res = await fetch('/api/upload-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            dataUrl: compressedDataUrl,
-            fileName: file.name,
-            folder: 'branding'
-          }),
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success && json.url) {
-            finalUrl = json.url;
-          }
-        }
-      } catch (proxyErr) {
-        console.warn('[Proxy upload notice, fallback to optimized data URL]:', proxyErr);
-      }
-
-      // 3. Fail-safe fallback: If server upload is slow or unavailable, use the optimized lightweight data URL directly
-      if (!finalUrl) {
-        finalUrl = compressedDataUrl;
-      }
-
-      // Save uploaded/optimized URL to state
-      setLogoUrl(finalUrl);
-      setPreviewUrl(finalUrl);
-      if (showToast) {
-        showToast('تصویر لوگو با موفقیت انتخاب شد. لطفاً دکمه «ذخیره و اعمال تنظیمات» را بزنید.', 'success');
-      }
-    } catch (err: any) {
-      console.error('[Upload Error]:', err);
-      if (showToast) {
-        showToast(`خطا در بارگذاری تصویر: ${err?.message || 'مشکل در پردازش فایل'}. لطفاً از کادر زیر، آدرس مستقیم تصویر را وارد نمایید.`, 'error');
-      }
-      setPreviewUrl(logoUrl || '');
-    } finally {
-      setIsUploadingLogo(false);
-      if (e.target) {
-        e.target.value = '';
-      }
-    }
-  };
-
-  const handleSaveContent = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveContent = async (e?: React.FormEvent) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
     if (isLoadingSettings) return;
     setIsSaving(true);
     setSaveSuccess(false);
 
     try {
       const nowIso = new Date().toISOString();
-      // Explicitly reject values beginning with blob: before updating Firestore
-      const sanitizedLogoUrl = (logoUrl && !logoUrl.startsWith('blob:')) ? logoUrl.trim() : '';
+      const cleanLogo = extractLogoUrl(logoUrl);
+      const logoAliases = cleanLogo ? normalizeLogoPayload(cleanLogo) : { logoUrl: '', headerLogoUrl: '', logo: '', headerLogo: '' };
 
       // Prepare payload preserving partnerStores and banners
       const homeSettingsPayload = {
@@ -399,8 +347,7 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
         topPromoText,
         bannerImageUrl,
         calculatorHeading,
-        logoUrl: sanitizedLogoUrl,
-        headerLogoUrl: sanitizedLogoUrl,
+        ...logoAliases,
         partnerStores: preservedStores,
         stores: preservedStores,
         banners: preservedBanners,
@@ -415,18 +362,15 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
           setDoc(doc(db, 'settings', 'home'), cleanHome, { merge: true }),
           setDoc(doc(db, 'cms', 'app'), cleanHome, { merge: true }),
           setDoc(doc(db, 'settings', 'cms'), sanitizePayloadForFirestore({
-            logoUrl: sanitizedLogoUrl,
-            headerLogoUrl: sanitizedLogoUrl,
+            ...logoAliases,
             homeContent: {
               ...homeSettingsPayload,
-              logoUrl: sanitizedLogoUrl,
-              headerLogoUrl: sanitizedLogoUrl
+              ...logoAliases
             },
             updatedAt: nowIso
           }), { merge: true }),
           setDoc(doc(db, 'settings', 'general'), sanitizePayloadForFirestore({
-            logoUrl: sanitizedLogoUrl,
-            headerLogoUrl: sanitizedLogoUrl,
+            ...logoAliases,
             updatedAt: nowIso
           }), { merge: true })
         ]);
@@ -435,7 +379,17 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       // 2. Also execute saveHomeSettings service helper
       await saveHomeSettings(homeSettingsPayload);
 
-      // 3. Parent callback with full homeContent populated
+      // 3. Immediate local cache and event broadcasts
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('sirikfit_home_settings', JSON.stringify(homeSettingsPayload));
+          window.dispatchEvent(new CustomEvent('homeSettingsUpdated', { detail: homeSettingsPayload }));
+          window.dispatchEvent(new CustomEvent('homeSettingsSaveCompleted', { detail: { success: true } }));
+          window.dispatchEvent(new Event('storage'));
+        } catch (_e) {}
+      }
+
+      // 4. Parent callback with full homeContent populated
       if (onSaveCms) {
         onSaveCms({
           siteTitle,
@@ -446,12 +400,10 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
           topPromoText,
           bannerImageUrl,
           calculatorHeading,
-          logoUrl: sanitizedLogoUrl,
-          headerLogoUrl: sanitizedLogoUrl,
+          ...logoAliases,
           homeContent: {
             ...homeSettingsPayload,
-            logoUrl: sanitizedLogoUrl,
-            headerLogoUrl: sanitizedLogoUrl
+            ...logoAliases
           },
           stores: preservedStores,
           homeBanners: preservedBanners,
@@ -697,42 +649,25 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
                       <span>بدون لوگو</span>
                     </div>
                   )}
-                  {isUploadingLogo && (
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                      <RefreshCw className="w-5 h-5 text-white animate-spin" />
-                    </div>
-                  )}
                 </div>
 
-                {/* Dual Input Controls: Direct URL + Device File Picker */}
+                {/* Direct URL Input */}
                 <div className="flex-1 w-full space-y-2">
                   <label className="text-xs font-bold text-slate-700 block">
-                    آدرس مستقیم تصویر لوگو یا بارگذاری فایل از موبایل / لپ‌تاپ:
+                    آدرس مستقیم تصویر لوگو (URL معتبر وب یا مسیر داخلی):
                   </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="text"
-                      value={logoUrl}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setLogoUrl(val);
-                        setPreviewUrl(val);
-                      }}
-                      placeholder="https://... یا انتخاب فایل از دکمه روبرو"
-                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dir-ltr text-right"
-                    />
-                    <label className="px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shrink-0 shadow-xs active:scale-98">
-                      <Upload className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{isUploadingLogo ? 'در حال آپلود...' : 'انتخاب فایل از دستگاه'}</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleLogoFileUpload}
-                        disabled={isUploadingLogo}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
+                  <input
+                    type="text"
+                    value={logoUrl}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const clean = extractLogoUrl(val);
+                      setLogoUrl(clean);
+                      setPreviewUrl(clean);
+                    }}
+                    placeholder="https://example.com/logo.png یا /logo.png"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dir-ltr text-right"
+                  />
                   <p className="text-[11px] text-slate-400 font-medium">
                     لوگوی جدید بلافاصله پس از ذخیره، در گوشه سمت راست هدر فروشگاه در تمام صفحات نمایش داده خواهد شد.
                   </p>

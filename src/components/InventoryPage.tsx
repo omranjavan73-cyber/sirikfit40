@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { SlidersHorizontal, X, ShoppingBag, Check } from 'lucide-react';
 import type { LocalInventoryItem, FinancialSettings } from '../types';
+import { getNormalizedTime } from '../utils/formatters';
 import { ProductDetailModal } from './ProductDetailModal';
 import { TwoTierCategoryNav } from './TwoTierCategoryNav';
 import { ProductCatalogCard } from './ProductCatalogCard';
@@ -52,8 +53,8 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
         return !isGhost;
       })
       .sort((a, b) => {
-        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
-        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+        const timeA = getNormalizedTime(a.createdAt || a.sectionAddedAt || a.updatedAt);
+        const timeB = getNormalizedTime(b.createdAt || b.sectionAddedAt || b.updatedAt);
         return timeB - timeA;
       });
   }, [items]);

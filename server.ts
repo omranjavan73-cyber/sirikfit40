@@ -8088,3 +8088,4 @@ async function startServer() {
 if (process.env.IS_FIREBASE_FUNCTION !== 'true') {
   startServer();
 }
+

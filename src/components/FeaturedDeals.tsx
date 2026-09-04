@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { SlidersHorizontal, X, ShoppingBag, Check } from 'lucide-react';
 import type { FeaturedDeal, FinancialSettings } from '../types';
-import { calculateFinalToman, getEffectiveAedRate } from '../utils/formatters';
+import { calculateFinalToman, getEffectiveAedRate, getNormalizedTime } from '../utils/formatters';
 import { ProductDetailModal } from './ProductDetailModal';
 import { TwoTierCategoryNav } from './TwoTierCategoryNav';
 import { ProductCatalogCard } from './ProductCatalogCard';
@@ -53,8 +53,8 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({
         return !isGhost;
       })
       .sort((a, b) => {
-        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
-        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+        const timeA = getNormalizedTime(a.createdAt || a.sectionAddedAt || a.updatedAt);
+        const timeB = getNormalizedTime(b.createdAt || b.sectionAddedAt || b.updatedAt);
         return timeB - timeA;
       });
   }, [deals]);

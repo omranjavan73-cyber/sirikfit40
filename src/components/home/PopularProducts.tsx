@@ -65,14 +65,15 @@ export const PopularProducts: React.FC<PopularProductsProps> = ({
             return isPub && !isGhost && (p.popularOrder === undefined || p.popularOrder >= 0);
           });
 
-        // Sort items marked isPopular: true descending by popularOrder (or createdAt),
-        // ensuring the most recently starred product appears as the first card in the RTL carousel.
+        // Sort items marked isPopular: true ascending by popularOrder (0, 1, 2...)
+        // so that Rank 1 (index 0) appears as the first card on the right in the RTL ribbon.
         fetched.sort((a: any, b: any) => {
+          const orderA = typeof a.popularOrder === 'number' && a.popularOrder >= 0 ? a.popularOrder : 9999;
+          const orderB = typeof b.popularOrder === 'number' && b.popularOrder >= 0 ? b.popularOrder : 9999;
+          if (orderA !== orderB) return orderA - orderB;
           const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
           const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
-          const orderA = typeof a.popularOrder === 'number' && a.popularOrder > 0 ? a.popularOrder : timeA;
-          const orderB = typeof b.popularOrder === 'number' && b.popularOrder > 0 ? b.popularOrder : timeB;
-          return orderB - orderA;
+          return timeB - timeA;
         });
         setPopularItems(fetched);
       };

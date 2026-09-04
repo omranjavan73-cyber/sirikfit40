@@ -49,8 +49,28 @@ export const Header: React.FC<HeaderProps> = ({
     }
     return '';
   });
+  const [logoError, setLogoError] = useState<boolean>(false);
 
   useEffect(() => {
+    setLogoError(false);
+  }, [dynamicLogoUrl, propLogoUrl]);
+
+  useEffect(() => {
+    const handleSettingsUpdated = (e: any) => {
+      const newLogo = e?.detail?.logoUrl;
+      if (typeof newLogo === 'string') {
+        setDynamicLogoUrl(newLogo.trim());
+      } else if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('sirikfit_logo_url');
+        if (stored) setDynamicLogoUrl(stored);
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('settingsUpdated', handleSettingsUpdated);
+      window.addEventListener('storage', handleSettingsUpdated);
+    }
+
     if (!db) return;
     // Subscribe directly to settings/home (sole source of truth for header logo)
     const unsubHome = onSnapshot(doc(db, 'settings', 'home'), (snap) => {
@@ -73,6 +93,10 @@ export const Header: React.FC<HeaderProps> = ({
 
     return () => {
       unsubHome();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('settingsUpdated', handleSettingsUpdated);
+        window.removeEventListener('storage', handleSettingsUpdated);
+      }
     };
   }, []);
 
@@ -138,15 +162,15 @@ export const Header: React.FC<HeaderProps> = ({
             <div
               className="logo-container border border-black/10 shadow-2xs w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-white p-0.5"
             >
-              {activeLogo ? (
+              {activeLogo && !logoError ? (
                 <img
                   id="header-app-logo"
                   src={activeLogo}
                   alt="Sirik Fit Logo"
                   referrerPolicy="no-referrer"
                   className="h-10 w-auto object-contain block max-w-full max-h-full"
-                  onError={(e) => {
-                    (e.target as HTMLElement).style.display = 'none';
+                  onError={() => {
+                    setLogoError(true);
                   }}
                 />
               ) : (

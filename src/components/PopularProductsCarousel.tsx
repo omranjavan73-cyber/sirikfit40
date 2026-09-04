@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { ProductDetailModal } from './ProductDetailModal';
 import type { FinancialSettings } from '../types';
@@ -56,19 +56,29 @@ export const PopularProductsCarousel: React.FC<PopularProductsCarouselProps> = (
     }
   };
 
-  const list = (items || products || [])
-    .filter(prod => {
+  const list = useMemo(() => {
+    const raw = items || products || [];
+    const filtered = raw.filter(prod => {
       if (!prod || !prod.id) return false;
       const t = (prod.title || prod.titleFa || prod.name || (prod.rawItem && (prod.rawItem.title || prod.rawItem.name)) || '').trim();
       return t && t !== 'محصول پرطرفدار' && t !== 'بدون عنوان' && t !== 'محصول بدون عنوان';
-    })
-    .sort((a: any, b: any) => {
-      const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
-      const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
-      const orderA = typeof a.popularOrder === 'number' && a.popularOrder > 0 ? a.popularOrder : timeA;
-      const orderB = typeof b.popularOrder === 'number' && b.popularOrder > 0 ? b.popularOrder : timeB;
-      return orderB - orderA;
     });
+
+    // If items were passed from ProductContext, they are already pre-sorted by canonical order.
+    // If only an unsorted products array was provided, sort ascending by popularOrder (0, 1, 2...)
+    if (!items && products) {
+      return filtered.sort((a: any, b: any) => {
+        const orderA = typeof a.popularOrder === 'number' && a.popularOrder >= 0 ? a.popularOrder : 9999;
+        const orderB = typeof b.popularOrder === 'number' && b.popularOrder >= 0 ? b.popularOrder : 9999;
+        if (orderA !== orderB) return orderA - orderB;
+        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
+        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+        return timeB - timeA;
+      });
+    }
+
+    return filtered;
+  }, [items, products]);
 
   if (!list || list.length === 0) {
     return null;

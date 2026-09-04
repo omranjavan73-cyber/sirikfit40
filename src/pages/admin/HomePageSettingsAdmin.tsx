@@ -114,37 +114,33 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsUploadingLogo(true);
-    // Instant local preview
+    // Instant local preview for immediate visual feedback
     const localPreview = URL.createObjectURL(file);
     setPreviewUrl(localPreview);
+    setIsUploadingLogo(true);
 
     try {
-      const cleanName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-      const storageRef = ref(storage, `branding/logo_${Date.now()}_${cleanName}`);
-      
-      // Safety timeout (15 seconds) to guarantee the button unfreezes even on network/storage stalls
-      const uploadPromise = uploadBytes(storageRef, file, {
+      const fileExt = file.name.split('.').pop() || 'png';
+      const cleanExt = fileExt.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const storageRef = ref(storage, `branding/site_logo_${Date.now()}.${cleanExt || 'png'}`);
+      const uploadResult = await uploadBytes(storageRef, file, {
         contentType: file.type || 'image/png'
-      }).then(snapshot => getDownloadURL(snapshot.ref));
+      });
+      const downloadUrl = await getDownloadURL(uploadResult.ref);
 
-      const timeoutPromise = new Promise<string>((_, reject) =>
-        setTimeout(() => reject(new Error('زمان آپلود به پایان رسید. لطفاً اتصال اینترنت خود را بررسی کنید.')), 15000)
-      );
-
-      const downloadUrl = await Promise.race([uploadPromise, timeoutPromise]);
-
+      // Save to state
       setLogoUrl(downloadUrl);
       setPreviewUrl(downloadUrl);
-      if (showToast) showToast('لوگو با موفقیت آپلود شد', 'success');
-    } catch (error: any) {
-      console.error('[Logo Upload Error]:', error);
-      if (showToast) showToast(`خطا در آپلود لوگو: ${error.message || 'خطای شبکه یا فضای ذخیره‌سازی'}`, 'error');
-      setPreviewUrl(logoUrl || ''); // Revert preview on failure
+      if (showToast) showToast('تصویر لوگو با موفقیت بارگذاری شد', 'success');
+    } catch (err: any) {
+      console.error('[Firebase Storage Upload Error]:', err);
+      if (showToast) showToast(`خطا در آپلود فایل: ${err.message || 'مشکل در دسترسی به مخزن ذخیره‌سازی'}`, 'error');
+      // Revert preview if failed
+      setPreviewUrl(logoUrl || '');
     } finally {
-      setIsUploadingLogo(false); // Guarantee loading state unfreezes
+      setIsUploadingLogo(false); // Guarantees the spinner stops immediately
       if (e.target) {
-        e.target.value = ''; // Reset input to allow re-selection
+        e.target.value = '';
       }
     }
   };

@@ -630,8 +630,12 @@ function MainApp() {
               if (Array.isArray(banners) && banners.length > 0) {
                 next.homeBanners = banners;
               }
-              if (homeData.logoUrl || homeData.headerLogoUrl) {
-                next.logoUrl = homeData.logoUrl || homeData.headerLogoUrl;
+              if (homeData.logoUrl !== undefined || homeData.headerLogoUrl !== undefined) {
+                const l = (homeData.logoUrl || homeData.headerLogoUrl || '').trim();
+                next.logoUrl = l;
+                if (!next.homeContent) next.homeContent = {} as any;
+                next.homeContent.logoUrl = l;
+                next.homeContent.headerLogoUrl = l;
               }
               return next;
             });

@@ -1582,15 +1582,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // Direct Image File Upload Handlers (Base64 + Auto Compressor & Resizer)
-  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const compressed = await compressImageFile(file, 800, 800, 0.7);
-      if (compressed) {
-        setLogoUrl(compressed);
-      }
-    }
-  };
 
   const handleHeroBannerFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

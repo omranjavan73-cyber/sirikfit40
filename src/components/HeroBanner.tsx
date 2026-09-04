@@ -1,36 +1,81 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { CmsConfig, HomeBanner } from '../types';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../config/firebase';
+import { isFirestoreGrpcNoise } from '../firebase';
+import { getHomeSettings } from '../services/settingsService';
 
 interface HeroBannerProps {
   cms?: CmsConfig | null;
 }
 
-const DEFAULT_HOME_BANNERS: HomeBanner[] = [
-  {
-    id: 'b1',
-    imageUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=1200&auto=format&fit=crop',
-    linkUrl: 'https://drnutrition.com',
-    title: 'بنر شماره ۱',
-    enabled: true
-  },
-  {
-    id: 'b2',
-    imageUrl: 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?q=80&w=1200&auto=format&fit=crop',
-    linkUrl: 'https://lifepharmacy.com',
-    title: 'بنر شماره ۲',
-    enabled: true
-  }
-];
-
 export const HeroBanner: React.FC<HeroBannerProps> = ({ cms }) => {
-  // Determine banner list from General Settings (cms.homeBanners)
-  const sourceBanners = (cms?.homeBanners && cms.homeBanners.length > 0)
-    ? cms.homeBanners
-    : DEFAULT_HOME_BANNERS;
+  const [banners, setBanners] = useState<HomeBanner[]>(() => {
+    if (Array.isArray(cms?.homeBanners) && cms.homeBanners.length > 0) {
+      return cms.homeBanners;
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_home_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const b = parsed?.banners || parsed?.homeBanners;
+          if (Array.isArray(b) && b.length > 0) return b;
+        }
+      } catch (_) {}
+    }
+    return [];
+  });
+  const [isLoading, setIsLoading] = useState<boolean>(() => banners.length === 0);
+
+  // Sync with prop cms
+  useEffect(() => {
+    if (Array.isArray(cms?.homeBanners) && cms.homeBanners.length > 0) {
+      setBanners(cms.homeBanners);
+      setIsLoading(false);
+    }
+  }, [cms?.homeBanners]);
+
+  // Real-time listener on settings/home
+  useEffect(() => {
+    if (!db) return;
+
+    if (banners.length === 0) {
+      getHomeSettings().then((homeData) => {
+        const b = homeData.banners || homeData.homeBanners;
+        if (Array.isArray(b) && b.length > 0) {
+          setBanners(b);
+        }
+        setIsLoading(false);
+      }).catch(() => {
+        setIsLoading(false);
+      });
+    }
+
+    let unsub: (() => void) | null = null;
+    try {
+      unsub = onSnapshot(doc(db, 'settings', 'home'), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const b = data.banners || data.homeBanners;
+          if (Array.isArray(b) && b.length > 0) {
+            setBanners(b);
+            setIsLoading(false);
+          }
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('HeroBanner settings/home listener notice:', err);
+      });
+    } catch (_e) {}
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
 
   // Filter active banners (enabled !== false)
-  const activeBanners = (sourceBanners || []).filter(
+  const activeBanners = (banners || []).filter(
     (b) => b && b.enabled !== false && Boolean(b.imageUrl || b.linkUrl)
   );
 
@@ -57,6 +102,12 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ cms }) => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [activeBanners.length, isPaused]);
+
+  if (isLoading && activeBanners.length === 0) {
+    return (
+      <div className="w-full h-36 sm:h-48 md:h-56 mt-0 mb-3 rounded-2xl bg-slate-200/70 dark:bg-slate-800 animate-pulse border border-slate-200/60 shadow-xs" />
+    );
+  }
 
   if (activeBanners.length === 0) {
     return null;

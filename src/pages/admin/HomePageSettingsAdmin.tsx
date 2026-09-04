@@ -28,6 +28,7 @@ import { db } from '../../firebase';
 import { storage } from '../../config/firebase';
 import type { CmsConfig, PromoPopupConfig } from '../../types';
 import { AdminPromoPopupSettings } from '../../components/AdminPromoPopupSettings';
+import { getHomeSettings, saveHomeSettings } from '../../services/settingsService';
 
 interface HomePageSettingsAdminProps {
   cms?: CmsConfig | null;
@@ -41,6 +42,7 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
   showToast
 }) => {
   const [activeTab, setActiveTab] = useState<'content' | 'popup'>('content');
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -57,53 +59,55 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
   const [previewUrl, setPreviewUrl] = useState('');
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
-  useEffect(() => {
-    const loadCms = async () => {
-      try {
-        if (db) {
-          const docRef = doc(db, 'cms', 'app');
-          const snap = await getDoc(docRef);
-          if (snap.exists()) {
-            const data = snap.data() as any;
-            if (data.siteTitle) setSiteTitle(data.siteTitle);
-            if (data.brandSlogan) setBrandSlogan(data.brandSlogan);
-            if (data.heroHeading) setHeroHeading(data.heroHeading);
-            if (data.heroSubheading) setHeroSubheading(data.heroSubheading);
-            if (data.showTopPromo !== undefined) setShowTopPromo(data.showTopPromo);
-            if (data.topPromoText) setTopPromoText(data.topPromoText);
-            if (data.bannerImageUrl) setBannerImageUrl(data.bannerImageUrl);
-            if (data.calculatorHeading) setCalculatorHeading(data.calculatorHeading);
-            if (data.logoUrl && !data.logoUrl.startsWith('blob:')) {
-              setLogoUrl(data.logoUrl);
-              setPreviewUrl(data.logoUrl);
-            }
-          }
+  // Preserve partner stores & banners so they are never lost on save
+  const [preservedStores, setPreservedStores] = useState<any[]>([]);
+  const [preservedBanners, setPreservedBanners] = useState<any[]>([]);
 
-          // Check settings/home and settings/general
-          const homeSnap = await getDoc(doc(db, 'settings', 'home')).catch(() => null);
-          if (homeSnap && homeSnap.exists()) {
-            const homeData = homeSnap.data();
-            const hLogo = homeData?.logoUrl || homeData?.headerLogoUrl;
-            if (hLogo && !hLogo.startsWith('blob:')) {
-              setLogoUrl(hLogo);
-              setPreviewUrl(hLogo);
-            }
-          }
-          const cmsSnap = await getDoc(doc(db, 'settings', 'cms')).catch(() => null);
-          if (cmsSnap && cmsSnap.exists()) {
-            const cmsData = cmsSnap.data();
-            const cLogo = cmsData?.logoUrl || cmsData?.homeContent?.logoUrl;
-            if (cLogo && !cLogo.startsWith('blob:') && !logoUrl) {
-              setLogoUrl(cLogo);
-              setPreviewUrl(cLogo);
-            }
-          }
+  useEffect(() => {
+    let isMounted = true;
+    const loadSettings = async () => {
+      setIsLoadingSettings(true);
+      try {
+        const homeData = await getHomeSettings();
+        if (!isMounted) return;
+
+        if (homeData.siteTitle) setSiteTitle(homeData.siteTitle);
+        if (homeData.brandSlogan) setBrandSlogan(homeData.brandSlogan);
+        if (homeData.heroHeading) setHeroHeading(homeData.heroHeading);
+        if (homeData.heroSubheading) setHeroSubheading(homeData.heroSubheading);
+        if (homeData.showTopPromo !== undefined) setShowTopPromo(homeData.showTopPromo);
+        if (homeData.topPromoText) setTopPromoText(homeData.topPromoText);
+        if (homeData.bannerImageUrl) setBannerImageUrl(homeData.bannerImageUrl);
+        if (homeData.calculatorHeading) setCalculatorHeading(homeData.calculatorHeading);
+        
+        const hLogo = homeData.logoUrl || homeData.headerLogoUrl;
+        if (hLogo && !hLogo.startsWith('blob:')) {
+          setLogoUrl(hLogo);
+          setPreviewUrl(hLogo);
+        }
+
+        const stores = homeData.stores || homeData.partnerStores;
+        if (Array.isArray(stores) && stores.length > 0) {
+          setPreservedStores(stores);
+        }
+
+        const banners = homeData.banners || homeData.homeBanners;
+        if (Array.isArray(banners) && banners.length > 0) {
+          setPreservedBanners(banners);
         }
       } catch (err) {
-        console.warn('Error loading CMS data in HomePageSettingsAdmin:', err);
+        console.warn('Error loading settings in HomePageSettingsAdmin:', err);
+      } finally {
+        if (isMounted) {
+          setIsLoadingSettings(false);
+        }
       }
     };
-    loadCms();
+    loadSettings();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -147,6 +151,7 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
 
   const handleSaveContent = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoadingSettings) return;
     setIsSaving(true);
     setSaveSuccess(false);
 
@@ -155,7 +160,8 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       // Explicitly reject values beginning with blob: before updating Firestore
       const sanitizedLogoUrl = (logoUrl && !logoUrl.startsWith('blob:')) ? logoUrl.trim() : '';
 
-      const updatedConfig: Partial<CmsConfig> & { logoUrl?: string } = {
+      // Prepare payload preserving partnerStores and banners
+      const homeSettingsPayload = {
         siteTitle,
         brandSlogan,
         heroHeading,
@@ -165,32 +171,30 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
         bannerImageUrl,
         calculatorHeading,
         logoUrl: sanitizedLogoUrl,
+        headerLogoUrl: sanitizedLogoUrl,
+        partnerStores: preservedStores,
+        stores: preservedStores,
+        banners: preservedBanners,
+        homeBanners: preservedBanners,
         updatedAt: nowIso
       };
 
+      // 1. Atomically save via settingsService (persists to settings/home and mirrors cms/app)
+      await saveHomeSettings(homeSettingsPayload);
+
       if (db) {
-        // 1. Write to settings/home (The absolute single source of truth for header logo)
-        await setDoc(doc(db, 'settings', 'home'), {
-          logoUrl: sanitizedLogoUrl,
-          headerLogoUrl: sanitizedLogoUrl,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
-
-        // 2. Write to cms/app
-        await setDoc(doc(db, 'cms', 'app'), updatedConfig, { merge: true });
-
-        // 3. Write to settings/cms
-        await setDoc(doc(db, 'settings', 'cms'), {
-          logoUrl: sanitizedLogoUrl,
-          homeContent: { logoUrl: sanitizedLogoUrl },
-          updatedAt: nowIso
-        }, { merge: true });
-
-        // 4. Write to settings/general
-        await setDoc(doc(db, 'settings', 'general'), {
-          logoUrl: sanitizedLogoUrl,
-          updatedAt: nowIso
-        }, { merge: true });
+        // 2. Also ensure settings/cms and settings/general are kept consistent
+        await Promise.all([
+          setDoc(doc(db, 'settings', 'cms'), {
+            logoUrl: sanitizedLogoUrl,
+            homeContent: { logoUrl: sanitizedLogoUrl },
+            updatedAt: nowIso
+          }, { merge: true }),
+          setDoc(doc(db, 'settings', 'general'), {
+            logoUrl: sanitizedLogoUrl,
+            updatedAt: nowIso
+          }, { merge: true })
+        ]);
       }
 
       if (typeof window !== 'undefined') {
@@ -204,7 +208,20 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       }
 
       if (onSaveCms) {
-        onSaveCms(updatedConfig as CmsConfig);
+        onSaveCms({
+          siteTitle,
+          brandSlogan,
+          heroHeading,
+          heroSubheading,
+          showTopPromo,
+          topPromoText,
+          bannerImageUrl,
+          calculatorHeading,
+          logoUrl: sanitizedLogoUrl,
+          stores: preservedStores,
+          homeBanners: preservedBanners,
+          updatedAt: nowIso
+        } as any);
       }
 
       setSaveSuccess(true);
@@ -217,6 +234,16 @@ export const HomePageSettingsAdmin: React.FC<HomePageSettingsAdminProps> = ({
       setIsSaving(false);
     }
   };
+
+  if (isLoadingSettings) {
+    return (
+      <div className="bg-white border border-slate-200/90 rounded-3xl p-12 text-center space-y-4 shadow-xs font-['Vazirmatn',sans-serif] dir-rtl">
+        <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto" />
+        <h3 className="font-black text-slate-900 text-base">در حال بارگذاری تنظیمات صفحه اصلی...</h3>
+        <p className="text-xs text-slate-500 font-medium">لطفاً چند لحظه تأمل فرمایید تا اطلاعات از پایگاه داده همگام‌سازی شوند.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 font-['Vazirmatn',sans-serif] text-right dir-rtl">

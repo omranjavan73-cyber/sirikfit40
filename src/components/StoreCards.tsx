@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ExternalLink, Sparkles, ArrowLeft } from 'lucide-react';
 import { CmsConfig } from '../types';
-import { GncSquareLogo, LifePharmacySquareLogo, DoctorNutritionSquareLogo } from './CompanyLogos';
+import { GncSquareLogo, LifePharmacySquareLogo, DoctorNutritionSquareLogo, IherbSquareLogo } from './CompanyLogos';
+import { getStoresFromFirestore } from '../services/storeService';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../config/firebase';
+import { isFirestoreGrpcNoise } from '../firebase';
 
 interface StoreCardsProps {
   stores?: any[];
@@ -9,54 +13,121 @@ interface StoreCardsProps {
   onSelectStoreSample?: (storeName: string, defaultUrl: string) => void;
 }
 
-export const StoreCards: React.FC<StoreCardsProps> = ({ stores, cms, onSelectStoreSample }) => {
+export const StoreCards: React.FC<StoreCardsProps> = ({ stores: propsStores, cms, onSelectStoreSample }) => {
   const showStores = cms?.features?.showStores ?? cms?.showStores ?? true;
-  if (!showStores) return null;
-  // Strictly ordered 3 partner stores as default fallbacks:
-  const defaultPartnerStores = [
-    {
-      id: 'store-gnc',
-      title: 'GNC UAE',
-      shortTitle: 'GNC',
-      subtitle: 'نمایندگی رسمی GNC',
-      description: 'نمایندگی رسمی برند جهانی GNC در امارات - انواع مولتی‌ویتامین‌ها، امگا ۳ و مکمل‌های سلامتی اورجینال',
-      url: 'https://gnc-mena.com/',
-      badge: 'ضمانت ۱۰۰٪ اورجینال',
-      brandColor: '#dc2626',
-      enabled: true,
-      image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><text x="100" y="115" text-anchor="middle" fill="%23E31837" font-weight="900" font-size="70" font-family="Arial,sans-serif" letter-spacing="-2">GNC</text><text x="100" y="145" text-anchor="middle" fill="%23E31837" font-weight="800" font-size="20" font-family="Arial,sans-serif" letter-spacing="4">LIVE WELL</text></svg>',
-      LogoComponent: GncSquareLogo,
-    },
-    {
-      id: 'store-life',
-      title: 'Life Pharmacy UAE',
-      shortTitle: 'Life Pharmacy',
-      subtitle: 'داروخانه آنلاین دبی',
-      description: 'بزرگترین زنجیره داروخانه آنلاین دبی - داروها، ویتامین‌ها، مکمل‌ها و محصولات آرایشی بهداشتی معتبر',
-      url: 'https://www.lifepharmacy.com',
-      badge: 'داروخانه آنلاین دبی',
-      brandColor: '#1e40af',
-      enabled: true,
-      image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23ffffff"/><path d="M100 15 C56 15 40 42 40 70 V135 H160 V70 C160 42 144 15 100 15 Z" fill="%231C3F94"/><circle cx="100" cy="55" r="9" fill="%23FFFFFF"/><path d="M100 68 C84 80 72 84 64 110 H136 C128 84 116 80 100 68 Z" fill="%23FFFFFF"/><text x="100" y="172" text-anchor="middle" fill="%23C42582" font-weight="900" font-size="36" font-family="sans-serif">LIFE%C2%AE</text></svg>',
-      LogoComponent: LifePharmacySquareLogo,
-    },
-    {
-      id: 'store-dnp',
-      title: 'Doctor Nutrition Dubai',
-      shortTitle: 'Dr. Nutrition',
-      subtitle: 'بزرگترین مرجع مکمل دبی',
-      description: 'بزرگترین مرجع تخصصی مکمل‌های ورزشی، ویتامین و پروتئین ایزوله در امارات و خاورمیانه',
-      url: 'https://www.drnutrition.com/en-ae',
-      badge: 'تخفیف ویژه دبی',
-      brandColor: '#9333ea',
-      enabled: true,
-      image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 200"><rect width="220" height="200" fill="%230a0a0c"/><text x="25" y="130" fill="%238B2FC9" font-weight="900" font-size="100" font-family="sans-serif" letter-spacing="-6">dnp</text><path d="M50 120 C 90 70, 135 40, 175 28 C 150 65, 110 110, 75 130 Z" fill="%2378BE20"/><path d="M60 112 Q 115 65, 163 35" stroke="%235A9614" stroke-width="3" fill="none"/></svg>',
-      LogoComponent: DoctorNutritionSquareLogo,
+  const [loadedStores, setLoadedStores] = useState<any[]>(() => {
+    if (Array.isArray(propsStores) && propsStores.length > 0) return propsStores;
+    if (Array.isArray(cms?.stores) && cms.stores.length > 0) return cms.stores;
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('sirikfit_stores_list');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (_) {}
     }
-  ];
+    return [];
+  });
+  const [isLoading, setIsLoading] = useState<boolean>(() => loadedStores.length === 0);
 
-  const rawStores = (cms?.stores && cms.stores.length > 0) ? cms.stores : defaultPartnerStores;
-  const activeStores = (rawStores || []).filter((s: any) => s && s.enabled !== false && s.active !== false);
+  // Sync with props if provided
+  useEffect(() => {
+    if (Array.isArray(propsStores) && propsStores.length > 0) {
+      setLoadedStores(propsStores);
+      setIsLoading(false);
+    } else if (Array.isArray(cms?.stores) && cms.stores.length > 0) {
+      setLoadedStores(cms.stores);
+      setIsLoading(false);
+    }
+  }, [propsStores, cms?.stores]);
+
+  // Real-time listener on settings/home & settings/stores
+  useEffect(() => {
+    if (!db) return;
+
+    // Fetch initial stores if not present
+    if (loadedStores.length === 0) {
+      getStoresFromFirestore().then((res) => {
+        if (Array.isArray(res) && res.length > 0) {
+          setLoadedStores(res);
+        }
+        setIsLoading(false);
+      }).catch(() => {
+        setIsLoading(false);
+      });
+    }
+
+    let unsubHome: (() => void) | null = null;
+    let unsubStores: (() => void) | null = null;
+
+    try {
+      unsubHome = onSnapshot(doc(db, 'settings', 'home'), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const s = data.partnerStores || data.stores;
+          if (Array.isArray(s) && s.length > 0) {
+            setLoadedStores(s);
+            setIsLoading(false);
+          }
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('StoreCards settings/home listener notice:', err);
+      });
+
+      unsubStores = onSnapshot(doc(db, 'settings', 'stores'), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (Array.isArray(data.stores) && data.stores.length > 0) {
+            setLoadedStores(data.stores);
+            setIsLoading(false);
+          }
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('StoreCards settings/stores listener notice:', err);
+      });
+    } catch (_e) {}
+
+    return () => {
+      if (unsubHome) unsubHome();
+      if (unsubStores) unsubStores();
+    };
+  }, []);
+
+  if (!showStores) return null;
+
+  const activeStores = (loadedStores || []).filter(
+    (s: any) => s && s.enabled !== false && s.active !== false && s.isActive !== false
+  );
+
+  // If loading and no stores available yet, show skeleton cards
+  if (isLoading && activeStores.length === 0) {
+    return (
+      <section className="mb-6 font-['Vazirmatn',sans-serif] dir-rtl">
+        <div className="flex items-center justify-between mb-3.5">
+          <div className="h-6 w-48 bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {[1, 2, 3, 4, 5].map((idx) => (
+            <div
+              key={idx}
+              className="bg-white border border-slate-100 rounded-[20px] p-4.5 space-y-4 shadow-xs animate-pulse"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 space-y-2">
+                  <div className="h-5 bg-slate-200 rounded w-3/4" />
+                  <div className="h-4 bg-slate-100 rounded w-1/2" />
+                </div>
+                <div className="w-16 h-16 rounded-xl bg-slate-100 shrink-0" />
+              </div>
+              <div className="h-10 bg-slate-100 rounded" />
+              <div className="h-10 bg-slate-200 rounded-[14px]" />
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   if (activeStores.length === 0) return null;
 
@@ -64,6 +135,7 @@ export const StoreCards: React.FC<StoreCardsProps> = ({ stores, cms, onSelectSto
     if (store.id === 'store-gnc' || store.title?.includes('GNC') || store.url?.includes('gnc')) return GncSquareLogo;
     if (store.id === 'store-life' || store.title?.includes('Life') || store.url?.includes('lifepharmacy')) return LifePharmacySquareLogo;
     if (store.id === 'store-dnp' || store.title?.includes('Doctor') || store.title?.includes('Nutrition') || store.url?.includes('drnutrition')) return DoctorNutritionSquareLogo;
+    if (store.id === 'store-iherb' || store.title?.includes('iHerb') || store.url?.includes('iherb')) return IherbSquareLogo;
     return null;
   };
 
@@ -72,8 +144,9 @@ export const StoreCards: React.FC<StoreCardsProps> = ({ stores, cms, onSelectSto
     if (store.id === 'store-gnc' || store.title?.includes('GNC') || store.url?.includes('gnc')) return '#dc2626';
     if (store.id === 'store-life' || store.title?.includes('Life') || store.url?.includes('lifepharmacy')) return '#1e40af';
     if (store.id === 'store-dnp' || store.title?.includes('Doctor') || store.title?.includes('Nutrition') || store.url?.includes('drnutrition')) return '#9333ea';
-    if (store.id === 'store-sporter' || store.title?.includes('Sporter') || store.title?.includes('SPORTER') || store.url?.includes('sporter')) return '#eab308';
-    if (store.id === 'store-amazon' || store.title?.includes('Amazon') || store.url?.includes('amazon')) return '#f59e0b';
+    if (store.id === 'store-iherb' || store.title?.includes('iHerb') || store.url?.includes('iherb')) return '#458500';
+    if (store.id === 'store-sporter' || store.title?.includes('Sporter') || store.title?.includes('SPORTER') || store.url?.includes('sporter')) return '#f59e0b';
+    if (store.id === 'store-amazon' || store.title?.includes('Amazon') || store.url?.includes('amazon')) return '#d97706';
     return '#111111';
   };
 
@@ -85,8 +158,8 @@ export const StoreCards: React.FC<StoreCardsProps> = ({ stores, cms, onSelectSto
         </h3>
       </div>
 
-      {/* Grid Cards for Partner Stores */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+      {/* Grid Cards for Partner Stores: Responsive multi-column layout */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {activeStores.map((store: any) => {
           const Logo = getLogoComponent(store);
           const shortTitle = store.shortTitle || store.title || 'فروشگاه';

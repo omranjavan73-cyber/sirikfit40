@@ -430,5 +430,220 @@ export const subscribeToSupportSettings = (callback: (settings: SupportFirestore
   }
 };
 
+/**
+ * Interface for settings/home document (Single Source of Truth for Home Page)
+ */
+export interface HomeSettingsDoc {
+  logoUrl?: string;
+  headerLogoUrl?: string;
+  siteTitle?: string;
+  brandSlogan?: string;
+  heroHeading?: string;
+  heroSubheading?: string;
+  showTopPromo?: boolean;
+  topPromoText?: string;
+  bannerImageUrl?: string;
+  calculatorHeading?: string;
+  partnerStores?: any[];
+  stores?: any[];
+  banners?: any[];
+  homeBanners?: any[];
+  updatedAt?: string;
+  [key: string]: any;
+}
 
+/**
+ * Fetches settings/home with fallback to cms/app and LocalStorage
+ */
+export const getHomeSettings = async (): Promise<HomeSettingsDoc> => {
+  try {
+    if (db) {
+      // 1. Primary: settings/home
+      const homeSnap = await getDoc(doc(db, 'settings', 'home'));
+      if (homeSnap.exists()) {
+        const data = homeSnap.data() as HomeSettingsDoc;
+        // Fallback check: if stores or banners are missing in settings/home, check cms/app
+        if ((!data.stores && !data.partnerStores) || (!data.banners && !data.homeBanners)) {
+          const cmsSnap = await getDoc(doc(db, 'cms', 'app')).catch(() => null);
+          if (cmsSnap && cmsSnap.exists()) {
+            const cmsData = cmsSnap.data();
+            if (!data.stores && !data.partnerStores && Array.isArray(cmsData.stores)) {
+              data.stores = cmsData.stores;
+              data.partnerStores = cmsData.stores;
+            }
+            if (!data.banners && !data.homeBanners && Array.isArray(cmsData.homeBanners)) {
+              data.banners = cmsData.homeBanners;
+              data.homeBanners = cmsData.homeBanners;
+            }
+          }
+        }
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sirikfit_home_settings', JSON.stringify(data));
+        }
+        return data;
+      }
 
+      // 2. Secondary fallback: cms/app
+      const cmsSnap = await getDoc(doc(db, 'cms', 'app'));
+      if (cmsSnap.exists()) {
+        const cmsData = cmsSnap.data() as any;
+        const res: HomeSettingsDoc = {
+          logoUrl: cmsData.logoUrl,
+          headerLogoUrl: cmsData.logoUrl,
+          siteTitle: cmsData.siteTitle,
+          brandSlogan: cmsData.brandSlogan,
+          heroHeading: cmsData.heroHeading,
+          heroSubheading: cmsData.heroSubheading,
+          showTopPromo: cmsData.showTopPromo,
+          topPromoText: cmsData.topPromoText,
+          bannerImageUrl: cmsData.bannerImageUrl,
+          calculatorHeading: cmsData.calculatorHeading,
+          partnerStores: cmsData.stores || [],
+          stores: cmsData.stores || [],
+          banners: cmsData.homeBanners || [],
+          homeBanners: cmsData.homeBanners || [],
+          updatedAt: cmsData.updatedAt
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sirikfit_home_settings', JSON.stringify(res));
+        }
+        return res;
+      }
+    }
+  } catch (err) {
+    if (!isFirestoreGrpcNoise(err)) {
+      console.warn('Notice reading settings/home from Firestore:', err);
+    }
+  }
+
+  // 3. Fallback to LocalStorage
+  if (typeof window !== 'undefined') {
+    const cached = localStorage.getItem('sirikfit_home_settings');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (_) {}
+    }
+  }
+
+  return {};
+};
+
+/**
+ * Saves home settings to settings/home and synchronizes cms/app, ensuring
+ * partnerStores and banners are atomically preserved.
+ */
+export const saveHomeSettings = async (data: Partial<HomeSettingsDoc>): Promise<boolean> => {
+  if (!db) {
+    console.error('Firestore not initialized');
+    return false;
+  }
+
+  try {
+    const nowIso = new Date().toISOString();
+    
+    // First read current settings/home and cms/app to guarantee we preserve partnerStores & banners
+    let existingStores: any[] = [];
+    let existingBanners: any[] = [];
+
+    try {
+      const homeSnap = await getDoc(doc(db, 'settings', 'home'));
+      if (homeSnap.exists()) {
+        const hData = homeSnap.data();
+        if (Array.isArray(hData.partnerStores) && hData.partnerStores.length > 0) existingStores = hData.partnerStores;
+        else if (Array.isArray(hData.stores) && hData.stores.length > 0) existingStores = hData.stores;
+
+        if (Array.isArray(hData.banners) && hData.banners.length > 0) existingBanners = hData.banners;
+        else if (Array.isArray(hData.homeBanners) && hData.homeBanners.length > 0) existingBanners = hData.homeBanners;
+      }
+      if (existingStores.length === 0 || existingBanners.length === 0) {
+        const cmsSnap = await getDoc(doc(db, 'cms', 'app'));
+        if (cmsSnap.exists()) {
+          const cData = cmsSnap.data();
+          if (existingStores.length === 0 && Array.isArray(cData.stores)) existingStores = cData.stores;
+          if (existingBanners.length === 0 && Array.isArray(cData.homeBanners)) existingBanners = cData.homeBanners;
+        }
+      }
+    } catch (_err) {}
+
+    const payload: HomeSettingsDoc = {
+      ...data,
+      updatedAt: nowIso
+    };
+
+    // If data didn't explicitly pass partnerStores/stores, preserve existing
+    if (!payload.partnerStores && !payload.stores && existingStores.length > 0) {
+      payload.partnerStores = existingStores;
+      payload.stores = existingStores;
+    } else if (payload.partnerStores && !payload.stores) {
+      payload.stores = payload.partnerStores;
+    } else if (payload.stores && !payload.partnerStores) {
+      payload.partnerStores = payload.stores;
+    }
+
+    // If data didn't explicitly pass banners/homeBanners, preserve existing
+    if (!payload.banners && !payload.homeBanners && existingBanners.length > 0) {
+      payload.banners = existingBanners;
+      payload.homeBanners = existingBanners;
+    } else if (payload.banners && !payload.homeBanners) {
+      payload.homeBanners = payload.banners;
+    } else if (payload.homeBanners && !payload.banners) {
+      payload.banners = payload.homeBanners;
+    }
+
+    // 1. Write to settings/home
+    await setDoc(doc(db, 'settings', 'home'), payload, { merge: true });
+
+    // 2. Synchronize to cms/app
+    const cmsSyncPayload: any = {
+      ...payload,
+      stores: payload.stores || payload.partnerStores || existingStores,
+      homeBanners: payload.homeBanners || payload.banners || existingBanners
+    };
+    await setDoc(doc(db, 'cms', 'app'), cmsSyncPayload, { merge: true });
+
+    // 3. Local storage & events
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('sirikfit_home_settings', JSON.stringify(payload));
+        window.dispatchEvent(new CustomEvent('homeSettingsUpdated', { detail: payload }));
+        window.dispatchEvent(new Event('storage'));
+      } catch (_e) {}
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Failed to save home settings to Firestore:', err);
+    return false;
+  }
+};
+
+/**
+ * Real-time listener on settings/home
+ */
+export const subscribeToHomeSettings = (callback: (settings: HomeSettingsDoc) => void): (() => void) => {
+  if (!db) return () => {};
+
+  try {
+    const unsub = onSnapshot(doc(db, 'settings', 'home'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as HomeSettingsDoc;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sirikfit_home_settings', JSON.stringify(data));
+        }
+        callback(data);
+      }
+    }, (err) => {
+      if (!isFirestoreGrpcNoise(err)) {
+        console.warn('Notice listening to settings/home:', err);
+      }
+    });
+
+    return () => {
+      unsub();
+    };
+  } catch (e) {
+    console.warn('Error setting up settings/home snapshot:', e);
+    return () => {};
+  }
+};

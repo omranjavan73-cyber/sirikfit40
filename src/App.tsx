@@ -415,6 +415,7 @@ function MainApp() {
     let unsubPricingRules: (() => void) | null = null;
     let unsubFinancial: (() => void) | null = null;
     let unsubCms: (() => void) | null = null;
+    let unsubHome: (() => void) | null = null;
     let unsubGen: (() => void) | null = null;
     let unsubLanding: (() => void) | null = null;
     let unsubSpecialDeals: (() => void) | null = null;
@@ -613,6 +614,33 @@ function MainApp() {
         if (!isFirestoreGrpcNoise(err)) console.warn('Firestore landing settings onSnapshot notice:', err);
       });
 
+      // 7.5 Real-time listener for settings/home (single source of truth for home banners, stores, logo)
+      unsubHome = onSnapshot(doc(db, 'settings', 'home'), (snap) => {
+        if (snap.exists()) {
+          const homeData = snap.data();
+          if (homeData) {
+            setCmsConfig(prev => {
+              if (!prev) return prev;
+              const next = { ...prev };
+              const stores = homeData.partnerStores || homeData.stores;
+              if (Array.isArray(stores) && stores.length > 0) {
+                next.stores = stores;
+              }
+              const banners = homeData.banners || homeData.homeBanners;
+              if (Array.isArray(banners) && banners.length > 0) {
+                next.homeBanners = banners;
+              }
+              if (homeData.logoUrl || homeData.headerLogoUrl) {
+                next.logoUrl = homeData.logoUrl || homeData.headerLogoUrl;
+              }
+              return next;
+            });
+          }
+        }
+      }, (err) => {
+        if (!isFirestoreGrpcNoise(err)) console.warn('Firestore home settings onSnapshot notice:', err);
+      });
+
       // 8. Real-time collection sync for special_deals (sorted newest-first)
       unsubSpecialDeals = onSnapshot(collection(db, 'special_deals'), (snap) => {
         const loadedDeals: any[] = [];
@@ -652,6 +680,7 @@ function MainApp() {
       if (unsubPricingRules) unsubPricingRules();
       if (unsubFinancial) unsubFinancial();
       if (unsubCms) unsubCms();
+      if (unsubHome) unsubHome();
       if (unsubGen) unsubGen();
       if (unsubLanding) unsubLanding();
       if (unsubSpecialDeals) unsubSpecialDeals();

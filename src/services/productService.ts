@@ -336,3 +336,57 @@ export async function toggleProductPopularInFirestore(
     await removePopularProduct(rawId, collectionName);
   }
 }
+
+/**
+ * Bulk delete products across collection and central products collection
+ */
+export async function bulkDeleteProductsFromFirestore(
+  collectionName: 'special_deals' | 'iran_warehouse',
+  productIds: string[]
+): Promise<void> {
+  if (!Array.isArray(productIds) || productIds.length === 0 || !db) return;
+  await Promise.all(
+    productIds.map(id => deleteProductFromFirestore(collectionName, id))
+  );
+}
+
+/**
+ * Bulk toggle visibility / publish state across collection and central products collection
+ */
+export async function bulkToggleVisibilityInFirestore(
+  collectionName: 'special_deals' | 'iran_warehouse',
+  productIds: string[],
+  nextIsActive: boolean
+): Promise<void> {
+  if (!Array.isArray(productIds) || productIds.length === 0 || !db) return;
+  const now = new Date().toISOString();
+  const patch = {
+    isActive: nextIsActive,
+    isPublished: nextIsActive,
+    updatedAt: now
+  };
+
+  await Promise.all(
+    productIds.map(async (id) => {
+      const rawId = normalizeProductId(id);
+      await Promise.all([
+        updateDoc(doc(db, collectionName, id), patch).catch(() => {}),
+        updateDoc(doc(db, 'products', rawId), patch).catch(() => {})
+      ]);
+    })
+  );
+}
+
+/**
+ * Bulk toggle popular status across collection and central products collection
+ */
+export async function bulkTogglePopularInFirestore(
+  collectionName: 'special_deals' | 'iran_warehouse',
+  productIds: string[],
+  nextPopular: boolean
+): Promise<void> {
+  if (!Array.isArray(productIds) || productIds.length === 0 || !db) return;
+  await Promise.all(
+    productIds.map(id => toggleProductPopularInFirestore(id, nextPopular, collectionName))
+  );
+}

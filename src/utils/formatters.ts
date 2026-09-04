@@ -495,3 +495,30 @@ export function getStoreBadgeTheme(storeNameOrBrand: string = ''): StoreBadgeThe
 }
 
 export { sanitizeProductTitle } from './textSanitizer';
+
+/**
+ * Universal timestamp normalizer: extracts numeric epoch timestamp in ms
+ * regardless of whether time is number, Firestore Timestamp, ISO string, or Date.
+ */
+export const getNormalizedTime = (time: any): number => {
+  if (!time) return 0;
+  if (typeof time === 'number' && !isNaN(time) && time > 0) return time;
+  if (typeof time.toMillis === 'function') {
+    const ms = time.toMillis();
+    if (!isNaN(ms) && ms > 0) return ms;
+  }
+  if (typeof time.seconds === 'number') {
+    const ms = time.seconds * 1000;
+    if (!isNaN(ms) && ms > 0) return ms;
+  }
+  if (time instanceof Date) {
+    const ms = time.getTime();
+    return isNaN(ms) ? 0 : ms;
+  }
+  if (typeof time === 'string') {
+    const parsed = new Date(time).getTime();
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  const parsed = new Date(time).getTime();
+  return isNaN(parsed) ? 0 : parsed;
+};

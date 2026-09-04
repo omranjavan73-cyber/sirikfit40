@@ -2,10 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles, Zap, Plus, Trash2, RefreshCw, Save, Layers,
   Check, Scale, Eye, EyeOff, ChevronDown, ChevronUp,
-  Search, Globe, Percent, Upload, Image as ImageIcon, Star
+  Search, Globe, Percent, Upload, Image as ImageIcon, Star,
+  CheckSquare, Square, ArrowUpDown, X
 } from 'lucide-react';
 import type { FeaturedDeal, ProductVariant, FinancialSettings } from '../../types';
-import { formatToman, toPersianDigits, getEffectiveAedRate, normalizeProductImageUrl, extractCleanUrl, deduplicateImageUrls } from '../../utils/formatters';
+import { formatToman, toPersianDigits, getEffectiveAedRate, normalizeProductImageUrl, extractCleanUrl, deduplicateImageUrls, getNormalizedTime } from '../../utils/formatters';
+import { bulkDeleteProductsFromFirestore, bulkToggleVisibilityInFirestore, bulkTogglePopularInFirestore } from '../../services/productService';
 import { sanitizeProductTitle } from '../../utils/textSanitizer';
 import {
   PRESET_FLAVORS, PRESET_SIZES, STANDARD_SIZE_OPTIONS,
@@ -220,8 +222,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
     return (initialDeals || [])
       .filter(d => !isCorruptedProduct(d))
       .sort((a, b) => {
-        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
-        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+        const timeA = getNormalizedTime(a.createdAt || a.sectionAddedAt || a.updatedAt);
+        const timeB = getNormalizedTime(b.createdAt || b.sectionAddedAt || b.updatedAt);
         return timeB - timeA;
       });
   });
@@ -229,8 +231,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   useEffect(() => {
     if (Array.isArray(initialDeals)) {
       setDeals(initialDeals.filter(d => !isCorruptedProduct(d)).sort((a, b) => {
-        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
-        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+        const timeA = getNormalizedTime(a.createdAt || a.sectionAddedAt || a.updatedAt);
+        const timeB = getNormalizedTime(b.createdAt || b.sectionAddedAt || b.updatedAt);
         return timeB - timeA;
       }));
     }
@@ -245,11 +247,9 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [auxLinks, setAuxLinks] = useState<Record<string, string>>({});
   const [auxLoading, setAuxLoading] = useState<Record<string, boolean>>({});
-  const [customFlavors, setCustomFlavors] = useState<Record<string, string>>({});
-  const [customSizes, setCustomSizes] = useState<Record<string, { val: string; unit: string }>>({});
-  const [customRowMode, setCustomRowMode] = useState<Record<string, { customSize?: boolean; customFlavor?: boolean }>>({});
-  const [editingVariantImage, setEditingVariantImage] = useState<{ itemId: string; variantId: string; variantTitle?: string; currentUrl?: string; mainImage?: string } | null>(null);
-  const [uploadingImageIds, setUploadingImageIds] = useState<Record<string, boolean>>({});
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [targetPosition, setTargetPosition] = useState<string>('');
+  const [isBulkOperating, setIsBulkOperating] = useState<boolean>(false);
 
   const handleManualDealImageUpload = async (dealId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -344,8 +344,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
 
     // Newest deals appear first at the top of the table
     return matched.sort((a, b) => {
-      const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
-      const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+      const timeA = getNormalizedTime(a.createdAt || a.sectionAddedAt || a.updatedAt);
+      const timeB = getNormalizedTime(b.createdAt || b.sectionAddedAt || b.updatedAt);
       return timeB - timeA;
     });
   }, [deals, searchTerm, filterCategory, filterStatus, expandedIds]);
@@ -366,8 +366,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         const cleanInitial = initialDeals.filter(d => !isCorruptedProduct(d));
         const merged = [...unsavedDrafts, ...cleanInitial];
         return merged.sort((a, b) => {
-          const timeA = new Date(a.sectionAddedAt || a.createdAt || a.updatedAt || 0).getTime();
-          const timeB = new Date(b.sectionAddedAt || b.createdAt || b.updatedAt || 0).getTime();
+          const timeA = getNormalizedTime(a.createdAt || a.sectionAddedAt || a.updatedAt);
+          const timeB = getNormalizedTime(b.createdAt || b.sectionAddedAt || b.updatedAt);
           return timeB - timeA;
         });
       });
@@ -437,20 +437,148 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
     }
   };
 
-  const handleTogglePublished = (productId: string) => {
-    const target = deals.find(d => d.id === productId);
-    const currentPub = target?.isPublished !== undefined ? target.isPublished : target?.isActive;
-    const nextPub = !currentPub;
-    setDeals((prev) =>
-      prev.map((d) => (d.id === productId ? { ...d, isPublished: nextPub, isActive: nextPub } : d))
-    );
+  // ── Multi-Select Bulk Actions Handlers ──
+  const handleToggleSelect = (id: string, checked: boolean) => {
+    setSelectedIds(prev => checked ? Array.from(new Set([...prev, id])) : prev.filter(x => x !== id));
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allFilteredIds = filteredDeals.map(d => d.id).filter(Boolean);
+      setSelectedIds(Array.from(new Set([...selectedIds, ...allFilteredIds])));
+    } else {
+      const currentFilteredSet = new Set(filteredDeals.map(d => d.id));
+      setSelectedIds(prev => prev.filter(id => !currentFilteredSet.has(id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`آیا از حذف دائمی ${toPersianDigits(selectedIds.length)} محصول انتخاب شده اطمینان دارید؟`)) return;
+
+    setIsBulkOperating(true);
+    const idsToDelete = [...selectedIds];
+    const updated = deals.filter(d => !idsToDelete.includes(d.id));
+    setDeals(updated);
+    setSelectedIds([]);
+
     try {
-      updateDoc(doc(db, COLLECTION_NAME, productId), {
-        isPublished: nextPub,
-        isActive: nextPub,
-        updatedAt: new Date().toISOString()
-      }).catch((e) => console.warn('Instant publish toggle notice:', e));
-    } catch (_e) {}
+      await bulkDeleteProductsFromFirestore(COLLECTION_NAME, idsToDelete);
+      await onSaveDeals(updated);
+      if (showToast) showToast(`${toPersianDigits(idsToDelete.length)} محصول با موفقیت حذف شدند`, 'success');
+    } catch (err: any) {
+      console.error('[Bulk Delete Error]:', err);
+      if (showToast) showToast('خطا در حذف گروهی محصولات', 'error');
+    } finally {
+      setIsBulkOperating(false);
+    }
+  };
+
+  const handleBulkToggleVisibility = async (nextVisibility: boolean) => {
+    if (selectedIds.length === 0) return;
+    setIsBulkOperating(true);
+    const ids = [...selectedIds];
+
+    setDeals(prev => prev.map(d => ids.includes(d.id) ? { ...d, isActive: nextVisibility, isPublished: nextVisibility } : d));
+
+    try {
+      await bulkToggleVisibilityInFirestore(COLLECTION_NAME, ids, nextVisibility);
+      if (showToast) showToast(`وضعیت نمایش ${toPersianDigits(ids.length)} محصول تغییر یافت`, 'success');
+    } catch (err: any) {
+      console.error('[Bulk Visibility Error]:', err);
+      if (showToast) showToast('خطا در بروزرسانی گروهی وضعیت نمایش', 'error');
+    } finally {
+      setIsBulkOperating(false);
+    }
+  };
+
+  const handleBulkTogglePopular = async (nextPopular: boolean) => {
+    if (selectedIds.length === 0) return;
+    setIsBulkOperating(true);
+    const ids = [...selectedIds];
+    const now = Date.now();
+
+    setDeals(prev => prev.map(d => ids.includes(d.id) ? {
+      ...d,
+      isPopular: nextPopular,
+      isFeatured: nextPopular,
+      popularOrder: nextPopular ? now : -1
+    } : d));
+
+    try {
+      await bulkTogglePopularInFirestore(COLLECTION_NAME, ids, nextPopular);
+      if (showToast) showToast(`وضعیت پرطرفدار ${toPersianDigits(ids.length)} محصول تغییر یافت`, 'success');
+    } catch (err: any) {
+      console.error('[Bulk Popular Error]:', err);
+      if (showToast) showToast('خطا در بروزرسانی گروهی وضعیت پرطرفدار', 'error');
+    } finally {
+      setIsBulkOperating(false);
+    }
+  };
+
+  const handleMoveToPosition = async () => {
+    const pos = parseInt(targetPosition, 10);
+    if (isNaN(pos) || pos < 1) {
+      if (showToast) showToast('شماره ردیف معتبر وارد کنید (از ۱ به بعد)', 'error');
+      return;
+    }
+    if (selectedIds.length === 0) return;
+
+    setIsBulkOperating(true);
+    try {
+      // 1. Get items to move and remaining items
+      const selectedSet = new Set(selectedIds);
+      const itemsToMove = deals.filter(d => selectedSet.has(d.id));
+      const remainingItems = deals.filter(d => !selectedSet.has(d.id));
+
+      // 2. Insert items at target index (1-indexed -> clamp between 0 and remainingItems.length)
+      const insertIndex = Math.min(Math.max(0, pos - 1), remainingItems.length);
+      const reordered = [
+        ...remainingItems.slice(0, insertIndex),
+        ...itemsToMove,
+        ...remainingItems.slice(insertIndex)
+      ];
+
+      // 3. Assign descending normalized timestamps so this exact order persists
+      const baseTime = Date.now() + 10000000;
+      const cleanList: FeaturedDeal[] = reordered.map((deal, idx) => {
+        const assignedTime = baseTime - (idx * 1000);
+        return {
+          ...deal,
+          createdAt: assignedTime,
+          sectionAddedAt: new Date(assignedTime).toISOString(),
+          updatedAt: Date.now()
+        };
+      });
+
+      setDeals(cleanList);
+      await onSaveDeals(cleanList);
+
+      // Persist reordered timestamps to Firestore
+      if (db) {
+        await Promise.all(
+          cleanList.map(item => {
+            const patch = {
+              createdAt: item.createdAt,
+              sectionAddedAt: item.sectionAddedAt,
+              updatedAt: item.updatedAt
+            };
+            return Promise.all([
+              setDoc(doc(db, 'products', item.id), patch, { merge: true }).catch(() => {}),
+              setDoc(doc(db, COLLECTION_NAME, item.id), patch, { merge: true }).catch(() => {})
+            ]);
+          })
+        );
+      }
+
+      setTargetPosition('');
+      if (showToast) showToast(`${toPersianDigits(itemsToMove.length)} محصول به ردیف ${toPersianDigits(pos)} منتقل شدند`, 'success');
+    } catch (err: any) {
+      console.error('[Move to Position Error]:', err);
+      if (showToast) showToast('خطا در تغییر جایگاه محصولات', 'error');
+    } finally {
+      setIsBulkOperating(false);
+    }
   };
 
   const updateDeal = (id: string, patch: Partial<FeaturedDeal>) => {
@@ -883,8 +1011,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
 
       // Universal Descending Sort (Newest-First / LIFO)
       cleanList.sort((a, b) => {
-        const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
-        const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+        const timeA = getNormalizedTime(a.createdAt || a.sectionAddedAt || a.updatedAt);
+        const timeB = getNormalizedTime(b.createdAt || b.sectionAddedAt || b.updatedAt);
         return timeB - timeA;
       });
 
@@ -986,8 +1114,19 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         </div>
       </div>
 
-      {/* ── Search & Filter Bar ── */}
+      {/* ── Search & Filter Bar with Master Checkbox ── */}
       <div className="flex flex-wrap gap-2 items-center bg-white border border-slate-200 rounded-2xl px-4 py-3">
+        {/* Master Checkbox */}
+        <label className="flex items-center gap-1.5 cursor-pointer text-slate-700 hover:text-slate-900 shrink-0 select-none pl-2 border-l border-slate-200" title="انتخاب همه">
+          <input
+            type="checkbox"
+            checked={filteredDeals.length > 0 && filteredDeals.every(d => selectedIds.includes(d.id))}
+            onChange={e => handleSelectAll(e.target.checked)}
+            className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+          />
+          <span className="text-xs font-black">انتخاب همه</span>
+        </label>
+
         <div className="flex items-center gap-2 flex-1 min-w-48">
           <Search className="w-4 h-4 text-slate-400 shrink-0" />
           <input
@@ -1023,8 +1162,8 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
         {filteredDeals
           .slice()
           .sort((a, b) => {
-            const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
-            const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+            const timeA = getNormalizedTime(a.createdAt || a.sectionAddedAt || a.updatedAt);
+            const timeB = getNormalizedTime(b.createdAt || b.sectionAddedAt || b.updatedAt);
             return timeB - timeA;
           })
           .map((deal, idx) => {
@@ -1050,6 +1189,15 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
                   toggleExpand(deal.id);
                 }}
               >
+                {/* Row Selection Checkbox */}
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(deal.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => handleToggleSelect(deal.id, e.target.checked)}
+                  className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600 shrink-0"
+                />
+
                 <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 font-black text-[11px] flex items-center justify-center shrink-0 border border-slate-200">
                   {toPersianDigits(idx + 1)}
                 </span>
@@ -1676,6 +1824,110 @@ export const DealsAdmin: React.FC<DealsAdminProps> = ({
           </div>
         )}
       </div>
+
+      {/* Floating Multi-Select Bulk Actions Bar */}
+      {selectedIds.length > 0 && (
+        <div className="fixed bottom-36 inset-x-0 flex justify-center z-50 px-4 pointer-events-none animate-in fade-in slide-in-from-bottom-5 duration-200">
+          <div className="pointer-events-auto bg-slate-900/95 text-white border border-slate-700 shadow-2xl rounded-2xl p-3 flex flex-wrap items-center gap-3 backdrop-blur-md max-w-4xl w-full justify-between">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-1 bg-amber-500/20 border border-amber-500/40 text-amber-300 rounded-xl text-xs font-black">
+                {toPersianDigits(selectedIds.length)} محصول انتخاب شده
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedIds([])}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition text-xs flex items-center gap-1 cursor-pointer"
+                title="لغو انتخاب"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>انصراف</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Move to Position input */}
+              <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-xl px-2 py-1">
+                <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+                <span className="text-[11px] text-slate-300 font-bold">انتقال به ردیف:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={deals.length}
+                  value={targetPosition}
+                  onChange={e => setTargetPosition(e.target.value)}
+                  placeholder="ردیف"
+                  className="w-14 bg-slate-950 text-white text-xs px-1.5 py-0.5 rounded border border-slate-600 text-center font-bold"
+                  disabled={isBulkOperating}
+                />
+                <button
+                  type="button"
+                  onClick={handleMoveToPosition}
+                  disabled={isBulkOperating || !targetPosition}
+                  className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-[11px] font-bold px-2 py-0.5 rounded transition cursor-pointer"
+                >
+                  برو
+                </button>
+              </div>
+
+              {/* Bulk Visibility */}
+              <button
+                type="button"
+                onClick={() => handleBulkToggleVisibility(true)}
+                disabled={isBulkOperating}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold transition cursor-pointer"
+                title="نمایش در سایت"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>نمایش</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBulkToggleVisibility(false)}
+                disabled={isBulkOperating}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                title="عدم نمایش در سایت"
+              >
+                <EyeOff className="w-3.5 h-3.5" />
+                <span>عدم نمایش</span>
+              </button>
+
+              {/* Bulk Popular */}
+              <button
+                type="button"
+                onClick={() => handleBulkTogglePopular(true)}
+                disabled={isBulkOperating}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold transition cursor-pointer"
+                title="افزودن به پرطرفدارها"
+              >
+                <Star className="w-3.5 h-3.5 fill-amber-400" />
+                <span>پرطرفدار</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBulkTogglePopular(false)}
+                disabled={isBulkOperating}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                title="حذف از پرطرفدارها"
+              >
+                <Star className="w-3.5 h-3.5 text-slate-400" />
+                <span>عادی</span>
+              </button>
+
+              {/* Bulk Delete */}
+              <button
+                type="button"
+                onClick={handleBulkDelete}
+                disabled={isBulkOperating}
+                className="flex items-center gap-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black transition cursor-pointer shadow-sm"
+                title="حذف کلی محصولات انتخاب شده"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>حذف ({toPersianDigits(selectedIds.length)})</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Single Unified Floating Save Trigger */}
       <div className="fixed bottom-20 inset-x-0 flex justify-center z-40 px-4 pointer-events-none">

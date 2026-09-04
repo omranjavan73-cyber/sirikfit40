@@ -29,7 +29,7 @@ import {
 import type { NormalizedProduct, ProductVariant, LocalInventoryItem, FeaturedDeal, PricingRulesConfig } from '../../types';
 import type { Product } from '../../types/product';
 import { extractAttributesFromText } from '../../utils/attributeParser';
-import { toPersianDigits, formatToman, parseAndConvertSize, normalizeProductImageUrl, extractCleanUrl, deduplicateImageUrls, isArtificialFallback } from '../../utils/formatters';
+import { toPersianDigits, formatToman, parseAndConvertSize, normalizeProductImageUrl, extractCleanUrl, deduplicateImageUrls, isArtificialFallback, getNormalizedTime } from '../../utils/formatters';
 import { sanitizeProductTitle } from '../../utils/textSanitizer';
 import { calculateLandedPrice } from '../../utils/pricingCalculator';
 import { generateBilingualProductTitle, cleanProductTitle } from '../../utils/parseLink';
@@ -138,8 +138,8 @@ export const ProductManagementAdmin: React.FC<ProductManagementAdminProps> = ({
       (p) => p.id && (p.titleFa?.trim() || p.titleEn?.trim() || p.title?.trim()) && p.titleFa !== 'محصول بدون عنوان' && p.title !== 'محصول بدون عنوان' && !isCorruptedProduct(p)
     );
     return validProducts.sort((a, b) => {
-      const timeA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || a.sectionAddedAt || a.updatedAt || 0).getTime();
-      const timeB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || b.sectionAddedAt || b.updatedAt || 0).getTime();
+      const timeA = getNormalizedTime(a.createdAt || a.sectionAddedAt || a.updatedAt);
+      const timeB = getNormalizedTime(b.createdAt || b.sectionAddedAt || b.updatedAt);
       return timeB - timeA;
     });
   }, [inventoryList, dealsList]);

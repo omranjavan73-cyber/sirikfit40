@@ -3,6 +3,7 @@ import { collection, doc, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { FeaturedDeal, LocalInventoryItem } from '../types';
 import { sortPopularProducts, normalizeProductId, cleanupGhostPopularProducts } from '../services/popularProductsService';
+import { getNormalizedTime } from '../utils/formatters';
 
 export interface ProductContextType {
   deals: FeaturedDeal[];
@@ -19,20 +20,20 @@ const ProductContext = createContext<ProductContextType | undefined>(undefined);
 export const sortNewestFirst = <T extends any>(arr: T[]): T[] => {
   if (!Array.isArray(arr) || arr.length <= 1) return arr;
   return [...arr].sort((a: any, b: any) => {
-    const getTime = (item: any): number => {
-      if (!item) return 0;
-      if (typeof item.createdAt === 'number' && !isNaN(item.createdAt) && item.createdAt > 0) return item.createdAt;
-      const candidate = item.createdAt || item.sectionAddedAt || item.updatedAt;
-      if (candidate) {
-        if (typeof candidate === 'number' && !isNaN(candidate) && candidate > 0) return candidate;
-        if (typeof candidate === 'object' && candidate !== null) {
-          if (typeof candidate.toMillis === 'function') return candidate.toMillis();
-          if (typeof candidate.seconds === 'number') return candidate.seconds * 1000;
-        }
-        const parsed = new Date(candidate).getTime();
-        if (!isNaN(parsed) && parsed > 0) return parsed;
-      }
-      if (typeof item.id === 'string') {
+    const timeA = getNormalizedTime(a?.createdAt) ||
+      getNormalizedTime(a?.sectionAddedAt) ||
+      getNormalizedTime(a?.updatedAt);
+    const timeB = getNormalizedTime(b?.createdAt) ||
+      getNormalizedTime(b?.sectionAddedAt) ||
+      getNormalizedTime(b?.updatedAt);
+
+    if (timeA !== timeB) {
+      return timeB - timeA;
+    }
+
+    // Fallback to id timestamp if creation times match
+    const getIdTime = (item: any): number => {
+      if (typeof item?.id === 'string') {
         const idParts = item.id.split(/[-_]/);
         for (let i = idParts.length - 1; i >= 0; i--) {
           const num = Number(idParts[i]);
@@ -41,7 +42,7 @@ export const sortNewestFirst = <T extends any>(arr: T[]): T[] => {
       }
       return 0;
     };
-    return getTime(b) - getTime(a);
+    return getIdTime(b) - getIdTime(a);
   });
 };
 

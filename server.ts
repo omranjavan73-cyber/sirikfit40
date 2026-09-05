@@ -396,14 +396,14 @@ const defaultCmsConfig: CmsConfig = {
     trustBadge3: 'تحویل ۵ تا ۷ روزه'
   },
   paymentGateway: {
-    activeGateway: 'zarinpal',
-    merchantId: 'zarin_merchant_omex_8849102',
+    activeGateway: 'zibal',
+    merchantId: '6a8490e3f37350835317f93e',
     callbackUrl: '/api/payment/callback',
-    isSandbox: true,
+    isSandbox: false,
     cardToCard: {
       cardNumber: '6037-9918-4421-9876',
       bankName: 'بانک ملی ایران',
-      cardholderName: 'به نام مدیریت بازرگانی اومکس دبی',
+      cardholderName: 'به نام مدیریت بازرگانی سیریک فیت',
       shabaNumber: 'IR680170000000109988772001'
     }
   },
@@ -3811,7 +3811,7 @@ function getZibalErrorMessage(code: number | string): string {
     case 105: return 'مبلغ پرداختی باید حداقل ۱,۰۰۰ تومان باشد';
     case 106: return 'آدرس بازگشت (Callback URL) نامعتبر است';
     case 113: return 'مبلغ تراکنش بیش از سقف مجاز شاپرک است';
-    case 115: return 'آی‌پی سرور در پنل زیبال ثبت نشده است (در پنل کاربری زیبال بخش درگاه، محدودیت آی‌پی را غیرفعال یا آی‌پی سرور را ثبت فرمایید)';
+    case 115: return 'آی‌پی سرور در پنل زیبال ثبت نشده است (در پنل کاربری زیبال بخش مدیریت درگاه، محدودیت آی‌پی را غیرفعال فرمایید)';
     case 201: return 'تراکنش قبلاً تایید شده است';
     case 202: return 'سفارش پرداخت نشده یا توسط کاربر لغو شده است';
     case 203: return 'شناسه رهگیری trackId نامعتبر است';
@@ -3819,39 +3819,59 @@ function getZibalErrorMessage(code: number | string): string {
   }
 }
 
+const HARDCODED_PRODUCTION_ZIBAL_MERCHANT = '6a8490e3f37350835317f93e';
+
 async function getActiveZibalConfig(): Promise<{ merchantId: string; isSandbox: boolean }> {
-  const defaultMerchant = '6a8490e3f37350835317f93e';
+  const envMerchant = (process.env.ZIBAL_MERCHANT_KEY || process.env.ZIBAL_MERCHANT_ID || '').trim();
+  const defaultMerchant = envMerchant || HARDCODED_PRODUCTION_ZIBAL_MERCHANT;
+
   try {
-    const store = readStore();
-    const gw = store?.cms?.paymentGateway;
-    let merchant = (gw?.zibalMerchantId || gw?.merchantId || '').trim();
-    let isSandbox = gw?.zibalSandbox ?? gw?.isSandbox ?? false;
+    let merchant = defaultMerchant;
+    let isSandbox = false;
 
     if (db) {
+      // 1. Check settings/gateways collection first (where AdminGateways saves)
+      try {
+        const gwDoc = await getDoc(doc(db, 'settings', 'gateways'));
+        if (gwDoc.exists()) {
+          const gwData = gwDoc.data();
+          const m = (gwData?.zibalMerchantId || gwData?.merchantId || '').trim();
+          if (m && m !== 'zibal') {
+            merchant = m;
+          }
+          if (gwData?.zibalSandbox !== undefined) isSandbox = Boolean(gwData.zibalSandbox);
+          else if (gwData?.isSandbox !== undefined) isSandbox = Boolean(gwData.isSandbox);
+        }
+      } catch (_gwErr) {}
+
+      // 2. Fallback check settings/cms collection
       try {
         const cmsDoc = await getDoc(doc(db, 'settings', 'cms'));
         if (cmsDoc.exists()) {
           const cmsData = cmsDoc.data();
           const pGw = cmsData?.paymentGateway;
           if (pGw) {
-            if (pGw.zibalSandbox !== undefined || pGw.isSandbox !== undefined) {
-              isSandbox = pGw.zibalSandbox ?? pGw.isSandbox ?? false;
-            }
-            const m = (pGw.zibalMerchantId || pGw.merchantId || '').trim();
-            if (m && m !== 'zibal') {
+            const m = (pGw?.zibalMerchantId || pGw?.merchantId || '').trim();
+            if (m && m !== 'zibal' && merchant === defaultMerchant) {
               merchant = m;
             }
+            if (pGw?.zibalSandbox !== undefined) isSandbox = Boolean(pGw.zibalSandbox);
+            else if (pGw?.isSandbox !== undefined) isSandbox = Boolean(pGw.isSandbox);
           }
         }
       } catch (_fsErr) {}
     }
 
-    if (isSandbox) {
-      return { merchantId: 'zibal', isSandbox: true };
+    // Strictly enforce production merchant key: 6a8490e3f37350835317f93e
+    // Never fall back to sandbox 'zibal' merchant unless explicitly configured
+    if (!merchant || merchant === 'zibal' || merchant === HARDCODED_PRODUCTION_ZIBAL_MERCHANT) {
+      merchant = HARDCODED_PRODUCTION_ZIBAL_MERCHANT;
+      isSandbox = false;
     }
+
     return {
-      merchantId: merchant && merchant !== 'zibal' ? merchant : defaultMerchant,
-      isSandbox: false
+      merchantId: isSandbox ? 'zibal' : merchant,
+      isSandbox: isSandbox
     };
   } catch (_e) {
     return { merchantId: defaultMerchant, isSandbox: false };
@@ -3926,14 +3946,18 @@ app.post(['/api/payment/create', '/payment/create'], async (req, res) => {
       callbackUrl: zibalCallback
     });
 
-    const response = await axios.post('https://gateway.zibal.ir/v1/request', {
+    const zibalPayload: Record<string, any> = {
       merchant: merchantId,
       amount: amountInRials,
       callbackUrl: zibalCallback,
       description: `خرید از سیریک فیت - سفارش ${cleanOrderId}`,
-      orderId: cleanOrderId,
-      mobile: cleanPhone || undefined
-    }, {
+      orderId: cleanOrderId
+    };
+    if (cleanPhone && /^09\d{9}$/.test(cleanPhone)) {
+      zibalPayload.mobile = cleanPhone;
+    }
+
+    const response = await axios.post('https://gateway.zibal.ir/v1/request', zibalPayload, {
       timeout: 15000,
       headers: { 'Content-Type': 'application/json' }
     });
@@ -4124,8 +4148,9 @@ app.all(['/api/payment/callback', '/payment/callback'], async (req, res) => {
       return res.redirect(302, `${origin}/payment-result?orderId=${encodeURIComponent(cleanOrderId)}&trackId=${encodeURIComponent(trackId)}&success=0&status=failed&message=${encodeURIComponent(failMsg)}`);
     }
 
+    const { merchantId: callbackMerchantId } = await getActiveZibalConfig();
     let verifyRes = await axios.post('https://gateway.zibal.ir/v1/verify', {
-      merchant: merchantId,
+      merchant: callbackMerchantId,
       trackId: trackId
     }, {
       timeout: 15000,

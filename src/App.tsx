@@ -1001,6 +1001,7 @@ function MainApp() {
       const data = await res.json();
       const targetUrl = data.paymentUrl || data.redirectUrl || data.url;
       if (res.ok && data.success && (targetUrl || data.trackId)) {
+        handleClearCart();
         navigateToPaymentGateway(targetUrl, data.trackId);
       } else {
         showToast(data.error || 'خطا در دریافت لینک پرداخت زیبال.', 'error');
@@ -1012,7 +1013,6 @@ function MainApp() {
   };
 
   const handleOrderCreated = (newOrder: Order) => {
-    setSelectedProduct(null);
     redirectToBankPayment(newOrder);
   };
 

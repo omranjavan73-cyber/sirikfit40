@@ -852,13 +852,6 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         } catch (_e) {}
       }
 
-      if (appliedDiscount?.discountCodeObj?.id) {
-        incrementDiscountUsage(appliedDiscount.discountCodeObj.id);
-      }
-      if (hasCart && onClearCart) {
-        onClearCart();
-      }
-
       // 2. Call backend createPayment and redirect
       const callbackUrl = `${window.location.origin}/payment-result?orderId=${orderId}`;
       const paymentRes = await fetch('/api/payment/create', {
@@ -876,14 +869,24 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       const paymentData = await paymentRes.json();
       const targetUrl = paymentData.paymentUrl || paymentData.redirectUrl || paymentData.url;
       if (paymentRes.ok && paymentData.success && (targetUrl || paymentData.trackId)) {
+        if (appliedDiscount?.discountCodeObj?.id) {
+          incrementDiscountUsage(appliedDiscount.discountCodeObj.id);
+        }
+        // ONLY clear cart after valid payment URL is returned and redirect is initiated
+        if (hasCart && onClearCart) {
+          onClearCart();
+        }
         navigateToPaymentGateway(targetUrl, paymentData.trackId);
         return;
       } else {
-        onOrderCreated(orderPayload as any);
+        const errorDetail = paymentData.error || paymentData.message || 'خطا در دریافت لینک درگاه بانکی زیبال.';
+        setErrorMessage(errorDetail);
+        setIsSubmitting(false);
+        return;
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error submitting order:', e);
-      setErrorMessage('خطا در برقراری ارتباط با سرور.');
+      setErrorMessage(e?.message || 'خطا در برقراری ارتباط با سرور.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1059,9 +1062,9 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   };
 
   // ------------------------------------------------------------------
-  // 1. CLEAN EMPTY CART STATE
+  // 1. CLEAN EMPTY CART STATE (Never show during active checkout submission)
   // ------------------------------------------------------------------
-  if ((!safeCartItems || safeCartItems.length === 0) && (!product || !product.title || (product as any).isCartOnly)) {
+  if (!isSubmitting && (!safeCartItems || safeCartItems.length === 0) && (!product || !product.title || (product as any).isCartOnly)) {
     return (
       <div id="detail" className="space-y-4 font-['Vazirmatn',sans-serif] max-w-lg mx-auto pb-20 animate-fade-in text-center dir-rtl">
         <div className="bg-white border border-slate-200/90 rounded-[28px] p-8 shadow-2xs space-y-4 my-6">
@@ -1091,7 +1094,30 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   }
 
   return (
-    <div id="detail" className="space-y-4 font-['Vazirmatn',sans-serif] max-w-lg mx-auto pb-20 animate-fade-in">
+    <div id="detail" className="space-y-4 font-['Vazirmatn',sans-serif] max-w-lg mx-auto pb-20 animate-fade-in relative">
+      
+      {/* PROFESSIONAL BANK REDIRECT LOADING OVERLAY */}
+      {isSubmitting && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 dir-rtl animate-fadeIn">
+          <div className="bg-white rounded-3xl p-7 sm:p-8 max-w-sm w-full text-center space-y-4 shadow-2xl border border-slate-100">
+            <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+              <div className="w-16 h-16 rounded-full border-4 border-emerald-100 border-t-emerald-600 animate-spin"></div>
+              <ShieldCheck className="w-7 h-7 text-emerald-600 absolute" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-black text-slate-900">
+                در حال انتقال به درگاه بانکی...
+              </h3>
+              <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                لطفاً چند لحظه شکیبا باشید، در حال برقراری اتصال امن به درگاه شاپرک (زیبال) هستیم.
+              </p>
+            </div>
+            <div className="text-[11px] text-amber-800 bg-amber-50 px-3.5 py-2.5 rounded-xl font-semibold border border-amber-200">
+              لطفاً صفحه را نبندید و منتظر انتقال بمانید.
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* ------------------------------------------------------------------ */}
       {/* STEP 1: CART ITEMS OR SINGLE PRODUCT VIEW */}

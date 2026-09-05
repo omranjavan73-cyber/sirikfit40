@@ -278,8 +278,6 @@ export const CartModal: React.FC<CartModalProps> = ({
         body: JSON.stringify({ phone: cleanIranianMobile(phoneNumber) })
       }).catch(() => {});
 
-      if (onClearCart) onClearCart();
-
       // 2. Call backend createPayment and redirect
       const callbackUrl = `${window.location.origin}/payment-result?orderId=${orderId}`;
       const paymentRes = await fetch('/api/payment/create', {
@@ -297,16 +295,17 @@ export const CartModal: React.FC<CartModalProps> = ({
       const paymentData = await paymentRes.json();
       const targetUrl = paymentData.paymentUrl || paymentData.redirectUrl || paymentData.url;
       if (paymentRes.ok && paymentData.success && (targetUrl || paymentData.trackId)) {
+        if (onClearCart) onClearCart();
         navigateToPaymentGateway(targetUrl, paymentData.trackId);
         return;
       } else {
-        setErrorMessage(paymentData.error || 'خطا در دریافت لینک درگاه بانکی زیبال.');
+        setErrorMessage(paymentData.error || paymentData.message || 'خطا در دریافت لینک درگاه بانکی زیبال.');
         setIsSubmitting(false);
         return;
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error submitting order:', e);
-      setErrorMessage('خطا در برقراری ارتباط با سرور.');
+      setErrorMessage(e?.message || 'خطا در برقراری ارتباط با سرور.');
     } finally {
       setIsSubmitting(false);
     }
@@ -348,10 +347,31 @@ export const CartModal: React.FC<CartModalProps> = ({
           </button>
         </div>
 
+        {/* Loading Overlay */}
+        {isSubmitting && (
+          <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-sm rounded-[28px] flex flex-col items-center justify-center p-6 text-center space-y-4 animate-fadeIn">
+            <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+              <div className="w-16 h-16 rounded-full border-4 border-emerald-100 border-t-emerald-600 animate-spin"></div>
+              <ShieldCheck className="w-7 h-7 text-emerald-600 absolute" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-black text-slate-900">
+                در حال انتقال به درگاه بانکی...
+              </h3>
+              <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                لطفاً چند لحظه شکیبا باشید، در حال برقراری ارتباط با درگاه شاپرک (زیبال) هستیم.
+              </p>
+            </div>
+            <div className="text-[11px] text-amber-800 bg-amber-50 px-3.5 py-2 rounded-xl font-semibold border border-amber-200">
+              لطفاً صفحه را نبندید و منتظر بمانید...
+            </div>
+          </div>
+        )}
+
         {/* ------------------------------------------------------------------ */}
         {/* 1. CLEAN EMPTY CART STATE */}
         {/* ------------------------------------------------------------------ */}
-        {safeCartItems.length === 0 ? (
+        {(!isSubmitting && safeCartItems.length === 0) ? (
           <div className="py-8 px-4 text-center space-y-4">
             <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400 shadow-inner">
               <ShoppingCart className="w-10 h-10 text-slate-400" />

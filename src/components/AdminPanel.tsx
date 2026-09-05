@@ -668,16 +668,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const DEFAULT_HOME_BANNERS: HomeBanner[] = [
     {
       id: 'b1',
-      imageUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=1200&auto=format&fit=crop',
-      linkUrl: 'https://drnutrition.com',
-      title: 'تخفیف ویژه مکمل‌های ورزشی و پروتئین',
+      imageUrl: 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?q=80&w=1200&auto=format&fit=crop',
+      linkUrl: 'https://lifepharmacy.com',
+      title: 'ارسال مستقیم و تحویل فوری از دبی',
       enabled: true
     },
     {
       id: 'b2',
-      imageUrl: 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?q=80&w=1200&auto=format&fit=crop',
-      linkUrl: 'https://lifepharmacy.com',
-      title: 'ارسال مستقیم و تحویل فوری از دبی',
+      imageUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=1200&auto=format&fit=crop',
+      linkUrl: 'https://drnutrition.com',
+      title: 'تخفیف ویژه مکمل‌های ورزشی و پروتئین',
       enabled: true
     }
   ];

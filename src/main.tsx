@@ -22,12 +22,16 @@ if ('caches' in window) {
   });
 }
 
-// Global App Build Version synchronization
-const CURRENT_VERSION = "2026.09.04-v3";
+// Global App Build Version synchronization (forces client cache invalidation on new release)
+const CURRENT_VERSION = "2026.09.05-v5-sync";
 const savedVersion = localStorage.getItem("sirikfit_app_version");
 if (savedVersion !== CURRENT_VERSION) {
+  const authUser = localStorage.getItem("sirikfit_auth_user") || localStorage.getItem("sirikfit_user");
   localStorage.clear();
   sessionStorage.clear();
+  if (authUser) {
+    try { localStorage.setItem("sirikfit_auth_user", authUser); } catch (_) {}
+  }
   localStorage.setItem("sirikfit_app_version", CURRENT_VERSION);
   if (savedVersion) {
     window.location.reload();

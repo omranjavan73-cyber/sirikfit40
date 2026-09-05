@@ -37,39 +37,66 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ cms }) => {
     }
   }, [cms?.homeBanners]);
 
-  // Real-time listener on settings/home
+  // Real-time listener on settings/home and homeSettingsUpdated event
   useEffect(() => {
-    if (!db) return;
+    const handleHomeSettingsEvent = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const b = customEvent.detail?.banners || customEvent.detail?.homeBanners;
+      if (Array.isArray(b) && b.length > 0) {
+        setBanners(b);
+        setIsLoading(false);
+      }
+    };
+    window.addEventListener('homeSettingsUpdated', handleHomeSettingsEvent);
 
     if (banners.length === 0) {
-      getHomeSettings().then((homeData) => {
-        const b = homeData.banners || homeData.homeBanners;
-        if (Array.isArray(b) && b.length > 0) {
-          setBanners(b);
-        }
-        setIsLoading(false);
-      }).catch(() => {
-        setIsLoading(false);
-      });
+      // Try Cloud Function API first to bypass Iran ISP blocks on Firestore
+      fetch('/api/home-settings')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.success && data.homeSettings) {
+            const b = data.homeSettings.banners || data.homeSettings.homeBanners;
+            if (Array.isArray(b) && b.length > 0) {
+              setBanners(b);
+              setIsLoading(false);
+              return;
+            }
+          }
+          throw new Error('No banners from API');
+        })
+        .catch(() => {
+          getHomeSettings().then((homeData) => {
+            const b = homeData.banners || homeData.homeBanners;
+            if (Array.isArray(b) && b.length > 0) {
+              setBanners(b);
+            }
+            setIsLoading(false);
+          }).catch(() => {
+            setIsLoading(false);
+          });
+        });
     }
 
     let unsub: (() => void) | null = null;
-    try {
-      unsub = onSnapshot(doc(db, 'settings', 'home'), (snap) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          const b = data.banners || data.homeBanners;
-          if (Array.isArray(b) && b.length > 0) {
-            setBanners(b);
-            setIsLoading(false);
+    if (db) {
+      try {
+        unsub = onSnapshot(doc(db, 'settings', 'home'), (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            const b = data.banners || data.homeBanners;
+            if (Array.isArray(b) && b.length > 0) {
+              setBanners(b);
+              setIsLoading(false);
+            }
           }
-        }
-      }, (err) => {
-        if (!isFirestoreGrpcNoise(err)) console.warn('HeroBanner settings/home listener notice:', err);
-      });
-    } catch (_e) {}
+        }, (err) => {
+          if (!isFirestoreGrpcNoise(err)) console.warn('HeroBanner settings/home listener notice:', err);
+        });
+      } catch (_e) {}
+    }
 
     return () => {
+      window.removeEventListener('homeSettingsUpdated', handleHomeSettingsEvent);
       if (unsub) unsub();
     };
   }, []);
@@ -149,7 +176,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ cms }) => {
           alt={currentBanner.title || 'Banner'}
           className="w-full h-full object-cover object-center block transition-all duration-500 ease-in-out"
           onError={(e) => {
-            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=1200&auto=format&fit=crop';
+            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?q=80&w=1200&auto=format&fit=crop';
           }}
         />
       </a>

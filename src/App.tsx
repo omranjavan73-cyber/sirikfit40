@@ -1234,13 +1234,18 @@ function MainApp() {
                 );
               }
 
-              if (!popularProducts || popularProducts.length === 0) {
+              // Resilient popular products retrieval:
+              // Prefer popularProducts from context. If empty, gracefully fall back to contextDeals so the section never disappears!
+              const candidateProducts = (popularProducts && popularProducts.length > 0)
+                ? popularProducts
+                : ((contextDeals && contextDeals.length > 0) ? contextDeals.slice(0, 15) : []);
+
+              if (!candidateProducts || candidateProducts.length === 0) {
                 return null;
               }
 
-              // Transform context's canonical sorted popularProducts to PopularProductItem format
-              // The items are ALREADY sorted by the single source of truth in ProductContext
-              const carouselItems: PopularProductItem[] = popularProducts
+              // Transform canonical sorted products to PopularProductItem format
+              const carouselItems: PopularProductItem[] = candidateProducts
                 .filter(p => {
                   if (!p || !p.id) return false;
                   const t = (p.titleFa || p.title || p.name || '').trim();

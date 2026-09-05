@@ -805,7 +805,102 @@ app.get('/api/settings', async (req, res) => {
 // GET /api/cms
 app.get('/api/cms', async (req, res) => {
   const store = await getStoreData();
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
   res.json(store.cms);
+});
+
+// GET /api/home-settings: Returns real-time settings/home document (hero banners, brand logo)
+app.get(['/api/home-settings', '/home-settings'], async (_req, res) => {
+  try {
+    let homeData: any = null;
+    if (db) {
+      try {
+        const snap = await getDoc(doc(db, 'settings', 'home'));
+        if (snap.exists()) {
+          homeData = snap.data();
+        }
+      } catch (_fsErr) {}
+    }
+    if (!homeData) {
+      const store = await getStoreData();
+      homeData = store?.cms?.homeContent || {};
+      if (store?.cms?.homeBanners) {
+        homeData.banners = store.cms.homeBanners;
+        homeData.homeBanners = store.cms.homeBanners;
+      }
+    }
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    res.json(homeData);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Error fetching home settings' });
+  }
+});
+
+// GET /api/bootstrap: Unified sanction-proof payload for frontend hydration (works seamlessly in Iran without VPN)
+app.get(['/api/bootstrap', '/bootstrap'], async (_req, res) => {
+  try {
+    const store = await getStoreData();
+    let homeSettings: any = null;
+    let deals: any[] = [];
+    let warehouse: any[] = [];
+    let products: any[] = [];
+
+    if (db) {
+      try {
+        const [homeSnap, dealsSnap, whSnap, prodSnap] = await Promise.all([
+          getDoc(doc(db, 'settings', 'home')).catch(() => null),
+          getDocs(collection(db, 'special_deals')).catch(() => null),
+          getDocs(collection(db, 'iran_warehouse')).catch(() => null),
+          getDocs(collection(db, 'products')).catch(() => null)
+        ]);
+
+        if (homeSnap && homeSnap.exists()) {
+          homeSettings = homeSnap.data();
+        }
+        if (dealsSnap && !dealsSnap.empty) {
+          deals = dealsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+        if (whSnap && !whSnap.empty) {
+          warehouse = whSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+        if (prodSnap && !prodSnap.empty) {
+          products = prodSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+      } catch (_fsErr) {
+        console.warn('Bootstrap firestore read note:', _fsErr);
+      }
+    }
+
+    if (!homeSettings) {
+      homeSettings = store?.cms?.homeContent || {};
+      if (store?.cms?.homeBanners && Array.isArray(store.cms.homeBanners) && store.cms.homeBanners.length > 0) {
+        homeSettings.banners = store.cms.homeBanners;
+        homeSettings.homeBanners = store.cms.homeBanners;
+      }
+    }
+
+    if (deals.length === 0 && Array.isArray(store?.cms?.deals)) {
+      deals = store.cms.deals;
+    }
+    if (warehouse.length === 0 && Array.isArray(store?.cms?.localInventory)) {
+      warehouse = store.cms.localInventory;
+    }
+
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    res.json({
+      success: true,
+      cms: store.cms,
+      settings: store.settings,
+      homeSettings,
+      deals,
+      warehouse,
+      products,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    console.error('Bootstrap API error:', err);
+    res.status(500).json({ success: false, error: err?.message || 'Error generating bootstrap payload' });
+  }
 });
 
 // POST /api/cms

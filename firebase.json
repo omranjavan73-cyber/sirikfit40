@@ -18,7 +18,7 @@
     ],
     "headers": [
       {
-        "source": "**/*.@(html|json)",
+        "source": "**",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0" },
           { "key": "Pragma", "value": "no-cache" },
@@ -28,9 +28,11 @@
         ]
       },
       {
-        "source": "@(sw.js|service-worker.js|registerSW.js)",
+        "source": "@(sw.js|service-worker.js|registerSW.js|manifest.json)",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate, max-age=0" }
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0" },
+          { "key": "Pragma", "value": "no-cache" },
+          { "key": "Expires", "value": "0" }
         ]
       },
       {

@@ -157,19 +157,73 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       } catch (_) {}
       setIsLoading(false);
     } catch (err) {
-      console.warn('ProductContext refetch warning:', err);
+      console.warn('ProductContext refetch warning, trying bootstrap fallback:', err);
+      try {
+        const res = await fetch('/api/bootstrap');
+        const data = await res.json();
+        if (data && data.success) {
+          if (Array.isArray(data.deals) && data.deals.length > 0) setDeals(sortNewestFirst(data.deals));
+          if (Array.isArray(data.warehouse) && data.warehouse.length > 0) setWarehouseItems(sortNewestFirst(data.warehouse));
+          if (Array.isArray(data.products) && data.products.length > 0) setGeneralProducts(sortNewestFirst(data.products));
+          setIsLoading(false);
+        }
+      } catch (fallbackErr) {
+        console.warn('Bootstrap fallback error:', fallbackErr);
+      }
     }
   };
 
   useEffect(() => {
     cleanupGhostPopularProducts().catch(() => {});
+
+    // 1. Eagerly fetch bootstrap data from Cloud Function to bypass any direct Firestore ISP/sanction blocking in Iran
+    fetch('/api/bootstrap')
+      .then((res) => {
+        if (!res.ok) throw new Error(`Bootstrap HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (data && data.success) {
+          if (Array.isArray(data.deals) && data.deals.length > 0) {
+            const sorted = sortNewestFirst(data.deals);
+            setDeals(sorted);
+            try { localStorage.setItem('sirikfit_special_deals', JSON.stringify(sorted)); } catch (_) {}
+          }
+          if (Array.isArray(data.warehouse) && data.warehouse.length > 0) {
+            const sorted = sortNewestFirst(data.warehouse);
+            setWarehouseItems(sorted);
+            try { localStorage.setItem('sirikfit_iran_warehouse', JSON.stringify(sorted)); } catch (_) {}
+          }
+          if (Array.isArray(data.products) && data.products.length > 0) {
+            const sorted = sortNewestFirst(data.products);
+            setGeneralProducts(sorted);
+            try { localStorage.setItem('sirikfit_products', JSON.stringify(sorted)); } catch (_) {}
+          }
+          if (Array.isArray(data.cms?.popularSamplesOrder) && data.cms.popularSamplesOrder.length > 0) {
+            setPopularSamplesOrder(data.cms.popularSamplesOrder);
+          }
+          if (data.homeSettings) {
+            try { localStorage.setItem('sirikfit_home_settings', JSON.stringify(data.homeSettings)); } catch (_) {}
+            window.dispatchEvent(new CustomEvent('homeSettingsUpdated', { detail: data.homeSettings }));
+          }
+          if (data.cms) {
+            try { localStorage.setItem('sirikfit_cms_config', JSON.stringify(data.cms)); } catch (_) {}
+            window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: data.cms }));
+          }
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.warn('Eager bootstrap fetch warning:', err);
+      });
+
     let loadedCount = 0;
     const checkDone = () => {
       loadedCount++;
       if (loadedCount >= 2) setIsLoading(false);
     };
 
-        const unsubDeals = onSnapshot(
+    const unsubDeals = onSnapshot(
       collection(db, 'special_deals'),
       (snap) => {
         const loaded: FeaturedDeal[] = [];

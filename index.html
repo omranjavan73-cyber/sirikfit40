@@ -7,6 +7,23 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
+    <!-- Immediate ServiceWorker and CacheStorage Purge to eliminate stale versions -->
+    <script>
+      (function() {
+        try {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+              for (var i = 0; i < regs.length; i++) { regs[i].unregister(); }
+            }).catch(function() {});
+          }
+          if ('caches' in window) {
+            caches.keys().then(function(keys) {
+              for (var i = 0; i < keys.length; i++) { caches.delete(keys[i]); }
+            }).catch(function() {});
+          }
+        } catch (_e) {}
+      })();
+    </script>
     <meta name="theme-color" content="#0f172a" />
     <title>سیریک فیت | خرید مستقیم مکمل اورجینال از دبی</title>
     <meta name="description" content="فروشگاه آنلاین سیریک فیت؛ خرید مستقیم و بدون واسطه انواع مکمل‌های ورزشی، ویتامین و پروتئین اورجینال از امارات با ضمانت اصالت و تحویل سریع در سراسر ایران." />

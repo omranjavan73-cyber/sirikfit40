@@ -249,20 +249,20 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* 2. Compact Crisp White 2-Line AED Rate Badge (Physically to the RIGHT of Cart Button in LTR container) */}
+            {/* 2. Compact Sleek Black 2-Line AED Rate Badge (Consistent Dark Theme across all regions) */}
             <div
               onClick={() => {
                 if (onRefreshSettings) onRefreshSettings();
                 refreshSettings();
               }}
-              className="flex flex-col items-center justify-center bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 shadow-xs px-2.5 py-1 rounded-xl shrink-0 cursor-pointer select-none hover:border-slate-400 dark:hover:border-zinc-500 transition active:scale-95"
+              className="flex flex-col items-center justify-center bg-[#111111] hover:bg-black text-white border border-neutral-800 shadow-xs px-2.5 py-1 rounded-xl shrink-0 cursor-pointer select-none transition active:scale-95"
               title="به‌روزرسانی نرخ درهم"
             >
-              <div className="flex items-center gap-1 text-[9px] text-slate-500 dark:text-zinc-400 font-semibold leading-tight">
+              <div className="flex items-center gap-1 text-[9px] text-slate-400 font-semibold leading-tight">
                 <RotateCcw className={`w-2.5 h-2.5 ${isLoadingRate ? 'animate-spin text-amber-500' : 'text-slate-400'}`}/>
-                <span>نرخ درهم</span>
+                <span className="text-slate-300">نرخ درهم</span>
               </div>
-              <div className="text-[11px] font-black text-slate-900 dark:text-white leading-tight mt-0.5">
+              <div className="text-[11px] font-black text-white leading-tight mt-0.5 font-mono dir-rtl">
                 {dirhamRate ? Number(dirhamRate).toLocaleString('fa-IR') : '۵۵,۷۰۰'} تومان
               </div>
             </div>
